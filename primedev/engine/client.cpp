@@ -21,6 +21,7 @@ void CClient::Disconnect(const Reputation_t nRepLevel, const char* reason, ...)
 
 			va_end(vArgs);
 		}
+		CClient__Disconnect(this, nRepLevel, szBuf);
 	}
 }
 
