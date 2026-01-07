@@ -197,16 +197,9 @@ void PakLoadManager::OnPakUnloading(PakHandle handle)
 	}
 	else
 	{
-		// note: aliasing is handled the old way, long term todo: move it over to the PakLoadManager
-		// handle the potential unloading of an aliased vanilla rpak (we aliased it, and we are now unloading the alias, so we should load
-		// the vanilla one again)
-		// for (auto& [path, resultingHandle] : m_vanillaPaks)
-		//{
-		//	if (resultingHandle != handle)
-		//		continue;
-
-		//	// load vanilla rpak
-		//}
+		g_pPakLoadManager->UnloadAllModPaks();
+		g_pPakLoadManager->CleanUpUnloadedPaks();
+		g_pPakLoadManager->SetForceReloadOnMapLoad(true);
 	}
 
 	// set handle of the mod pak (if any) that has this handle for proper tracking
