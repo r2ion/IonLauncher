@@ -81,6 +81,9 @@ void SetNewModSearchPaths(Mod* mod)
 
 bool TryReplaceFile(const char* pPath, bool shouldCompile)
 {
+	if (pPath == nullptr || (reinterpret_cast<uintptr_t>(pPath) & 0xFFFF000000000000ull) == 0xFFFF000000000000ull)
+		return false;
+
 	// idk how efficient the lexically normal check is
 	// can't just set all /s in path to \, since some paths aren't in writeable memory
 	std::string normalisedPath = g_pModManager->NormaliseModFilePath(fs::path(pPath));
