@@ -195,12 +195,6 @@ void PakLoadManager::OnPakUnloading(PakHandle handle)
 
 		// no need to handle aliasing here, if vanilla wants it gone, it's gone
 	}
-	else
-	{
-		g_pPakLoadManager->UnloadAllModPaks();
-		g_pPakLoadManager->CleanUpUnloadedPaks();
-		g_pPakLoadManager->SetForceReloadOnMapLoad(true);
-	}
 
 	// set handle of the mod pak (if any) that has this handle for proper tracking
 	for (auto& modPak : m_modPaks)
