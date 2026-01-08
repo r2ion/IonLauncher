@@ -3,6 +3,7 @@
 #include "engine/inetchannel.h"
 #include "shared/signonstate.h"
 #include "engine/net_chan.h"
+#include "engine/datablock_receiver.h"
 
 extern char* g_pLocalPlayerUserID;
 extern char* g_pLocalPlayerOriginToken;
@@ -81,25 +82,9 @@ public:
 	int32_t m_nClientTick; //0x0090
 }; //Size: 0x0094
 
-class ClientDataBlockReceiver
+class ClientDataBlockReceiver : public NetDatablockReceiver
 {
 public:
-	void *m_pClientState; //0x0008
-	uint16_t N00012ADE; //0x0010
-	bool m_bStartedRecv; //0x0012
-	bool m_bCompletedRecv; //0x0013
-	uint8_t pad; //0x0014
-	int16_t m_TransferId; //0x0015
-	int16_t m_nTransferNr; //0x0017
-	bool m_bInitialized; //0x0019
-	int32_t m_nTransferSize; //0x001A
-	int32_t m_nTotalBlocks; //0x001E
-	int32_t m_nBlockAckTick; //0x0022
-	char pad_0026[4]; //0x0026
-	double m_flStartTime; //0x002A
-	void *unk_datablock_thing; //0x0032
-	void *m_pScratchBuffer; //0x003A
-
 	virtual ~ClientDataBlockReceiver();
 };
 
