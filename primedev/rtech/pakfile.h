@@ -90,8 +90,6 @@ struct PakLoadedInfo_s
 	PakStreamingInfo_s streamingInfo;
 };
 
-constexpr int guh = sizeof(PakLoadedInfo_s);
-
 struct PakGlobalState_s
 {
 	PakAssetBinding_s assetBindings[PAK_MAX_TRACKED_TYPES];
