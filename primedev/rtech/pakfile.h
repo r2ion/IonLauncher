@@ -101,10 +101,10 @@ struct PakLoadedInfo_s
 
 	char pad_0040[16]; // 0x0040
 
-	void* pakFile; // 0x0050
-
-	char pad_0058[16]; // 0x0058
-
+	// not sure about these
+	FILETIME fileTime; // 0x0050
+	PakGuid_t guid;
+	void* pakFile;
 	PakStreamingInfo_s streamingInfo;
 };
 
@@ -122,9 +122,9 @@ struct PakGlobalState_s
 	int lastAssetTrackerIndex;
 	bool updateSplitScreenAnims;
 
-	int unk[2];
-	int mystery;
-	int unk2;
+	// this is definitely some fucked up array or union, can't figure it out though.
+	void* syncCallbacks;
+	int unkPart;
 
 	// arrays of handles to what?
 	int unkArray1[32]; //0x0018
