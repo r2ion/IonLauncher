@@ -16,6 +16,8 @@
 
 #define MAX_PAK_STREAMING_HANDLES 13
 
+#define PAK_MAX_DISPATCH_LOAD_JOBS 4
+
 // these statuses might not be the same in r2, need to verify
 enum PakStatus_e
 {
@@ -101,11 +103,17 @@ struct PakLoadedInfo_s
 
 	char pad_0040[16]; // 0x0040
 
-	// not sure about these
-	FILETIME fileTime; // 0x0050
-	PakGuid_t guid;
-	void* pakFile;
+  	void *unk_patches_maybe;
+  	PakGuid_t guid;
+  	void *pakFile;
 	PakStreamingInfo_s streamingInfo;
+};
+
+struct JobFifoLock_s
+{
+	int id;
+	int depth;
+	int tls[64];
 };
 
 struct PakGlobalState_s
@@ -119,21 +127,18 @@ struct PakGlobalState_s
 
 	PakLoadedInfo_s loadedPaks[PAK_MAX_LOADED_PAKS];
 
+	void* threadSyncFunc;
+
 	int lastAssetTrackerIndex;
 	bool updateSplitScreenAnims;
 
 	// this is definitely some fucked up array or union, can't figure it out though.
-	void* syncCallbacks;
-	int unkPart;
+	int16_t numAssetLoadJobs;
+	JobFifoLock_s fifoLock;
+	int pakLoadJobId;
 
-	// arrays of handles to what?
-	int unkArray1[32]; //0x0018
-	int unkArray2[32]; //0x0098
-
-	int32_t pakLoadJobId; //0x0118
-
-	int16_t loadedPakCount; //0x011C
-	int16_t requestedPakCount; //0x011E
+	int16_t loadedPakCount;
+	int16_t requestedPakCount;
 
 	int loadedPakHandles[PAK_MAX_LOADED_PAKS]; //0x0120
 
@@ -147,7 +152,8 @@ struct PakGlobalState_s
 	int16_t N0000A1B0; //0x092C
 	int16_t N0000A1BC; //0x092F
 
-	char pad_0930[16]; //0x0930
+	int unusedSlots[PAK_MAX_DISPATCH_LOAD_JOBS]; //0x0930
+
 	int32_t N0000928A; //0x0940
 	int32_t N0000A1C2; //0x0944
 	int32_t N0000928B; //0x0948
@@ -163,5 +169,7 @@ struct PakGlobalState_s
 };
 
 static_assert(sizeof(PakGlobalState_s) == 3760088);
+constexpr int guh = sizeof(PakGlobalState_s);
+constexpr int fish = 3760088;
 
 extern PakGlobalState_s* g_pakGlobalState;
