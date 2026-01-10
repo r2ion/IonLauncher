@@ -43,8 +43,8 @@ typedef uint64_t PakGuid_t;
 struct PakAssetShort_s
 {
 	PakGuid_t m_Guid;
-	uint32_t m_nTrackerIndex;
-	uint32_t unk;
+	uint32_t bindingIndex;
+	uint32_t globalIndex;
 };
 
 struct PakAssetBinding_s
