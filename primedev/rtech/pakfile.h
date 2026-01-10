@@ -14,12 +14,12 @@
 #define PAK_MAX_TRACKED_ASSETS (PAK_MAX_LOADED_ASSETS / 2)
 #define PAK_MAX_TRACKED_ASSETS_MASK (PAK_MAX_TRACKED_ASSETS - 1)
 
-#define MAX_PAK_STREAMING_HANDLES 13
+#define MAX_PAK_STREAMING_HANDLES 12
 
 #define PAK_MAX_DISPATCH_LOAD_JOBS 4
 
 // these are still wrong i think
-enum PakStatus_e
+enum PakStatus_e : int
 {
     PAK_STATUS_FREED             = 0x0,
     PAK_STATUS_LOAD_PENDING      = 0x1,
@@ -37,7 +37,11 @@ enum PakStatus_e
     PAK_STATUS_BUSY              = 0xD,
 };
 
-typedef int PakHandle_t;
+enum class PakHandle_t : int
+{
+	INVALID = -1,
+};
+
 typedef uint64_t PakGuid_t;
 
 struct PakAssetShort_s
@@ -75,10 +79,11 @@ struct PakAssetTracker_s
 
 struct PakLoadedInfo_s
 {
+	// are these even streaming related, might be patch handles?
 	struct PakStreamingInfo_s
 	{
 		// not sure about this, maybe the first handle is something else? it's always -1
-		int handles[MAX_PAK_STREAMING_HANDLES];
+		PakHandle_t handles[MAX_PAK_STREAMING_HANDLES];
 		int fileCount;
 	};
 
@@ -92,7 +97,7 @@ struct PakLoadedInfo_s
 	char pad_0018[8]; // 0x0018
 
 	// TODO: need to reverse these pointers (obviously excluding the allocator smh, pakfile could be interesting)
-	void* allocator; // 0x0020
+	void* allocator; // 0x0020 can we get actual types in some sort of ... "r2 sdk" by the year 20267 please god
 	void* assetGuids; // 0x0028
 	void* slabBuffers; // 0x0030
 	void* guidDescriptors; // 0x0038
@@ -101,10 +106,12 @@ struct PakLoadedInfo_s
 
   	PakGuid_t guid;
   	void *pakFile;
+	PakHandle_t unk_always_invalid;
 	PakStreamingInfo_s streamingInfo;
 	HMODULE hModule;
 };
 
+// i think this is wrong but honestly such a who cares area of the struct in general
 struct JobFifoLock_s
 {
 	int id;
@@ -163,8 +170,9 @@ struct PakGlobalState_s
 	uint8_t* patchNumbers;
 };
 
+PakGlobalState_s* Pak_GetGlobals();
+
 static_assert(sizeof(PakGlobalState_s) == 3760088);
-// constexpr int guh = sizeof(PakGlobalState_s);
-// constexpr int fish = 3760088;
+static_assert(sizeof(PakLoadedInfo_s) == 0xA8);
 
 extern PakGlobalState_s* g_pakGlobalState;
