@@ -173,7 +173,6 @@ struct PakGlobalState_s
 	uint8_t* patchNumbers;
 };
 
-constexpr int size = sizeof(PakGlobalState_s);
-constexpr int guh = 0x395FD0 + 8;
+static_assert(sizeof(PakGlobalState_s) == 3760088);
 
 extern PakGlobalState_s* g_pakGlobalState;
