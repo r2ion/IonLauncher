@@ -16,6 +16,27 @@
 
 #define MAX_PAK_STREAMING_HANDLES 13
 
+// these statuses might not be the same in r2, need to verify
+enum PakStatus_e
+{
+	PAK_STATUS_FREED = 0,
+	PAK_STATUS_LOAD_PENDING = 1,
+	PAK_STATUS_REPAK_RUNNING = 2,
+	PAK_STATUS_REPAK_DONE = 3,
+	PAK_STATUS_LOAD_STARTING = 4,
+	PAK_STATUS_LOAD_PAKHDR = 5,
+	PAK_STATUS_LOAD_PATCH_INIT = 6,
+	PAK_STATUS_LOAD_PATCH_EDIT_STREAM = 7,
+	PAK_STATUS_LOAD_ASSETS = 8,
+	PAK_STATUS_LOADED = 9,
+	PAK_STATUS_UNLOAD_PENDING = 10,
+	PAK_STATUS_FREE_PENDING = 11,
+	PAK_STATUS_CANCELING = 12,
+	PAK_STATUS_ERROR = 13,
+	PAK_STATUS_INVALID_PAKHANDLE = 14,
+	PAK_STATUS_BUSY = 15
+};
+
 typedef int PakHandle_t;
 typedef uint64_t PakGuid_t;
 
@@ -68,7 +89,7 @@ struct PakLoadedInfo_s
 	};
 
 	PakHandle_t handle; // 0x0000
-	int status; // 0x0004
+	PakStatus_e status; // 0x0004
 	int loadJobId; // 0x0008
 	int assetCount; // 0x000C
 
@@ -83,11 +104,20 @@ struct PakLoadedInfo_s
 
 	char pad_0040[16]; // 0x0040
 
-	void* pakFile_probably; // 0x0050
+	void* pakFile; // 0x0050
 
 	char pad_0058[16]; // 0x0058
 
 	PakStreamingInfo_s streamingInfo;
+};
+
+typedef uint32_t JobID_t;
+
+struct JobFifoLock_s
+{
+	int id;
+	int depth;
+	short tls[64];
 };
 
 struct PakGlobalState_s
@@ -100,6 +130,52 @@ struct PakGlobalState_s
 	RFixedArray loadedPakMap;
 
 	PakLoadedInfo_s loadedPaks[PAK_MAX_LOADED_PAKS];
+
+	int lastAssetTrackerIndex;
+	bool updateSplitScreenAnims;
+
+	// these fields are pasted from r5sdk without checking if they exist, size matches up so maybe
+	int16_t numAssetLoadJobs;
+	JobFifoLock_s* fifoLock; // this is 100% wrong
+	JobID_t pakLoadJobId;
+	int16_t loadedPakCount;
+	int16_t requestedPakCount;
+
+	// arrays of handles to what?
+	int unkArray1[32]; //0x0018
+	int unkArray2[32]; //0x0098
+
+	int32_t pakLoadJobId; //0x0118
+
+	int16_t loadedPakCount; //0x011C
+	int16_t requestedPakCount; //0x011E
+
+	int loadedPakHandles[PAK_MAX_LOADED_PAKS]; //0x0120
+
+	// these fields might be related to loading, int16s increment but haven't checked what they actually are
+	int16_t N00009286; //0x0920
+	int16_t N0000A1B5; //0x0923
+
+	int32_t N0000A1AD; //0x0924
+	int32_t N00009287; //0x0928
+
+	int16_t N0000A1B0; //0x092C
+	int16_t N0000A1BC; //0x092F
+
+	char pad_0930[16]; //0x0930
+	int32_t N0000928A; //0x0940
+	int32_t N0000A1C2; //0x0944
+	int32_t N0000928B; //0x0948
+	uint32_t N0000A1C6; //0x094C
+	char pad_0950[64]; //0x0950
+
+	int currentLoadedPaks; // haven't checked exactly what this offset is
+	int numPatchedPaks;
+	const char** patchedPakNames;
+	uint8_t* patchNumbers;
 };
+
+constexpr int size = sizeof(PakGlobalState_s);
+constexpr int guh = 0x395FD0 + 8;
 
 extern PakGlobalState_s* g_pakGlobalState;
