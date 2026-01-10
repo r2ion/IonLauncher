@@ -139,8 +139,6 @@ struct PakGlobalState_s
 	int16_t numAssetLoadJobs;
 	JobFifoLock_s* fifoLock; // this is 100% wrong
 	JobID_t pakLoadJobId;
-	int16_t loadedPakCount;
-	int16_t requestedPakCount;
 
 	// arrays of handles to what?
 	int unkArray1[32]; //0x0018
