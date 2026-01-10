@@ -112,15 +112,6 @@ struct PakLoadedInfo_s
 	PakStreamingInfo_s streamingInfo;
 };
 
-typedef uint32_t JobID_t;
-
-struct JobFifoLock_s
-{
-	int id;
-	int depth;
-	short tls[64];
-};
-
 struct PakGlobalState_s
 {
 	PakAssetBinding_s assetBindings[PAK_MAX_TRACKED_TYPES];
@@ -165,7 +156,9 @@ struct PakGlobalState_s
 	int32_t N0000A1C2; //0x0944
 	int32_t N0000928B; //0x0948
 	uint32_t N0000A1C6; //0x094C
-	char pad_0950[64]; //0x0950
+	__int64 gap;
+	RTL_SRWLOCK lock;
+	char pad_0950[48]; //0x0950
 
 	int currentLoadedPaks; // haven't checked exactly what this offset is
 	int numPatchedPaks;
