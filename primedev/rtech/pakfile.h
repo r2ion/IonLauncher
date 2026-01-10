@@ -18,6 +18,7 @@
 
 #define PAK_MAX_DISPATCH_LOAD_JOBS 4
 
+// these are still wrong i think
 enum PakStatus_e
 {
     PAK_STATUS_FREED             = 0x0,
@@ -58,7 +59,7 @@ struct PakAssetBinding_s
 	uint32_t N00009080;
 	uint32_t N0000908D;
 	uint32_t N00009081;
-	uint32_t N0000908F;
+	uint32_t count;
 
 	RFixedArray trackers;
 	void* page;
@@ -123,7 +124,7 @@ struct PakGlobalState_s
 	PakLoadedInfo_s loadedPaks[PAK_MAX_LOADED_PAKS];
 
 	// b64
-	__int64 hasPendingLoadJob;
+	__int64 loadJobFinished;
 	int lastAssetTrackerIndex;
 	bool updateSplitScreenAnims;
 
