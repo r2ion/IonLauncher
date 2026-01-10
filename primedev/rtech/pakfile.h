@@ -18,25 +18,22 @@
 
 #define PAK_MAX_DISPATCH_LOAD_JOBS 4
 
-// these statuses might not be the same in r2, need to verify
 enum PakStatus_e
 {
-	PAK_STATUS_FREED = 0,
-	PAK_STATUS_LOAD_PENDING = 1,
-	PAK_STATUS_REPAK_RUNNING = 2,
-	PAK_STATUS_REPAK_DONE = 3,
-	PAK_STATUS_LOAD_STARTING = 4,
-	PAK_STATUS_LOAD_PAKHDR = 5,
-	PAK_STATUS_LOAD_PATCH_INIT = 6,
-	PAK_STATUS_LOAD_PATCH_EDIT_STREAM = 7,
-	PAK_STATUS_LOAD_ASSETS = 8,
-	PAK_STATUS_LOADED = 9,
-	PAK_STATUS_UNLOAD_PENDING = 10,
-	PAK_STATUS_FREE_PENDING = 11,
-	PAK_STATUS_CANCELING = 12,
-	PAK_STATUS_ERROR = 13,
-	PAK_STATUS_INVALID_PAKHANDLE = 14,
-	PAK_STATUS_BUSY = 15
+    PAK_STATUS_FREED             = 0x0,
+    PAK_STATUS_LOAD_PENDING      = 0x1,
+    PAK_STATUS_REPAK_RUNNING     = 0x2,
+    PAK_STATUS_REPAK_DONE        = 0x3,
+    PAK_STATUS_LOAD_STARTING     = 0x4,
+    PAK_STATUS_LOAD_PATCH_INIT   = 0x5,
+    PAK_STATUS_LOAD_ASSETS       = 0x6,
+    PAK_STATUS_LOADED            = 0x7,
+    PAK_STATUS_UNLOAD_PENDING    = 0x8,
+    PAK_STATUS_FREE_PENDING      = 0x9,
+    PAK_STATUS_CANCELING         = 0xA,
+    PAK_STATUS_ERROR             = 0xB,
+    PAK_STATUS_INVALID_PAKHANDLE = 0xC,
+    PAK_STATUS_BUSY              = 0xD,
 };
 
 typedef int PakHandle_t;
@@ -82,8 +79,6 @@ struct PakLoadedInfo_s
 		// not sure about this, maybe the first handle is something else? it's always -1
 		int handles[MAX_PAK_STREAMING_HANDLES];
 		int fileCount;
-		// just a guess, not actually sure if this exists
-		bool disabled;
 	};
 
 	PakHandle_t handle; // 0x0000
@@ -101,12 +96,12 @@ struct PakLoadedInfo_s
 	void* slabBuffers; // 0x0030
 	void* guidDescriptors; // 0x0038
 
-	char pad_0040[16]; // 0x0040
+	RFixedArray trackers;
 
-  	void *unk_patches_maybe;
   	PakGuid_t guid;
   	void *pakFile;
 	PakStreamingInfo_s streamingInfo;
+	HMODULE hModule;
 };
 
 struct JobFifoLock_s
@@ -127,12 +122,11 @@ struct PakGlobalState_s
 
 	PakLoadedInfo_s loadedPaks[PAK_MAX_LOADED_PAKS];
 
-	void* threadSyncFunc;
-
+	// b64
+	__int64 hasPendingLoadJob;
 	int lastAssetTrackerIndex;
 	bool updateSplitScreenAnims;
 
-	// this is definitely some fucked up array or union, can't figure it out though.
 	int16_t numAssetLoadJobs;
 	JobFifoLock_s fifoLock;
 	int pakLoadJobId;
@@ -169,7 +163,7 @@ struct PakGlobalState_s
 };
 
 static_assert(sizeof(PakGlobalState_s) == 3760088);
-constexpr int guh = sizeof(PakGlobalState_s);
-constexpr int fish = 3760088;
+// constexpr int guh = sizeof(PakGlobalState_s);
+// constexpr int fish = 3760088;
 
 extern PakGlobalState_s* g_pakGlobalState;
