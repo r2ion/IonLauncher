@@ -81,7 +81,7 @@ struct PakLoadedInfo_s
 {
 	struct PakStreamingInfo_s
 	{
-		// not sure about this, maybe the first one is something else?
+		// not sure about this, maybe the first handle is something else, it's always -1?
 		int handles[MAX_PAK_STREAMING_HANDLES];
 		int fileCount;
 		// just a guess, not actually sure if this exists
