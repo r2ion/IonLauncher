@@ -135,10 +135,9 @@ struct PakGlobalState_s
 	int lastAssetTrackerIndex;
 	bool updateSplitScreenAnims;
 
-	// these fields are pasted from r5sdk without checking if they exist, size matches up so maybe
-	int16_t numAssetLoadJobs;
-	JobFifoLock_s* fifoLock; // this is 100% wrong
-	JobID_t pakLoadJobId;
+	int unk[2];
+	int mystery;
+	int unk2;
 
 	// arrays of handles to what?
 	int unkArray1[32]; //0x0018
