@@ -97,6 +97,7 @@ struct PakLoadedInfo_s
 
 	char pad_0018[8]; // 0x0018
 
+	// TODO: need to reverse these pointers (obviously excluding the allocator smh, pakfile could be interesting)
 	void* allocator; // 0x0020
 	void* assetGuids; // 0x0028
 	void* slabBuffers; // 0x0030
