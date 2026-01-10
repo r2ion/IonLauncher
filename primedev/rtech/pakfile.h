@@ -60,12 +60,8 @@ struct PakAssetBinding_s
 	uint32_t N0000908D;
 	uint32_t N00009081;
 	uint32_t N0000908F;
-	uint32_t N00009082;
-	uint32_t N00009098;
-	uint32_t N00009090;
-	uint32_t N0000909A;
 
-	void* allocator_duplicate;
+	RFixedArray trackers;
 	void* page;
 };
 
