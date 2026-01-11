@@ -16,6 +16,8 @@
 
 #define MAX_PAK_STREAMING_HANDLES 12
 
+#define PAK_SLAB_BUFFER_TYPES 4
+
 #define PAK_MAX_DISPATCH_LOAD_JOBS 4
 
 // these are still wrong i think
@@ -37,9 +39,9 @@ enum PakStatus_e : int
     PAK_STATUS_BUSY              = 0xD,
 };
 
-enum class PakHandle_t : int
+enum PakHandle_t : int
 {
-	INVALID = -1,
+	PAK_INVALID_HANDLE = -1,
 };
 
 typedef uint64_t PakGuid_t;
@@ -99,7 +101,7 @@ struct PakLoadedInfo_s
 	// TODO: need to reverse these pointers (obviously excluding the allocator smh, pakfile could be interesting)
 	void* allocator; // 0x0020 can we get actual types in some sort of ... "r2 sdk" by the year 20267 please god
 	void* assetGuids; // 0x0028
-	void* slabBuffers; // 0x0030
+	void** slabBuffers;
 	void* guidDescriptors; // 0x0038
 
 	RFixedArray trackers;
