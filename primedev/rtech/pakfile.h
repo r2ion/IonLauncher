@@ -89,29 +89,24 @@ struct PakLoadedInfo_s
 		int fileCount;
 	};
 
-	PakHandle_t handle; // 0x0000
-	PakStatus_e status; // 0x0004
-	int loadJobId; // 0x0008
-	int assetCount; // 0x000C
-
-	char* filename; // 0x0010
-
-	char pad_0018[8]; // 0x0018
-
-	// TODO: need to reverse these pointers (obviously excluding the allocator smh, pakfile could be interesting)
-	void* allocator; // 0x0020 can we get actual types in some sort of ... "r2 sdk" by the year 20267 please god
-	void* assetGuids; // 0x0028
-	void** slabBuffers;
-	void* guidDescriptors; // 0x0038
-
-	RFixedArray trackers;
-
-  	PakGuid_t guid;
+	PakHandle_t handle;
+	PakStatus_e status;
+	int loadJobId;
+	int assetCount;
+	char* filename;
+	char pad_0018[8];
+	void* allocator;
+	void* assetGuids;
+   	void* slabBuffers[PAK_SLAB_BUFFER_TYPES];
+	void* guidDescriptors;
+	FILETIME fileTime;
   	void *pakFile;
-	PakHandle_t unk_always_invalid;
+	PakHandle_t unk_handle;
 	PakStreamingInfo_s streamingInfo;
 	HMODULE hModule;
 };
+
+constexpr int aa = sizeof(PakLoadedInfo_s);
 
 // i think this is wrong but honestly such a who cares area of the struct in general
 struct JobFifoLock_s
