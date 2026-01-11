@@ -120,6 +120,7 @@ add_library(
     "logging/loghooks.h"
     "logging/sourceconsole.cpp"
     "logging/sourceconsole.h"
+    "materialsystem/nscustomdxbuffer.cpp"
     "materialsystem/matsyscrashfix.cpp"
     "masterserver/masterserver.cpp"
     "masterserver/masterserver.h"
