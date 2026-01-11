@@ -148,7 +148,7 @@ add_library(
     "plugins/pluginmanager.cpp"
     "rtech/pakfile.cpp"
     "rtech/pakfile.h"
-	"rtech/rstdlib.h"
+    "rtech/rstdlib.h"
     "scripts/client/clientchathooks.cpp"
     "scripts/client/cursorposition.cpp"
     "scripts/client/scriptbrowserhooks.cpp"
