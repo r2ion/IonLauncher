@@ -3,7 +3,7 @@
 #include "dedicated/dedicated.h"
 #include "core/tier0.h"
 #include "util/utils.h"
-#include <rtech/pakfile.h>
+#include "rtech/pakfile.h"
 
 #pragma pack(push, 1)
 struct PakLoadFuncs
@@ -461,7 +461,10 @@ void*, __fastcall, (PakHandle nPakHandle, void* pCallback))
 // clang-format on
 {
 	g_pPakLoadManager->OnPakUnloading(nPakHandle);
-	auto pakInfo = &Pak_GetGlobals()->loadedPaks[nPakHandle & PAK_MAX_LOADED_PAKS_MASK];
+	PakGlobalState_s* pakGlobals = Pak_GetGlobals();
+	if (!pakGlobals)
+		return UnloadPak(nPakHandle, pCallback);
+	auto pakInfo = &pakGlobals->loadedPaks[nPakHandle & PAK_MAX_LOADED_PAKS_MASK];
 	NS::log::rpak->info("UnloadPak {},Handle {},Status: {}", pakInfo->filename, pakInfo->handle, pakInfo->status);
 	return UnloadPak(nPakHandle, pCallback);
 }

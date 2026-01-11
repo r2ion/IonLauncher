@@ -33,27 +33,24 @@ Pak_Free_t Pak_Free = nullptr;
 
 HOOK(v_Pak_Free, o_Pak_Free, PakHandle_t*, __fastcall, (PakHandle_t handle))
 {
-	PakGlobalState_s* pakGlobals = Pak_GetGlobals();
-
-	if (!pakGlobals)
-	    return o_Pak_Free(handle);
+    PakGlobalState_s* pakGlobals = Pak_GetGlobals();
+    if (!pakGlobals)
+        return o_Pak_Free(handle);
 
     PakLoadedInfo_s* pak = &pakGlobals->loadedPaks[handle & PAK_MAX_LOADED_PAKS_MASK];
 
-    void** slabBuffers = pak->slabBuffers;
-    if (slabBuffers)
+    // The engine frees four QWORDs starting at &slabBuffers; sanitize those inline slots.
+    void** slabSlots = reinterpret_cast<void**>(&pak->slabBuffers);
+    for (int i = 0; i < PAK_SLAB_BUFFER_TYPES; ++i)
     {
-        for (int i = 0; i < PAK_SLAB_BUFFER_TYPES; i++)
-        {
-            if (IsBadReadPtr2(slabBuffers[i]) || slabBuffers[i] == nullptr)
-                slabBuffers[i] = malloc(1);
-        }
+        if (!slabSlots[i] || IsBadReadPtr2(slabSlots[i]))
+            slabSlots[i] = nullptr;
     }
 
-	return o_Pak_Free(handle);
+    return o_Pak_Free(handle);
 }
 
-FORCEINLINE PakGlobalState_s* Pak_GetGlobals()
+PakGlobalState_s* Pak_GetGlobals()
 {
 	if(g_pakGlobalState)
 		return g_pakGlobalState;
