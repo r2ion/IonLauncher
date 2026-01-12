@@ -148,7 +148,7 @@ add_library(
     "rtech/pakfile.h"
     "rtech/pakstate.cpp"
     "rtech/pakstate.h"
-	"rtech/rpakfilesystem.cpp"
+    "rtech/rpakfilesystem.cpp"
     "rtech/rpakfilesystem.h"
     "rtech/rstdlib.h"
     "scripts/client/clientchathooks.cpp"
