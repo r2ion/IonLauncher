@@ -61,6 +61,51 @@ static __int64 (**o_pCModelLoader_UnreferenceAllModels)(/*CModelLoader*/ void* a
 static char* (*o_pLoadlevelLoadscreen)(const char* levelName) = nullptr;
 static unsigned int (*o_pGetPakPatchNumber)(const char* pPakPath) = nullptr;
 
+
+// Detect if this pakfile is bad based on segment and page sizes
+bool IsBadPak(PakHandle handle)
+{
+	PakGlobalState_s* pakGlobals = Pak_GetGlobals();
+	if (handle == PakHandle::INVALID)
+		return true;
+	PakLoadedInfo_s* pak = &pakGlobals->loadedPaks[handle & PAK_MAX_LOADED_PAKS_MASK];
+	if (!pak)
+	{
+		NS::log::rpak->info("IsBadPak: Failed to get pak from handle: {}",handle);
+		return true;
+	}
+	std::map<int, size_t> segmentSizes;
+	auto pakFile = pak->pakFile;
+	if (!pakFile)
+	{
+		//NS::log::rpak->info("IsBadPak: Failed to get pakFile from pak {} h: {} s: {}",pak->filename,pak->handle,pak->status);
+		return false;
+	}
+	auto header = pakFile->header;
+	spdlog::info("numPages {}", header.pageCount);
+	auto headerFields = pakFile->headerFields;
+	//for (size_t i = 0; i < header.pageCount; ++i)
+	{
+		/*auto pageHdr = headerFields.pageInfo[i];
+		segmentSizes[i] += pageHdr.dataSize;*/
+	}
+
+	//for (size_t segmentIdx = 0; segmentIdx < header.virtualSegmentCount; ++segmentIdx)
+	//{
+	//	auto segmentHdr = headerFields.virtualSegments[segmentIdx];
+
+	//	// Detection only works for segments with an alignment of > 1.
+	//	// Most likely you'll have at least one segment in the pakfile that isn't an alignment of 1, so this isn't too prohibitive
+	//	if (segmentHdr.align == 1)
+	//		continue;
+
+	//	if (segmentHdr.size != segmentSizes.at(segmentIdx))
+	//		return false;
+	//}
+
+	return true;
+}
+
 // Marks all mod Paks to be unloaded on next map load.
 // Also cleans up any mod Paks that are already unloaded.
 void PakLoadManager::UnloadAllModPaks()
@@ -116,6 +161,12 @@ void PakLoadManager::UnloadMarkedPaks()
 	{
 		if (modPak.m_handle == PakHandle::INVALID || !modPak.m_markedForDelete)
 			continue;
+
+		if (IsBadPak(modPak.m_handle))
+		{
+			NS::log::rpak->info("Bad pak found: {}", modPak.m_handle);
+			continue;
+		}
 
 		g_pakLoadApi->UnloadPak(modPak.m_handle, *o_pCleanMaterialSystemStuff);
 		modPak.m_handle = PakHandle::INVALID;
