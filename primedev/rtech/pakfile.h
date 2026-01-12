@@ -30,7 +30,7 @@ struct struct_v1
 	int64_t file_size;
 };
 
-struct __declspec(align(8)) rpak_decomp_state
+struct __declspec(align(8)) PakDecompState
 {
 	uint8_t* input_buf;
 	uint64_t out;
@@ -53,45 +53,45 @@ struct __declspec(align(8)) rpak_decomp_state
 	uint64_t stream_decompressed_size;
 };
 
-struct RpakPatchCompressPair
+struct PakPatchCompressPair
 {
 	uint64_t compressedSize;
 	uint64_t decompressedSize;
 };
 
-struct RpakVirtualSegment
+struct PakVirtualSegment
 {
 	uint32_t flags;
 	uint32_t align;
 	uint64_t size;
 };
 
-struct RpakPageInfo
+struct PakPageInfo
 {
 	uint32_t segIdx;
 	uint32_t align;
 	uint32_t dataSize;
 };
 
-struct RpakDescriptor
+struct PakDescriptor
 {
 	uint32_t index;
 	uint32_t offset;
 };
 
-struct RpakPtr
+struct PakPtr
 {
 	uint32_t index;
 	uint32_t offset;
 };
 
 /* 89 */
-struct RpakAssetEntry
+struct PakAssetEntry
 {
 	uint64_t nameHash;
 	uint64_t padding;
-	RpakPtr subHeader;
-	RpakPtr rawData;
+	PakPtr subHeader;
+	PakPtr rawData;
 	int64_t starpakOffset;
 	uint16_t highestPageNum;
 	int16_t unknown2;
@@ -106,15 +106,15 @@ struct RpakAssetEntry
 };
 
 
-struct RpakFilePointer
+struct PakFilePointer
 {
-	RpakPatchCompressPair* patchCompressPairs;
+	PakPatchCompressPair* patchCompressPairs;
 	__int16* patchFileIndexes;
 	const char* starpakPath;
-	RpakVirtualSegment* virtualSegments;
-	RpakPageInfo* pageInfo;
-	RpakDescriptor* descriptors;
-	RpakAssetEntry* assetEntrys;
+	PakVirtualSegment* virtualSegments;
+	PakPageInfo* pageInfo;
+	PakDescriptor* descriptors;
+	PakAssetEntry* assetEntrys;
 	uint64_t* guidDescriptors;
 	uint64_t fileRelations;
 	int* externalAssetOffsets;
@@ -122,7 +122,7 @@ struct RpakFilePointer
 	uint64_t pages;
 	uint64_t patchHeader;
 };
-struct RpakHeader
+struct PakHeader
 {
 	char magic[4];
 	uint16_t version;
@@ -148,6 +148,8 @@ struct RpakHeader
 
 struct PakFile
 {
+	bool IsValid();
+
 	int dword_0;
 	int assetsRead;
 	int readPagesMaybe;
@@ -160,7 +162,7 @@ struct PakFile
 	BYTE gap_1F9[4];
 	char byte_1FD;
 	int16_t word_1FE;
-	rpak_decomp_state decomp_state;
+	PakDecompState decomp_state;
 	int64_t decompressedBuffer;
 	int64_t qword_290;
 	int64_t qword_298;
@@ -184,11 +186,11 @@ struct PakFile
 	unsigned int jobId;
 	int* pdword_580;
 	int64_t* pageOffsets;
-	RpakFilePointer headerFields;
+	PakFilePointer headerFields;
 	int** pdword_5F8;
 	int dword_600;
 	int32_t dword_604;
 	int64_t qword_608[16];
 	const char* pakFileName;
-	RpakHeader header;
+	PakHeader header;
 };
