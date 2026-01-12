@@ -3,7 +3,7 @@
 #include "dedicated/dedicated.h"
 #include "core/tier0.h"
 #include "util/utils.h"
-#include "rtech/pakfile.h"
+#include "rtech/pakstate.h"
 #include <algorithm>
 
 #pragma pack(push, 1)
@@ -585,7 +585,7 @@ HOOK(v_Pak_Free, o_Pak_Free, void, __fastcall, (PakLoadedInfo_s * a1))
 		auto pageHdr = fields.pageInfo[i];
 		segmentSizes[i] += pageHdr.dataSize;
 	}
-	
+
 	for (size_t segmentIdx = 0; segmentIdx < header.virtualSegmentCount; ++segmentIdx)
 	{
 		auto segmentHdr = fields.virtualSegments[segmentIdx];
@@ -629,7 +629,7 @@ ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
 	o_pLoadlevelLoadscreen = module.Offset(0x15A810).RCast<decltype(o_pLoadlevelLoadscreen)>();
 
 	o_pLoadMapRpaks = module.Offset(0x15A8C0).RCast<decltype(o_pLoadMapRpaks)>();
-	HookAttach(&(PVOID&)o_pLoadMapRpaks, (PVOID)h_LoadMapRpaks);	
+	HookAttach(&(PVOID&)o_pLoadMapRpaks, (PVOID)h_LoadMapRpaks);
 }
 
 ON_DLL_LOAD("rtech_game.DLL", RTech, (CModule module))
