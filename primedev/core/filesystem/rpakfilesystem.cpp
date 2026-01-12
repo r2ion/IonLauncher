@@ -4,6 +4,7 @@
 #include "core/tier0.h"
 #include "util/utils.h"
 #include "rtech/pakfile.h"
+#include <algorithm>
 
 #pragma pack(push, 1)
 struct PakLoadFuncs
@@ -61,6 +62,7 @@ static __int64 (**o_pCModelLoader_UnreferenceAllModels)(/*CModelLoader*/ void* a
 static char* (*o_pLoadlevelLoadscreen)(const char* levelName) = nullptr;
 static unsigned int (*o_pGetPakPatchNumber)(const char* pPakPath) = nullptr;
 
+
 // Marks all mod Paks to be unloaded on next map load.
 // Also cleans up any mod Paks that are already unloaded.
 void PakLoadManager::UnloadAllModPaks()
@@ -98,7 +100,10 @@ void PakLoadManager::TrackModPaks(Mod& mod)
 // Untracks all paks that aren't currently loaded and are marked for unload.
 void PakLoadManager::CleanUpUnloadedPaks()
 {
-	auto fnRemovePredicate = [](ModPak_t& pak) -> bool { return pak.m_markedForDelete && pak.m_handle == PakHandle::INVALID; };
+	auto fnRemovePredicate = [](ModPak_t& pak) -> bool {
+		return pak.m_markedForDelete && pak.m_handle == PakHandle::INVALID &&
+			   std::find(g_pBadPaks.begin(), g_pBadPaks.end(), pak.m_handle) == g_pBadPaks.end();
+		};
 
 	m_modPaks.erase(std::remove_if(m_modPaks.begin(), m_modPaks.end(), fnRemovePredicate), m_modPaks.end());
 }
@@ -116,6 +121,12 @@ void PakLoadManager::UnloadMarkedPaks()
 	{
 		if (modPak.m_handle == PakHandle::INVALID || !modPak.m_markedForDelete)
 			continue;
+
+		if (std::find(g_pBadPaks.begin(),g_pBadPaks.end(),modPak.m_handle) != g_pBadPaks.end())
+		{
+			NS::log::rpak->info("Bad pak found: {} {}", modPak.m_handle,modPak.m_path);
+			continue;
+		}
 
 		g_pakLoadApi->UnloadPak(modPak.m_handle, *o_pCleanMaterialSystemStuff);
 		modPak.m_handle = PakHandle::INVALID;
@@ -451,7 +462,6 @@ PakHandle, __fastcall, (const char* pPath, void* memoryAllocator, int flags))
 	NS::log::rpak->info("LoadPakAsync {} {}", resultingPath, iPakHandle);
 
 	g_pPakLoadManager->OnPakLoaded(svOriginalPath, resultingPath, iPakHandle);
-
 	return iPakHandle;
 }
 
@@ -560,6 +570,43 @@ void*, __fastcall, (const char* pPath, void* pCallback))
 	return o_pOpenFile(pPath, pCallback);
 }
 
+
+using Pak_Free_t = void(__fastcall*)(PakLoadedInfo_s* handle);
+Pak_Free_t Pak_Free = nullptr;
+std::vector<PakHandle_t> g_pBadPaks;
+HOOK(v_Pak_Free, o_Pak_Free, void, __fastcall, (PakLoadedInfo_s * a1))
+{
+	std::map<int, size_t> segmentSizes;
+	auto pakFile = a1->pakFile;
+	auto header = pakFile->header;
+	auto fields = pakFile->headerFields;
+	for (size_t i = 0; i < header.pageCount; ++i)
+	{
+		auto pageHdr = fields.pageInfo[i];
+		segmentSizes[i] += pageHdr.dataSize;
+	}
+	
+	for (size_t segmentIdx = 0; segmentIdx < header.virtualSegmentCount; ++segmentIdx)
+	{
+		auto segmentHdr = fields.virtualSegments[segmentIdx];
+
+		// Detection only works for segments with an alignment of > 1.
+		// Most likely you'll have at least one segment in the pakfile that isn't an alignment of 1, so this isn't too prohibitive
+		if (segmentHdr.align == 1)
+			continue;
+
+		if (segmentHdr.size != segmentSizes.at(segmentIdx))
+		{
+			NS::log::rpak->warn("Found GOOD rpak with handle {} and filename {}", a1->handle, a1->filename);
+			return o_Pak_Free(a1);
+		}
+	}
+	NS::log::rpak->warn("Found bad rpak with handle {} and filename {}", a1->handle, a1->filename);
+	g_pBadPaks.push_back(a1->handle);
+	o_Pak_Free(a1);
+}
+
+
 ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
 {
 	g_pPakLoadManager = new PakLoadManager;
@@ -582,9 +629,12 @@ ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
 	o_pLoadlevelLoadscreen = module.Offset(0x15A810).RCast<decltype(o_pLoadlevelLoadscreen)>();
 
 	o_pLoadMapRpaks = module.Offset(0x15A8C0).RCast<decltype(o_pLoadMapRpaks)>();
-	HookAttach(&(PVOID&)o_pLoadMapRpaks, (PVOID)h_LoadMapRpaks);
+	HookAttach(&(PVOID&)o_pLoadMapRpaks, (PVOID)h_LoadMapRpaks);	
+}
 
-	// kinda bad, doing things in rtech in an engine callback but it seems fine for now
-	CModule rtechModule(GetModuleHandleA("rtech_game.dll"));
-	o_pGetPakPatchNumber = rtechModule.Offset(0x9A00).RCast<decltype(o_pGetPakPatchNumber)>();
+ON_DLL_LOAD("rtech_game.DLL", RTech, (CModule module))
+{
+	o_pGetPakPatchNumber = module.Offset(0x9A00).RCast<decltype(o_pGetPakPatchNumber)>();
+	Pak_Free = module.Offset(0x8410).RCast<Pak_Free_t>();
+	v_Pak_Free.Dispatch(reinterpret_cast<LPVOID*>(Pak_Free));
 }
