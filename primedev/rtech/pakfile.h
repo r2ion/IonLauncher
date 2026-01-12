@@ -1,5 +1,7 @@
 #pragma once
 
+#define PAK_MAX_SEGMENTS 20
+
 struct struct_v16
 {
 	int64_t startPointerMaybe;

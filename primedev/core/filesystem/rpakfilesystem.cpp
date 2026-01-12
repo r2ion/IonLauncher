@@ -576,34 +576,56 @@ Pak_Free_t Pak_Free = nullptr;
 std::vector<PakHandle_t> g_pBadPaks;
 HOOK(v_Pak_Free, o_Pak_Free, void, __fastcall, (PakLoadedInfo_s * a1))
 {
+	#define IALIGN(a, b) (((a)+((b)-1)) & ~((b)-1))
+
 	std::map<int, size_t> segmentSizes;
+	size_t segmentRequiredAlignmentPadding[PAK_MAX_SEGMENTS] = {};
+
+	size_t segmentNextPageOffsets[PAK_MAX_SEGMENTS] = {};
+
 	auto pakFile = a1->pakFile;
 	auto header = pakFile->header;
 	auto fields = pakFile->headerFields;
 	for (size_t i = 0; i < header.pageCount; ++i)
 	{
-		auto pageHdr = fields.pageInfo[i];
-		segmentSizes[i] += pageHdr.dataSize;
+	    auto pageHdr = fields.pageInfo[i];
+	    segmentSizes[pageHdr.segIdx] += pageHdr.dataSize;
+
+	    // Track the amount of padding the game will need to accommodate this page within its segment
+	    const size_t pageOffsetAligned = IALIGN(segmentNextPageOffsets[pageHdr.segIdx], pageHdr.align);
+	    segmentRequiredAlignmentPadding[pageHdr.segIdx] += pageOffsetAligned - segmentNextPageOffsets[pageHdr.segIdx];
+
+	    segmentNextPageOffsets[pageHdr.segIdx] = pageOffsetAligned + pageHdr.dataSize;
 	}
+
+	bool isPakBad = false;
 
 	for (size_t segmentIdx = 0; segmentIdx < header.virtualSegmentCount; ++segmentIdx)
 	{
-		auto segmentHdr = fields.virtualSegments[segmentIdx];
+	    auto segmentHdr = fields.virtualSegments[segmentIdx];
+		const size_t actualSegmentAlignmentPadding = segmentHdr.size - segmentSizes.at(segmentIdx);
 
-		// Detection only works for segments with an alignment of > 1.
-		// Most likely you'll have at least one segment in the pakfile that isn't an alignment of 1, so this isn't too prohibitive
-		if (segmentHdr.align == 1)
-			continue;
-
-		if (segmentHdr.size != segmentSizes.at(segmentIdx))
-		{
-			NS::log::rpak->warn("Found GOOD rpak with handle {} and filename {}", a1->handle, a1->filename);
-			return o_Pak_Free(a1);
-		}
+	    // If the required alignment padding for this segment is greater than the actual alignment padding, this pak will overflow
+	    // Ideally, the required alignment padding is == to the actual alignment padding to prevent memory being allocated but never used
+	    // however the game will only crash if actual < required, so only flag those segments
+	    if (actualSegmentAlignmentPadding < segmentRequiredAlignmentPadding[segmentIdx])
+	    {
+	        isPakBad = true;
+	        break;
+	    }
 	}
-	NS::log::rpak->warn("Found bad rpak with handle {} and filename {}", a1->handle, a1->filename);
-	g_pBadPaks.push_back(a1->handle);
-	o_Pak_Free(a1);
+
+	if (isPakBad)
+	{
+	    NS::log::rpak->warn("Found bad rpak with handle {} and filename {}", a1->handle, a1->filename);
+	    g_pBadPaks.push_back(a1->handle);
+	}
+	else
+	{
+	    NS::log::rpak->warn("Found GOOD rpak with handle {} and filename {}", a1->handle, a1->filename);
+	    return o_Pak_Free(a1);
+	}
+    o_Pak_Free(a1);
 }
 
 
