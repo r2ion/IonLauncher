@@ -102,7 +102,7 @@ struct PakLoadedInfo_s
 	void* guidDescriptors;
 	FILETIME fileTime;
   	PakFile* pakFile;
-	PakHandle_t unk_handle;
+	int fileHandle;
 	PakStreamingInfo_s streamingInfo;
 	HMODULE hModule;
 };
