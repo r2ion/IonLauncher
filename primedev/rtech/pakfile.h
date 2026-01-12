@@ -181,7 +181,7 @@ PakGlobalState_s* Pak_GetGlobals();
 static_assert(sizeof(PakGlobalState_s) == 3760088);
 static_assert(sizeof(PakLoadedInfo_s) == 0xA8);
 
-struct __declspec(align(1)) struct_v16
+struct struct_v16
 {
 	int64_t startPointerMaybe;
 	int64_t endPointerMaybe;
@@ -375,4 +375,4 @@ struct PakFile
 
 extern PakGlobalState_s* g_pakGlobalState;
 
-
+extern std::vector<PakHandle_t> g_pBadPaks;
