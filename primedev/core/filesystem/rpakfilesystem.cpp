@@ -124,7 +124,7 @@ void PakLoadManager::UnloadMarkedPaks()
 
 		if (std::find(g_pBadPaks.begin(),g_pBadPaks.end(),modPak.m_handle) != g_pBadPaks.end())
 		{
-			NS::log::rpak->info("Bad pak found: {} {}", modPak.m_handle,modPak.m_path);
+			NS::log::rpak->warn("Skipping reload on bad pack: handle: {} filepath: {}", modPak.m_handle,modPak.m_path);
 			continue;
 		}
 
