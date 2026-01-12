@@ -54,7 +54,7 @@ static char* pszCurrentMapRpakPath = nullptr;
 static PakHandle* piCurrentMapRpakHandle = nullptr;
 static PakHandle* piCurrentMapPatchRpakHandle = nullptr;
 static /*CModelLoader*/ void** ppModelLoader = nullptr;
-static void** rpakMemoryAllocator = nullptr;
+static void** g_pAlignedMemAlloc  = nullptr;
 
 static __int64 (*o_pLoadGametypeSpecificRpaks)(const char* levelName) = nullptr;
 static __int64 (**o_pCleanMaterialSystemStuff)() = nullptr;
@@ -148,7 +148,7 @@ void PakLoadManager::LoadModPaksForMap(const char* mapName)
 		if (!std::regex_match(mapName, matches, modPak.m_mapRegex))
 			continue;
 
-		modPak.m_handle = g_pakLoadApi->LoadRpakFileAsync(modPak.m_path.c_str(), *rpakMemoryAllocator, 7);
+		modPak.m_handle = g_pakLoadApi->LoadRpakFileAsync(modPak.m_path.c_str(), *g_pAlignedMemAlloc , 7);
 		m_mapPaks.push_back(modPak.m_pathHash);
 	}
 }
@@ -268,7 +268,7 @@ void PakLoadManager::LoadPreloadPaks()
 		if (modPak.m_markedForDelete || modPak.m_handle != PakHandle::INVALID || !modPak.m_preload)
 			continue;
 
-		modPak.m_handle = g_pakLoadApi->LoadRpakFileAsync(modPak.m_path.c_str(), *rpakMemoryAllocator, 7);
+		modPak.m_handle = g_pakLoadApi->LoadRpakFileAsync(modPak.m_path.c_str(), *g_pAlignedMemAlloc , 7);
 	}
 }
 
@@ -306,7 +306,7 @@ void PakLoadManager::LoadDependentPaks(std::string& path, PakHandle handle)
 			continue;
 
 		// load pak
-		modPak.m_handle = g_pakLoadApi->LoadRpakFileAsync(modPak.m_path.c_str(), *rpakMemoryAllocator, 7);
+		modPak.m_handle = g_pakLoadApi->LoadRpakFileAsync(modPak.m_path.c_str(), *g_pAlignedMemAlloc , 7);
 		// Track the dependent mod pak by its own path hash so we can unload it when the dependency handle is unloaded.
 		m_dependentPaks.emplace_back(handle, modPak.m_pathHash);
 	}
@@ -416,12 +416,12 @@ static bool h_LoadMapRpaks(char* mapPath)
 		*piCurrentMapPatchRpakHandle = PakHandle::INVALID;
 	}
 
-	*piCurrentMapRpakHandle = g_pakLoadApi->LoadRpakFileAsync(mapRpakStr, *rpakMemoryAllocator, 7);
+	*piCurrentMapRpakHandle = g_pakLoadApi->LoadRpakFileAsync(mapRpakStr, *g_pAlignedMemAlloc , 7);
 
 	// load special _patch rpak (seemingly used for dev things?)
 	char levelPatchRpakStr[272];
 	snprintf(levelPatchRpakStr, 272, "%s_patch.rpak", mapName.c_str());
-	*piCurrentMapPatchRpakHandle = g_pakLoadApi->LoadRpakFileAsync(levelPatchRpakStr, *rpakMemoryAllocator, 7);
+	*piCurrentMapPatchRpakHandle = g_pakLoadApi->LoadRpakFileAsync(levelPatchRpakStr, *g_pAlignedMemAlloc , 7);
 
 	// we just reloaded the paks, so we don't need to force it again
 	g_pPakLoadManager->SetForceReloadOnMapLoad(false);
@@ -603,7 +603,7 @@ ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
 	piCurrentMapRpakHandle = module.Offset(0x7CB5A0).RCast<decltype(piCurrentMapRpakHandle)>();
 	piCurrentMapPatchRpakHandle = module.Offset(0x7CB5A4).RCast<decltype(piCurrentMapPatchRpakHandle)>();
 	ppModelLoader = module.Offset(0x7C4AC0).RCast<decltype(ppModelLoader)>();
-	rpakMemoryAllocator = module.Offset(0x7C5E20).RCast<decltype(rpakMemoryAllocator)>();
+	g_pAlignedMemAlloc  = module.Offset(0x7C5E20).RCast<decltype(g_pAlignedMemAlloc )>();
 
 	o_pLoadGametypeSpecificRpaks = module.Offset(0x15AD20).RCast<decltype(o_pLoadGametypeSpecificRpaks)>();
 	o_pCleanMaterialSystemStuff = module.Offset(0x12A11F00).RCast<decltype(o_pCleanMaterialSystemStuff)>();
