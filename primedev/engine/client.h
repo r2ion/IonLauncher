@@ -230,6 +230,11 @@ public:
 
 	void Reset()
 	{
-
+		m_bIsCommsBanned = false;
 	}
+	void SetClientIsCommsBanned(bool bBanned) { m_bIsCommsBanned = bBanned; }
+	bool IsClientCommsBanned() const { return m_bIsCommsBanned; }
+
+private:
+	bool m_bIsCommsBanned;
 };

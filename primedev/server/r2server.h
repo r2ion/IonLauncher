@@ -16,7 +16,7 @@ extern CBaseEntity* (*Server_GetEntityByIndex)(int index);
 class CServer : public IConnectionlessPacketHandler
 {
 public:
-	CClientExtended* GetClientExtended(const int nIndex) { return &sm_ClientsExtended[nIndex]; }
+	inline CClientExtended* GetClientExtended(const int nIndex) { return &sm_ClientsExtended[nIndex]; }
 
 	int32_t m_State; //0x0008
 	int32_t m_Socket; //0x000C

@@ -269,6 +269,7 @@ static bool (*o_pCClient__Connect)(
 static bool
 h_CClient__Connect(CClient* self, char* pName, void* pNetChannel, char bFakePlayer, void* a5, char pDisconnectReason[256], void* a7)
 {
+	self->GetClientExtended()->Reset();
 	const char* pAuthenticationFailure = nullptr;
 	char pVerifiedName[64];
 

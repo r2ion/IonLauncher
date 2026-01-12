@@ -25,6 +25,7 @@ void CClient::Disconnect(const Reputation_t nRepLevel, const char* reason, ...)
 	}
 }
 
+
 CClientExtended* CClient::GetClientExtended(void) const
 {
 	return g_pServer->GetClientExtended(m_nUserID);
@@ -34,7 +35,8 @@ AUTOHOOK_INIT()
 
 AUTOHOOK(CClient__Clear, engine.dll + 0x101480, void, __fastcall, (CClient* thisptr))
 {
-	g_pServer->GetClientExtended(thisptr->m_nUserID)->Reset();
+	/*g_pServer->GetClientExtended(thisptr->m_nUserID)->Reset();*/
+	thisptr->GetClientExtended()->Reset();
 	CClient__Clear(thisptr);
 }
 
