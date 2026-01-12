@@ -579,7 +579,10 @@ HOOK(v_Pak_Free, o_Pak_Free, void, __fastcall, (PakLoadedInfo_s * info))
 	if(info->pakFile)
 	{
 		if (!info->pakFile->IsValid())
-		    NS::log::rpak->error("Bad Rpak {}", info->filename);
+		{
+			NS::log::rpak->error("Bad Rpak {}", info->filename);
+			g_pBadPaks.push_back(info->handle);
+		}
 	}
 
     o_Pak_Free(info);
