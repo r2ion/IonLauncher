@@ -94,9 +94,6 @@ CPMAddPackage(
   	GIT_TAG curl-8_18_0
 )
 
-include_directories(src)
-include_directories(src/thirdparty)
-
 add_subdirectory(src)
 add_subdirectory(proxy)
 add_subdirectory(launcher)

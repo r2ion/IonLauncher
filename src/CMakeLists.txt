@@ -278,6 +278,8 @@ target_include_directories(
     NorthstarDLL
     PRIVATE "${EOS_SDK_PATH}/Include"
             "${rapidjson_SOURCE_DIR}/include"
+			"${CMAKE_CURRENT_SOURCE_DIR}"
+			"${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
 		)
 
 target_link_libraries(
