@@ -17,6 +17,11 @@
 #include <map>
 #include <filesystem>
 #include <sstream>
+#include <array>
+#include <string_view>
+#include <algorithm>
+#include <format>
+#include <direct.h>
 
 namespace fs = std::filesystem;
 
@@ -27,15 +32,13 @@ namespace fs = std::filesystem;
 #define NOTE_UNUSED(var) do { (void)var; } while(false)
 
 #include "core/macros.h"
-
 #include "core/math/color.h"
-
-#include "spdlog/spdlog.h"
 #include "logging/logging.h"
 #include "MinHook.h"
-#include "curl/curl.h"
+#include "core/hooks.h"
+#include <curl/curl.h>
 #include "silver-bun/module.h"
 #include "silver-bun/memaddr.h"
-#include "core/hooks.h"
+#include "silver-bun/utils.h"
 
 #endif

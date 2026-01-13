@@ -1,6 +1,7 @@
 #include "util/version.h"
-#include "ns_version.h"
 #include "dedicated/dedicated.h"
+
+#include <ns_version.h>
 
 char version[16];
 char NSUserAgent[256];

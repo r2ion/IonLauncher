@@ -1,6 +1,11 @@
 #pragma once
-#include "spdlog/sinks/base_sink.h"
-#include "spdlog/logger.h"
+
+#include <spdlog/common.h>
+#include <spdlog/details/fmt_helper.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/logger.h>
+#include <spdlog/sinks/base_sink.h>
+
 #include "vscript/squirrel/squirrel.h"
 #include "core/math/color.h"
 
@@ -55,34 +60,47 @@ public:
 		SRCColor = color.ToSourceColor();
 	}
 
-	void sink_it_(const spdlog::details::log_msg& msg)
-	{
-		custom_log_msg custom_msg {this, msg};
+    void sink_it_(const spdlog::details::log_msg& msg)
+    {
+        custom_log_msg custom_msg {this, msg};
 
-		// Ugh
-		for (auto& sink : sinks_)
-		{
-			SPDLOG_TRY
-			{
-				sink->log(custom_msg);
-			}
-			SPDLOG_LOGGER_CATCH()
-		}
+        for (auto& sink : sinks_)
+        {
+            try
+            {
+                sink->log(custom_msg);
+            }
+            catch (const std::exception& ex)
+            {
+                err_handler_(std::format("{}", ex.what()));
+            }
+            catch (...)
+            {
+                err_handler_("Unknown exception in logger");
+            }
+        }
 
-		for (auto& sink : custom_sinks_)
-		{
-			SPDLOG_TRY
-			{
-				sink->custom_log(custom_msg);
-			}
-			SPDLOG_LOGGER_CATCH()
-		}
+        for (auto& sink : custom_sinks_)
+        {
+            try
+            {
+                sink->custom_log(custom_msg);
+            }
+            catch (const std::exception& ex)
+            {
+                err_handler_(std::format("{}", ex.what()));
+            }
+            catch (...)
+            {
+                err_handler_("Unknown exception in logger");
+            }
+        }
 
-		if (should_flush_(custom_msg))
-		{
-			flush_();
-		}
-	}
+        if (should_flush_(custom_msg))
+        {
+            flush_();
+        }
+    }
 };
 
 namespace NS::log

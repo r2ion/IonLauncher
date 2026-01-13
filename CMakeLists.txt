@@ -23,7 +23,7 @@ endif()
 include(config.cmake OPTIONAL)
 
 # Language specs
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_VS_PLATFORM_TOOLSET v143)
@@ -51,12 +51,52 @@ list(
     CMAKE_MODULE_PATH
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
     )
+
+include(CPM)
 include(utils)
+
+add_library(NorthstarIncludes INTERFACE)
+target_include_directories(NorthstarIncludes INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+file(GLOB_RECURSE NS_PUBLIC_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+target_sources(NorthstarIncludes INTERFACE "$<BUILD_INTERFACE:${NS_PUBLIC_HEADERS}>")
+
+set(BUILD_SHARED_LIBS OFF)
+
+set(SPDLOG_WCHAR_SUPPORT ON)
+
+if (NOT DEFINED CPM_SOURCE_CACHE)
+	set(CPM_SOURCE_CACHE "${CMAKE_BINARY_DIR}/.cpm_cache")
+endif()
+
+set(RAPIDJSON_BUILD_TESTS OFF)
+set(RAPIDJSON_BUILD_EXAMPLES OFF)
+set(RAPIDJSON_BUILD_DOC OFF)
+set(RAPIDJSON_BUILD_THIRDPARTY_GTEST OFF)
+
+set(CURL_USE_LIBPSL OFF)
+set(BUILD_CURL_EXE OFF)
+set(CURL_USE_SCHANNEL ON)
+set(CMAKE_USE_OPENSSL OFF)
+set(USE_LIBIDN2 OFF)
+set(USE_LIBPSL OFF)
+set(USE_LIBSSH2 OFF)
+set(ENABLE_ARES OFF)
+set(CURL_ZLIB OFF)
+set(CURL_DISABLE_LDAP ON)
+set(CURL_DISABLE_LDAPS ON)
+
+CPMAddPackage("gh:gabime/spdlog@1.17.0")
+CPMAddPackage("gh:Tencent/rapidjson@1.1.0")
+
+CPMAddPackage(
+  	NAME libcurl
+  	GITHUB_REPOSITORY curl/curl
+  	GIT_TAG curl-8_18_0
+)
 
 include_directories(src)
 include_directories(src/thirdparty)
 
-# Targets
 add_subdirectory(src)
 add_subdirectory(proxy)
 add_subdirectory(launcher)

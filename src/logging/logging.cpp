@@ -4,8 +4,8 @@
 #include "config/profile.h"
 #include "core/tier0.h"
 #include "util/version.h"
-#include "spdlog/sinks/basic_file_sink.h"
 
+#include <spdlog/sinks/basic_file_sink.h>
 #include <winternl.h>
 #include <cstdlib>
 #include <iomanip>

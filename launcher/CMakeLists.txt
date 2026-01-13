@@ -22,6 +22,8 @@ target_link_libraries(
             ws2_32.lib
     )
 
+target_include_directories(NorthstarLauncher PRIVATE "${PROJECT_SOURCE_DIR}/include")
+
 set_target_properties(
     NorthstarLauncher
     PROPERTIES LINK_FLAGS "/MANIFEST:NO /DEBUG /STACK:8000000"

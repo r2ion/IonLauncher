@@ -124,7 +124,7 @@ void PakLoadManager::UnloadMarkedPaks()
 
 		if (std::find(g_pBadPaks.begin(),g_pBadPaks.end(),modPak.m_handle) != g_pBadPaks.end())
 		{
-			NS::log::rpak->warn("Skipping reload on bad pack: handle: {} filepath: {}", modPak.m_handle,modPak.m_path);
+			NS::log::rpak->warn("Skipping reload on bad pack: handle: {} filepath: {}", static_cast<int>(modPak.m_handle), modPak.m_path);
 			continue;
 		}
 
@@ -459,7 +459,7 @@ PakHandle, __fastcall, (const char* pPath, void* memoryAllocator, int flags))
 	}
 
 	PakHandle iPakHandle = LoadPakAsync(resultingPath.c_str(), memoryAllocator, flags);
-	NS::log::rpak->info("LoadPakAsync {} {}", resultingPath, iPakHandle);
+	NS::log::rpak->info("LoadPakAsync {} {}", resultingPath, static_cast<int>(iPakHandle));
 
 	g_pPakLoadManager->OnPakLoaded(svOriginalPath, resultingPath, iPakHandle);
 	return iPakHandle;
@@ -475,7 +475,7 @@ void*, __fastcall, (PakHandle nPakHandle, void* pCallback))
 	if (!pakGlobals)
 		return UnloadPak(nPakHandle, pCallback);
 	auto pakInfo = &pakGlobals->loadedPaks[nPakHandle & PAK_MAX_LOADED_PAKS_MASK];
-	NS::log::rpak->info("UnloadPak {},Handle {},Status: {}", pakInfo->filename, pakInfo->handle, pakInfo->status);
+	NS::log::rpak->info("UnloadPak {},Handle {},Status: {}", pakInfo->filename, static_cast<int>(pakInfo->handle), static_cast<int>(pakInfo->status));
 	return UnloadPak(nPakHandle, pCallback);
 }
 

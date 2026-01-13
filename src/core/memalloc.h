@@ -2,7 +2,7 @@
 
 #include <malloc.h>
 
-#include "rapidjson/document.h"
+#include <rapidjson/document.h>
 // #include "include/rapidjson/allocators.h"
 
 // The prelude is needed for these to be usable by the CRT

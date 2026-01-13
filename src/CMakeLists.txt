@@ -1,5 +1,4 @@
 find_package(minhook REQUIRED)
-find_package(libcurl REQUIRED)
 find_package(minizip REQUIRED)
 find_package(silver-bun REQUIRED)
 
@@ -272,18 +271,19 @@ add_library(
     "vgui/vgui.h"
     "vgui/vgui.cpp"
     "dllmain.cpp"
-    "ns_version.h"
     "Northstar.def"
     )
 
-target_include_directories(NorthstarDLL PRIVATE "${EOS_SDK_PATH}/Include")
+target_include_directories(
+    NorthstarDLL
+    PRIVATE "${EOS_SDK_PATH}/Include"
+            "${rapidjson_SOURCE_DIR}/include"
+		)
 
 target_link_libraries(
     NorthstarDLL
     PRIVATE minhook
-            libcurl
             minizip
-            silver-bun
             ws2_32.lib
             crypt32.lib
             cryptui.lib
@@ -293,6 +293,10 @@ target_link_libraries(
             bcrypt.lib
             version.lib
             ${EOS_LIB}
+            spdlog
+			libcurl
+			silver-bun
+            NorthstarIncludes
     )
 
 target_precompile_headers(

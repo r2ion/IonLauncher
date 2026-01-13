@@ -380,7 +380,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 		diskNode.unk5 = static_cast<short>(aiNode->unk8);
 		memcpy(diskNode.unk6, aiNode->unk10, sizeof(diskNode.unk6));
 
-		spdlog::info("writing node {} from {} to {:x}", aiNode->m_iID, (void*)aiNode, writeStream.tellp());
+		spdlog::info("writing node {} from {} to {:x}", aiNode->m_iID, (void*)aiNode, static_cast<uint64_t>(writeStream.tellp()));
 		writeStream.write((char*)&diskNode, sizeof(CAI_NodeDisk));
 
 		calculatedLinkcount += aiNode->NumLinks();
@@ -418,13 +418,13 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 			diskLink.unk0 = nodeLink->unk1;
 			memcpy(diskLink.hulls, nodeLink->hulls, sizeof(diskLink.hulls));
 
-			spdlog::info("writing link {} => {} to {:x}", diskLink.srcId, diskLink.destId, writeStream.tellp());
+			spdlog::info("writing link {} => {} to {:x}", diskLink.srcId, diskLink.destId, static_cast<uint64_t>(writeStream.tellp()));
 			writeStream.write((char*)&diskLink, sizeof(CAI_NodeLinkDisk));
 		}
 	}
 
 	// WC lookup table (Hammer node IDs)
-	spdlog::info("writing {:x} bytes for wc lookup table at {:x}", aiNetwork->nodecount * sizeof(uint32_t), writeStream.tellp());
+	spdlog::info("writing {:x} bytes for wc lookup table at {:x}", aiNetwork->nodecount * sizeof(uint32_t), static_cast<uint64_t>(writeStream.tellp()));
 	const CAI_NetworkEditTools* pEditOps = nullptr;
 	if (g_ppAINetworkManager && *g_ppAINetworkManager)
 		pEditOps = (*g_ppAINetworkManager)->m_pEditOps;
@@ -465,7 +465,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	if (g_pAITraverseNodes)
 		traverseNodeCount = static_cast<short>(g_pAITraverseNodes->Count());
 
-	spdlog::info("writing {} traversal nodes at {:x}...", traverseNodeCount, writeStream.tellp());
+	spdlog::info("writing {} traversal nodes at {:x}...", traverseNodeCount, static_cast<uint64_t>(writeStream.tellp()));
 	writeStream.write((char*)&traverseNodeCount, sizeof(short));
 	for (int i = 0; i < traverseNodeCount; i++)
 	{
@@ -475,7 +475,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	}
 
 	// hull data blocks
-	spdlog::info("writing hull data blocks at {:x}", writeStream.tellp());
+	spdlog::info("writing hull data blocks at {:x}", static_cast<uint64_t>(writeStream.tellp()));
 	for (int i = 0; i < MAX_HULLS; i++)
 	{
 		const CAI_HullData& hullData = aiNetwork->m_HullData[i];
@@ -491,11 +491,11 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	}
 
 	// unknown struct that's seemingly node-related
-	spdlog::info("writing {} unknown node structs at {:x}", *pUnkStruct0Count, writeStream.tellp());
+	spdlog::info("writing {} unknown node structs at {:x}", *pUnkStruct0Count, static_cast<uint64_t>(writeStream.tellp()));
 	writeStream.write((char*)pUnkStruct0Count, sizeof(*pUnkStruct0Count));
 	for (int i = 0; i < *pUnkStruct0Count; i++)
 	{
-		spdlog::info("writing unknown node struct {} at {:x}", i, writeStream.tellp());
+		spdlog::info("writing unknown node struct {} at {:x}", i, static_cast<uint64_t>(writeStream.tellp()));
 		UnkNodeStruct0* nodeStruct = (*pppUnkNodeStruct0s)[i];
 
 		writeStream.write((char*)&nodeStruct->index, sizeof(nodeStruct->index));
@@ -523,12 +523,12 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	}
 
 	// unknown struct that's seemingly link-related
-	spdlog::info("writing {} unknown link structs at {:x}", *pUnkLinkStruct1Count, writeStream.tellp());
+	spdlog::info("writing {} unknown link structs at {:x}", *pUnkLinkStruct1Count, static_cast<uint64_t>(writeStream.tellp()));
 	writeStream.write((char*)pUnkLinkStruct1Count, sizeof(*pUnkLinkStruct1Count));
 	for (int i = 0; i < *pUnkLinkStruct1Count; i++)
 	{
 		// disk and memory structs are literally identical here so just directly write
-		spdlog::info("writing unknown link struct {} at {:x}", i, writeStream.tellp());
+		spdlog::info("writing unknown link struct {} at {:x}", i, static_cast<uint64_t>(writeStream.tellp()));
 		writeStream.write((char*)(*pppUnkStruct1s)[i], sizeof(UnkLinkStruct1Disk));
 	}
 
@@ -536,20 +536,20 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	writeStream.write((char*)&aiNetwork->unk5, sizeof(aiNetwork->unk5));
 
 	// tf2-exclusive stuff past this point, i.e. ain v57 only
-	spdlog::info("writing {} script nodes at {:x}", aiNetwork->scriptnodecount, writeStream.tellp());
+	spdlog::info("writing {} script nodes at {:x}", aiNetwork->scriptnodecount, static_cast<uint64_t>(writeStream.tellp()));
 	writeStream.write((char*)&aiNetwork->scriptnodecount, sizeof(aiNetwork->scriptnodecount));
 	for (int i = 0; i < aiNetwork->scriptnodecount; i++)
 	{
 		// disk and memory structs are literally identical here so just directly write
-		spdlog::info("writing script node {} at {:x}", i, writeStream.tellp());
+		spdlog::info("writing script node {} at {:x}", i, static_cast<uint64_t>(writeStream.tellp()));
 		writeStream.write((char*)&aiNetwork->scriptnodes[i], sizeof(aiNetwork->scriptnodes[i]));
 	}
 
-	spdlog::info("writing {} hints at {:x}", aiNetwork->hintcount, writeStream.tellp());
+	spdlog::info("writing {} hints at {:x}", aiNetwork->hintcount, static_cast<uint64_t>(writeStream.tellp()));
 	writeStream.write((char*)&aiNetwork->hintcount, sizeof(aiNetwork->hintcount));
 	for (int i = 0; i < aiNetwork->hintcount; i++)
 	{
-		spdlog::info("writing hint data {} at {:x}", i, writeStream.tellp());
+		spdlog::info("writing hint data {} at {:x}", i, static_cast<uint64_t>(writeStream.tellp()));
 		writeStream.write((char*)&aiNetwork->hints[i], sizeof(aiNetwork->hints[i]));
 	}
 

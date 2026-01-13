@@ -7,7 +7,6 @@
 #include "logging/logging.h"
 #include "mods/modmanager.h"
 #include "mods/modsavefiles.h"
-#include "ns_version.h"
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
 #include "util/utils.h"
@@ -15,6 +14,7 @@
 #include "vscript/vscript.h"
 
 #include <any>
+#include <ns_version.h>
 
 AUTOHOOK_INIT()
 
@@ -206,7 +206,7 @@ void SquirrelManager::VMCreated(CSquirrelVM* newSqvm)
 	}
 
 	defconst(m_pSQVM, "MAX_FOLDER_SIZE", GetMaxSaveFolderSize() / 1024);
-	 
+
 	// define squirrel constants for northstar(.dll) version
 	constexpr int version[4] {NORTHSTAR_VERSION};
 	defconst(m_pSQVM, "NS_VERSION_MAJOR", version[0]);

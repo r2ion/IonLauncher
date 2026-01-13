@@ -19,7 +19,7 @@ void ConCommand_dump_pak_info(const CCommand& args)
         spdlog::info("Pak {}: filename='{}', handle={}, status={}, assetCount={}, hModule={:p}",
             i,
             pakInfo.filename ? pakInfo.filename : "<null>",
-            pakInfo.handle,
+            static_cast<int>(pakInfo.handle),
             static_cast<int>(pakInfo.status),
             pakInfo.assetCount,
             reinterpret_cast<void*>(pakInfo.hModule));

@@ -7,10 +7,10 @@
 #include <thread>
 
 #include <Lmcons.h>
+#include <ns_version.h>
 
 #include "eos_logging_manager.h"
 #include "eos_threading.h"
-#include "ns_version.h"
 
 namespace
 {
