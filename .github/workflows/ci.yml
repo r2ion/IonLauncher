@@ -25,7 +25,7 @@ jobs:
         with:
           repository: r2ion/eos-ion
           token: ${{ secrets.EOS_PAT_TOKEN  }}
-          path: primedev/thirdparty/eossdk
+          path: src/thirdparty/eossdk
       - name: Setup msvc
         uses: ilammy/msvc-dev-cmd@v1
       - name: Configure cmake
@@ -33,10 +33,10 @@ jobs:
       - name: Setup resource file version
         shell: bash
         run: |
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' primedev/primelauncher/resources.rc
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' primedev/resources.rc
+          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/primelauncher/resources.rc
+          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/resources.rc
           FILEVERSION=$(echo ${{ env.NORTHSTAR_VERSION }} | tr '.' ',' | sed -E 's/-rc[0-9]+//' | tr -d '[:alpha:]')
-          sed -i "s/0,0,0,1/${FILEVERSION}/g" primedev/ns_version.h
+          sed -i "s/0,0,0,1/${FILEVERSION}/g" src/ns_version.h
       - name: Build
         run: cmake --build build/
       - name: Extract Short Commit Hash
@@ -56,8 +56,8 @@ jobs:
     - uses: actions/checkout@v4
     - uses: DoozyX/clang-format-lint-action@v0.18.2
       with:
-        source: 'primedev'
-        exclude: 'primedev/include primedev/thirdparty primedev/wsockproxy'
+        source: 'src'
+        exclude: 'src/include src/thirdparty src/wsockproxy'
         extensions: 'h,cpp'
         clangFormatVersion: 16
         inplace: true

@@ -375,7 +375,7 @@ MigrationBackup/
 .ionide/
 
 # Do not ship eos files
-primedev/thirdparty/eossdk/*
+src/thirdparty/eossdk/*
 
 # Ignore user config
 config.cmake

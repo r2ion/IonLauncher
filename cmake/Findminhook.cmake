@@ -1,0 +1,10 @@
+if(TARGET minhook)
+    set(minhook_FOUND TRUE)
+    return()
+endif()
+
+if(NOT minhook_FOUND)
+    check_init_submodule(${PROJECT_SOURCE_DIR}/src/thirdparty/minhook)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/src/thirdparty/minhook ${PROJECT_BINARY_DIR}/minhook)
+    set(minhook_FOUND TRUE)
+endif()
