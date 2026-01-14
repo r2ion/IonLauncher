@@ -277,15 +277,15 @@ target_include_directories(
     NorthstarDLL
     PRIVATE "${EOS_SDK_PATH}/Include"
             "${rapidjson_SOURCE_DIR}/include"
-			"${CMAKE_CURRENT_SOURCE_DIR}"
-			"${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
-			"${minizip-ng_SOURCE_DIR}"
-		)
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
+            "${minizip-ng_SOURCE_DIR}"
+    )
 
 target_link_libraries(
     NorthstarDLL
     PRIVATE minhook
-			minizip
+            minizip
             ws2_32.lib
             crypt32.lib
             cryptui.lib
@@ -296,8 +296,8 @@ target_link_libraries(
             version.lib
             ${EOS_LIB}
             spdlog
-			libcurl
-			silver-bun
+            libcurl
+            silver-bun
             NorthstarIncludes
     )
 
