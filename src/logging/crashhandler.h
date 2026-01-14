@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <DbgHelp.h>
 
 //-----------------------------------------------------------------------------
 // Purpose: Exception handling
@@ -53,6 +54,10 @@ public:
 	void FormatLoadedMods();
 	void FormatLoadedPlugins();
 	void FormatModules();
+
+	bool TryCopyCString(const char* src, char* dst, size_t dstSize);
+    bool TrySymFromAddrSafe(HANDLE process, DWORD64 address, DWORD64* displacement, PSYMBOL_INFO symbol);
+    bool TrySymGetLineFromAddr64Safe(HANDLE process, DWORD64 address, DWORD* displacement, IMAGEHLP_LINE64* line);
 
 	//-----------------------------------------------------------------------------
 	// Minidump
