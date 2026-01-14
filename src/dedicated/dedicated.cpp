@@ -229,7 +229,7 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, (CModul
 	g_pServerPresence->AddPresenceReporter(presenceReporter);
 
 	// setup dedicated printing to client
-	RegisterCustomSink(std::make_shared<DedicatedServerLogToClientSink>());
+	RegisterSink(std::make_shared<DedicatedServerLogToClientSink>());
 
 	// Disable Quick Edit mode to reduce chance of user unintentionally hanging their server by selecting something.
 	if (!CommandLine()->CheckParm("-bringbackquickedit"))

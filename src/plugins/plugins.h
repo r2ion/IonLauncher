@@ -1,5 +1,6 @@
 #pragma once
 #include "core/tier1.h"
+#include "logging/logging.h"
 #include "plugins/interfaces/interface.h"
 #include "plugins/interfaces/IPluginId.h"
 #include "plugins/interfaces/IPluginCallbacks.h"
@@ -11,7 +12,7 @@ private:
 	IPluginId* m_pluginId = 0;
 	IPluginCallbacks* m_callbacks = 0;
 
-	std::shared_ptr<ColoredLogger> m_logger;
+	std::shared_ptr<spdlog::logger> m_logger;
 
 	bool m_valid = false;
 	std::string m_name;

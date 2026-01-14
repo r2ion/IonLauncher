@@ -28,7 +28,7 @@ void ConCommand_hideconsole(const CCommand& arg)
 	g_pGameConsole->Hide();
 }
 
-void SourceConsoleSink::custom_sink_it_(const custom_log_msg& msg)
+void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 {
 	if (!g_pGameConsole->m_bInitialized)
 		return;
@@ -41,10 +41,11 @@ void SourceConsoleSink::custom_sink_it_(const custom_log_msg& msg)
 
 	SourceColor levelColor = m_LogColours[msg.level];
 	std::string name {msg.logger_name.begin(), msg.logger_name.end()};
+	SourceColor loggerColor = NS::log::GetSourceColorForLoggerName(name);
 
 	CClientState* client = GetBaseLocalClient();
 
-	g_pGameConsole->m_pConsole->m_pConsolePanel->ColorPrint(msg.origin->SRCColor, ("[" + name + "]").c_str());
+	g_pGameConsole->m_pConsole->m_pConsolePanel->ColorPrint(loggerColor, ("[" + name + "]").c_str());
 	g_pGameConsole->m_pConsole->m_pConsolePanel->Print(" ");
 
     if(client->m_nSignonState >= eSignonState::CONNECTED)
@@ -54,16 +55,10 @@ void SourceConsoleSink::custom_sink_it_(const custom_log_msg& msg)
         g_pGameConsole->m_pConsole->m_pConsolePanel->Print(" ");
     }
 
-	if(msg.level != spdlog::level::info)
-		g_pGameConsole->m_pConsole->m_pConsolePanel->ColorPrint(levelColor, fmt::to_string(formatted).c_str());
+	if (msg.level != spdlog::level::info)
+		g_pGameConsole->m_pConsole->m_pConsolePanel->ColorPrint(levelColor, str.c_str());
 	else
-		g_pGameConsole->m_pConsole->m_pConsolePanel->Print(fmt::to_string(formatted).c_str());
-}
-
-void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
-{
-	NOTE_UNUSED(msg);
-	throw std::runtime_error("sink_it_ called on SourceConsoleSink with pure log_msg. This is an error!");
+		g_pGameConsole->m_pConsole->m_pConsolePanel->Print(str.c_str());
 }
 
 void SourceConsoleSink::flush_() {}
@@ -94,7 +89,7 @@ void InitialiseConsoleOnInterfaceCreation()
 		consoleSink->set_pattern("%v"); // no need to include the level in the game console, the text colour signifies it anyway
 	else
 		consoleSink->set_pattern("[%n] [%l] %v"); // no colour, so we should show the level for colourblind people
-	RegisterCustomSink(consoleSink);
+	RegisterSink(consoleSink);
 }
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", SourceConsole, ConCommand, (CModule module))

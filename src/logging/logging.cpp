@@ -4,34 +4,121 @@
 #include "config/profile.h"
 #include "core/tier0.h"
 #include "util/version.h"
+#include "client/r2client.h"
+#include "dedicated/dedicated.h"
 
+#include <spdlog/async.h>
+#include <spdlog/async_logger.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/dist_sink.h>
 #include <winternl.h>
 #include <cstdlib>
 #include <iomanip>
 #include <sstream>
 
-std::vector<std::shared_ptr<ColoredLogger>> loggers {};
+static std::mutex g_LoggersMutex;
+static std::vector<std::shared_ptr<spdlog::logger>> g_Loggers {};
+static std::shared_ptr<spdlog::sinks::dist_sink_mt> g_DispatchSink;
 
 namespace NS::log
 {
-	std::shared_ptr<ColoredLogger> SCRIPT_UI;
-	std::shared_ptr<ColoredLogger> SCRIPT_CL;
-	std::shared_ptr<ColoredLogger> SCRIPT_SV;
+	std::mutex g_LoggerColorMutex;
+	std::map<std::string, std::string> g_LoggerAnsiColors;
+	std::map<std::string, SourceColor> g_LoggerSourceColors;
 
-	std::shared_ptr<ColoredLogger> NATIVE_UI;
-	std::shared_ptr<ColoredLogger> NATIVE_CL;
-	std::shared_ptr<ColoredLogger> NATIVE_SV;
-	std::shared_ptr<ColoredLogger> NATIVE_EN;
-	std::shared_ptr<ColoredLogger> EOS;
+	void RegisterLoggerColors(const std::string& loggerName, const Color& color)
+	{
+		std::scoped_lock lock(g_LoggerColorMutex);
+		g_LoggerAnsiColors[loggerName] = Color(color).ToANSIColor();
+		g_LoggerSourceColors[loggerName] = Color(color).ToSourceColor();
+	}
 
-	std::shared_ptr<ColoredLogger> fs;
-	std::shared_ptr<ColoredLogger> rpak;
-	std::shared_ptr<ColoredLogger> echo;
+	const std::string& GetAnsiColorForLoggerName(std::string_view loggerName)
+	{
+		static const std::string kDefault = "\033[39;49m";
+		std::scoped_lock lock(g_LoggerColorMutex);
+		auto it = g_LoggerAnsiColors.find(std::string(loggerName));
+		if (it != g_LoggerAnsiColors.end())
+			return it->second;
+		return kDefault;
+	}
 
-	std::shared_ptr<ColoredLogger> NORTHSTAR;
-	std::shared_ptr<ColoredLogger> PLUGINSYS;
+	SourceColor GetSourceColorForLoggerName(std::string_view loggerName)
+	{
+		std::scoped_lock lock(g_LoggerColorMutex);
+		auto it = g_LoggerSourceColors.find(std::string(loggerName));
+		if (it != g_LoggerSourceColors.end())
+			return it->second;
+		return SourceColor(255, 255, 255, 255);
+	}
+};
+
+namespace NS::log
+{
+	std::shared_ptr<spdlog::logger> SCRIPT_UI;
+	std::shared_ptr<spdlog::logger> SCRIPT_CL;
+	std::shared_ptr<spdlog::logger> SCRIPT_SV;
+
+	std::shared_ptr<spdlog::logger> NATIVE_UI;
+	std::shared_ptr<spdlog::logger> NATIVE_CL;
+	std::shared_ptr<spdlog::logger> NATIVE_SV;
+	std::shared_ptr<spdlog::logger> NATIVE_EN;
+	std::shared_ptr<spdlog::logger> EOS;
+
+	std::shared_ptr<spdlog::logger> fs;
+	std::shared_ptr<spdlog::logger> rpak;
+	std::shared_ptr<spdlog::logger> echo;
+
+	std::shared_ptr<spdlog::logger> NORTHSTAR;
+	std::shared_ptr<spdlog::logger> PLUGINSYS;
 }; // namespace NS::log
+
+static void EnsureAsyncThreadPoolInitialized()
+{
+	if (spdlog::thread_pool())
+		return;
+
+	spdlog::init_thread_pool(8192, 1);
+}
+
+static void EnsureDispatchSinkInitialized()
+{
+	if (g_DispatchSink)
+		return;
+
+	g_DispatchSink = std::make_shared<spdlog::sinks::dist_sink_mt>();
+}
+
+static std::shared_ptr<spdlog::logger> CreateAsyncLoggerInternal(const std::string& name)
+{
+	EnsureAsyncThreadPoolInitialized();
+	EnsureDispatchSinkInitialized();
+
+	if (auto existing = spdlog::get(name))
+		return existing;
+
+	std::scoped_lock lock(g_LoggersMutex);
+	std::array<spdlog::sink_ptr, 1> sinks {g_DispatchSink};
+	auto logger = std::make_shared<spdlog::async_logger>(
+		name,
+		sinks.begin(),
+		sinks.end(),
+		spdlog::thread_pool(),
+		spdlog::async_overflow_policy::block);
+
+	try
+	{
+		spdlog::register_logger(logger);
+	}
+	catch (...)
+	{
+		if (auto raced = spdlog::get(name))
+			return raced;
+		throw;
+	}
+	g_Loggers.push_back(logger);
+	return logger;
+}
 
 // This needs to be called after hooks are loaded so we can access the command line args
 void LogSys_CreateLogFiles()
@@ -51,11 +138,8 @@ void LogSys_CreateLogFiles()
 
 			stream << std::put_time(&currentTime, (GetNorthstarPrefix() + "/logs/nslog%Y-%m-%d %H-%M-%S.txt").c_str());
 			auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(stream.str(), false);
-			sink->set_pattern("[%Y-%m-%d] [%H:%M:%S] [%n] [%l] %v");
-			for (auto& logger : loggers)
-			{
-				logger->sinks().push_back(sink);
-			}
+			sink->set_pattern("[%Y-%m-%d] [%H:%M:%S] [%n] %v");
+			RegisterSink(sink);
 			spdlog::flush_on(spdlog::level::info);
 		}
 		catch (...)
@@ -69,41 +153,35 @@ void LogSys_CreateLogFiles()
 
 void ExternalConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 {
-	NOTE_UNUSED(msg);
-	throw std::runtime_error("sink_it_ called on SourceConsoleSink with pure log_msg. This is an error!");
-}
-
-void ExternalConsoleSink::custom_sink_it_(const custom_log_msg& msg)
-{
 	spdlog::memory_buf_t formatted;
 	spdlog::sinks::base_sink<std::mutex>::formatter_->format(msg, formatted);
 
-	std::string out = "";
-	// if ansi colour is turned off, just use WriteConsoleA and return
-	if (!g_bSpdLog_UseAnsiColor)
+	std::string message = fmt::to_string(formatted);
+	std::string name {msg.logger_name.begin(), msg.logger_name.end()};
+
+	std::string out;
+	if (g_bSpdLog_UseAnsiColor)
+		out += NS::log::GetAnsiColorForLoggerName(name);
+	out += "[" + name + "]";
+	if (g_bSpdLog_UseAnsiColor)
+		out += default_color;
+	out += " ";
+
+	if (!IsDedicatedServer() && GetBaseLocalClient)
 	{
-		out += fmt::to_string(formatted);
+		if (CClientState* client = GetBaseLocalClient(); client && client->m_nSignonState >= eSignonState::CONNECTED)
+		{
+			const std::string uptimeStr = fmt::format("{:.3f}", client->m_flServerUptime);
+			out += "[" + uptimeStr + "] ";
+		}
 	}
 
-	// print to the console with colours
-	else
-	{
-		// get message string
-		std::string str = fmt::to_string(formatted);
+	if (g_bSpdLog_UseAnsiColor && msg.level != spdlog::level::info)
+		out += m_LogColours[msg.level];
+	out += message;
+	if (g_bSpdLog_UseAnsiColor && msg.level != spdlog::level::info)
+		out += default_color;
 
-		std::string levelColor = m_LogColours[msg.level];
-		std::string name {msg.logger_name.begin(), msg.logger_name.end()};
-
-		std::string name_str = "[NAME]";
-		size_t name_pos = str.find(name_str);
-		str.replace(name_pos, name_str.length(), msg.origin->ANSIColor + "[" + name + "]" + default_color);
-
-		std::string level_str = "[LVL]";
-		size_t level_pos = str.find(level_str);
-		str.replace(level_pos, level_str.length(), levelColor + "[" + std::string(level_names[msg.level]) + "]" + default_color);
-
-		out += str;
-	}
 	// print the string to the console - this is definitely bad i think
 	HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
 	auto ignored = WriteConsoleA(handle, out.c_str(), (DWORD)std::strlen(out.c_str()), nullptr, nullptr);
@@ -113,12 +191,6 @@ void ExternalConsoleSink::custom_sink_it_(const custom_log_msg& msg)
 void ExternalConsoleSink::flush_()
 {
 	std::cout << std::flush;
-}
-
-void CustomSink::custom_log(const custom_log_msg& msg)
-{
-	std::lock_guard<std::mutex> lock(mutex_);
-	custom_sink_it_(msg);
 }
 
 void LogSys_InitialiseConsole()
@@ -148,75 +220,66 @@ void LogSys_InitialiseConsole()
 	}
 }
 
-void RegisterLogger(std::shared_ptr<ColoredLogger> logger)
+void RegisterLogger(std::shared_ptr<spdlog::logger> logger)
 {
-	loggers.push_back(logger);
+	std::scoped_lock lock(g_LoggersMutex);
+	try
+	{
+		spdlog::register_logger(logger);
+	}
+	catch (...)
+	{
+		// ignore duplicates
+	}
+	g_Loggers.push_back(logger);
 }
 
-void RegisterCustomSink(std::shared_ptr<CustomSink> sink)
+void RegisterSink(spdlog::sink_ptr sink)
 {
-	for (auto& logger : loggers)
-	{
-		logger->custom_sinks_.push_back(sink);
-	}
+	std::scoped_lock lock(g_LoggersMutex);
+	EnsureDispatchSinkInitialized();
+	// Thread-safe: dist_sink_mt guards its internal sink list.
+	g_DispatchSink->add_sink(std::move(sink));
 };
+
+std::shared_ptr<spdlog::logger> CreateLogger(std::string name, const Color& color)
+{
+	NS::log::RegisterLoggerColors(name, color);
+	return CreateAsyncLoggerInternal(name);
+}
 
 void LogSys_InitialiseLogging()
 {
-	// create a logger, and set it to default
-	NS::log::NORTHSTAR = std::make_shared<ColoredLogger>("NORTHSTAR", NS::Colors::NORTHSTAR, true);
-	NS::log::NORTHSTAR->sinks().clear();
-	loggers.push_back(NS::log::NORTHSTAR);
+	EnsureAsyncThreadPoolInitialized();
+
+	auto consoleSink = std::make_shared<ExternalConsoleSink>();
+	consoleSink->set_pattern("%v");
+	RegisterSink(consoleSink);
+
+	NS::log::NORTHSTAR = CreateLogger("NORTHSTAR", NS::Colors::NORTHSTAR);
 	spdlog::set_default_logger(NS::log::NORTHSTAR);
 
-	// create our console sink
-	auto sink = std::make_shared<ExternalConsoleSink>();
-	// set the pattern
-	if (g_bSpdLog_UseAnsiColor)
-		// dont put the log level in the pattern if we are using colours, as the colour will show the log level
-		sink->set_pattern("[%H:%M:%S] [NAME] [LVL] %v");
-	else
-		sink->set_pattern("[%H:%M:%S] [%n] [%l] %v");
+	NS::log::SCRIPT_UI = CreateLogger("SCRIPT UI", NS::Colors::SCRIPT_UI);
+	NS::log::SCRIPT_CL = CreateLogger("SCRIPT CL", NS::Colors::SCRIPT_CL);
+	NS::log::SCRIPT_SV = CreateLogger("SCRIPT SV", NS::Colors::SCRIPT_SV);
 
-	// add our sink to the logger
-	NS::log::NORTHSTAR->custom_sinks_.push_back(sink);
+	NS::log::NATIVE_UI = CreateLogger("NATIVE UI", NS::Colors::NATIVE_UI);
+	NS::log::NATIVE_CL = CreateLogger("NATIVE CL", NS::Colors::NATIVE_CL);
+	NS::log::NATIVE_SV = CreateLogger("NATIVE SV", NS::Colors::NATIVE_SV);
+	NS::log::NATIVE_EN = CreateLogger("NATIVE EN", NS::Colors::NATIVE_ENGINE);
+	NS::log::EOS = CreateLogger(" EOS P2P ", NS::Colors::EOS);
 
-	NS::log::SCRIPT_UI = std::make_shared<ColoredLogger>("SCRIPT UI", NS::Colors::SCRIPT_UI);
-	NS::log::SCRIPT_CL = std::make_shared<ColoredLogger>("SCRIPT CL", NS::Colors::SCRIPT_CL);
-	NS::log::SCRIPT_SV = std::make_shared<ColoredLogger>("SCRIPT SV", NS::Colors::SCRIPT_SV);
+	NS::log::fs = CreateLogger("FILESYSTM", NS::Colors::FILESYSTEM);
+	NS::log::rpak = CreateLogger("RPAK_FSYS", NS::Colors::RPAK);
+	NS::log::echo = CreateLogger("ECHO", NS::Colors::ECHO);
 
-	NS::log::NATIVE_UI = std::make_shared<ColoredLogger>("NATIVE UI", NS::Colors::NATIVE_UI);
-	NS::log::NATIVE_CL = std::make_shared<ColoredLogger>("NATIVE CL", NS::Colors::NATIVE_CL);
-	NS::log::NATIVE_SV = std::make_shared<ColoredLogger>("NATIVE SV", NS::Colors::NATIVE_SV);
-	NS::log::NATIVE_EN = std::make_shared<ColoredLogger>("NATIVE EN", NS::Colors::NATIVE_ENGINE);
-	NS::log::EOS = std::make_shared<ColoredLogger>(" EOS P2P ", NS::Colors::EOS);
-
-	NS::log::fs = std::make_shared<ColoredLogger>("FILESYSTM", NS::Colors::FILESYSTEM);
-	NS::log::rpak = std::make_shared<ColoredLogger>("RPAK_FSYS", NS::Colors::RPAK);
-	NS::log::echo = std::make_shared<ColoredLogger>("ECHO", NS::Colors::ECHO);
-
-	NS::log::PLUGINSYS = std::make_shared<ColoredLogger>("PLUGINSYS", NS::Colors::PLUGINSYS);
-
-	loggers.push_back(NS::log::SCRIPT_UI);
-	loggers.push_back(NS::log::SCRIPT_CL);
-	loggers.push_back(NS::log::SCRIPT_SV);
-
-	loggers.push_back(NS::log::NATIVE_UI);
-	loggers.push_back(NS::log::NATIVE_CL);
-	loggers.push_back(NS::log::NATIVE_SV);
-	loggers.push_back(NS::log::NATIVE_EN);
-	loggers.push_back(NS::log::EOS);
-
-	loggers.push_back(NS::log::PLUGINSYS);
-
-	loggers.push_back(NS::log::fs);
-	loggers.push_back(NS::log::rpak);
-	loggers.push_back(NS::log::echo);
+	NS::log::PLUGINSYS = CreateLogger("PLUGINSYS", NS::Colors::PLUGINSYS);
 }
 
 void NS::log::FlushLoggers()
 {
-	for (auto& logger : loggers)
+	std::scoped_lock lock(g_LoggersMutex);
+	for (auto& logger : g_Loggers)
 		logger->flush();
 
 	spdlog::default_logger()->flush();

@@ -4,7 +4,7 @@
 
 void (*CGameClient__ClientPrintf)(CClient* pClient, const char* fmt, ...);
 
-void DedicatedServerLogToClientSink::custom_sink_it_(const custom_log_msg& msg)
+void DedicatedServerLogToClientSink::sink_it_(const spdlog::details::log_msg& msg)
 {
 	if (*g_pServerState == server_state_t::ss_dead)
 		return;
@@ -21,7 +21,8 @@ void DedicatedServerLogToClientSink::custom_sink_it_(const custom_log_msg& msg)
 	if (eSendPrints == eSendPrintsToClient::NONE)
 		return;
 
-	std::string sLogMessage = fmt::format("[DEDICATED SERVER] [{}] {}", level_names[msg.level], msg.payload);
+	std::string payload(msg.payload.data(), msg.payload.size());
+	std::string sLogMessage = fmt::format("[DEDICATED SERVER] [{}] {}", level_names[msg.level], payload);
 	for (int i = 0; i < g_pGlobals->m_nMaxClients; i++)
 	{
 		CClient* pClient = &g_pClientArray[i];
@@ -34,12 +35,6 @@ void DedicatedServerLogToClientSink::custom_sink_it_(const custom_log_msg& msg)
 				break;
 		}
 	}
-}
-
-void DedicatedServerLogToClientSink::sink_it_(const spdlog::details::log_msg& msg)
-{
-	NOTE_UNUSED(msg);
-	throw std::runtime_error("sink_it_ called on DedicatedServerLogToClientSink with pure log_msg. This is an error!");
 }
 
 void DedicatedServerLogToClientSink::flush_() {}

@@ -22,7 +22,7 @@ SquirrelManagerManager g_pSquirrel;
 
 float g_LastSQErrorTimes[3] = {0.0f, 0.0f, 0.0f};
 
-std::shared_ptr<ColoredLogger> getSquirrelLoggerByContext(ScriptContext context)
+std::shared_ptr<spdlog::logger> getSquirrelLoggerByContext(ScriptContext context)
 {
 	switch (context)
 	{

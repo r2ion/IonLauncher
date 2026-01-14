@@ -5,6 +5,8 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/base_sink.h>
+#include <map>
+#include <mutex>
 
 #include "vscript/squirrel/squirrel.h"
 #include "core/math/color.h"
@@ -14,127 +16,49 @@ void LogSys_InitialiseLogging();
 void LogSys_InitialiseConsole();
 void LogSys_StartupLog();
 
-class ColoredLogger;
-
-struct custom_log_msg : spdlog::details::log_msg
-{
-public:
-	custom_log_msg(ColoredLogger* origin, spdlog::details::log_msg msg)
-		: origin(origin)
-		, spdlog::details::log_msg(msg)
-	{
-	}
-
-	ColoredLogger* origin;
-};
-
-class CustomSink : public spdlog::sinks::base_sink<std::mutex>
-{
-public:
-	void custom_log(const custom_log_msg& msg);
-	virtual void custom_sink_it_(const custom_log_msg& msg)
-	{
-		NOTE_UNUSED(msg);
-		throw std::runtime_error("Pure virtual call to CustomSink::custom_sink_it_");
-	}
-};
-
-class ColoredLogger : public spdlog::logger
-{
-public:
-	std::string ANSIColor;
-	SourceColor SRCColor;
-
-	std::vector<std::shared_ptr<CustomSink>> custom_sinks_;
-
-	ColoredLogger(std::string name, Color color, bool first = false)
-		: spdlog::logger(*spdlog::default_logger())
-	{
-		name_ = std::move(name);
-		if (!first)
-		{
-			custom_sinks_ = dynamic_pointer_cast<ColoredLogger>(spdlog::default_logger())->custom_sinks_;
-		}
-
-		ANSIColor = color.ToANSIColor();
-		SRCColor = color.ToSourceColor();
-	}
-
-    void sink_it_(const spdlog::details::log_msg& msg)
-    {
-        custom_log_msg custom_msg {this, msg};
-
-        for (auto& sink : sinks_)
-        {
-            try
-            {
-                sink->log(custom_msg);
-            }
-            catch (const std::exception& ex)
-            {
-                err_handler_(std::format("{}", ex.what()));
-            }
-            catch (...)
-            {
-                err_handler_("Unknown exception in logger");
-            }
-        }
-
-        for (auto& sink : custom_sinks_)
-        {
-            try
-            {
-                sink->custom_log(custom_msg);
-            }
-            catch (const std::exception& ex)
-            {
-                err_handler_(std::format("{}", ex.what()));
-            }
-            catch (...)
-            {
-                err_handler_("Unknown exception in logger");
-            }
-        }
-
-        if (should_flush_(custom_msg))
-        {
-            flush_();
-        }
-    }
-};
-
 namespace NS::log
 {
+	using LoggerPtr = std::shared_ptr<spdlog::logger>;
+
+	extern std::mutex g_LoggerColorMutex;
+	extern std::map<std::string, std::string> g_LoggerAnsiColors;
+	extern std::map<std::string, SourceColor> g_LoggerSourceColors;
+
+	void RegisterLoggerColors(const std::string& loggerName, const Color& color);
+	const std::string& GetAnsiColorForLoggerName(std::string_view loggerName);
+	SourceColor GetSourceColorForLoggerName(std::string_view loggerName);
+
 	// Squirrel
-	extern std::shared_ptr<ColoredLogger> SCRIPT_UI;
-	extern std::shared_ptr<ColoredLogger> SCRIPT_CL;
-	extern std::shared_ptr<ColoredLogger> SCRIPT_SV;
+	extern LoggerPtr SCRIPT_UI;
+	extern LoggerPtr SCRIPT_CL;
+	extern LoggerPtr SCRIPT_SV;
 
 	// Native code
-	extern std::shared_ptr<ColoredLogger> NATIVE_UI;
-	extern std::shared_ptr<ColoredLogger> NATIVE_CL;
-	extern std::shared_ptr<ColoredLogger> NATIVE_SV;
-	extern std::shared_ptr<ColoredLogger> NATIVE_EN;
+	extern LoggerPtr NATIVE_UI;
+	extern LoggerPtr NATIVE_CL;
+	extern LoggerPtr NATIVE_SV;
+	extern LoggerPtr NATIVE_EN;
 
 	// File system
-	extern std::shared_ptr<ColoredLogger> fs;
+	extern LoggerPtr fs;
 	// RPak
-	extern std::shared_ptr<ColoredLogger> rpak;
+	extern LoggerPtr rpak;
 	// Echo
-	extern std::shared_ptr<ColoredLogger> echo;
+	extern LoggerPtr echo;
 
-	extern std::shared_ptr<ColoredLogger> NORTHSTAR;
+	extern LoggerPtr NORTHSTAR;
 
-	extern std::shared_ptr<ColoredLogger> PLUGINSYS;
+	extern LoggerPtr PLUGINSYS;
 
 	// p2p
-	extern std::shared_ptr<ColoredLogger> EOS;
+	extern LoggerPtr EOS;
 
 	void FlushLoggers();
 }; // namespace NS::log
 
-void RegisterCustomSink(std::shared_ptr<CustomSink> sink);
-void RegisterLogger(std::shared_ptr<ColoredLogger> logger);
+void RegisterSink(spdlog::sink_ptr sink);
+void RegisterLogger(std::shared_ptr<spdlog::logger> logger);
+std::shared_ptr<spdlog::logger> CreateLogger(std::string name, const Color& color);
 
 inline bool g_bSpdLog_UseAnsiColor = true;
 
@@ -142,7 +66,7 @@ inline bool g_bSpdLog_UseAnsiColor = true;
 static const char* level_names[] {"trac", "dbug", "info", "warn", "errr", "crit", "off"};
 
 // spdlog logger, for cool colour things
-class ExternalConsoleSink : public CustomSink
+class ExternalConsoleSink : public spdlog::sinks::base_sink<std::mutex>
 {
 private:
 	std::map<spdlog::level::level_enum, std::string> m_LogColours = {
@@ -158,6 +82,5 @@ private:
 
 protected:
 	void sink_it_(const spdlog::details::log_msg& msg) override;
-	void custom_sink_it_(const custom_log_msg& msg);
 	void flush_() override;
 };

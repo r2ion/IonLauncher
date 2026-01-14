@@ -113,8 +113,7 @@ Plugin::Plugin(std::string path)
 		return;
 	}
 
-	m_logger = std::make_shared<ColoredLogger>(m_logName, m_logColor);
-	RegisterLogger(m_logger);
+	m_logger = CreateLogger(m_logName, m_logColor);
 
 	if (IsDedicatedServer() && !m_runOnServer)
 	{
