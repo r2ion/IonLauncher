@@ -5,6 +5,7 @@ cmake_policy(SET CMP0169 OLD)
 
 project(
     Northstar
+	C
     CXX
     ASM_MASM
     )
