@@ -1,10 +1,8 @@
-# If a target already exists, treat the package as found.
 if(TARGET minhook)
     set(minhook_FOUND TRUE)
     return()
 endif()
 
-# Expect the caller (or FetchContent/CPM) to define this.
 if(NOT DEFINED minhook-detours_SOURCE_DIR OR minhook-detours_SOURCE_DIR STREQUAL "")
     message(FATAL_ERROR
         "Findminhook.cmake: 'minhook-detours_SOURCE_DIR' is not set. "
@@ -14,7 +12,6 @@ endif()
 
 set(_minhook_root "${minhook-detours_SOURCE_DIR}")
 
-# Collect sources (and headers for IDE visibility)
 file(GLOB_RECURSE _minhook_sources CONFIGURE_DEPENDS
     "${_minhook_root}/*.c"
     "${_minhook_root}/*.cc"
@@ -36,7 +33,6 @@ add_library(minhook STATIC
     ${_minhook_headers}
 )
 
-# Common MinHook layouts: include/MinHook.h and src/*
 target_include_directories(minhook
     PUBLIC
         "${_minhook_root}/src"
@@ -51,7 +47,6 @@ target_include_directories(minhook
 
 target_link_libraries(minhook PUBLIC ntdll.lib)
 
-# Export find_package() variables
 set(minhook_FOUND TRUE)
 set(minhook_INCLUDE_DIRS "${_minhook_root}/src")
 set(minhook_LIBRARIES minhook)

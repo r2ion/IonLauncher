@@ -1,5 +1,5 @@
 #include "vscript/squirrel/squirrel.h"
-#include "rtech/rpakfilesystem.h"
+#include "rtech/pakfilesystem.h"
 #include "core/convar/convar.h"
 #include "dedicated/dedicated.h"
 #include "core/filesystem/filesystem.h"
