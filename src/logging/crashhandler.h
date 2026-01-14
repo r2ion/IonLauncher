@@ -55,6 +55,8 @@ public:
 	void FormatLoadedPlugins();
 	void FormatModules();
 
+	void PlayCrashSound(int resourceId);
+
 	bool TryCopyCString(const char* src, char* dst, size_t dstSize);
     bool TrySymFromAddrSafe(HANDLE process, DWORD64 address, DWORD64* displacement, PSYMBOL_INFO symbol);
     bool TrySymGetLineFromAddr64Safe(HANDLE process, DWORD64 address, DWORD* displacement, IMAGEHLP_LINE64* line);

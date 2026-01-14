@@ -5,8 +5,10 @@
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
 #include "util/version.h"
+#include "crash_sounds.h"
 
 #include <DbgHelp.h>
+#include <Mmsystem.h>
 #include <minidumpapiset.h>
 
 #pragma comment(lib, "dbghelp.lib")
@@ -31,6 +33,8 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 		g_pCrashHandler->Unlock();
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
+
+	g_pCrashHandler->PlayCrashSound(CRASH_SOUND);
 
 	// Don't run if a debbuger is attached
 	if (IsDebuggerPresent())
@@ -65,13 +69,10 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 	// Write minidump
 	g_pCrashHandler->WriteMinidump();
 
-	// Show message box
-	g_pCrashHandler->ShowPopUpMessage();
-
 	g_pCrashHandler->Unlock();
 
-	// We showed the "Northstar has crashed" message box
-	// make sure we terminate
+	g_pCrashHandler->PlayCrashSound(CRASH_SOUND2);
+
 	if (!g_pCrashHandler->IsExceptionFatal())
 		ExitProcess(1);
 
@@ -131,6 +132,44 @@ void CCrashHandler::Init()
 	SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
 	m_bSymInit = SymInitialize(GetCurrentProcess(), nullptr, TRUE) == TRUE;
 	spdlog::info("Initialized symbol handler for crash reporting: {}", m_bSymInit ? "Success" : "Failed");
+}
+
+void CCrashHandler::PlayCrashSound(int resourceId)
+{
+    // IMPORTANT: resources are in Northstar.dll, not necessarily in the module that crashed.
+    HMODULE hModule = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&ExceptionFilter), // address inside THIS module
+            &hModule))
+    {
+        return;
+    }
+
+    HRSRC hRes = FindResourceA(hModule, MAKEINTRESOURCEA(resourceId), "WAVE");
+    if (!hRes)
+    {
+        spdlog::error("PlayCrashSound: FindResource failed for id {} (err={})", resourceId, GetLastError());
+        return;
+    }
+
+    HGLOBAL hData = LoadResource(hModule, hRes);
+    if (!hData)
+    {
+        spdlog::error("PlayCrashSound: LoadResource failed for id {} (err={})", resourceId, GetLastError());
+        return;
+    }
+
+    const void* pData = LockResource(hData);
+    const DWORD size = SizeofResource(hModule, hRes);
+    if (!pData || size == 0)
+    {
+        spdlog::error("PlayCrashSound: resource empty for id {}", resourceId);
+        return;
+    }
+
+    // Synchronous so the process doesn't exit before playback starts.
+    PlaySoundA(reinterpret_cast<LPCSTR>(pData), NULL, SND_MEMORY | SND_SYNC | SND_NODEFAULT);
 }
 
 //-----------------------------------------------------------------------------
@@ -381,7 +420,7 @@ void CCrashHandler::ShowPopUpMessage()
 			m_svCrashedModule,
 			m_svCrashedOffset);
 
-		MessageBoxA(GetForegroundWindow(), svMessage.c_str(), "Northstar has crashed!", MB_ICONERROR | MB_OK);
+		MessageBoxA(GetForegroundWindow(), svMessage.c_str(), "Northstar has crashed!", MB_SETFOREGROUND | MB_OK);
 	}
 }
 
