@@ -31,8 +31,8 @@ jobs:
       - name: Setup resource file version
         shell: bash
         run: |
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/primelauncher/resources.rc
           sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/resources.rc
+          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' launcher/resources.rc
 
           # Extract version and patch from tag (e.g., v1.31.3_2)
           VERSION_FULL=$(echo ${{ env.NORTHSTAR_VERSION }} | sed 's/^v//')
@@ -48,8 +48,8 @@ jobs:
           FILEVERSION=$(echo ${VERSION_BASE} | tr '.' ',')
 
           # Update ns_version.h with both version and patch
-          sed -i "s/0,0,0,1/${FILEVERSION}/g" src/ns_version.h
-          sed -i "s/#define ION_PATCH 0/#define ION_PATCH ${PATCH_VERSION}/g" src/ns_version.h
+          sed -i "s/0,0,0,1/${FILEVERSION}/g" include/ns_version.h
+          sed -i "s/#define ION_PATCH 0/#define ION_PATCH ${PATCH_VERSION}/g" include/ns_version.h
       - name: Build
         run: cmake --build build/
       - name: Upload launcher build as artifact
