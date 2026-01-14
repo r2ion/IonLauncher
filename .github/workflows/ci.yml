@@ -33,10 +33,10 @@ jobs:
       - name: Setup resource file version
         shell: bash
         run: |
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/primelauncher/resources.rc
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/resources.rc
+          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' launcher/resources.rc
+          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' launcher/resources.rc
           FILEVERSION=$(echo ${{ env.NORTHSTAR_VERSION }} | tr '.' ',' | sed -E 's/-rc[0-9]+//' | tr -d '[:alpha:]')
-          sed -i "s/0,0,0,1/${FILEVERSION}/g" src/ns_version.h
+          sed -i "s/0,0,0,1/${FILEVERSION}/g" include/ns_version.h
       - name: Build
         run: cmake --build build/
       - name: Extract Short Commit Hash
