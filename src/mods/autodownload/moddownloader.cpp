@@ -12,7 +12,8 @@
 #include <mz.h>
 #include <mz_strm.h>
 #include <mz_zip.h>
-#include <mz_compat.h>
+#include <compat/unzip.h>
+#include <compat/zip.h>
 #include <thread>
 #include <future>
 #include <bcrypt.h>

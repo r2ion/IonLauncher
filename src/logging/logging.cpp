@@ -34,7 +34,7 @@ namespace NS::log
 }; // namespace NS::log
 
 // This needs to be called after hooks are loaded so we can access the command line args
-void CreateLogFiles()
+void LogSys_CreateLogFiles()
 {
 	if (strstr(GetCommandLineA(), "-disablelogs"))
 	{
@@ -121,7 +121,7 @@ void CustomSink::custom_log(const custom_log_msg& msg)
 	custom_sink_it_(msg);
 }
 
-void InitialiseConsole()
+void LogSys_InitialiseConsole()
 {
 	if (AllocConsole() != FALSE)
 	{
@@ -161,7 +161,7 @@ void RegisterCustomSink(std::shared_ptr<CustomSink> sink)
 	}
 };
 
-void InitialiseLogging()
+void LogSys_InitialiseLogging()
 {
 	// create a logger, and set it to default
 	NS::log::NORTHSTAR = std::make_shared<ColoredLogger>("NORTHSTAR", NS::Colors::NORTHSTAR, true);
@@ -233,7 +233,7 @@ wine_get_build_id_type wine_get_build_id;
 typedef NTSTATUS(WINAPI* RtlGetVersion_type)(PRTL_OSVERSIONINFOW);
 RtlGetVersion_type RtlGetVersion;
 
-void StartupLog()
+void LogSys_StartupLog()
 {
 	spdlog::info("NorthstarLauncher version: {}", version);
 	spdlog::info("Command line: {}", GetCommandLineA());

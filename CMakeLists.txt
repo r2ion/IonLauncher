@@ -85,8 +85,17 @@ set(CURL_ZLIB OFF)
 set(CURL_DISABLE_LDAP ON)
 set(CURL_DISABLE_LDAPS ON)
 
+set(MZ_ZLIB OFF)
+
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
 CPMAddPackage("gh:Tencent/rapidjson@1.1.0")
+CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
+
+CPMAddPackage(
+	NAME minizip-ng
+	GITHUB_REPOSITORY zlib-ng/minizip-ng
+	GIT_TAG 4.0.10
+)
 
 CPMAddPackage(
   	NAME libcurl

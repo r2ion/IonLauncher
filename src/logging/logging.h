@@ -9,10 +9,10 @@
 #include "vscript/squirrel/squirrel.h"
 #include "core/math/color.h"
 
-void CreateLogFiles();
-void InitialiseLogging();
-void InitialiseConsole();
-void StartupLog();
+void LogSys_CreateLogFiles();
+void LogSys_InitialiseLogging();
+void LogSys_InitialiseConsole();
+void LogSys_StartupLog();
 
 class ColoredLogger;
 

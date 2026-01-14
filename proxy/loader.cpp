@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <iostream>
 
-#include "MinHook.h"
+#include <MinHook.h>
 
 namespace fs = std::filesystem;
 

@@ -50,12 +50,11 @@ bool InitialiseNorthstar()
 	InitialiseNorthstarPrefix();
 
 	if( strstr( GetCommandLineA(), "-noconsole" ) == NULL )
-		InitialiseConsole();
+		LogSys_InitialiseConsole();
 	// initialise logging before most other things so that they can use spdlog and it have the proper formatting
-	InitialiseLogging();
+	LogSys_InitialiseLogging();
 	InitialiseVersion();
-	CreateLogFiles();
-
+	LogSys_CreateLogFiles();
 	g_pCrashHandler = new CCrashHandler();
 	bool bAllFatal = strstr(GetCommandLineA(), "-crash_handle_all") != NULL;
 	g_pCrashHandler->SetAllFatal(bAllFatal);
@@ -63,7 +62,7 @@ bool InitialiseNorthstar()
 	// determine if we are in vanilla-compatibility mode
 	g_pVanillaCompatibility = new VanillaCompatibility();
 	// Write launcher version to log
-	StartupLog();
+	LogSys_StartupLog();
 
 	// Init minhook
 	HookSys_Init();

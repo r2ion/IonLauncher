@@ -34,7 +34,7 @@ namespace fs = std::filesystem;
 #include "core/macros.h"
 #include "core/math/color.h"
 #include "logging/logging.h"
-#include "MinHook.h"
+#include <MinHook.h>
 #include "core/hooks.h"
 #include <curl/curl.h>
 #include "silver-bun/module.h"

@@ -1,5 +1,4 @@
 find_package(minhook REQUIRED)
-find_package(minizip REQUIRED)
 find_package(silver-bun REQUIRED)
 
 set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
@@ -280,12 +279,13 @@ target_include_directories(
             "${rapidjson_SOURCE_DIR}/include"
 			"${CMAKE_CURRENT_SOURCE_DIR}"
 			"${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
+			"${minizip-ng_SOURCE_DIR}"
 		)
 
 target_link_libraries(
     NorthstarDLL
     PRIVATE minhook
-            minizip
+			minizip
             ws2_32.lib
             crypt32.lib
             cryptui.lib
