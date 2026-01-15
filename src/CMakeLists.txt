@@ -294,7 +294,7 @@ target_link_libraries(
             normaliz.lib
             bcrypt.lib
             version.lib
-			winmm.lib
+            winmm.lib
             ${EOS_LIB}
             spdlog
             libcurl

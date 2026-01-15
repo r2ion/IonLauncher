@@ -39,10 +39,7 @@ target_compile_definitions(
             WIN32_LEAN_AND_MEAN
     )
 
-target_include_directories(
-	loader_wsock32_proxy
-	PRIVATE "${minhook-detours_SOURCE_DIR}/src"
-)
+target_include_directories(loader_wsock32_proxy PRIVATE "${minhook-detours_SOURCE_DIR}/src")
 
 set_target_properties(
     loader_wsock32_proxy
