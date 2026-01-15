@@ -13,12 +13,71 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <winternl.h>
 #include <cstdlib>
+#include <deque>
 #include <iomanip>
 #include <sstream>
 
 static std::mutex g_LoggersMutex;
 static std::vector<std::shared_ptr<spdlog::logger>> g_Loggers {};
 static std::shared_ptr<spdlog::sinks::dist_sink_mt> g_DispatchSink;
+
+namespace
+{
+	class RecentLogRingBufferSink final : public spdlog::sinks::base_sink<std::mutex>
+	{
+	public:
+		explicit RecentLogRingBufferSink(size_t capacity, size_t maxLineBytes = 4096)
+			: m_Capacity(capacity)
+			, m_MaxLineBytes(maxLineBytes)
+		{
+			if (m_Capacity == 0)
+				m_Capacity = 1;
+			if (m_MaxLineBytes == 0)
+				m_MaxLineBytes = 1;
+		}
+
+		std::vector<std::string> GetLastLines(size_t maxLines)
+		{
+			std::lock_guard<std::mutex> lock(this->mutex_);
+			if (maxLines == 0 || m_Lines.empty())
+				return {};
+
+			const size_t count = std::min(maxLines, m_Lines.size());
+			std::vector<std::string> out;
+			out.reserve(count);
+			const size_t start = m_Lines.size() - count;
+			for (size_t i = start; i < m_Lines.size(); i++)
+				out.emplace_back(m_Lines[i]);
+			return out;
+		}
+
+	protected:
+		void sink_it_(const spdlog::details::log_msg& msg) override
+		{
+			spdlog::memory_buf_t formatted;
+			spdlog::sinks::base_sink<std::mutex>::formatter_->format(msg, formatted);
+
+			std::string line = fmt::to_string(formatted);
+			while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
+				line.pop_back();
+			if (line.size() > m_MaxLineBytes)
+				line.resize(m_MaxLineBytes);
+
+			m_Lines.emplace_back(std::move(line));
+			if (m_Lines.size() > m_Capacity)
+				m_Lines.pop_front();
+		}
+
+		void flush_() override {}
+
+	private:
+		size_t m_Capacity;
+		size_t m_MaxLineBytes;
+		std::deque<std::string> m_Lines;
+	};
+
+	static std::shared_ptr<RecentLogRingBufferSink> g_RecentLogSink;
+}
 
 namespace NS::log
 {
@@ -252,6 +311,14 @@ void LogSys_InitialiseLogging()
 {
 	EnsureAsyncThreadPoolInitialized();
 
+	// In-memory recent-log ring buffer for crash reporting.
+	{
+		auto recentSink = std::make_shared<RecentLogRingBufferSink>(200);
+		recentSink->set_pattern("[%Y-%m-%d] [%H:%M:%S] [%n] [%l] %v");
+		g_RecentLogSink = recentSink;
+		RegisterSink(std::move(recentSink));
+	}
+
 	auto consoleSink = std::make_shared<ExternalConsoleSink>();
 	consoleSink->set_pattern("%v");
 	RegisterSink(consoleSink);
@@ -274,6 +341,14 @@ void LogSys_InitialiseLogging()
 	NS::log::echo = CreateLogger("ECHO", NS::Colors::ECHO);
 
 	NS::log::PLUGINSYS = CreateLogger("PLUGINSYS", NS::Colors::PLUGINSYS);
+}
+
+std::vector<std::string> NS::log::GetRecentLogLines(size_t maxLines)
+{
+	auto sink = g_RecentLogSink;
+	if (!sink)
+		return {};
+	return sink->GetLastLines(maxLines);
 }
 
 void NS::log::FlushLoggers()

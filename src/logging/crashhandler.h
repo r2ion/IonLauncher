@@ -1,6 +1,8 @@
 #pragma once
 
 #include <mutex>
+#include <string>
+#include <vector>
 #include <DbgHelp.h>
 
 //-----------------------------------------------------------------------------
@@ -47,15 +49,18 @@ public:
 
 	void FormatException();
 	void FormatCallstack();
-	void FormatFlags(const CHAR* pszRegister, DWORD nValue);
-	void FormatIntReg(const CHAR* pszRegister, DWORD64 nValue);
-	void FormatFloatReg(const CHAR* pszRegister, M128A nValue);
+	std::string FormatFlags(const CHAR* pszRegister, DWORD nValue);
+	std::string FormatIntReg(const CHAR* pszRegister, DWORD64 nValue);
+	std::string FormatFloatReg(const CHAR* pszRegister, M128A nValue);
 	void FormatRegisters();
 	void FormatLoadedMods();
 	void FormatLoadedPlugins();
 	void FormatModules();
 
 	void PlayCrashSound(int resourceId);
+
+	// Capture recent log lines before crash-report logging writes into the log.
+	void CapturePreCrashLog(size_t maxLines = 200);
 
 	bool TryCopyCString(const char* src, char* dst, size_t dstSize);
     bool TrySymFromAddrSafe(HANDLE process, DWORD64 address, DWORD64* displacement, PSYMBOL_INFO symbol);
@@ -65,6 +70,8 @@ public:
 	// Minidump
 	//-----------------------------------------------------------------------------
 	void WriteMinidump();
+	void WriteCrashComment();
+	void OpenCrashComment(std::string filepath);
 
 private:
 	PVOID m_hExceptionFilter;
@@ -79,6 +86,8 @@ private:
 	std::string m_svCrashedOffset;
 
 	std::string m_svError;
+
+	std::vector<std::string> m_PreCrashLogLines;
 
 	std::mutex m_Mutex;
 	bool m_bSymInit;

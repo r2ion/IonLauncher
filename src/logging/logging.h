@@ -7,6 +7,8 @@
 #include <spdlog/sinks/base_sink.h>
 #include <map>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "vscript/squirrel/squirrel.h"
 #include "core/math/color.h"
@@ -54,6 +56,9 @@ namespace NS::log
 	extern LoggerPtr EOS;
 
 	void FlushLoggers();
+
+	// Returns the most recent log lines (oldest->newest). Empty if logging hasn't been initialised yet.
+	std::vector<std::string> GetRecentLogLines(size_t maxLines = 200);
 }; // namespace NS::log
 
 void RegisterSink(spdlog::sink_ptr sink);

@@ -1,4 +1,8 @@
+#include "logging.h"
 #include "crashhandler.h"
+#include <string>
+#include <vector>
+#include <fstream>
 #include "config/profile.h"
 #include "dedicated/dedicated.h"
 #include "mods/modmanager.h"
@@ -7,6 +11,7 @@
 #include "util/version.h"
 #include "crash_sounds.h"
 
+#include <ns_version.h>
 #include <DbgHelp.h>
 #include <Mmsystem.h>
 #include <minidumpapiset.h>
@@ -52,6 +57,9 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 
 	g_pCrashHandler->SetState(true);
 
+	// Snapshot recent logs before we write crash details into spdlog.
+	g_pCrashHandler->CapturePreCrashLog(200);
+
 	// Needs to be called first as we use the members this sets later on
 	g_pCrashHandler->SetCrashedModule();
 
@@ -68,6 +76,7 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 
 	// Write minidump
 	g_pCrashHandler->WriteMinidump();
+	g_pCrashHandler->WriteCrashComment();
 
 	g_pCrashHandler->Unlock();
 
@@ -77,6 +86,11 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 		ExitProcess(1);
 
 	return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void CCrashHandler::CapturePreCrashLog(size_t maxLines)
+{
+	m_PreCrashLogLines = NS::log::GetRecentLogLines(maxLines);
 }
 
 //-----------------------------------------------------------------------------
@@ -571,23 +585,23 @@ void CCrashHandler::FormatCallstack()
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatFlags(const CHAR* pszRegister, DWORD nValue)
+std::string CCrashHandler::FormatFlags(const CHAR* pszRegister, DWORD nValue)
 {
-	spdlog::error("\t{}: {:#b}", pszRegister, nValue);
+	return fmt::format("{}: {:#b}", pszRegister, nValue);
 }
 
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatIntReg(const CHAR* pszRegister, DWORD64 nValue)
+std::string CCrashHandler::FormatIntReg(const CHAR* pszRegister, DWORD64 nValue)
 {
-	spdlog::error("\t{}: {:#x}", pszRegister, nValue);
+	return fmt::format("{}: {:#x}", pszRegister, nValue);
 }
 
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatFloatReg(const CHAR* pszRegister, M128A nValue)
+std::string CCrashHandler::FormatFloatReg(const CHAR* pszRegister, M128A nValue)
 {
 	DWORD nVec[4] = {
 		static_cast<DWORD>(nValue.Low & UINT_MAX),
@@ -595,8 +609,8 @@ void CCrashHandler::FormatFloatReg(const CHAR* pszRegister, M128A nValue)
 		static_cast<DWORD>(nValue.High & UINT_MAX),
 		static_cast<DWORD>(nValue.High >> 32)};
 
-	spdlog::error(
-		"\t{}: [ {:G}, {:G}, {:G}, {:G} ]; [ {:#x}, {:#x}, {:#x}, {:#x} ]",
+	return fmt::format(
+		"{}: [ {:G}, {:G}, {:G}, {:G} ]; [ {:#x}, {:#x}, {:#x}, {:#x} ]",
 		pszRegister,
 		static_cast<float>(nVec[0]),
 		static_cast<float>(nVec[1]),
@@ -617,42 +631,42 @@ void CCrashHandler::FormatRegisters()
 
 	PCONTEXT pContext = m_pExceptionInfos->ContextRecord;
 
-	FormatFlags("Flags:", pContext->ContextFlags);
+	spdlog::error("\t{}", FormatFlags("Flags:", pContext->ContextFlags));
 
-	FormatIntReg("Rax", pContext->Rax);
-	FormatIntReg("Rcx", pContext->Rcx);
-	FormatIntReg("Rdx", pContext->Rdx);
-	FormatIntReg("Rbx", pContext->Rbx);
-	FormatIntReg("Rsp", pContext->Rsp);
-	FormatIntReg("Rbp", pContext->Rbp);
-	FormatIntReg("Rsi", pContext->Rsi);
-	FormatIntReg("Rdi", pContext->Rdi);
-	FormatIntReg("R8 ", pContext->R8);
-	FormatIntReg("R9 ", pContext->R9);
-	FormatIntReg("R10", pContext->R10);
-	FormatIntReg("R11", pContext->R11);
-	FormatIntReg("R12", pContext->R12);
-	FormatIntReg("R13", pContext->R13);
-	FormatIntReg("R14", pContext->R14);
-	FormatIntReg("R15", pContext->R15);
-	FormatIntReg("Rip", pContext->Rip);
+	spdlog::error("\t{}", FormatIntReg("Rax", pContext->Rax));
+	spdlog::error("\t{}", FormatIntReg("Rcx", pContext->Rcx));
+	spdlog::error("\t{}", FormatIntReg("Rdx", pContext->Rdx));
+	spdlog::error("\t{}", FormatIntReg("Rbx", pContext->Rbx));
+	spdlog::error("\t{}", FormatIntReg("Rsp", pContext->Rsp));
+	spdlog::error("\t{}", FormatIntReg("Rbp", pContext->Rbp));
+	spdlog::error("\t{}", FormatIntReg("Rsi", pContext->Rsi));
+	spdlog::error("\t{}", FormatIntReg("Rdi", pContext->Rdi));
+	spdlog::error("\t{}", FormatIntReg("R8 ", pContext->R8));
+	spdlog::error("\t{}", FormatIntReg("R9 ", pContext->R9));
+	spdlog::error("\t{}", FormatIntReg("R10", pContext->R10));
+	spdlog::error("\t{}", FormatIntReg("R11", pContext->R11));
+	spdlog::error("\t{}", FormatIntReg("R12", pContext->R12));
+	spdlog::error("\t{}", FormatIntReg("R13", pContext->R13));
+	spdlog::error("\t{}", FormatIntReg("R14", pContext->R14));
+	spdlog::error("\t{}", FormatIntReg("R15", pContext->R15));
+	spdlog::error("\t{}", FormatIntReg("Rip", pContext->Rip));
 
-	FormatFloatReg("Xmm0 ", pContext->Xmm0);
-	FormatFloatReg("Xmm1 ", pContext->Xmm1);
-	FormatFloatReg("Xmm2 ", pContext->Xmm2);
-	FormatFloatReg("Xmm3 ", pContext->Xmm3);
-	FormatFloatReg("Xmm4 ", pContext->Xmm4);
-	FormatFloatReg("Xmm5 ", pContext->Xmm5);
-	FormatFloatReg("Xmm6 ", pContext->Xmm6);
-	FormatFloatReg("Xmm7 ", pContext->Xmm7);
-	FormatFloatReg("Xmm8 ", pContext->Xmm8);
-	FormatFloatReg("Xmm9 ", pContext->Xmm9);
-	FormatFloatReg("Xmm10", pContext->Xmm10);
-	FormatFloatReg("Xmm11", pContext->Xmm11);
-	FormatFloatReg("Xmm12", pContext->Xmm12);
-	FormatFloatReg("Xmm13", pContext->Xmm13);
-	FormatFloatReg("Xmm14", pContext->Xmm14);
-	FormatFloatReg("Xmm15", pContext->Xmm15);
+	spdlog::error("\t{}", FormatFloatReg("Xmm0 ", pContext->Xmm0));
+	spdlog::error("\t{}", FormatFloatReg("Xmm1 ", pContext->Xmm1));
+	spdlog::error("\t{}", FormatFloatReg("Xmm2 ", pContext->Xmm2));
+	spdlog::error("\t{}", FormatFloatReg("Xmm3 ", pContext->Xmm3));
+	spdlog::error("\t{}", FormatFloatReg("Xmm4 ", pContext->Xmm4));
+	spdlog::error("\t{}", FormatFloatReg("Xmm5 ", pContext->Xmm5));
+	spdlog::error("\t{}", FormatFloatReg("Xmm6 ", pContext->Xmm6));
+	spdlog::error("\t{}", FormatFloatReg("Xmm7 ", pContext->Xmm7));
+	spdlog::error("\t{}", FormatFloatReg("Xmm8 ", pContext->Xmm8));
+	spdlog::error("\t{}", FormatFloatReg("Xmm9 ", pContext->Xmm9));
+	spdlog::error("\t{}", FormatFloatReg("Xmm10", pContext->Xmm10));
+	spdlog::error("\t{}", FormatFloatReg("Xmm11", pContext->Xmm11));
+	spdlog::error("\t{}", FormatFloatReg("Xmm12", pContext->Xmm12));
+	spdlog::error("\t{}", FormatFloatReg("Xmm13", pContext->Xmm13));
+	spdlog::error("\t{}", FormatFloatReg("Xmm14", pContext->Xmm14));
+	spdlog::error("\t{}", FormatFloatReg("Xmm15", pContext->Xmm15));
 }
 
 //-----------------------------------------------------------------------------
@@ -750,6 +764,171 @@ void CCrashHandler::WriteMinidump()
 	}
 	else
 		spdlog::error("Failed to write minidump file {}!", stream.str());
+}
+
+void CCrashHandler::WriteCrashComment()
+{
+	time_t time = std::time(nullptr);
+	tm currentTime = *std::localtime(&time);
+	std::stringstream stream;
+	stream << std::put_time(&currentTime, (GetNorthstarPrefix() + "/logs/nscrash%Y-%m-%d %H-%M-%S.txt").c_str());
+
+	std::ofstream commentFile(stream.str(), std::ios::out | std::ios::app);
+	commentFile << "Unfortunately, Ion has crashed, please send this to a developer, you can reach us at:\n* GitHub: https://github.com/R2Ion/Ion\n* Discord (in #ion-tech-support): https://discord.gg/UhPwruvSFH\n\n";
+	commentFile << "=== Crash Report ===\n";
+	commentFile << fmt::format("Version: {}\n", version);
+	commentFile << fmt::format("Patch: {}\n", ION_PATCH);
+	if (!m_svError.empty())
+	{
+		commentFile << fmt::format("Encountered an error when gathering crash information!\n");
+		commentFile << fmt::format("WinApi Error: {}\n", m_svError.c_str());
+	}
+	commentFile << fmt::format("Exception: {}\n", GetExceptionString());
+	commentFile << fmt::format("At: {} + {}\n\n", m_svCrashedModule, m_svCrashedOffset);
+
+	commentFile << "=== Callstack ===\n";
+	PVOID pFrames[CRASHHANDLER_MAX_FRAMES];
+	int iFrames = RtlCaptureStackBackTrace(0, CRASHHANDLER_MAX_FRAMES, pFrames, NULL);
+	bool bSkipExceptionHandlingFrames = true;
+	if (m_svCrashedOffset.empty())
+		bSkipExceptionHandlingFrames = false;
+	for (int i = 0; i < iFrames; i++)
+	{
+		std::string svModuleFileName;
+
+		uintptr_t addr = reinterpret_cast<uintptr_t>(pFrames[i]);
+		LPCSTR pAddress = reinterpret_cast<LPCSTR>(addr);
+
+		HMODULE hModule = nullptr;
+		if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, pAddress, &hModule))
+		{
+			svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
+		}
+		else
+		{
+			CHAR szModulePath[MAX_PATH] = {};
+			if (GetModuleFileNameExA(GetCurrentProcess(), hModule, szModulePath, sizeof(szModulePath)))
+			{
+				const CHAR* pSlash = strrchr(szModulePath, '\\');
+				svModuleFileName = pSlash ? (pSlash + 1) : szModulePath;
+			}
+			else
+			{
+				svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
+			}
+		}
+
+		uintptr_t moduleBase = reinterpret_cast<uintptr_t>(hModule);
+		uintptr_t offset = moduleBase ? (addr - moduleBase) : addr;
+		std::string svCrashOffset = fmt::format("{:#x}", static_cast<uint64_t>(offset));
+
+		if (bSkipExceptionHandlingFrames)
+		{
+			if (m_svCrashedModule == svModuleFileName && m_svCrashedOffset == svCrashOffset)
+				bSkipExceptionHandlingFrames = false;
+			else
+				continue;
+		}
+
+		commentFile << fmt::format("{} + {:#x}\n", svModuleFileName, static_cast<uint64_t>(offset));
+	}
+	commentFile << "\n=== Registers ===\n";
+	PCONTEXT pContext = m_pExceptionInfos->ContextRecord;
+
+	spdlog::error("{}", FormatFlags("Flags:", pContext->ContextFlags));
+
+	commentFile << fmt::format("{}\n", FormatIntReg("Rax", pContext->Rax));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rcx", pContext->Rcx));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rdx", pContext->Rdx));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rbx", pContext->Rbx));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rsp", pContext->Rsp));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rbp", pContext->Rbp));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rsi", pContext->Rsi));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rdi", pContext->Rdi));
+	commentFile << fmt::format("{}\n", FormatIntReg("R8 ", pContext->R8));
+	commentFile << fmt::format("{}\n", FormatIntReg("R9 ", pContext->R9));
+	commentFile << fmt::format("{}\n", FormatIntReg("R10", pContext->R10));
+	commentFile << fmt::format("{}\n", FormatIntReg("R11", pContext->R11));
+	commentFile << fmt::format("{}\n", FormatIntReg("R12", pContext->R12));
+	commentFile << fmt::format("{}\n", FormatIntReg("R13", pContext->R13));
+	commentFile << fmt::format("{}\n", FormatIntReg("R14", pContext->R14));
+	commentFile << fmt::format("{}\n", FormatIntReg("R15", pContext->R15));
+	commentFile << fmt::format("{}\n", FormatIntReg("Rip", pContext->Rip));
+
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm0 ", pContext->Xmm0));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm1 ", pContext->Xmm1));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm2 ", pContext->Xmm2));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm3 ", pContext->Xmm3));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm4 ", pContext->Xmm4));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm5 ", pContext->Xmm5));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm6 ", pContext->Xmm6));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm7 ", pContext->Xmm7));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm8 ", pContext->Xmm8));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm9 ", pContext->Xmm9));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm10", pContext->Xmm10));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm11", pContext->Xmm11));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm12", pContext->Xmm12));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm13", pContext->Xmm13));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm14", pContext->Xmm14));
+	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm15", pContext->Xmm15));
+
+	commentFile << "\n=== Loaded Mods ===\n";
+	if (g_pModManager)
+	{
+		commentFile << "Enabled mods:\n";
+		for (const Mod& mod : g_pModManager->m_LoadedMods)
+		{
+			if (!mod.m_bEnabled)
+				continue;
+
+			commentFile << fmt::format("\t{} v{}\n", mod.Name, mod.Version);
+		}
+
+		commentFile << "Disabled mods:\n";
+		for (const Mod& mod : g_pModManager->m_LoadedMods)
+		{
+			if (mod.m_bEnabled)
+				continue;
+
+			commentFile << fmt::format("\t{} v{}\n", mod.Name, mod.Version);
+		}
+	}
+
+	commentFile << "\n=== Recent Log (last 200 lines) ===\n";
+	const std::vector<std::string>& lines = !m_PreCrashLogLines.empty() ? m_PreCrashLogLines : NS::log::GetRecentLogLines(200);
+	for (const std::string& line : lines)
+		commentFile << line << "\n";
+
+	commentFile.close();
+
+	OpenCrashComment(stream.str());
+}
+
+void CCrashHandler::OpenCrashComment(std::string filepath)
+{
+	char cmdLine[1024];
+    sprintf_s(cmdLine, "notepad.exe \"%s\"", filepath.c_str());  // Build command line with the file path
+    STARTUPINFOA si = { 0 };
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = { 0 };
+
+    if (CreateProcessA(
+        NULL,        // Application name: NULL means the executable is the first token of the command line.
+        cmdLine,     // Command line (must be mutable)
+        NULL,        // Process handle not inheritable
+        NULL,        // Thread handle not inheritable
+        FALSE,       // Set handle inheritance to FALSE
+        0,           // No creation flags
+        NULL,        // Use parent's environment block
+        NULL,        // Use parent's starting directory
+        &si,         // Pointer to STARTUPINFO structure
+        &pi          // Pointer to PROCESS_INFORMATION structure
+    ))
+    {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        Sleep(100);
+    }
 }
 
 //-----------------------------------------------------------------------------
