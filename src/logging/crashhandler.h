@@ -8,6 +8,8 @@
 //-----------------------------------------------------------------------------
 // Purpose: Exception handling
 //-----------------------------------------------------------------------------
+struct GPUInfo_s;
+
 class CCrashHandler
 {
 public:
@@ -48,14 +50,19 @@ public:
 	void ShowPopUpMessage();
 
 	void FormatException();
-	void FormatCallstack();
+	std::vector<std::string> FormatCallstack();
 	std::string FormatFlags(const CHAR* pszRegister, DWORD nValue);
 	std::string FormatIntReg(const CHAR* pszRegister, DWORD64 nValue);
 	std::string FormatFloatReg(const CHAR* pszRegister, M128A nValue);
 	void FormatRegisters();
-	void FormatLoadedMods();
-	void FormatLoadedPlugins();
-	void FormatModules();
+	std::vector<std::string> FormatLoadedMods();
+	std::vector<std::string> FormatLoadedPlugins();
+	std::vector<std::string> FormatModules();
+	std::vector<std::string> FormatLoadedPaks();
+
+	bool TryReadMemory(const void* src, void* dst, size_t size);
+	std::vector<std::string> MakeHexDumpLines(uintptr_t baseAddress, const uint8_t* data, size_t size);
+	std::vector<std::string> FormatStackMemoryDump(PCONTEXT context, size_t bytesToDump);
 
 	void PlayCrashSound(int resourceId);
 
@@ -72,6 +79,9 @@ public:
 	void WriteMinidump();
 	void WriteCrashComment();
 	void OpenCrashComment(std::string filepath);
+
+	std::string GetWindowsVersionFormatted();
+	GPUInfo_s GetBestGpuInfoDxgi();
 
 private:
 	PVOID m_hExceptionFilter;

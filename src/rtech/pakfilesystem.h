@@ -54,6 +54,7 @@ public:
 	void ReloadPostloadPaks();
 
 	void* OpenFile(const char* path);
+	std::vector<PakHandle> GetPakHandles() { std::vector<PakHandle> handles; for (auto& modPak : m_modPaks) { if (modPak.m_handle != PakHandle::INVALID) handles.push_back(modPak.m_handle); } return handles; }
 
 private:
 	void LoadDependentPaks(std::string& path, PakHandle handle);

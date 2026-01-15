@@ -1,25 +1,44 @@
-#include "logging.h"
 #include "crashhandler.h"
-#include <string>
-#include <vector>
-#include <fstream>
 #include "config/profile.h"
+#include "crash_sounds.h"
 #include "dedicated/dedicated.h"
+#include "logging.h"
 #include "mods/modmanager.h"
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
+#include "rtech/pakfilesystem.h"
+#include "rtech/pakstate.h"
+#include "rtech/paktools.h"
 #include "util/version.h"
-#include "crash_sounds.h"
 
-#include <ns_version.h>
 #include <DbgHelp.h>
 #include <Mmsystem.h>
+#include <cctype>
+#include <codecvt>
+#include <cstring>
+#include <dxgi1_6.h>
+#include <fstream>
 #include <minidumpapiset.h>
+#include <ns_version.h>
+#include <string>
+#include <vector>
+#include <winternl.h>
+#include <wrl/client.h>
+
+typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 
 #pragma comment(lib, "dbghelp.lib")
 
 #define CRASHHANDLER_MAX_FRAMES 32
 #define CRASHHANDLER_GETMODULEHANDLE_FAIL "GetModuleHandleExA failed!"
+
+struct GPUInfo_s
+{
+	bool found = false;
+	std::string name;
+	uint64_t dedicatedVramBytes = 0;
+	std::vector<std::pair<std::string, uint64_t>> allAdapters; // name, vram
+};
 
 //-----------------------------------------------------------------------------
 // Purpose: Vectored exception callback
@@ -65,11 +84,19 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 
 	// Format
 	g_pCrashHandler->FormatException();
-	g_pCrashHandler->FormatCallstack();
+	spdlog::error("Callstack:");
+	for (const std::string& line : g_pCrashHandler->FormatCallstack())
+		spdlog::error("\t{}", line);
 	g_pCrashHandler->FormatRegisters();
-	g_pCrashHandler->FormatLoadedMods();
-	g_pCrashHandler->FormatLoadedPlugins();
-	g_pCrashHandler->FormatModules();
+	spdlog::error("Loaded Mods:");
+	for (const std::string& line : g_pCrashHandler->FormatLoadedMods())
+		spdlog::error("\t{}", line);
+	spdlog::error("Loaded Plugins:");
+	for (const std::string& line : g_pCrashHandler->FormatLoadedPlugins())
+		spdlog::error("\t{}", line);
+	spdlog::error("Loaded Modules:");
+	for (const std::string& line : g_pCrashHandler->FormatModules())
+		spdlog::error("\t{}", line);
 
 	// Flush
 	NS::log::FlushLoggers();
@@ -150,40 +177,40 @@ void CCrashHandler::Init()
 
 void CCrashHandler::PlayCrashSound(int resourceId)
 {
-    // IMPORTANT: resources are in Northstar.dll, not necessarily in the module that crashed.
-    HMODULE hModule = nullptr;
-    if (!GetModuleHandleExA(
-            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            reinterpret_cast<LPCSTR>(&ExceptionFilter), // address inside THIS module
-            &hModule))
-    {
-        return;
-    }
+	// IMPORTANT: resources are in Northstar.dll, not necessarily in the module that crashed.
+	HMODULE hModule = nullptr;
+	if (!GetModuleHandleExA(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			reinterpret_cast<LPCSTR>(&ExceptionFilter), // address inside THIS module
+			&hModule))
+	{
+		return;
+	}
 
-    HRSRC hRes = FindResourceA(hModule, MAKEINTRESOURCEA(resourceId), "WAVE");
-    if (!hRes)
-    {
-        spdlog::error("PlayCrashSound: FindResource failed for id {} (err={})", resourceId, GetLastError());
-        return;
-    }
+	HRSRC hRes = FindResourceA(hModule, MAKEINTRESOURCEA(resourceId), "WAVE");
+	if (!hRes)
+	{
+		spdlog::error("PlayCrashSound: FindResource failed for id {} (err={})", resourceId, GetLastError());
+		return;
+	}
 
-    HGLOBAL hData = LoadResource(hModule, hRes);
-    if (!hData)
-    {
-        spdlog::error("PlayCrashSound: LoadResource failed for id {} (err={})", resourceId, GetLastError());
-        return;
-    }
+	HGLOBAL hData = LoadResource(hModule, hRes);
+	if (!hData)
+	{
+		spdlog::error("PlayCrashSound: LoadResource failed for id {} (err={})", resourceId, GetLastError());
+		return;
+	}
 
-    const void* pData = LockResource(hData);
-    const DWORD size = SizeofResource(hModule, hRes);
-    if (!pData || size == 0)
-    {
-        spdlog::error("PlayCrashSound: resource empty for id {}", resourceId);
-        return;
-    }
+	const void* pData = LockResource(hData);
+	const DWORD size = SizeofResource(hModule, hRes);
+	if (!pData || size == 0)
+	{
+		spdlog::error("PlayCrashSound: resource empty for id {}", resourceId);
+		return;
+	}
 
-    // Synchronous so the process doesn't exit before playback starts.
-    PlaySoundA(reinterpret_cast<LPCSTR>(pData), NULL, SND_MEMORY | SND_SYNC | SND_NODEFAULT);
+	// Synchronous so the process doesn't exit before playback starts.
+	PlaySoundA(reinterpret_cast<LPCSTR>(pData), NULL, SND_MEMORY | SND_SYNC | SND_NODEFAULT);
 }
 
 //-----------------------------------------------------------------------------
@@ -475,13 +502,17 @@ void CCrashHandler::FormatException()
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatCallstack()
+std::vector<std::string> CCrashHandler::FormatCallstack()
 {
-	spdlog::error("Callstack:");
+	std::vector<std::string> lines;
 
 	PVOID pFrames[CRASHHANDLER_MAX_FRAMES];
 
 	int iFrames = RtlCaptureStackBackTrace(0, CRASHHANDLER_MAX_FRAMES, pFrames, NULL);
+	if (iFrames <= 0)
+		return lines;
+
+	lines.reserve(static_cast<size_t>(iFrames));
 
 	bool bSkipExceptionHandlingFrames = true;
 	if (m_svCrashedOffset.empty())
@@ -561,17 +592,18 @@ void CCrashHandler::FormatCallstack()
 					if (pos != std::string::npos)
 						svFileName = svFileName.substr(pos);
 
-					spdlog::error(
-						"\t{}!{}+0x{:x} [{}:{}]",
-						svModuleFileName,
-						pSym->Name,
-						static_cast<uint64_t>(displacement),
-						svFileName,
-						line.LineNumber);
+					lines.emplace_back(
+						fmt::format(
+							"{}!{}+0x{:x} [{}:{}]",
+							svModuleFileName,
+							pSym->Name,
+							static_cast<uint64_t>(displacement),
+							svFileName,
+							line.LineNumber));
 				}
 				else
 				{
-					spdlog::error("\t{}!{}+0x{:x}", svModuleFileName, pSym->Name, static_cast<uint64_t>(displacement));
+					lines.emplace_back(fmt::format("{}!{}+0x{:x}", svModuleFileName, pSym->Name, static_cast<uint64_t>(displacement)));
 				}
 
 				printed = true;
@@ -579,8 +611,10 @@ void CCrashHandler::FormatCallstack()
 		}
 
 		if (!printed)
-			spdlog::error("\t{} + {:#x}", svModuleFileName, static_cast<uint64_t>(offset));
+			lines.emplace_back(fmt::format("{} + {:#x}", svModuleFileName, static_cast<uint64_t>(offset)));
 	}
+
+	return lines;
 }
 //-----------------------------------------------------------------------------
 // Purpose:
@@ -672,51 +706,111 @@ void CCrashHandler::FormatRegisters()
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatLoadedMods()
+std::vector<std::string> CCrashHandler::FormatLoadedMods()
 {
+	std::vector<std::string> lines;
+	if (!g_pModManager)
+	{
+		lines.emplace_back("<mod manager unavailable>");
+		return lines;
+	}
+
+	lines.emplace_back("Enabled mods:");
+	bool anyEnabled = false;
 	if (g_pModManager)
 	{
-		spdlog::error("Enabled mods:");
 		for (const Mod& mod : g_pModManager->m_LoadedMods)
 		{
 			if (!mod.m_bEnabled)
 				continue;
-
-			spdlog::error("\t{}", mod.Name);
+			anyEnabled = true;
+			lines.emplace_back(fmt::format("{} v{}", mod.Name, mod.Version));
 		}
+	}
+	if (!anyEnabled)
+		lines.emplace_back("<none>");
 
-		spdlog::error("Disabled mods:");
+	lines.emplace_back("Disabled mods:");
+	bool anyDisabled = false;
+	if (g_pModManager)
+	{
 		for (const Mod& mod : g_pModManager->m_LoadedMods)
 		{
 			if (mod.m_bEnabled)
 				continue;
-
-			spdlog::error("\t{}", mod.Name);
+			anyDisabled = true;
+			lines.emplace_back(fmt::format("{} v{}", mod.Name, mod.Version));
 		}
 	}
+	if (!anyDisabled)
+		lines.emplace_back("<none>");
+
+	return lines;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatLoadedPlugins()
+std::vector<std::string> CCrashHandler::FormatLoadedPlugins()
 {
-	if (g_pPluginManager)
+	std::vector<std::string> lines;
+	if (!g_pPluginManager)
 	{
-		spdlog::error("Loaded Plugins:");
-		for (const Plugin& plugin : g_pPluginManager->GetLoadedPlugins())
-		{
-			spdlog::error("\t{}", plugin.GetName());
-		}
+		lines.emplace_back("<plugin manager unavailable>");
+		return lines;
 	}
+
+	const auto plugins = g_pPluginManager->GetLoadedPlugins();
+	if (plugins.empty())
+	{
+		lines.emplace_back("<none>");
+		return lines;
+	}
+
+	for (const Plugin& plugin : plugins)
+		lines.emplace_back(plugin.GetName());
+
+	return lines;
+}
+
+std::vector<std::string> CCrashHandler::FormatLoadedPaks()
+{
+	PakGlobalState_s* pakState = Pak_GetGlobals();
+	std::vector<std::string> lines;
+	if (!pakState)
+	{
+		lines.emplace_back("<pak state unavailable>");
+		return lines;
+	}
+
+	std::vector<PakHandle> handles = g_pPakLoadManager->GetPakHandles();
+	if (handles.empty())
+	{
+		lines.emplace_back("<none>");
+		return lines;
+	}
+
+	for (size_t i = 0; i < handles.size(); i++)
+	{
+		if (handles[i] == PakHandle::INVALID)
+			continue;
+
+		PakLoadedInfo_s& pakInfo = pakState->loadedPaks[handles[i] & PAK_MAX_LOADED_PAKS_MASK];
+
+		std::string formattedLine =
+			fmt::format("({}) {} [{}]", static_cast<int>(pakInfo.handle), pakInfo.filename, Pak_StatusToString(pakInfo.status));
+		lines.emplace_back(formattedLine);
+	}
+
+	return lines;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CCrashHandler::FormatModules()
+std::vector<std::string> CCrashHandler::FormatModules()
 {
-	spdlog::error("Loaded modules:");
+	std::vector<std::string> lines;
 	HMODULE hModules[1024];
 	DWORD cbNeeded;
 
@@ -727,11 +821,18 @@ void CCrashHandler::FormatModules()
 			CHAR szModulePath[MAX_PATH];
 			if (GetModuleFileNameExA(GetCurrentProcess(), hModules[i], szModulePath, sizeof(szModulePath)))
 			{
-				const CHAR* pszModuleFileName = strrchr(szModulePath, '\\') + 1;
-				spdlog::error("\t{}", pszModuleFileName);
+				const CHAR* pSlash = strrchr(szModulePath, '\\');
+				const CHAR* pszModuleFileName = pSlash ? (pSlash + 1) : szModulePath;
+				lines.emplace_back(pszModuleFileName);
 			}
 		}
 	}
+	else
+	{
+		lines.emplace_back("<EnumProcessModules failed>");
+	}
+
+	return lines;
 }
 
 //-----------------------------------------------------------------------------
@@ -771,10 +872,11 @@ void CCrashHandler::WriteCrashComment()
 	time_t time = std::time(nullptr);
 	tm currentTime = *std::localtime(&time);
 	std::stringstream stream;
-	stream << std::put_time(&currentTime, (GetNorthstarPrefix() + "/logs/nscrash%Y-%m-%d %H-%M-%S.txt").c_str());
+	stream << std::put_time(&currentTime, (GetNorthstarPrefix() + "/logs/nscrash%Y-%m-%d %H-%M-%S.log").c_str());
 
 	std::ofstream commentFile(stream.str(), std::ios::out | std::ios::app);
-	commentFile << "Unfortunately, Ion has crashed, please send this to a developer, you can reach us at:\n* GitHub: https://github.com/R2Ion/Ion\n* Discord (in #ion-tech-support): https://discord.gg/UhPwruvSFH\n\n";
+	commentFile << "Unfortunately Ion has crashed, please send this to a developer - you can reach us at:\n* GitHub: "
+				   "https://github.com/R2Ion/Ion\n* Discord (in #ion-tech-support): https://discord.gg/UhPwruvSFH\n\n";
 	commentFile << "=== Crash Report ===\n";
 	commentFile << fmt::format("Version: {}\n", version);
 	commentFile << fmt::format("Patch: {}\n", ION_PATCH);
@@ -787,55 +889,12 @@ void CCrashHandler::WriteCrashComment()
 	commentFile << fmt::format("At: {} + {}\n\n", m_svCrashedModule, m_svCrashedOffset);
 
 	commentFile << "=== Callstack ===\n";
-	PVOID pFrames[CRASHHANDLER_MAX_FRAMES];
-	int iFrames = RtlCaptureStackBackTrace(0, CRASHHANDLER_MAX_FRAMES, pFrames, NULL);
-	bool bSkipExceptionHandlingFrames = true;
-	if (m_svCrashedOffset.empty())
-		bSkipExceptionHandlingFrames = false;
-	for (int i = 0; i < iFrames; i++)
-	{
-		std::string svModuleFileName;
-
-		uintptr_t addr = reinterpret_cast<uintptr_t>(pFrames[i]);
-		LPCSTR pAddress = reinterpret_cast<LPCSTR>(addr);
-
-		HMODULE hModule = nullptr;
-		if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, pAddress, &hModule))
-		{
-			svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
-		}
-		else
-		{
-			CHAR szModulePath[MAX_PATH] = {};
-			if (GetModuleFileNameExA(GetCurrentProcess(), hModule, szModulePath, sizeof(szModulePath)))
-			{
-				const CHAR* pSlash = strrchr(szModulePath, '\\');
-				svModuleFileName = pSlash ? (pSlash + 1) : szModulePath;
-			}
-			else
-			{
-				svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
-			}
-		}
-
-		uintptr_t moduleBase = reinterpret_cast<uintptr_t>(hModule);
-		uintptr_t offset = moduleBase ? (addr - moduleBase) : addr;
-		std::string svCrashOffset = fmt::format("{:#x}", static_cast<uint64_t>(offset));
-
-		if (bSkipExceptionHandlingFrames)
-		{
-			if (m_svCrashedModule == svModuleFileName && m_svCrashedOffset == svCrashOffset)
-				bSkipExceptionHandlingFrames = false;
-			else
-				continue;
-		}
-
-		commentFile << fmt::format("{} + {:#x}\n", svModuleFileName, static_cast<uint64_t>(offset));
-	}
+	for (const std::string& line : FormatCallstack())
+		commentFile << line << "\n";
 	commentFile << "\n=== Registers ===\n";
 	PCONTEXT pContext = m_pExceptionInfos->ContextRecord;
 
-	spdlog::error("{}", FormatFlags("Flags:", pContext->ContextFlags));
+	commentFile << fmt::format("{}\n", FormatFlags("Flags:", pContext->ContextFlags));
 
 	commentFile << fmt::format("{}\n", FormatIntReg("Rax", pContext->Rax));
 	commentFile << fmt::format("{}\n", FormatIntReg("Rcx", pContext->Rcx));
@@ -872,32 +931,119 @@ void CCrashHandler::WriteCrashComment()
 	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm14", pContext->Xmm14));
 	commentFile << fmt::format("{}\n", FormatFloatReg("Xmm15", pContext->Xmm15));
 
+	commentFile << "\n=== Stack Dump (from SP, 512 bytes) ===\n";
+	for (const std::string& line : FormatStackMemoryDump(pContext, 512))
+		commentFile << line << "\n";
+
 	commentFile << "\n=== Loaded Mods ===\n";
-	if (g_pModManager)
-	{
-		commentFile << "Enabled mods:\n";
-		for (const Mod& mod : g_pModManager->m_LoadedMods)
-		{
-			if (!mod.m_bEnabled)
-				continue;
+	for (const std::string& line : FormatLoadedMods())
+		commentFile << line << "\n";
 
-			commentFile << fmt::format("\t{} v{}\n", mod.Name, mod.Version);
-		}
+	commentFile << "\n=== Loaded Plugins ===\n";
+	for (const std::string& line : FormatLoadedPlugins())
+		commentFile << line << "\n";
 
-		commentFile << "Disabled mods:\n";
-		for (const Mod& mod : g_pModManager->m_LoadedMods)
-		{
-			if (mod.m_bEnabled)
-				continue;
+	commentFile << "\n=== Custom Paks ===\n";
+	for (const std::string& line : FormatLoadedPaks())
+		commentFile << line << "\n";
 
-			commentFile << fmt::format("\t{} v{}\n", mod.Name, mod.Version);
-		}
-	}
+	commentFile << "\n=== Loaded Modules ===\n";
+	for (const std::string& line : FormatModules())
+		commentFile << line << "\n";
 
 	commentFile << "\n=== Recent Log (last 200 lines) ===\n";
 	const std::vector<std::string>& lines = !m_PreCrashLogLines.empty() ? m_PreCrashLogLines : NS::log::GetRecentLogLines(200);
 	for (const std::string& line : lines)
 		commentFile << line << "\n";
+
+	commentFile << "\n=== System Information ===\n";
+	commentFile << fmt::format("Operating System: {}\n", GetWindowsVersionFormatted());
+
+	SYSTEM_INFO sysInfo;
+	GetSystemInfo(&sysInfo);
+	switch (sysInfo.wProcessorArchitecture)
+	{
+	case PROCESSOR_ARCHITECTURE_AMD64:
+		commentFile << "Processor Architecture: x64 (AMD or Intel)\n";
+		break;
+	case PROCESSOR_ARCHITECTURE_ARM:
+		commentFile << "Processor Architecture: ARM\n";
+		break;
+	case PROCESSOR_ARCHITECTURE_ARM64:
+		commentFile << "Processor Architecture: ARM64\n";
+		break;
+	case PROCESSOR_ARCHITECTURE_INTEL:
+		commentFile << "Processor Architecture: x86\n";
+		break;
+	default:
+		commentFile << "Processor Architecture: Unknown\n";
+		break;
+	}
+
+	commentFile << fmt::format("Number of Processors: {}\n", sysInfo.dwNumberOfProcessors);
+
+	std::string processorName;
+
+	HKEY hKey;
+	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+		processorName = "Unknown Processor";
+
+	char buffer[256];
+	DWORD bufSize = sizeof(buffer);
+	if (RegQueryValueExA(hKey, "ProcessorNameString", NULL, NULL, (LPBYTE)buffer, &bufSize) != ERROR_SUCCESS)
+	{
+		RegCloseKey(hKey);
+		processorName = "Unknown Processor";
+	}
+
+	processorName = buffer;
+	commentFile << fmt::format("CPU: {}\n", processorName);
+
+	DWORD mhz;
+	bufSize = sizeof(mhz);
+	if (RegQueryValueExA(hKey, "~MHz", NULL, NULL, (LPBYTE)&mhz, &bufSize) == ERROR_SUCCESS)
+		commentFile << fmt::format("CPU Speed: {} MHz\n", mhz);
+
+	RegCloseKey(hKey);
+
+	MEMORYSTATUSEX memStatus;
+	memStatus.dwLength = sizeof(memStatus);
+	if (GlobalMemoryStatusEx(&memStatus))
+	{
+		commentFile << fmt::format("Total Physical Memory: {} MB\n", memStatus.ullTotalPhys / (1024 * 1024));
+		commentFile << fmt::format("Available Physical Memory: {} MB\n", memStatus.ullAvailPhys / (1024 * 1024));
+		commentFile << fmt::format("Memory Load: {}%\n", memStatus.dwMemoryLoad);
+	}
+
+	char exePath[MAX_PATH];
+	GetModuleFileNameA(NULL, exePath, MAX_PATH);
+
+	std::string driveLetter = std::string(exePath).substr(0, 3);
+
+	ULARGE_INTEGER freeBytesAvailable, totalBytes, totalFreeBytes;
+	if (GetDiskFreeSpaceExA(driveLetter.c_str(), &freeBytesAvailable, &totalBytes, &totalFreeBytes))
+	{
+		commentFile << fmt::format("Total Disk Space ({}): {} GB\n", driveLetter, totalBytes.QuadPart / (1024 * 1024 * 1024));
+		commentFile << fmt::format("Free Disk Space ({}): {} GB\n", driveLetter, totalFreeBytes.QuadPart / (1024 * 1024 * 1024));
+	}
+
+	const GPUInfo_s gpu = GetBestGpuInfoDxgi();
+	if (gpu.found)
+	{
+		commentFile << "GPU Model: " << gpu.name << "\n";
+		commentFile << "VRAM: " << (gpu.dedicatedVramBytes / (1024ull * 1024ull)) << " MB\n";
+
+		if (!gpu.allAdapters.empty())
+		{
+			commentFile << "Detected Graphics Adapters:\n";
+			for (const auto& [name, vram] : gpu.allAdapters)
+				commentFile << "  - " << name << " (" << (vram / (1024ull * 1024ull)) << " MB)\n";
+		}
+	}
+	else
+	{
+		commentFile << "GPU Model: [Unable to retrieve GPU information via DXGI]\n";
+	}
 
 	commentFile.close();
 
@@ -907,28 +1053,247 @@ void CCrashHandler::WriteCrashComment()
 void CCrashHandler::OpenCrashComment(std::string filepath)
 {
 	char cmdLine[1024];
-    sprintf_s(cmdLine, "notepad.exe \"%s\"", filepath.c_str());  // Build command line with the file path
-    STARTUPINFOA si = { 0 };
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi = { 0 };
+	sprintf_s(cmdLine, "notepad.exe \"%s\"", filepath.c_str()); // Build command line with the file path
+	STARTUPINFOA si = {0};
+	si.cb = sizeof(si);
+	PROCESS_INFORMATION pi = {0};
 
-    if (CreateProcessA(
-        NULL,        // Application name: NULL means the executable is the first token of the command line.
-        cmdLine,     // Command line (must be mutable)
-        NULL,        // Process handle not inheritable
-        NULL,        // Thread handle not inheritable
-        FALSE,       // Set handle inheritance to FALSE
-        0,           // No creation flags
-        NULL,        // Use parent's environment block
-        NULL,        // Use parent's starting directory
-        &si,         // Pointer to STARTUPINFO structure
-        &pi          // Pointer to PROCESS_INFORMATION structure
-    ))
-    {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-        Sleep(100);
-    }
+	if (CreateProcessA(
+			NULL, // Application name: NULL means the executable is the first token of the command line.
+			cmdLine, // Command line (must be mutable)
+			NULL, // Process handle not inheritable
+			NULL, // Thread handle not inheritable
+			FALSE, // Set handle inheritance to FALSE
+			0, // No creation flags
+			NULL, // Use parent's environment block
+			NULL, // Use parent's starting directory
+			&si, // Pointer to STARTUPINFO structure
+			&pi // Pointer to PROCESS_INFORMATION structure
+			))
+	{
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		Sleep(100);
+	}
+}
+
+GPUInfo_s CCrashHandler::GetBestGpuInfoDxgi()
+{
+	GPUInfo_s info;
+
+	Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+	if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) || !factory)
+		return info;
+
+	uint64_t bestVram = 0;
+	std::string bestName;
+
+	for (UINT i = 0;; i++)
+	{
+		Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+		if (factory->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND)
+			break;
+		if (!adapter)
+			continue;
+
+		DXGI_ADAPTER_DESC1 desc {};
+		if (FAILED(adapter->GetDesc1(&desc)))
+			continue;
+
+		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+			continue;
+
+		const std::wstring widestr = desc.Description;
+		std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+
+		const std::string name = converter.to_bytes(widestr);
+		const uint64_t vram = static_cast<uint64_t>(desc.DedicatedVideoMemory);
+
+		info.allAdapters.emplace_back(name, vram);
+
+		if (vram >= bestVram)
+		{
+			bestVram = vram;
+			bestName = name;
+		}
+	}
+
+	if (!bestName.empty())
+	{
+		info.found = true;
+		info.name = std::move(bestName);
+		info.dedicatedVramBytes = bestVram;
+	}
+
+	return info;
+}
+
+std::string CCrashHandler::GetWindowsVersionFormatted()
+{
+	HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+	if (!ntdll)
+		return "Unknown Windows version";
+
+	RtlGetVersionPtr rtlGetVersion = (RtlGetVersionPtr)GetProcAddress(ntdll, "RtlGetVersion");
+	if (!rtlGetVersion)
+		return "Unknown Windows version";
+
+	RTL_OSVERSIONINFOW osvi = {0};
+	osvi.dwOSVersionInfoSize = sizeof(osvi);
+
+	NTSTATUS status = rtlGetVersion(&osvi);
+	if (status != 0)
+		return "Unknown Windows version";
+
+	std::stringstream result;
+
+	std::string productName = "Windows";
+	std::string displayVersion = "";
+	std::string ubr = "";
+
+	HKEY hKey;
+	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+	{
+		char buffer[256];
+		DWORD bufSize = sizeof(buffer);
+
+		if (RegQueryValueExA(hKey, "ProductName", NULL, NULL, (LPBYTE)buffer, &bufSize) == ERROR_SUCCESS)
+		{
+			productName = buffer;
+		}
+
+		bufSize = sizeof(buffer);
+		if (RegQueryValueExA(hKey, "DisplayVersion", NULL, NULL, (LPBYTE)buffer, &bufSize) == ERROR_SUCCESS)
+		{
+			displayVersion = buffer;
+		}
+
+		DWORD ubrValue = 0;
+		bufSize = sizeof(ubrValue);
+		if (RegQueryValueExA(hKey, "UBR", NULL, NULL, (LPBYTE)&ubrValue, &bufSize) == ERROR_SUCCESS)
+		{
+			ubr = std::to_string(ubrValue);
+		}
+
+		RegCloseKey(hKey);
+	}
+
+	result << productName;
+
+	if (!displayVersion.empty())
+	{
+		result << " (Version " << displayVersion;
+		if (!ubr.empty())
+		{
+			result << ", Build " << osvi.dwBuildNumber << "." << ubr;
+		}
+		else
+		{
+			result << ", Build " << osvi.dwBuildNumber;
+		}
+		result << ")";
+	}
+	else
+	{
+		result << " (Version " << osvi.dwMajorVersion << "." << osvi.dwMinorVersion;
+		result << ", Build " << osvi.dwBuildNumber << ")";
+	}
+
+#ifdef _WIN64
+	result << " 64-bit";
+#else
+	BOOL isWow64 = FALSE;
+	if (IsWow64Process(GetCurrentProcess(), &isWow64) && isWow64)
+	{
+		result << " 32-bit on 64-bit";
+	}
+	else
+	{
+		result << " 32-bit";
+	}
+#endif
+
+	return result.str();
+}
+
+bool CCrashHandler::TryReadMemory(const void* src, void* dst, size_t size)
+{
+	if (!src || !dst || size == 0)
+		return false;
+
+	__try
+	{
+		std::memcpy(dst, src, size);
+		return true;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
+	}
+}
+
+std::vector<std::string> CCrashHandler::MakeHexDumpLines(uintptr_t baseAddress, const uint8_t* data, size_t size)
+{
+	std::vector<std::string> out;
+	if (!data || size == 0)
+		return out;
+
+	constexpr size_t kBytesPerLine = 16;
+	out.reserve((size + kBytesPerLine - 1) / kBytesPerLine);
+
+	for (size_t i = 0; i < size; i += kBytesPerLine)
+	{
+		const size_t lineSize = std::min(kBytesPerLine, size - i);
+		const uint64_t addr = static_cast<uint64_t>(baseAddress + i);
+
+		std::string bytes;
+		bytes.reserve(kBytesPerLine * 3);
+		for (size_t j = 0; j < kBytesPerLine; j++)
+		{
+			if (j < lineSize)
+				bytes += fmt::format("{:02X} ", data[i + j]);
+			else
+				bytes += "   ";
+		}
+
+		std::string ascii;
+		ascii.reserve(kBytesPerLine);
+		for (size_t j = 0; j < lineSize; j++)
+		{
+			const unsigned char c = static_cast<unsigned char>(data[i + j]);
+			ascii.push_back((c >= 32 && c <= 126) ? static_cast<char>(c) : '.');
+		}
+
+		out.emplace_back(fmt::format("{:#018x}: {}|{}|", addr, bytes, ascii));
+	}
+
+	return out;
+}
+
+std::vector<std::string> CCrashHandler::FormatStackMemoryDump(PCONTEXT context, size_t bytesToDump)
+{
+	std::vector<std::string> out;
+	if (!context || bytesToDump == 0)
+		return out;
+
+#ifdef _WIN64
+	uintptr_t sp = static_cast<uintptr_t>(context->Rsp);
+#else
+	uintptr_t sp = static_cast<uintptr_t>(context->Esp);
+#endif
+	if (sp == 0)
+		return out;
+
+	sp &= ~static_cast<uintptr_t>(0xF);
+
+	std::vector<uint8_t> buffer(bytesToDump);
+	if (!TryReadMemory(reinterpret_cast<const void*>(sp), buffer.data(), buffer.size()))
+	{
+		out.emplace_back("<unable to read stack memory>");
+		return out;
+	}
+
+	return MakeHexDumpLines(sp, buffer.data(), buffer.size());
 }
 
 //-----------------------------------------------------------------------------

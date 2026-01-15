@@ -142,6 +142,8 @@ add_library(
     "rtech/pakfile.h"
     "rtech/pakstate.cpp"
     "rtech/pakstate.h"
+	"rtech/paktools.cpp"
+	"rtech/paktools.h"
     "rtech/pakfilesystem.cpp"
     "rtech/pakfilesystem.h"
     "rtech/rstdlib.h"
@@ -295,6 +297,7 @@ target_link_libraries(
             bcrypt.lib
             version.lib
             winmm.lib
+			dxgi.lib
             ${EOS_LIB}
             spdlog
             libcurl
