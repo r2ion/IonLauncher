@@ -45,7 +45,10 @@ public:
 		}
 		else
 		{
-			NS::log::PLUGINSYS->warn("Attempted to log message '{}' with invalid plugin handle {}", msg, static_cast<void*>(pluginHandle));
+			NS::log::PLUGINSYS->warn(
+				"Attempted to log from invalid plugin handle {} (msg ptr: {})",
+				static_cast<void*>(pluginHandle),
+				static_cast<void*>(msg));
 		}
 	}
 

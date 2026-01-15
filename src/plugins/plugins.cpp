@@ -4,6 +4,7 @@
 #include "util/wininfo.h"
 #include "logging/logging.h"
 #include "dedicated/dedicated.h"
+#include <cstring>
 
 bool isValidSquirrelIdentifier(std::string s)
 {
@@ -167,7 +168,31 @@ std::optional<HMODULE> Plugin::Reload() const
 
 void Plugin::Log(spdlog::level::level_enum level, char* msg) const
 {
-	m_logger->log(level, msg);
+	if (!m_logger)
+		return;
+
+	if (!msg)
+	{
+		NS::log::PLUGINSYS->warn("Plugin {} passed a null log message", m_name);
+		return;
+	}
+
+	constexpr size_t kMaxLogLength = 4096;
+	size_t msgLength = strnlen_s(msg, kMaxLogLength);
+
+	if (msgLength == 0)
+	{
+		NS::log::PLUGINSYS->warn("Plugin {} passed an empty log message", m_name);
+		return;
+	}
+
+	if (msgLength == kMaxLogLength)
+	{
+		NS::log::PLUGINSYS->warn("Plugin {} log message exceeded {} chars, truncating", m_name, kMaxLogLength);
+	}
+
+	std::string safeMessage(msg, msgLength);
+	m_logger->log(level, safeMessage);
 }
 
 bool Plugin::IsValid() const
