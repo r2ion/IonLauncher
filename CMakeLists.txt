@@ -1,11 +1,19 @@
 cmake_minimum_required(VERSION 3.15)
 
-cmake_policy(SET CMP0091 NEW)
-cmake_policy(SET CMP0169 OLD)
+cmake_policy(
+    SET
+    CMP0091
+    NEW
+    )
+cmake_policy(
+    SET
+    CMP0169
+    OLD
+    )
 
 project(
     Northstar
-	C
+    C
     CXX
     ASM_MASM
     )
@@ -55,15 +63,23 @@ include(CPM)
 
 add_library(NorthstarIncludes INTERFACE)
 target_include_directories(NorthstarIncludes INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-file(GLOB_RECURSE NS_PUBLIC_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+file(
+    GLOB_RECURSE
+    NS_PUBLIC_HEADERS
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    )
 target_sources(NorthstarIncludes INTERFACE "$<BUILD_INTERFACE:${NS_PUBLIC_HEADERS}>")
 
 set(BUILD_SHARED_LIBS OFF)
 
 set(SPDLOG_WCHAR_SUPPORT ON)
 
-if (NOT DEFINED CPM_SOURCE_CACHE)
-	set(CPM_SOURCE_CACHE "${CMAKE_BINARY_DIR}/.cpm_cache")
+if(NOT
+   DEFINED
+   CPM_SOURCE_CACHE
+   )
+    set(CPM_SOURCE_CACHE "${CMAKE_BINARY_DIR}/.cpm_cache")
 endif()
 
 set(RAPIDJSON_BUILD_TESTS OFF)
