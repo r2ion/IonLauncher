@@ -612,11 +612,9 @@ ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
 
 	o_pLoadMapRpaks = module.Offset(0x15A8C0).RCast<decltype(o_pLoadMapRpaks)>();
 	HookAttach(&(PVOID&)o_pLoadMapRpaks, (PVOID)h_LoadMapRpaks);
-}
 
-ON_DLL_LOAD("rtech_game.DLL", RTech, (CModule module))
-{
-	o_pGetPakPatchNumber = module.Offset(0x9A00).RCast<decltype(o_pGetPakPatchNumber)>();
-	Pak_Free = module.Offset(0x8410).RCast<Pak_Free_t>();
+	CModule rtechModule(GetModuleHandleA("rtech_game.dll"));
+	o_pGetPakPatchNumber = rtechModule.Offset(0x9A00).RCast<decltype(o_pGetPakPatchNumber)>();
+	Pak_Free = rtechModule.Offset(0x8410).RCast<Pak_Free_t>();
 	v_Pak_Free.Dispatch(reinterpret_cast<LPVOID*>(Pak_Free));
 }
