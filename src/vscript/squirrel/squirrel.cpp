@@ -464,8 +464,11 @@ void __fastcall ScriptCompileErrorHook(HSQUIRRELVM sqvm, const char* error, cons
 
 	logger->error("COMPILE ERROR {}", error);
 	logger->error("{} line [{}] column [{}]", file, line, column);
-	logger->error("This can be caused by a broken mod, or incompatibilities between mods.");
-	logger->error("{} belongs to {}", file, ownerName);
+	if(strcmp(file, "console") != 0)
+	{
+		logger->error("This can be caused by a broken mod, or incompatibilities between mods.");
+		logger->error("{} belongs to {}", file, ownerName);
+	}
 
 	// use disconnect to display an error message for the compile error, but only if the compilation error was fatal
 	// todo, we could get this from sqvm itself probably, rather than hooking sq_compiler_create
