@@ -31,6 +31,7 @@ ON_DLL_LOAD_CLIENT("bink2w64.dll", BinkRead, (CModule module))
 {
 	o_pBinkOpen = module.GetExportedFunction("BinkOpen").RCast<decltype(o_pBinkOpen)>();
 	HookAttach(&(PVOID&)o_pBinkOpen, (PVOID)h_BinkOpen);
+	module.Offset(0x035BD7).NOP(0x5);
 }
 
 ON_DLL_LOAD_CLIENT("engine.dll", BinkVideo, (CModule module))

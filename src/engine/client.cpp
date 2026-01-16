@@ -48,10 +48,3 @@ ON_DLL_LOAD("engine.dll", CClient, (CModule module))
 	CClient__SendDataBlock = module.Offset(0x104870).RCast<void (*)(void*, bf_write*)>();
 	g_pClientArray = module.Offset(0x12A53F90).RCast<CClient*>();
 }
-
-
-ON_DLL_LOAD("bink2w64.dll", Bink, (CModule module))
-{
-	// Patch the thing 
-	module.Offset(0x035BD7).NOP(0x5);
-}
