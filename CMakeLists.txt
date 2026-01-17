@@ -104,7 +104,8 @@ set(MZ_FORCE_FETCH_LIBS OFF)
 set(MZ_ZLIB ON)
 set(MZ_ZLIB_FLAVOR zlib-ng)
 set(MZ_INSTALL OFF)
-
+set(WITH_GTEST OFF)
+set(BUILD_TESTING OFF)
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
