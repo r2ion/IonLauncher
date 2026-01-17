@@ -99,7 +99,7 @@ set(CURL_ZLIB OFF)
 set(CURL_DISABLE_LDAP ON)
 set(CURL_DISABLE_LDAPS ON)
 
-set(MZ_ZLIB OFF)
+set(MZ_ZLIB ON)
 
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
