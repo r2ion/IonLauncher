@@ -108,6 +108,12 @@ CPMAddPackage("gh:Tencent/rapidjson@1.1.0")
 CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
 
 CPMAddPackage(
+	NAME zlib-ng
+	GITHUB_REPOSITORY zlib-ng/zlib-ng
+	GIT_TAG 2.3.2
+)
+
+CPMAddPackage(
 	NAME minizip-ng
 	GITHUB_REPOSITORY zlib-ng/minizip-ng
 	GIT_TAG 4.0.10
