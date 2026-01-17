@@ -99,7 +99,6 @@ set(CURL_ZLIB OFF)
 set(CURL_DISABLE_LDAP ON)
 set(CURL_DISABLE_LDAPS ON)
 
-set(MZ_ZLIB OFF)
 set(WITH_GTEST OFF)
 set(BUILD_TESTING OFF)
 
@@ -114,6 +113,7 @@ CPMAddPackage(
 	GITHUB_REPOSITORY zlib-ng/zlib-ng
 	GIT_TAG 2.3.2
 )
+set(MZ_ZLIB On)
 
 CPMAddPackage(
 	NAME minizip-ng
