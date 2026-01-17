@@ -101,6 +101,7 @@ set(CURL_DISABLE_LDAPS ON)
 
 set(WITH_GTEST OFF)
 set(BUILD_TESTING OFF)
+set(MZ_ZLIB OFF)
 
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
@@ -113,7 +114,6 @@ CPMAddPackage(
 	GITHUB_REPOSITORY zlib-ng/zlib-ng
 	GIT_TAG 2.3.2
 )
-set(MZ_ZLIB On)
 
 CPMAddPackage(
 	NAME minizip-ng
