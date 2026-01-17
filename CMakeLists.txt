@@ -100,8 +100,6 @@ set(CURL_DISABLE_LDAP ON)
 set(CURL_DISABLE_LDAPS ON)
 
 set(MZ_ZLIB ON)
-set(MZ_ZLIB_FLAVOR ZLIB-NG)
-set(MZ_FETCH_LIBS WIN32)
 set(ZLIB_COMPAT ON)
 set(WITH_GTEST OFF)
 set(BUILD_TESTING OFF)
@@ -112,11 +110,11 @@ CPMAddPackage("gh:gabime/spdlog@1.17.0")
 CPMAddPackage("gh:Tencent/rapidjson@1.1.0")
 CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
 
-#CPMAddPackage(
-#	NAME zlib-ng
-#	GITHUB_REPOSITORY zlib-ng/zlib-ng
-#	GIT_TAG 2.3.2
-#)
+CPMAddPackage(
+	NAME zlib-ng
+	GITHUB_REPOSITORY zlib-ng/zlib-ng
+	GIT_TAG 2.3.2
+)
 
 CPMAddPackage(
 	NAME minizip-ng
