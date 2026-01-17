@@ -101,7 +101,8 @@ set(CURL_DISABLE_LDAPS ON)
 
 set(WITH_GTEST OFF)
 set(BUILD_TESTING OFF)
-set(MZ_ZLIB OFF)
+set(MZ_FETCH_LIBS OFF)
+set(MZ_ZLIB ON)
 
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
