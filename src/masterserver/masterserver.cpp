@@ -1,7 +1,7 @@
 #include "masterserver/masterserver.h"
 #include "core/convar/concommand.h"
 #include "core/tier0.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
 #include "mods/modmanager.h"

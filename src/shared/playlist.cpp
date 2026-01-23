@@ -1,7 +1,7 @@
 #include "playlist.h"
 #include "core/convar/concommand.h"
 #include "core/convar/convar.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "vscript/squirrel/squirrel.h"
 #include "engine/hoststate.h"
 #include "engine/r2engine.h"
@@ -125,5 +125,5 @@ ON_DLL_LOAD_RELIESON("engine.dll", PlaylistHooks, (ConCommand, ConVar), (CModule
 	module.Offset(0x18ED8D).Patch("C3");
 
 	if( IsDedicatedServer() )
-		module.Offset(0x18ED17).NOP(6);
+		module.Offset(0x18ED17).NoOP(6);
 }

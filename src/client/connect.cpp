@@ -1,7 +1,7 @@
 #include "connect.h"
 #include "client/r2client.h"
 #include "core/tier0.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "engine/models.h"
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
@@ -838,6 +838,11 @@ DECLARE_HOOK(matchmake, engine.dll + 0xF220, [](auto& hook) -> int*
 		return 0;
 	}
 
+	using OriginalFn = int*(HOOKSYS_CALLCONV*)();
+	static auto s_matchmakeHook = HookSys::FindHook("matchmake");
+	static auto s_matchmakeOriginal = HookSys::GetOriginalFunction<OriginalFn>(s_matchmakeHook);
+	if (s_matchmakeOriginal)
+		return s_matchmakeOriginal();
 	return hook.Original();
 })
 // clang-format on

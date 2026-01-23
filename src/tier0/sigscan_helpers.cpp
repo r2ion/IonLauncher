@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "tier0/sigscan_helpers.h"
 
 namespace Utils
 {

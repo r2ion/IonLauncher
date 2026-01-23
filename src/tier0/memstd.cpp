@@ -1,4 +1,4 @@
-#include "core/memalloc.h"
+#include "tier0/memstd.h"
 #include "core/tier0.h"
 
 // TODO: rename to malloc and free after removing statically compiled .libs

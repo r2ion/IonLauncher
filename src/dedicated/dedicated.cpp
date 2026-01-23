@@ -128,12 +128,12 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, (CModul
 
 	// Host_Init
 	// prevent a particle init that relies on client dll
-	module.Offset(0x156799).NOP(5);
+	module.Offset(0x156799).NoOP(5);
 
 	// Host_Init
 	// don't call Key_Init to avoid loading some extra rsons from rpak (will be necessary to boot if we ever wanna disable rpaks entirely on
 	// dedi)
-	module.Offset(0x1565B0).NOP(5);
+	module.Offset(0x1565B0).NoOP(5);
 
 	{
 		// CModAppSystemGroup::Create
@@ -149,39 +149,38 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, (CModul
 
 	// Some init that i'm not sure of that crashes
 	// nop the call to it
-	module.Offset(0x156A63).NOP(5);
+	module.Offset(0x156A63).NoOP(5);
 
 	// runframeserver
 	// nop some access violations
-	module.Offset(0x159819).NOP(17);
+	module.Offset(0x159819).NoOP(17);
 
-	module.Offset(0x156B4C).NOP(7);
+	module.Offset(0x156B4C).NoOP(7);
 
 	// previously patched these, took me a couple weeks to figure out they were the issue
 	// removing these will mess up register state when this function is over, so we'll write HS_RUN to the wrong address
 	// so uhh, don't do that
 	// NSMem::NOP(ea + 0x156B4C + 7, 8);
-	module.Offset(0x156B4C).Offset(15).NOP(9);
+	module.Offset(0x156B4C).Offset(15).NoOP(9);
 
 	// HostState_State_NewGame
 	// nop an access violation
-	module.Offset(0xB934C).NOP(9);
+	module.Offset(0xB934C).NoOP(9);
 
 	// CEngineAPI::Connect
 	// remove call to Shader_Connect
-	module.Offset(0x1C4D7D).NOP(5);
-
+	module.Offset(0x1C4D7D).NoOP(5);
 	// Host_Init
 	// remove call to ui loading stuff
-	module.Offset(0x156595).NOP(5);
+	module.Offset(0x156595).NoOP(5);
 
 	// some function that gets called from RunFrameServer
 	// nop a function that makes requests to stryder, this will eventually access violation if left alone and isn't necessary anyway
-	module.Offset(0x15A0BB).NOP(5);
+	module.Offset(0x15A0BB).NoOP(5);
 
 	// RunFrameServer
 	// nop a function that access violations
-	module.Offset(0x159BF3).NOP(5);
+	module.Offset(0x159BF3).NoOP(5);
 
 	// func that checks if origin is inited
 	// always return 1
@@ -189,15 +188,15 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, (CModul
 
 	// HostState_State_ChangeLevel
 	// nop clientinterface call
-	module.Offset(0x1552ED).NOP(16);
+	module.Offset(0x1552ED).NoOP(16);
 
 	// HostState_State_ChangeLevel
 	// nop clientinterface call
-	module.Offset(0x155363).NOP(16);
+	module.Offset(0x155363).NoOP(16);
 
 	// IVideoMode::CreateGameWindow
 	// nop call to ShowWindow
-	module.Offset(0x1CD146).NOP(5);
+	module.Offset(0x1CD146).NoOP(5);
 
 	CDedicatedExports* dedicatedExports = new CDedicatedExports;
 	dedicatedExports->vtable = dedicatedExports;

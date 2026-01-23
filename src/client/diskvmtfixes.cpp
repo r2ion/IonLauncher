@@ -11,5 +11,5 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", DiskVMTFixes, (CModule module))
 	module.Offset(0x1281B9).Patch("EB");
 
 	// CMaterialSystem::FindMaterial: don't call function that crashes if previous patch is applied
-	module.Offset(0x5F55A).NOP(5);
+	module.Offset(0x5F55A).NoOP(5);
 }

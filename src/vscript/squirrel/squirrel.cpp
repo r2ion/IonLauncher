@@ -1,7 +1,7 @@
 #include "squirrel.h"
 #include "core/convar/concommand.h"
 #include "core/tier0.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
 #include "logging/logging.h"
@@ -805,7 +805,7 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, (CModule module))
 	g_pSquirrel[ScriptContext::UI]->RegisterSquirrelFunc = g_pSquirrel[ScriptContext::CLIENT]->RegisterSquirrelFunc;
 
 	// uiscript_reset concommand: don't loop forever if compilation fails
-	module.Offset(0x3C6E4C).NOP(6);
+	module.Offset(0x3C6E4C).NoOP(6);
 
 	MAKEHOOK(module.Offset(0x79540), &sqstd_aux_printerrorHook<ScriptContext::CLIENT>, &sqstd_aux_printerror<ScriptContext::CLIENT>);
 	MAKEHOOK(module.Offset(0x8AD0), &sq_compiler_createHook<ScriptContext::CLIENT>, &sq_compiler_create<ScriptContext::CLIENT>);

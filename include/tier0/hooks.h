@@ -10,12 +10,13 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <memory>
 
 #include <intrin.h>
 #include <MinHook.h>
 
 #include "logging/logging.h"
-#include "silver-bun/module.h"
+#include "tier0/module.h"
 
 #ifndef __CONCAT2
 #define __CONCAT2(x, y) x##y
@@ -389,7 +390,7 @@ public:
 		__autovar CONCAT2(__autovar, __LINE__)(&__FILEAUTOHOOK, __STR(addrString), (void**)&name);                                         \
 	}
 
-namespace lambda_hook
+namespace HookSys
 {
 	template <typename T> struct lambda_traits : lambda_traits<decltype(&T::operator())>
 	{
@@ -454,6 +455,7 @@ namespace lambda_hook
 	public:
 		virtual ~LambdaHookBase() = default;
 		virtual bool Dispatch() = 0;
+		virtual void* GetOriginalRaw() const { return nullptr; }
 
 		const std::string& DebugName() const { return m_debugName; }
 		const std::string& AddressString() const { return m_addrString; }
@@ -529,26 +531,32 @@ namespace lambda_hook
 		uintptr_t m_absoluteAddress = 0;
 	};
 
-	inline std::unordered_map<std::string, LambdaHookBase*> g_lambdaHookRegistry;
+	inline std::unordered_map<std::string, std::shared_ptr<LambdaHookBase>> g_hookRegistry;
 
-	inline std::unordered_map<std::string, LambdaHookBase*>& GetLambdaHookRegistry()
+	inline std::unordered_map<std::string, std::shared_ptr<LambdaHookBase>>& GetHookRegistry()
 	{
-		return g_lambdaHookRegistry;
+		return g_hookRegistry;
 	}
 
-	inline void RegisterLambdaHook(LambdaHookBase* hook)
+	inline void RegisterHook(LambdaHookBase* hook)
 	{
 		if (!hook)
 			return;
 
-		GetLambdaHookRegistry()[hook->DebugName()] = hook;
+		GetHookRegistry()[hook->DebugName()] = std::shared_ptr<LambdaHookBase>(hook, [](LambdaHookBase*) {});
 	}
 
-	inline LambdaHookBase* FindLambdaHook(const std::string& debugName)
+	inline std::shared_ptr<LambdaHookBase> FindHook(const std::string& debugName)
 	{
-		auto& registry = GetLambdaHookRegistry();
+		auto& registry = GetHookRegistry();
 		auto it = registry.find(debugName);
 		return it != registry.end() ? it->second : nullptr;
+	}
+
+	template <typename Fn>
+	inline Fn GetOriginalFunction(const std::shared_ptr<LambdaHookBase>& hook)
+	{
+		return hook ? reinterpret_cast<Fn>(hook->GetOriginalRaw()) : nullptr;
 	}
 
 	template <typename HookT> struct LambdaHookRegistrationOffset
@@ -558,7 +566,7 @@ namespace lambda_hook
 			HookT& hook = HookT::Instance();
 			hook.ConfigureDebugName(debugName);
 			hook.ConfigureOffsetAddress(addrString);
-			RegisterLambdaHook(&hook);
+			RegisterHook(&hook);
 
 			if (!hook.ModuleName().empty())
 				AddDllLoadCallback(hook.ModuleName(), &HookT::OnModuleLoaded, debugName ? debugName : "");
@@ -574,7 +582,7 @@ namespace lambda_hook
 			HookT& hook = HookT::Instance();
 			hook.ConfigureDebugName(debugName);
 			hook.ConfigureAbsoluteAddress(addr);
-			RegisterLambdaHook(&hook);
+			RegisterHook(&hook);
 			hook.Dispatch();
 		}
 	};
@@ -586,18 +594,18 @@ namespace lambda_hook
 			HookT& hook = HookT::Instance();
 			hook.ConfigureDebugName(debugName);
 			hook.ConfigureProcAddress(moduleName, procName);
-			RegisterLambdaHook(&hook);
+			RegisterHook(&hook);
 			if (moduleName && *moduleName)
 				AddDllLoadCallback(moduleName, &HookT::OnModuleLoaded, debugName ? debugName : "");
 			else
 				hook.Dispatch();
 		}
 	};
-} // namespace lambda_hook
+} // namespace HookSys
 
 // default calling convention for DECLARE_HOOK
-#ifndef LAMBDA_HOOK_CALLCONV
-#define LAMBDA_HOOK_CALLCONV __fastcall
+#ifndef HOOKSYS_CALLCONV
+#define HOOKSYS_CALLCONV __fastcall
 #endif
 
 // Lambda hook using an offset string (e.g. engine.dll + 0x123456)
@@ -606,15 +614,15 @@ namespace lambda_hook
 	{                                                                                                                                      \
 		inline auto CONCAT2(__lambdaHookLambda_, __LINE__) = lambda;                                                                       \
 		struct CONCAT2(__lambdaHook_, __LINE__)                                                                                            \
-			: public lambda_hook::LambdaHookBase                                                                                           \
+			: public HookSys::LambdaHookBase                                                                                           \
 		{                                                                                                                                  \
 			using Self = CONCAT2(__lambdaHook_, __LINE__);                                                                                 \
 			using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookLambda_, __LINE__))>;                                                \
-			using Traits = lambda_hook::lambda_traits_for_hook<LambdaT>;                                                                   \
+			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                   \
 			using ReturnT = typename Traits::return_type;                                                                                  \
 			using FullArgs = typename Traits::args_tuple;                                                                                  \
 			static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                \
-			using ArgsTuple = typename lambda_hook::tuple_tail<FullArgs>::type;                                                            \
+			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                            \
 			template <typename... Args> struct Helper                                                                                      \
 			{                                                                                                                              \
 				using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                   \
@@ -626,7 +634,7 @@ namespace lambda_hook
 						return Self::Instance().Invoke(args...);                                                                           \
 				}                                                                                                                          \
 			};                                                                                                                             \
-			using HelperT = typename lambda_hook::apply_tuple<Helper, ArgsTuple>::type;                                                    \
+			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                    \
 			using OriginalFn = typename HelperT::OriginalFn;                                                                               \
 			inline static OriginalFn s_original = nullptr;                                                                                 \
 			inline static thread_local void* s_returnAddress = nullptr;                                                                    \
@@ -683,13 +691,14 @@ namespace lambda_hook
 					spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                    \
 				return false;                                                                                                              \
 			}                                                                                                                              \
+			void* GetOriginalRaw() const override { return reinterpret_cast<void*>(s_original); }                                          \
 			static void OnModuleLoaded(CModule) { Instance().Dispatch(); }                                                                 \
 		};                                                                                                                                 \
-		lambda_hook::LambdaHookRegistrationOffset<CONCAT2(__lambdaHook_, __LINE__)>                                                        \
+		HookSys::LambdaHookRegistrationOffset<CONCAT2(__lambdaHook_, __LINE__)>                                                        \
 			CONCAT2(__lambdaHookReg_, __LINE__)(__STR(debugName), __STR(addrString));                                                      \
 	}
 
-#define DECLARE_HOOK(debugName, addrString, lambda) DECLARE_HOOK_CC(debugName, addrString, LAMBDA_HOOK_CALLCONV, lambda)
+#define DECLARE_HOOK(debugName, addrString, lambda) DECLARE_HOOK_CC(debugName, addrString, HOOKSYS_CALLCONV, lambda)
 
 // Lambda hook using an absolute address
 #define DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, callingConvention, lambda)                                                               \
@@ -697,15 +706,15 @@ namespace lambda_hook
 	{                                                                                                                                      \
 		inline auto CONCAT2(__lambdaHookAbsLambda_, __LINE__) = lambda;                                                                    \
 		struct CONCAT2(__lambdaHookAbs_, __LINE__)                                                                                         \
-			: public lambda_hook::LambdaHookBase                                                                                           \
+			: public HookSys::LambdaHookBase                                                                                           \
 		{                                                                                                                                  \
 			using Self = CONCAT2(__lambdaHookAbs_, __LINE__);                                                                              \
 			using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookAbsLambda_, __LINE__))>;                                             \
-			using Traits = lambda_hook::lambda_traits_for_hook<LambdaT>;                                                                   \
+			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                   \
 			using ReturnT = typename Traits::return_type;                                                                                  \
 			using FullArgs = typename Traits::args_tuple;                                                                                  \
 			static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                \
-			using ArgsTuple = typename lambda_hook::tuple_tail<FullArgs>::type;                                                            \
+			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                            \
 			template <typename... Args> struct Helper                                                                                      \
 			{                                                                                                                              \
 				using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                   \
@@ -718,7 +727,7 @@ namespace lambda_hook
 						return Self::Instance().Invoke(args...);                                                                           \
 				}                                                                                                                          \
 			};                                                                                                                             \
-			using HelperT = typename lambda_hook::apply_tuple<Helper, ArgsTuple>::type;                                                    \
+			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                    \
 			using OriginalFn = typename HelperT::OriginalFn;                                                                               \
 			inline static OriginalFn s_original = nullptr;                                                                                 \
 			inline static thread_local void* s_returnAddress = nullptr;                                                                    \
@@ -775,13 +784,14 @@ namespace lambda_hook
 					spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                    \
 				return false;                                                                                                              \
 			}                                                                                                                              \
+			void* GetOriginalRaw() const override { return reinterpret_cast<void*>(s_original); }                                          \
 			static void OnModuleLoaded(CModule) { Instance().Dispatch(); }                                                                 \
 		};                                                                                                                                 \
-		lambda_hook::LambdaHookRegistrationAbsolute<CONCAT2(__lambdaHookAbs_, __LINE__)>                                                   \
+		HookSys::LambdaHookRegistrationAbsolute<CONCAT2(__lambdaHookAbs_, __LINE__)>                                                   \
 			CONCAT2(__lambdaHookAbsReg_, __LINE__)(__STR(debugName), static_cast<uintptr_t>(addr));                                        \
 	}
 
-#define DECLARE_HOOK_ABSOLUTE(debugName, addr, lambda) DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, LAMBDA_HOOK_CALLCONV, lambda)
+#define DECLARE_HOOK_ABSOLUTE(debugName, addr, lambda) DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, HOOKSYS_CALLCONV, lambda)
 
 // Lambda hook using GetProcAddress
 #define DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, callingConvention, lambda)                                                   \
@@ -789,15 +799,15 @@ namespace lambda_hook
 	{                                                                                                                                      \
 		inline auto CONCAT2(__lambdaHookProcLambda_, __LINE__) = lambda;                                                                   \
 		struct CONCAT2(__lambdaHookProc_, __LINE__)                                                                                        \
-			: public lambda_hook::LambdaHookBase                                                                                           \
+			: public HookSys::LambdaHookBase                                                                                           \
 		{                                                                                                                                  \
 			using Self = CONCAT2(__lambdaHookProc_, __LINE__);                                                                             \
 			using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookProcLambda_, __LINE__))>;                                            \
-			using Traits = lambda_hook::lambda_traits_for_hook<LambdaT>;                                                                   \
+			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                   \
 			using ReturnT = typename Traits::return_type;                                                                                  \
 			using FullArgs = typename Traits::args_tuple;                                                                                  \
 			static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                \
-			using ArgsTuple = typename lambda_hook::tuple_tail<FullArgs>::type;                                                            \
+			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                            \
 			template <typename... Args> struct Helper                                                                                      \
 			{                                                                                                                              \
 				using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                   \
@@ -810,7 +820,7 @@ namespace lambda_hook
 						return Self::Instance().Invoke(args...);                                                                           \
 				}                                                                                                                          \
 			};                                                                                                                             \
-			using HelperT = typename lambda_hook::apply_tuple<Helper, ArgsTuple>::type;                                                    \
+			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                    \
 			using OriginalFn = typename HelperT::OriginalFn;                                                                               \
 			inline static OriginalFn s_original = nullptr;                                                                                 \
 			inline static thread_local void* s_returnAddress = nullptr;                                                                    \
@@ -867,11 +877,12 @@ namespace lambda_hook
 					spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                    \
 				return false;                                                                                                              \
 			}                                                                                                                              \
+			void* GetOriginalRaw() const override { return reinterpret_cast<void*>(s_original); }                                          \
 			static void OnModuleLoaded(CModule) { Instance().Dispatch(); }                                                                 \
 		};                                                                                                                                 \
-		lambda_hook::LambdaHookRegistrationProc<CONCAT2(__lambdaHookProc_, __LINE__)>                                                      \
+		HookSys::LambdaHookRegistrationProc<CONCAT2(__lambdaHookProc_, __LINE__)>                                                      \
 			CONCAT2(__lambdaHookProcReg_, __LINE__)(__STR(debugName), __STR(moduleName), __STR(procName));                                 \
 	}
 
 #define DECLARE_HOOK_PROC(debugName, moduleName, procName, lambda)                                                                         \
-	DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, LAMBDA_HOOK_CALLCONV, lambda)
+	DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, HookSys_CALLCONV, lambda)

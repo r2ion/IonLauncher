@@ -9,7 +9,7 @@
 #include "shared/exploit_fixes/ns_limits.h"
 #include "shared/playlist.h"
 #include "vscript/squirrel/squirrel.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "mods/autodownload/moddownloader.h"
 #include "eos/eos_layer.h"
 

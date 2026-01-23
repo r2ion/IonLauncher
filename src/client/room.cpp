@@ -1,5 +1,5 @@
 #include "room.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 
 typedef void* (*JoinPlayerGameRoom_t)(const char* roomId);
 JoinPlayerGameRoom_t JoinPlayerGameRoom;

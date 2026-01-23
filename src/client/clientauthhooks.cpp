@@ -1,6 +1,6 @@
 #include "client/r2client.h"
 #include "core/convar/convar.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "masterserver/masterserver.h"
 
 ConVar* Cvar_ns_has_agreed_to_send_token;
