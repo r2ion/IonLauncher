@@ -244,9 +244,9 @@ namespace BaseModUI
 }
 
 
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", BaseModUIHooks, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", BaseModUIHooks, ConVar, [](CModule module)
 {
 	BaseModPanel_GetSingleton = module.Offset(0x4B1690).RCast<BaseModPanel_GetSingletonType>();
 
 	AUTOHOOK_DISPATCH()
-}
+})

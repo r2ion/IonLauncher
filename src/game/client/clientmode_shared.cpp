@@ -59,8 +59,8 @@ static void h_CC_crash_test_f(const CCommand& args)
 	}
 }
 
-ON_DLL_LOAD("engine.dll", ClientModeShared, (CModule module))
+ON_DLL_LOAD("engine.dll", ClientModeShared, [](CModule module)
 {
 	o_pCC_crash_test_f = module.Offset(0x15BEE0).RCast<decltype(o_pCC_crash_test_f)>();
 	HookAttach(&(PVOID&)o_pCC_crash_test_f, (PVOID)h_CC_crash_test_f);
-}
+})

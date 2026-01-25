@@ -704,7 +704,7 @@ ADD_SQFUNC(
 	return SQRESULT_NOTNULL;
 }
 
-ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, (CModule module))
+ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module)
 {
 	AUTOHOOK_DISPATCH_MODULE(client.dll)
 
@@ -826,9 +826,9 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, (CModule module))
 
 	StubUnsafeSQFuncs<ScriptContext::CLIENT>();
 	StubUnsafeSQFuncs<ScriptContext::UI>();
-}
+})
 
-ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, (CModule module))
+ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module)
 {
 	AUTOHOOK_DISPATCH_MODULE(server.dll)
 
@@ -904,4 +904,4 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, (CModule module))
 		FCVAR_GAMEDLL | FCVAR_GAMEDLL_FOR_REMOTE_CLIENTS | FCVAR_CHEAT);
 
 	StubUnsafeSQFuncs<ScriptContext::SERVER>();
-}
+})

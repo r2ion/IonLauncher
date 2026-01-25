@@ -367,7 +367,7 @@ void ConCommand_ns_resetpersistence(const CCommand& args)
 	g_pServerAuthentication->m_bForceResetLocalPlayerPersistence = true;
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", ServerAuthentication, (ConCommand, ConVar), (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", ServerAuthentication, (ConCommand, ConVar), [](CModule module)
 {
 	o_pCServer__ConnectClient = module.Offset(0x114430).RCast<decltype(o_pCServer__ConnectClient)>();
 	HookAttach(&(PVOID&)o_pCServer__ConnectClient, (PVOID)h_CServer__ConnectClient);
@@ -409,4 +409,4 @@ ON_DLL_LOAD_RELIESON("engine.dll", ServerAuthentication, (ConCommand, ConVar), (
 
 		g_pServerAuthentication->m_bAllowDuplicateAccounts = true;
 	}
-}
+})

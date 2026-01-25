@@ -149,11 +149,11 @@ void CAI_Helper::DrawNavmeshPolys(dtNavMesh* pNavMesh)
 	}
 }
 
-ON_DLL_LOAD("server.dll", ServerAIHelper, (CModule module))
+ON_DLL_LOAD("server.dll", ServerAIHelper, [](CModule module)
 {
 	Cvar_navmesh_debug_hull = new ConVar("navmesh_debug_hull", "0", FCVAR_RELEASE, "0 = NONE");
 	Cvar_navmesh_debug_camera_radius =
 		new ConVar("navmesh_debug_camera_radius", "1000", FCVAR_RELEASE, "Radius in which to draw navmeshes");
 	Cvar_navmesh_debug_lossy_optimization =
 		new ConVar("navmesh_debug_lossy_optimization", "1", FCVAR_RELEASE, "Whether to enable lossy navmesh debug draw optimizations");
-}
+})

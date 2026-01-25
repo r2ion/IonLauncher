@@ -79,7 +79,7 @@ AUTOHOOK(CClient__SendSignonData, engine.dll + 0x105760, bool, __fastcall, (CCli
 	return CClient__SendSignonData(pThis);
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", PersistenceNetMessages, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", PersistenceNetMessages, ConVar, [](CModule module)
 {
 	AUTOHOOK_DISPATCH()
-}
+})

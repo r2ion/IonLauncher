@@ -307,10 +307,10 @@ const char* __fastcall GetIpStringFromClientHook(int64_t a1) {
 	return GetIpStringFromClient(a1);
 }
 
-ON_DLL_LOAD("engine.dll", Net, (CModule module))
+ON_DLL_LOAD("engine.dll", Net, [](CModule module)
 {
 	GetIpStringFromClient = module.Offset(0x2101A0).RCast<decltype(GetIpStringFromClient)>();
 	HookAttach(&(PVOID&)GetIpStringFromClient, (PVOID)GetIpStringFromClientHook);
 	NET_SendPacket = module.Offset(0x21C240).RCast<decltype(NET_SendPacket)>();
 	netadr_s__GetEncryptionKey = module.Offset(0x2154C0).RCast<netadr_s__GetEncryptionKey_t>();
-}
+})

@@ -25,7 +25,7 @@ void* g_pIConVar_Vtable = nullptr;
 //-----------------------------------------------------------------------------
 // Purpose: ConVar interface initialization
 //-----------------------------------------------------------------------------
-ON_DLL_LOAD("engine.dll", ConVar, (CModule module))
+ON_DLL_LOAD("engine.dll", ConVar, [](CModule module)
 {
 	conVarMalloc = module.Offset(0x415C20).RCast<ConVarMallocType>();
 	conVarRegister = module.Offset(0x417230).RCast<ConVarRegisterType>();
@@ -34,7 +34,7 @@ ON_DLL_LOAD("engine.dll", ConVar, (CModule module))
 	g_pIConVar_Vtable = module.Offset(0x67FDC8);
 
 	g_pCVar = Sys_GetFactoryPtr("vstdlib.dll", "VEngineCvar007").RCast<CCvar*>();
-}
+})
 
 //-----------------------------------------------------------------------------
 // Purpose: constructor

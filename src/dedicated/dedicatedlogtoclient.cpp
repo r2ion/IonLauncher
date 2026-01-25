@@ -39,7 +39,7 @@ void DedicatedServerLogToClientSink::sink_it_(const spdlog::details::log_msg& ms
 
 void DedicatedServerLogToClientSink::flush_() {}
 
-ON_DLL_LOAD_DEDI("engine.dll", DedicatedServerLogToClient, (CModule module))
+ON_DLL_LOAD_DEDI("engine.dll", DedicatedServerLogToClient, [](CModule module)
 {
 	CGameClient__ClientPrintf = module.Offset(0x1016A0).RCast<void (*)(CClient*, const char*, ...)>();
-}
+})

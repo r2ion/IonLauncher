@@ -102,7 +102,7 @@ void ConCommand_setplaylistvaroverride(const CCommand& args)
 		R2::SetPlaylistVarOverride(args.Arg(i), args.Arg(i + 1));
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", PlaylistHooks, (ConCommand, ConVar), (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", PlaylistHooks, (ConCommand, ConVar), [](CModule module)
 {
 	AUTOHOOK_DISPATCH()
 
@@ -126,4 +126,4 @@ ON_DLL_LOAD_RELIESON("engine.dll", PlaylistHooks, (ConCommand, ConVar), (CModule
 
 	if( IsDedicatedServer() )
 		module.Offset(0x18ED17).NoOP(6);
-}
+})

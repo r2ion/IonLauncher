@@ -236,7 +236,7 @@ static bool h_CClientState_ProcessPrint(void* thisptr, uintptr_t msg)
 	return true;
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", EngineSpewFuncHooks, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", EngineSpewFuncHooks, ConVar, [](CModule module)
 {
 	o_pfprintf = module.Offset(0x51B1F0).RCast<decltype(o_pfprintf)>();
 	HookAttach(&(PVOID&)o_pfprintf, (PVOID)h_fprintf);
@@ -254,13 +254,13 @@ ON_DLL_LOAD_RELIESON("engine.dll", EngineSpewFuncHooks, ConVar, (CModule module)
 	HookAttach(&(PVOID&)o_pCClientState_ProcessPrint, (PVOID)h_CClientState_ProcessPrint);
 
 	Cvar_spewlog_enable = new ConVar("spewlog_enable", "0", FCVAR_NONE, "Enables/disables whether the engine spewfunc should be logged");
-}
+})
 
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", ClientPrintHooks, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", ClientPrintHooks, ConVar, [](CModule module)
 {
 	o_pTextMsg = module.Offset(0x198710).RCast<decltype(o_pTextMsg)>();
 	HookAttach(&(PVOID&)o_pTextMsg, (PVOID)h_TextMsg);
 
 	Cvar_cl_showtextmsg = new ConVar("cl_showtextmsg", "1", FCVAR_NONE, "Enable/disable text messages printing on the screen.");
 	pInternalCenterPrint = module.Offset(0x216E940).RCast<ICenterPrint*>();
-}
+})

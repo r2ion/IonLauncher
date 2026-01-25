@@ -32,7 +32,7 @@ void PaintTraverse(uintptr_t thisptr, vgui::Panel* paintPanel, bool forceRepaint
 	// 	DrawScriptErrors();
 }
 
-ON_DLL_LOAD_CLIENT("client.dll", VGuiSurface, (CModule module))
+ON_DLL_LOAD_CLIENT("client.dll", VGuiSurface, [](CModule module)
 {
 	g_pVGuiSurface = Sys_GetFactoryPtr("vguimatsurface.dll", "VGUI_Surface031").RCast<vgui::ISurface*>();
-}
+})

@@ -41,10 +41,10 @@ static void __fastcall h_CC_mat_crosshair_printmaterial_f(const CCommand& args)
 	fnPrintGlue(pMat->m_pColPass, "ColPass");
 }
 
-ON_DLL_LOAD("engine.dll", GlMatSysIFace, (CModule module))
+ON_DLL_LOAD("engine.dll", GlMatSysIFace, [](CModule module)
 {
 	o_pCC_mat_crosshair_printmaterial_f = module.Offset(0xB3C40).RCast<decltype(o_pCC_mat_crosshair_printmaterial_f)>();
 	HookAttach(&(PVOID&)o_pCC_mat_crosshair_printmaterial_f, (PVOID)h_CC_mat_crosshair_printmaterial_f);
 
 	GetMaterialAtCrossHair = module.Offset(0xB37D0).RCast<CMaterialGlue* (*)()>();
-}
+})

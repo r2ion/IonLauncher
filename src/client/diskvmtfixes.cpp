@@ -1,5 +1,5 @@
 
-ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", DiskVMTFixes, (CModule module))
+ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", DiskVMTFixes, [](CModule module)
 {
 	// in retail VMTs will never load if cache read is invalid due to a special case for them in KeyValues::LoadFromFile
 	// this effectively makes it impossible to load them from mods because we invalidate cache for doing this
@@ -12,4 +12,4 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", DiskVMTFixes, (CModule module))
 
 	// CMaterialSystem::FindMaterial: don't call function that crashes if previous patch is applied
 	module.Offset(0x5F55A).NoOP(5);
-}
+})

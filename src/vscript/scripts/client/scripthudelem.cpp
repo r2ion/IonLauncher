@@ -166,7 +166,7 @@ AUTOHOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, bool, __fastca
 }
 
 
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", CGameUIConVarRef, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", CGameUIConVarRef, ConVar, [](CModule module)
 {
 	sub_738940 = module.Offset(0x738940).RCast<sub_738940_t>();
 	sub_4A3620 = module.Offset(0x4A3620).RCast<sub_4A3620_t>();
@@ -177,4 +177,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("client.dll", CGameUIConVarRef, ConVar, (CModule mod
 
 	AUTOHOOK_DISPATCH()
 	CGameUIConVarRef__Init = module.Offset(0x4A34A0).RCast<CGameUIConVarRef__Init_t>();
-}
+})

@@ -83,7 +83,7 @@ void*,, (void* thisptr, const char* name, int maxentries, int userdatafixedsize,
 	return StringTables_CreateStringTable(thisptr, name, maxentries, userdatafixedsize, userdatanetworkbits, flags);
 }
 
-ON_DLL_LOAD("engine.dll", MaxPlayersOverride_Engine, (CModule module))
+ON_DLL_LOAD("engine.dll", MaxPlayersOverride_Engine, [](CModule module)
 {
 	if (!MaxPlayersIncreaseEnabled())
 		return;
@@ -123,7 +123,7 @@ ON_DLL_LOAD("engine.dll", MaxPlayersOverride_Engine, (CModule module))
 
 	// do not load prebaked SendTable message list
 	module.Offset(0x75859).Patch("EB"); // jnz -> jmp
-}
+})
 
 typedef void (*RunUserCmds_Type)(bool a1, float a2);
 RunUserCmds_Type RunUserCmds_Original;
@@ -288,7 +288,7 @@ __int64,, (__int64 recvProp, int elements, int flags, const char* name, __int64 
 	return SendPropArray2(recvProp, elements, flags, name, proxyFn, unk1);
 }
 
-ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, (CModule module))
+ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, [](CModule module)
 {
 	if (!MaxPlayersIncreaseEnabled())
 		return;
@@ -445,7 +445,7 @@ ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, (CModule module))
 	*module.Offset(0xC945A0).RCast<DWORD*>() = 0;
 	auto DT_Team_Construct = module.Offset(0x238F50).RCast<__int64(__fastcall*)()>();
 	DT_Team_Construct();
-}
+})
 
 // clang-format off
 AUTOHOOK(RecvPropArray2, client.dll + 0x1CEDA0,
@@ -459,7 +459,7 @@ __int64,, (__int64 recvProp, int elements, int flags, const char* name, __int64 
 	return RecvPropArray2(recvProp, elements, flags, name, proxyFn);
 }
 
-ON_DLL_LOAD("client.dll", MaxPlayersOverride_Client, (CModule module))
+ON_DLL_LOAD("client.dll", MaxPlayersOverride_Client, [](CModule module)
 {
 	if (!MaxPlayersIncreaseEnabled())
 		return;
@@ -637,4 +637,4 @@ ON_DLL_LOAD("client.dll", MaxPlayersOverride_Client, (CModule module))
 	*module.Offset(0xC3AFF8).RCast<DWORD*>() = 0;
 	auto DT_Team_Construct = module.Offset(0x17F950).RCast<__int64(__fastcall*)()>();
 	DT_Team_Construct();
-}
+})

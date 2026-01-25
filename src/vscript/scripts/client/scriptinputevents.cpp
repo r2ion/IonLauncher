@@ -24,7 +24,7 @@ AUTOHOOK(CInputSystem__PostEvent, inputsystem.dll + 0x7EC0, void, __fastcall, (v
 	CALL_INPUTSYS_SQ_FUNC(UI);
 }
 
-ON_DLL_LOAD_RELIESON("inputsystem.dll", FastCallbacks, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("inputsystem.dll", FastCallbacks, ConVar, [](CModule module)
 {
 	AUTOHOOK_DISPATCH();
-}
+})

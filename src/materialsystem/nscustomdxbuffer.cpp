@@ -136,7 +136,7 @@ template <ScriptContext context> SQRESULT NSSetCustomDXBuffer(HSQUIRRELVM sqvm)
 	return SQRESULT_NULL;
 }
 
-ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", SUB_511D0, (CModule module))
+ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module)
 {
 	AUTOHOOK_DISPATCH_MODULE(materialsystem_dx11.dll)
 
@@ -148,4 +148,4 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", SUB_511D0, (CModule module))
 		"string rPakMaterialGUID array NSCustomBufferPerMaterialData",
 		"",
 		NSSetCustomDXBuffer<ScriptContext::CLIENT>);
-}
+})

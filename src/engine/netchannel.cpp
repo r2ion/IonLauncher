@@ -62,7 +62,7 @@ void ConCommand_ns_dump_registered_netmessages(const CCommand& args)
 	spdlog::info("};");
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", NetChan, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", NetChan, ConVar, [](CModule module)
 {
 	AUTOHOOK_DISPATCH();
 
@@ -74,4 +74,4 @@ ON_DLL_LOAD_RELIESON("engine.dll", NetChan, ConVar, (CModule module))
 		FCVAR_NONE,
 		"Logs all registered netmessages to console on registration.");
 	CNetChan__RegisterMessage = module.Offset(0x2129D0).RCast<CNetChan__RegisterMessage_t>();
-}
+})

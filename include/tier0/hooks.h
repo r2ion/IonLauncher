@@ -4,16 +4,17 @@
 
 #include <cctype>
 #include <cstring>
+#include <functional>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <memory>
 
-#include <intrin.h>
 #include <MinHook.h>
+#include <intrin.h>
 
 #include "logging/logging.h"
 #include "tier0/module.h"
@@ -101,24 +102,27 @@ public:
 };
 
 // adds a callback to be called when a given dll is loaded, for creating hooks and such
-#define __ON_DLL_LOAD(dllName, side, uniquestr, reliesOn, args)                                                                            \
-	void CONCAT2(__dllLoadCallback, uniquestr) args;                                                                                       \
-	namespace                                                                                                                              \
-	{                                                                                                                                      \
-		__dllLoadCallback CONCAT2(__dllLoadCallbackInstance, __LINE__)(                                                                    \
-			side, dllName, CONCAT2(__dllLoadCallback, uniquestr), __STR(uniquestr), reliesOn);                                             \
-	}                                                                                                                                      \
-	void CONCAT2(__dllLoadCallback, uniquestr) args
+#define __ON_DLL_LOAD(dllName, side, uniquestr, reliesOn, lambdaExpr)                                                                       \
+	namespace                                                                                                                               \
+	{                                                                                                                                       \
+		inline auto CONCAT2(__dllLoadCallbackLambda_, uniquestr) = lambdaExpr;                                                              \
+		void CONCAT2(__dllLoadCallback, uniquestr)(CModule module)                                                                           \
+		{                                                                                                                                   \
+			CONCAT2(__dllLoadCallbackLambda_, uniquestr)(module);                                                                             \
+		}                                                                                                                                   \
+		__dllLoadCallback CONCAT2(__dllLoadCallbackInstance, __LINE__)(                                                                     \
+			side, dllName, CONCAT2(__dllLoadCallback, uniquestr), __STR(uniquestr), reliesOn);                                              \
+	}                                                                                                                                       \
 
-#define ON_DLL_LOAD(dllName, uniquestr, args) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::UNSIDED, uniquestr, "", args)
-#define ON_DLL_LOAD_RELIESON(dllName, uniquestr, reliesOn, args)                                                                           \
-	__ON_DLL_LOAD(dllName, eDllLoadCallbackSide::UNSIDED, uniquestr, __STR(reliesOn), args)
-#define ON_DLL_LOAD_CLIENT(dllName, uniquestr, args) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::CLIENT, uniquestr, "", args)
-#define ON_DLL_LOAD_CLIENT_RELIESON(dllName, uniquestr, reliesOn, args)                                                                    \
-	__ON_DLL_LOAD(dllName, eDllLoadCallbackSide::CLIENT, uniquestr, __STR(reliesOn), args)
-#define ON_DLL_LOAD_DEDI(dllName, uniquestr, args) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, "", args)
-#define ON_DLL_LOAD_DEDI_RELIESON(dllName, uniquestr, reliesOn, args)                                                                      \
-	__ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, __STR(reliesOn), args)
+#define ON_DLL_LOAD(dllName, uniquestr, lambdaExpr) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::UNSIDED, uniquestr, "", lambdaExpr)
+#define ON_DLL_LOAD_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                                    \
+	__ON_DLL_LOAD(dllName, eDllLoadCallbackSide::UNSIDED, uniquestr, __STR(reliesOn), lambdaExpr)
+#define ON_DLL_LOAD_CLIENT(dllName, uniquestr, lambdaExpr) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::CLIENT, uniquestr, "", lambdaExpr)
+#define ON_DLL_LOAD_CLIENT_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                             \
+	__ON_DLL_LOAD(dllName, eDllLoadCallbackSide::CLIENT, uniquestr, __STR(reliesOn), lambdaExpr)
+#define ON_DLL_LOAD_DEDI(dllName, uniquestr, lambdaExpr) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, "", lambdaExpr)
+#define ON_DLL_LOAD_DEDI_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                               \
+	__ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, __STR(reliesOn), lambdaExpr)
 
 // new macro hook stuff
 class __autohook;
@@ -443,6 +447,59 @@ namespace HookSys
 		using type = Template<Args...>;
 	};
 
+	template <typename Fn, typename HookT, typename... Args> decltype(auto) InvokeHookTarget(Fn&& fn, HookT& hook, Args&&... args)
+	{
+		if constexpr (std::is_invocable_v<Fn, HookT&, Args...>)
+		{
+			if constexpr (std::is_void_v<std::invoke_result_t<Fn, HookT&, Args...>>)
+			{
+				std::invoke(std::forward<Fn>(fn), hook, std::forward<Args>(args)...);
+				return;
+			}
+			else
+			{
+				return std::invoke(std::forward<Fn>(fn), hook, std::forward<Args>(args)...);
+			}
+		}
+
+		if constexpr (std::is_void_v<std::invoke_result_t<Fn, Args...>>)
+		{
+			std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
+			return;
+		}
+		else
+		{
+			return std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
+		}
+	}
+
+	template <typename Method, typename InstanceT, typename HookT, typename... Args>
+	decltype(auto) InvokeMethodHook(Method method, InstanceT&& instance, HookT& hook, Args&&... args)
+	{
+		if constexpr (std::is_invocable_v<Method, InstanceT, HookT&, Args...>)
+		{
+			if constexpr (std::is_void_v<std::invoke_result_t<Method, InstanceT, HookT&, Args...>>)
+			{
+				std::invoke(method, std::forward<InstanceT>(instance), hook, std::forward<Args>(args)...);
+				return;
+			}
+			else
+			{
+				return std::invoke(method, std::forward<InstanceT>(instance), hook, std::forward<Args>(args)...);
+			}
+		}
+
+		if constexpr (std::is_void_v<std::invoke_result_t<Method, InstanceT, Args...>>)
+		{
+			std::invoke(method, std::forward<InstanceT>(instance), std::forward<Args>(args)...);
+			return;
+		}
+		else
+		{
+			return std::invoke(method, std::forward<InstanceT>(instance), std::forward<Args>(args)...);
+		}
+	}
+
 	enum class AddressMode
 	{
 		OffsetString,
@@ -553,8 +610,7 @@ namespace HookSys
 		return it != registry.end() ? it->second : nullptr;
 	}
 
-	template <typename Fn>
-	inline Fn GetOriginalFunction(const std::shared_ptr<LambdaHookBase>& hook)
+	template <typename Fn> inline Fn GetOriginalFunction(const std::shared_ptr<LambdaHookBase>& hook)
 	{
 		return hook ? reinterpret_cast<Fn>(hook->GetOriginalRaw()) : nullptr;
 	}
@@ -614,15 +670,15 @@ namespace HookSys
 	{                                                                                                                                      \
 		inline auto CONCAT2(__lambdaHookLambda_, __LINE__) = lambda;                                                                       \
 		struct CONCAT2(__lambdaHook_, __LINE__)                                                                                            \
-			: public HookSys::LambdaHookBase                                                                                           \
+			: public HookSys::LambdaHookBase                                                                                               \
 		{                                                                                                                                  \
 			using Self = CONCAT2(__lambdaHook_, __LINE__);                                                                                 \
 			using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookLambda_, __LINE__))>;                                                \
-			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                   \
+			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                       \
 			using ReturnT = typename Traits::return_type;                                                                                  \
 			using FullArgs = typename Traits::args_tuple;                                                                                  \
 			static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                \
-			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                            \
+			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                                \
 			template <typename... Args> struct Helper                                                                                      \
 			{                                                                                                                              \
 				using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                   \
@@ -634,7 +690,7 @@ namespace HookSys
 						return Self::Instance().Invoke(args...);                                                                           \
 				}                                                                                                                          \
 			};                                                                                                                             \
-			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                    \
+			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                        \
 			using OriginalFn = typename HelperT::OriginalFn;                                                                               \
 			inline static OriginalFn s_original = nullptr;                                                                                 \
 			inline static thread_local void* s_returnAddress = nullptr;                                                                    \
@@ -644,7 +700,7 @@ namespace HookSys
 				static Self inst;                                                                                                          \
 				return inst;                                                                                                               \
 			}                                                                                                                              \
-			void* ReturnAddress() const { return s_returnAddress; }                                                                         \
+			void* ReturnAddress() const { return s_returnAddress; }                                                                        \
 			template <typename... Args> ReturnT Invoke(Args... args)                                                                       \
 			{                                                                                                                              \
 				if constexpr (std::is_void_v<ReturnT>)                                                                                     \
@@ -694,11 +750,32 @@ namespace HookSys
 			void* GetOriginalRaw() const override { return reinterpret_cast<void*>(s_original); }                                          \
 			static void OnModuleLoaded(CModule) { Instance().Dispatch(); }                                                                 \
 		};                                                                                                                                 \
-		HookSys::LambdaHookRegistrationOffset<CONCAT2(__lambdaHook_, __LINE__)>                                                        \
+		HookSys::LambdaHookRegistrationOffset<CONCAT2(__lambdaHook_, __LINE__)>                                                            \
 			CONCAT2(__lambdaHookReg_, __LINE__)(__STR(debugName), __STR(addrString));                                                      \
 	}
 
 #define DECLARE_HOOK(debugName, addrString, lambda) DECLARE_HOOK_CC(debugName, addrString, HOOKSYS_CALLCONV, lambda)
+
+// Hook using a regular free function (with or without hook ref as first arg)
+#define DECLARE_HOOK_FN_CC(debugName, addrString, callingConvention, func)                                                                 \
+	DECLARE_HOOK_CC(                                                                                                                       \
+		debugName,                                                                                                                         \
+		addrString,                                                                                                                        \
+		callingConvention,                                                                                                                 \
+		[](auto& hook, auto... args) -> decltype(auto)                                                                                     \
+		{                                                                                                                                  \
+			if constexpr (std::is_void_v<decltype(HookSys::InvokeHookTarget(func, hook, args...))>)                                        \
+			{                                                                                                                              \
+				HookSys::InvokeHookTarget(func, hook, args...);                                                                            \
+				return;                                                                                                                    \
+			}                                                                                                                              \
+			else                                                                                                                           \
+			{                                                                                                                              \
+				return HookSys::InvokeHookTarget(func, hook, args...);                                                                     \
+			}                                                                                                                              \
+		})
+
+#define DECLARE_HOOK_FN(debugName, addrString, func) DECLARE_HOOK_FN_CC(debugName, addrString, HOOKSYS_CALLCONV, func)
 
 // Lambda hook using an absolute address
 #define DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, callingConvention, lambda)                                                               \
@@ -706,28 +783,28 @@ namespace HookSys
 	{                                                                                                                                      \
 		inline auto CONCAT2(__lambdaHookAbsLambda_, __LINE__) = lambda;                                                                    \
 		struct CONCAT2(__lambdaHookAbs_, __LINE__)                                                                                         \
-			: public HookSys::LambdaHookBase                                                                                           \
+			: public HookSys::LambdaHookBase                                                                                               \
 		{                                                                                                                                  \
 			using Self = CONCAT2(__lambdaHookAbs_, __LINE__);                                                                              \
 			using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookAbsLambda_, __LINE__))>;                                             \
-			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                   \
+			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                       \
 			using ReturnT = typename Traits::return_type;                                                                                  \
 			using FullArgs = typename Traits::args_tuple;                                                                                  \
 			static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                \
-			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                            \
+			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                                \
 			template <typename... Args> struct Helper                                                                                      \
 			{                                                                                                                              \
 				using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                   \
 				static ReturnT callingConvention Detour(Args... args)                                                                      \
 				{                                                                                                                          \
-					Self::s_returnAddress = _ReturnAddress();                                                                                \
+					Self::s_returnAddress = _ReturnAddress();                                                                              \
 					if constexpr (std::is_void_v<ReturnT>)                                                                                 \
 						Self::Instance().Invoke(args...);                                                                                  \
 					else                                                                                                                   \
 						return Self::Instance().Invoke(args...);                                                                           \
 				}                                                                                                                          \
 			};                                                                                                                             \
-			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                    \
+			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                        \
 			using OriginalFn = typename HelperT::OriginalFn;                                                                               \
 			inline static OriginalFn s_original = nullptr;                                                                                 \
 			inline static thread_local void* s_returnAddress = nullptr;                                                                    \
@@ -737,7 +814,7 @@ namespace HookSys
 				static Self inst;                                                                                                          \
 				return inst;                                                                                                               \
 			}                                                                                                                              \
-			void* ReturnAddress() const { return s_returnAddress; }                                                                         \
+			void* ReturnAddress() const { return s_returnAddress; }                                                                        \
 			template <typename... Args> ReturnT Invoke(Args... args)                                                                       \
 			{                                                                                                                              \
 				if constexpr (std::is_void_v<ReturnT>)                                                                                     \
@@ -787,11 +864,32 @@ namespace HookSys
 			void* GetOriginalRaw() const override { return reinterpret_cast<void*>(s_original); }                                          \
 			static void OnModuleLoaded(CModule) { Instance().Dispatch(); }                                                                 \
 		};                                                                                                                                 \
-		HookSys::LambdaHookRegistrationAbsolute<CONCAT2(__lambdaHookAbs_, __LINE__)>                                                   \
+		HookSys::LambdaHookRegistrationAbsolute<CONCAT2(__lambdaHookAbs_, __LINE__)>                                                       \
 			CONCAT2(__lambdaHookAbsReg_, __LINE__)(__STR(debugName), static_cast<uintptr_t>(addr));                                        \
 	}
 
 #define DECLARE_HOOK_ABSOLUTE(debugName, addr, lambda) DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, HOOKSYS_CALLCONV, lambda)
+
+// Hook using a regular free function at an absolute address
+#define DECLARE_HOOK_ABSOLUTE_FN_CC(debugName, addr, callingConvention, func)                                                              \
+	DECLARE_HOOK_ABSOLUTE_CC(                                                                                                              \
+		debugName,                                                                                                                         \
+		addr,                                                                                                                              \
+		callingConvention,                                                                                                                 \
+		[](auto& hook, auto... args) -> decltype(auto)                                                                                     \
+		{                                                                                                                                  \
+			if constexpr (std::is_void_v<decltype(HookSys::InvokeHookTarget(func, hook, args...))>)                                        \
+			{                                                                                                                              \
+				HookSys::InvokeHookTarget(func, hook, args...);                                                                            \
+				return;                                                                                                                    \
+			}                                                                                                                              \
+			else                                                                                                                           \
+			{                                                                                                                              \
+				return HookSys::InvokeHookTarget(func, hook, args...);                                                                     \
+			}                                                                                                                              \
+		})
+
+#define DECLARE_HOOK_ABSOLUTE_FN(debugName, addr, func) DECLARE_HOOK_ABSOLUTE_FN_CC(debugName, addr, HOOKSYS_CALLCONV, func)
 
 // Lambda hook using GetProcAddress
 #define DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, callingConvention, lambda)                                                   \
@@ -799,28 +897,28 @@ namespace HookSys
 	{                                                                                                                                      \
 		inline auto CONCAT2(__lambdaHookProcLambda_, __LINE__) = lambda;                                                                   \
 		struct CONCAT2(__lambdaHookProc_, __LINE__)                                                                                        \
-			: public HookSys::LambdaHookBase                                                                                           \
+			: public HookSys::LambdaHookBase                                                                                               \
 		{                                                                                                                                  \
 			using Self = CONCAT2(__lambdaHookProc_, __LINE__);                                                                             \
 			using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookProcLambda_, __LINE__))>;                                            \
-			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                   \
+			using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                       \
 			using ReturnT = typename Traits::return_type;                                                                                  \
 			using FullArgs = typename Traits::args_tuple;                                                                                  \
 			static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                \
-			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                            \
+			using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                                \
 			template <typename... Args> struct Helper                                                                                      \
 			{                                                                                                                              \
 				using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                   \
 				static ReturnT callingConvention Detour(Args... args)                                                                      \
 				{                                                                                                                          \
-					Self::s_returnAddress = _ReturnAddress();                                                                                \
+					Self::s_returnAddress = _ReturnAddress();                                                                              \
 					if constexpr (std::is_void_v<ReturnT>)                                                                                 \
 						Self::Instance().Invoke(args...);                                                                                  \
 					else                                                                                                                   \
 						return Self::Instance().Invoke(args...);                                                                           \
 				}                                                                                                                          \
 			};                                                                                                                             \
-			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                    \
+			using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                        \
 			using OriginalFn = typename HelperT::OriginalFn;                                                                               \
 			inline static OriginalFn s_original = nullptr;                                                                                 \
 			inline static thread_local void* s_returnAddress = nullptr;                                                                    \
@@ -830,7 +928,7 @@ namespace HookSys
 				static Self inst;                                                                                                          \
 				return inst;                                                                                                               \
 			}                                                                                                                              \
-			void* ReturnAddress() const { return s_returnAddress; }                                                                         \
+			void* ReturnAddress() const { return s_returnAddress; }                                                                        \
 			template <typename... Args> ReturnT Invoke(Args... args)                                                                       \
 			{                                                                                                                              \
 				if constexpr (std::is_void_v<ReturnT>)                                                                                     \
@@ -880,9 +978,97 @@ namespace HookSys
 			void* GetOriginalRaw() const override { return reinterpret_cast<void*>(s_original); }                                          \
 			static void OnModuleLoaded(CModule) { Instance().Dispatch(); }                                                                 \
 		};                                                                                                                                 \
-		HookSys::LambdaHookRegistrationProc<CONCAT2(__lambdaHookProc_, __LINE__)>                                                      \
+		HookSys::LambdaHookRegistrationProc<CONCAT2(__lambdaHookProc_, __LINE__)>                                                          \
 			CONCAT2(__lambdaHookProcReg_, __LINE__)(__STR(debugName), __STR(moduleName), __STR(procName));                                 \
 	}
 
 #define DECLARE_HOOK_PROC(debugName, moduleName, procName, lambda)                                                                         \
 	DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, HookSys_CALLCONV, lambda)
+
+// Hook using a regular free function resolved via GetProcAddress
+#define DECLARE_HOOK_PROC_FN_CC(debugName, moduleName, procName, callingConvention, func)                                                  \
+	DECLARE_HOOK_PROC_CC(                                                                                                                  \
+		debugName,                                                                                                                         \
+		moduleName,                                                                                                                        \
+		procName,                                                                                                                          \
+		callingConvention,                                                                                                                 \
+		[](auto& hook, auto... args) -> decltype(auto)                                                                                     \
+		{                                                                                                                                  \
+			if constexpr (std::is_void_v<decltype(HookSys::InvokeHookTarget(func, hook, args...))>)                                        \
+			{                                                                                                                              \
+				HookSys::InvokeHookTarget(func, hook, args...);                                                                            \
+				return;                                                                                                                    \
+			}                                                                                                                              \
+			else                                                                                                                           \
+			{                                                                                                                              \
+				return HookSys::InvokeHookTarget(func, hook, args...);                                                                     \
+			}                                                                                                                              \
+		})
+
+#define DECLARE_HOOK_PROC_FN(debugName, moduleName, procName, func)                                                                        \
+	DECLARE_HOOK_PROC_FN_CC(debugName, moduleName, procName, HOOKSYS_CALLCONV, func)
+
+// Hook using a non-static member function. instanceExpr should be a pointer or reference to the instance.
+#define DECLARE_HOOK_METHOD_CC(debugName, addrString, callingConvention, methodPtr, instanceExpr)                                          \
+	DECLARE_HOOK_CC(                                                                                                                       \
+		debugName,                                                                                                                         \
+		addrString,                                                                                                                        \
+		callingConvention,                                                                                                                 \
+		[](auto& hook, auto... args) -> decltype(auto)                                                                                     \
+		{                                                                                                                                  \
+			if constexpr (std::is_void_v<decltype(HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...))>)                     \
+			{                                                                                                                              \
+				HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...);                                                         \
+				return;                                                                                                                    \
+			}                                                                                                                              \
+			else                                                                                                                           \
+			{                                                                                                                              \
+				return HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...);                                                  \
+			}                                                                                                                              \
+		})
+
+#define DECLARE_HOOK_METHOD(debugName, addrString, methodPtr, instanceExpr)                                                                \
+	DECLARE_HOOK_METHOD_CC(debugName, addrString, HOOKSYS_CALLCONV, methodPtr, instanceExpr)
+
+#define DECLARE_HOOK_ABSOLUTE_METHOD_CC(debugName, addr, callingConvention, methodPtr, instanceExpr)                                       \
+	DECLARE_HOOK_ABSOLUTE_CC(                                                                                                              \
+		debugName,                                                                                                                         \
+		addr,                                                                                                                              \
+		callingConvention,                                                                                                                 \
+		[](auto& hook, auto... args) -> decltype(auto)                                                                                     \
+		{                                                                                                                                  \
+			if constexpr (std::is_void_v<decltype(HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...))>)                     \
+			{                                                                                                                              \
+				HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...);                                                         \
+				return;                                                                                                                    \
+			}                                                                                                                              \
+			else                                                                                                                           \
+			{                                                                                                                              \
+				return HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...);                                                  \
+			}                                                                                                                              \
+		})
+
+#define DECLARE_HOOK_ABSOLUTE_METHOD(debugName, addr, methodPtr, instanceExpr)                                                             \
+	DECLARE_HOOK_ABSOLUTE_METHOD_CC(debugName, addr, HOOKSYS_CALLCONV, methodPtr, instanceExpr)
+
+#define DECLARE_HOOK_PROC_METHOD_CC(debugName, moduleName, procName, callingConvention, methodPtr, instanceExpr)                           \
+	DECLARE_HOOK_PROC_CC(                                                                                                                  \
+		debugName,                                                                                                                         \
+		moduleName,                                                                                                                        \
+		procName,                                                                                                                          \
+		callingConvention,                                                                                                                 \
+		[](auto& hook, auto... args) -> decltype(auto)                                                                                     \
+		{                                                                                                                                  \
+			if constexpr (std::is_void_v<decltype(HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...))>)                     \
+			{                                                                                                                              \
+				HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...);                                                         \
+				return;                                                                                                                    \
+			}                                                                                                                              \
+			else                                                                                                                           \
+			{                                                                                                                              \
+				return HookSys::InvokeMethodHook(methodPtr, instanceExpr, hook, args...);                                                  \
+			}                                                                                                                              \
+		})
+
+#define DECLARE_HOOK_PROC_METHOD(debugName, moduleName, procName, methodPtr, instanceExpr)                                                 \
+	DECLARE_HOOK_PROC_METHOD_CC(debugName, moduleName, procName, HOOKSYS_CALLCONV, methodPtr, instanceExpr)

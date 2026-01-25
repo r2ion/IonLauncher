@@ -305,7 +305,7 @@ AUTOHOOK(CServer__ProcessConnectionlessPacket, engine.dll + 0x117800, bool, __fa
 	return CServer__ProcessConnectionlessPacket(a1, packet);
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", ServerNetHooks, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", ServerNetHooks, ConVar, [](CModule module)
 {
 	AUTOHOOK_DISPATCH_MODULE(engine.dll)
 
@@ -331,4 +331,4 @@ ON_DLL_LOAD_RELIESON("engine.dll", ServerNetHooks, ConVar, (CModule module))
 		"0",
 		FCVAR_NONE,
 		"Whether to disable signature verification for Atlas connectionless packets (DANGEROUS: this allows anyone to impersonate Atlas)");
-}
+})

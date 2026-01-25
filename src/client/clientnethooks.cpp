@@ -89,7 +89,7 @@ AUTOHOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, bool,
 	return CClientState__ProcessConnectionlessPacket(self, packet);
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", ClientNetHooks, R2Engine, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", ClientNetHooks, R2Engine, [](CModule module)
 {
 	AUTOHOOK_DISPATCH();
-}
+})

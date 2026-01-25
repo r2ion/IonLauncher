@@ -34,10 +34,10 @@ AUTOHOOK(RegisterUserMessages, client.dll + 0x49E620, void, __fastcall, ())
 	g_pUserMessageManager->RegisterUserMessages();
 }
 
-ON_DLL_LOAD_CLIENT("client.dll", UserMessages, (CModule module))
+ON_DLL_LOAD_CLIENT("client.dll", UserMessages, [](CModule module)
 {
 	CUserMessages__Register = module.Offset(0x342890).RCast<CUserMessages__Register_t>();
 	usermessages = module.Offset(0xB28E98).GetPtr();
 
 	AUTOHOOK_DISPATCH()
-}
+})

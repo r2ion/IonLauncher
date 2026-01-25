@@ -589,7 +589,7 @@ HOOK(v_Pak_Free, o_Pak_Free, void, __fastcall, (PakLoadedInfo_s * info))
 }
 
 
-ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
+ON_DLL_LOAD("engine.dll", RpakFilesystem, [](CModule module)
 {
 	g_pPakLoadManager = new PakLoadManager;
 
@@ -617,4 +617,4 @@ ON_DLL_LOAD("engine.dll", RpakFilesystem, (CModule module))
 	o_pGetPakPatchNumber = rtechModule.Offset(0x9A00).RCast<decltype(o_pGetPakPatchNumber)>();
 	Pak_Free = rtechModule.Offset(0x8410).RCast<Pak_Free_t>();
 	v_Pak_Free.Dispatch(reinterpret_cast<LPVOID*>(Pak_Free));
-}
+})

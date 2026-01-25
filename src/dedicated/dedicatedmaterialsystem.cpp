@@ -36,7 +36,7 @@ static HRESULT __stdcall h_D3D11CreateDevice(
 		pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, ppDevice, pFeatureLevel, ppImmediateContext);
 }
 
-ON_DLL_LOAD_DEDI("materialsystem_dx11.dll", DedicatedServerMaterialSystem, (CModule module))
+ON_DLL_LOAD_DEDI("materialsystem_dx11.dll", DedicatedServerMaterialSystem, [](CModule module)
 {
 	o_pD3D11CreateDevice = module.Offset(0xD9A0E).RCast<decltype(o_pD3D11CreateDevice)>();
 	HookAttach(&(PVOID&)o_pD3D11CreateDevice, (PVOID)h_D3D11CreateDevice);
@@ -44,4 +44,4 @@ ON_DLL_LOAD_DEDI("materialsystem_dx11.dll", DedicatedServerMaterialSystem, (CMod
 	// CMaterialSystem::FindMaterial
 	// make the game always use the error material
 	module.Offset(0x5F0F1).Patch("E9 34 03 00");
-}
+})

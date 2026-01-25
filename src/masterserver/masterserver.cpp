@@ -1184,7 +1184,7 @@ MasterServerManager::MasterServerManager()
 {
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", MasterServer, (ConCommand, ServerPresence), (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", MasterServer, (ConCommand, ServerPresence), [](CModule module)
 {
 	g_pMasterServerManager = new MasterServerManager;
 
@@ -1198,7 +1198,7 @@ ON_DLL_LOAD_RELIESON("engine.dll", MasterServer, (ConCommand, ServerPresence), (
 
 	MasterServerPresenceReporter* presenceReporter = new MasterServerPresenceReporter;
 	g_pServerPresence->AddPresenceReporter(presenceReporter);
-}
+})
 
 void MasterServerPresenceReporter::CreatePresence(const ServerPresence* pServerPresence)
 {

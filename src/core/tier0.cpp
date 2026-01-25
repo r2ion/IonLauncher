@@ -1,5 +1,8 @@
 #include "tier0.h"
 
+#include <codecvt>
+#include <locale>
+
 IMemAlloc* g_pMemAllocSingleton = nullptr;
 
 CommandLineType CommandLine;
@@ -36,15 +39,15 @@ static void __fastcall h_ThreadSetDebugName(HANDLE threadHandle, const char* nam
 	if (threadHandle == 0)
 		threadHandle = GetCurrentThread();
 
-	// TODO: This "method" of "charset conversion" from string to wstring is abhorrent. Change it to a proper one
-	// as soon as Northstar has some helper function to do proper charset conversions.
-	auto tmp = std::string(name);
-	_SetThreadDescription(threadHandle, std::wstring(tmp.begin(), tmp.end()).c_str());
+	std::wstring wideName;
+	std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+	wideName = converter.from_bytes(name);
+	_SetThreadDescription(threadHandle, wideName.c_str());
 
 	o_pThreadSetDebugName(threadHandle, name);
 }
 
-ON_DLL_LOAD("tier0.dll", Tier0GameFuncs, (CModule module))
+ON_DLL_LOAD("tier0.dll", Tier0GameFuncs, [](CModule module)
 {
 	// shouldn't be necessary, but do this just in case
 	TryCreateGlobalMemAlloc();
@@ -56,4 +59,4 @@ ON_DLL_LOAD("tier0.dll", Tier0GameFuncs, (CModule module))
 	CommandLine = module.GetExportedFunction("CommandLine").RCast<CommandLineType>();
 	Plat_FloatTime = module.GetExportedFunction("Plat_FloatTime").RCast<Plat_FloatTimeType>();
 	ThreadInServerFrameThread = module.GetExportedFunction("ThreadInServerFrameThread").RCast<ThreadInServerFrameThreadType>();
-}
+})

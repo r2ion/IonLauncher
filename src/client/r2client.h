@@ -121,9 +121,9 @@ public:
 	bool m_bPendingTicksAvailable; //0x015C m_bPendingTicksAvailable
 	char N00000252[1];
 	bool m_bPaused;
-	uint8_t unk_byte; //0x0161 unk_byte
-	uint32_t N0000023C; //0x0162
-	uint16_t N00000257; //0x0166
+	uint8_t unk_byte; //0x0161 gets set in sub_8C7B0 in engine.dll
+	uint16_t N0000023C; //0x0162
+	uint32_t N00000257; //0x0166
 	int32_t N00000259; //0x0168
 	char m_szLevelFileName[64]; //0x0174
 	char m_szLevelBaseName[64]; //0x01B4

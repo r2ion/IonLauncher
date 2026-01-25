@@ -25,7 +25,7 @@ AUTOHOOK(sub_1E5F0, client.dll + 0x1E5F0, __int64, __fastcall, (__int64 a1))
     return sub_1E5F0(a1);
 }
 
-ON_DLL_LOAD_CLIENT("client.dll", ImagePanelCrashFix, (CModule module))
+ON_DLL_LOAD_CLIENT("client.dll", ImagePanelCrashFix, [](CModule module)
 {
 	AUTOHOOK_DISPATCH()
-}
+})

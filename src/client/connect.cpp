@@ -1036,7 +1036,7 @@ ADD_SQFUNC("void", NSDecideModDownload, "bool accept", "", ScriptContext::UI)
 	return SQRESULT_NULL;
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ConnectHooks, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ConnectHooks, ConVar, [](CModule module)
 {
 	AUTOHOOK_DISPATCH();
 
@@ -1070,4 +1070,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ConnectHooks, ConVar, (CModule module)
 
 	SCR_BeginLoadingPlaque = module.Offset(0xB92E0).RCast<decltype(SCR_BeginLoadingPlaque)>();
 	SCR_EndLoadingPlaque = module.Offset(0xB9470).RCast<decltype(SCR_EndLoadingPlaque)>();
-}
+})

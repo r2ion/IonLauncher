@@ -11,10 +11,10 @@ static bool __fastcall h_DrawRUIFunc(void* a1, float* a2)
 	return o_pDrawRUIFunc(a1, a2);
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", RUI, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", RUI, ConVar, [](CModule module)
 {
 	o_pDrawRUIFunc = module.Offset(0xFC500).RCast<decltype(o_pDrawRUIFunc)>();
 	HookAttach(&(PVOID&)o_pDrawRUIFunc, (PVOID)h_DrawRUIFunc);
 
 	Cvar_rui_drawEnable = new ConVar("rui_drawEnable", "1", FCVAR_CLIENTDLL, "Controls whether RUI should be drawn");
-}
+})

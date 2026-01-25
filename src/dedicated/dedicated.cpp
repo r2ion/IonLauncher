@@ -119,7 +119,7 @@ static bool h_IsGameActiveWindow()
 	return true;
 }
 
-ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, (CModule module))
+ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, [](CModule module)
 {
 	spdlog::info("InitialiseDedicated");
 
@@ -257,15 +257,15 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, (CModul
 		consoleInputThreadHandle = CreateThread(0, 0, ConsoleInputThread, 0, 0, NULL);
 	else
 		spdlog::info("Console input disabled by user request");
-}
+})
 
-ON_DLL_LOAD_DEDI("tier0.dll", DedicatedServerOrigin, (CModule module))
+ON_DLL_LOAD_DEDI("tier0.dll", DedicatedServerOrigin, [](CModule module)
 {
 	// disable origin on dedicated
 	// for any big ea lawyers, this can't be used to play the game without origin, game will throw a fit if you try to do anything without
 	// an origin id as a client for dedi it's fine though, game doesn't care if origin is disabled as long as there's only a server
 	module.GetExportedFunction("Tier0_InitOrigin").Patch("C3");
-}
+})
 
 static void(__fastcall* o_pPrintSquirrelError)(void* sqvm) = nullptr;
 static void __fastcall h_PrintSquirrelError(void* sqvm)
@@ -282,7 +282,7 @@ static void __fastcall h_PrintSquirrelError(void* sqvm)
 	}
 }
 
-ON_DLL_LOAD_DEDI("server.dll", DedicatedServerGameDLL, (CModule module))
+ON_DLL_LOAD_DEDI("server.dll", DedicatedServerGameDLL, [](CModule module)
 {
 	o_pPrintSquirrelError = module.Offset(0x794D0).RCast<decltype(o_pPrintSquirrelError)>();
 	HookAttach(&(PVOID&)o_pPrintSquirrelError, (PVOID)h_PrintSquirrelError);
@@ -294,4 +294,4 @@ ON_DLL_LOAD_DEDI("server.dll", DedicatedServerGameDLL, (CModule module))
 			"B8 C8 00 00 00 C3"); // return 200 as the number of skins from server.dll + 6BA300, this is the normal value read from
 								  // skins.rson and should be updated when we need it more modular
 	}
-}
+})

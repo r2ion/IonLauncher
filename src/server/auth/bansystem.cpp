@@ -263,7 +263,7 @@ int ConCommand_banCompletion(const char* const partial, char commands[COMMAND_CO
 	return numCompletions;
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", BanSystem, ConCommand, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", BanSystem, ConCommand, [](CModule module)
 {
 	g_pBanSystem = new ServerBanSystem;
 	g_pBanSystem->OpenBanlist();
@@ -271,11 +271,11 @@ ON_DLL_LOAD_RELIESON("engine.dll", BanSystem, ConCommand, (CModule module))
 	RegisterConCommand("ban", ConCommand_ban, "bans a given player by uid or name", FCVAR_GAMEDLL, ConCommand_banCompletion);
 	RegisterConCommand("unban", ConCommand_unban, "unbans a given player by uid", FCVAR_GAMEDLL);
 	RegisterConCommand("clearbanlist", ConCommand_clearbanlist, "clears all uids on the banlist", FCVAR_GAMEDLL);
-}
+})
 
-ON_DLL_LOAD_RELIESON("server.dll", KickCompletion, ConCommand, (CModule module))
+ON_DLL_LOAD_RELIESON("server.dll", KickCompletion, ConCommand, [](CModule module)
 {
 	ConCommand* kick = g_pCVar->FindCommand("kick");
 	kick->m_pCompletionCallback = ConCommand_banCompletion;
 	kick->m_nCallbackFlags |= 0x3;
-}
+})

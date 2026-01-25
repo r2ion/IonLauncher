@@ -260,8 +260,8 @@ void InitialiseMapsPrint()
 	mapsCommand->m_pCommandCallback = ConCommand_maps;
 }
 
-ON_DLL_LOAD("engine.dll", Host_Map_f, (CModule module))
+ON_DLL_LOAD("engine.dll", Host_Map_f, [](CModule module)
 {
 	Host_Map_helper = module.Offset(0x15AEF0).RCast<Host_Map_helperType>();
 	Host_Changelevel_f = module.Offset(0x15AAD0).RCast<Host_Changelevel_fType>();
-}
+})

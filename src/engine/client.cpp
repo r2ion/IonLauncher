@@ -40,11 +40,11 @@ AUTOHOOK(CClient__Clear, engine.dll + 0x101480, void, __fastcall, (CClient* this
 	CClient__Clear(thisptr);
 }
 
-ON_DLL_LOAD("engine.dll", CClient, (CModule module))
+ON_DLL_LOAD("engine.dll", CClient, [](CModule module)
 {
 	AUTOHOOK_DISPATCH()
 
 	CClient__Disconnect = module.Offset(0x1012C0).RCast<void (*)(void*, uint32_t, const char*, ...)>();
 	CClient__SendDataBlock = module.Offset(0x104870).RCast<void (*)(void*, bf_write*)>();
 	g_pClientArray = module.Offset(0x12A53F90).RCast<CClient*>();
-}
+})

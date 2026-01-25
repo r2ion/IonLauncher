@@ -545,7 +545,7 @@ static char* __fastcall h_Sub_18003BC10(void* a1, void* a2, void* a3, void* a4, 
 	return ret;
 }
 
-ON_DLL_LOAD("mileswin64.dll", MilesWin64_Audio, (CModule module))
+ON_DLL_LOAD("mileswin64.dll", MilesWin64_Audio, [](CModule module)
 {
 	o_pLoadSampleMetadata = module.Offset(0xF110).RCast<decltype(o_pLoadSampleMetadata)>();
 	HookAttach(&(PVOID&)o_pLoadSampleMetadata, (PVOID)h_LoadSampleMetadata);
@@ -558,18 +558,18 @@ ON_DLL_LOAD("mileswin64.dll", MilesWin64_Audio, (CModule module))
 
 	o_pSub_18003BC10 = module.Offset(0x3BC10).RCast<decltype(o_pSub_18003BC10)>();
 	HookAttach(&(PVOID&)o_pSub_18003BC10, (PVOID)h_Sub_18003BC10);
-}
+})
 
-ON_DLL_LOAD_RELIESON("engine.dll", MilesLogFuncHooks, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", MilesLogFuncHooks, ConVar, [](CModule module)
 {
 	Cvar_mileslog_enable = new ConVar("mileslog_enable", "0", FCVAR_NONE, "Enables/disables whether the mileslog func should be logged");
-}
+})
 
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", AudioHooks, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", AudioHooks, ConVar, [](CModule module)
 {
 	o_pMilesLog = module.Offset(0x57DAD0).RCast<decltype(o_pMilesLog)>();
 	HookAttach(&(PVOID&)o_pMilesLog, (PVOID)h_MilesLog);
 
 	Cvar_ns_print_played_sounds = new ConVar("ns_print_played_sounds", "0", FCVAR_NONE, "");
 	MilesStopAll = module.Offset(0x580850).RCast<MilesStopAll_Type>();
-}
+})
