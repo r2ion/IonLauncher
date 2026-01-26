@@ -269,7 +269,7 @@ static void __fastcall h_DrawAllOverlays(bool bRender)
 	LeaveCriticalSection(s_OverlayMutex);
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", DebugOverlay, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", DebugOverlay, ConVar, [](CModule module)
 {
 	o_pDrawOverlay = module.Offset(0xABCB0).RCast<decltype(o_pDrawOverlay)>();
 	HookAttach(&(PVOID&)o_pDrawOverlay, (PVOID)h_DrawOverlay);
@@ -301,4 +301,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", DebugOverlay, ConVar, (CModule module)
 	Cvar_enable_debug_overlays->SetValue(false);
 	Cvar_enable_debug_overlays->m_pszDefaultValue = (char*)"0";
 	Cvar_enable_debug_overlays->AddFlags(FCVAR_CHEAT);
-}
+})

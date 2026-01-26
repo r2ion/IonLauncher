@@ -45,8 +45,7 @@ PakGlobalState_s* Pak_GetGlobals()
 	return g_pakGlobalState;
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", PakFileEngine, ConCommand, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", PakFileEngine, ConCommand, [](CModule module)
 {
 	RegisterConCommand("ns_dump_pak_info", ConCommand_dump_pak_info, "Dumps information about loaded PAK files.", FCVAR_DONTRECORD);
-
-}
+})

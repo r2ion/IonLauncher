@@ -7,7 +7,7 @@ static bool (*EngineClient__Localize)(
 
 
 ADD_SQFUNC("string", Localize, "string format,...", "Localize string", ScriptContext::SERVER) {
-	
+
 	auto key = g_pSquirrel[context]->getstring(sqvm,1);
 	auto num_args = (sqvm->_top - sqvm->_stackbase) - 2;
 	if (num_args > 10)
@@ -51,7 +51,7 @@ std::string Localize(std::string key, ...) {
 
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", LocalizeEngine, ConCommand, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", LocalizeEngine, ConCommand, [](CModule module)
 {
 	EngineClient__Localize = module.Offset(0xF8CA0).RCast<decltype(EngineClient__Localize)>();
-}
+})

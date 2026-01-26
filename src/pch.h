@@ -9,8 +9,6 @@
 #define RAPIDJSON_HAS_STDSTRING 1
 
 // add headers that you want to pre-compile here
-#include "core/memalloc.h"
-
 #include <windows.h>
 #include <psapi.h>
 #include <set>
@@ -35,10 +33,6 @@ namespace fs = std::filesystem;
 #include "core/math/color.h"
 #include "logging/logging.h"
 #include <MinHook.h>
-#include "core/hooks.h"
 #include <curl/curl.h>
-#include "silver-bun/module.h"
-#include "silver-bun/memaddr.h"
-#include "silver-bun/utils.h"
 
 #endif

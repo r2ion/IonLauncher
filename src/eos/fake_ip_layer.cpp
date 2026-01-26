@@ -500,11 +500,11 @@ uint16_t GetPretendRemotePort()
 
 } // namespace eos
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", EOSFakeIPLayer, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", EOSFakeIPLayer, ConVar, [](CModule module)
 {
 	Cvar_eos_current_endpoint = new ConVar(
 		"eos_current_endpoint",
 		"",
 		FCVAR_REPLICATED,
 		"The host's EOS Fake IP Layer endpoint. (readonly)");
-}
+})

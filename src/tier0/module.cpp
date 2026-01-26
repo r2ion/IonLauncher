@@ -6,8 +6,8 @@
 //
 //===========================================================================//
 
-#include "module.h"
-#include "utils.h"
+#include "tier0/module.h"
+#include "tier0/sigscan_helpers.h"
 
 //-----------------------------------------------------------------------------
 // Purpose: constructor
@@ -38,7 +38,7 @@ CModule::CModule(HMODULE hModule)
 
 //-----------------------------------------------------------------------------
 // Purpose: constructor
-// Input  : *szModuleName - 
+// Input  : *szModuleName -
 //-----------------------------------------------------------------------------
 CModule::CModule(const char* szModuleName)
 {
@@ -110,10 +110,10 @@ CMemory CModule::Offset(const uintptr_t nOffset) const
 
 //-----------------------------------------------------------------------------
 // Purpose: find array of bytes in process memory using SIMD instructions
-// Input  : *pPattern      - 
-//          *szMask        - 
-//          *moduleSection - 
-//          nOccurrence    - 
+// Input  : *pPattern      -
+//          *szMask        -
+//          *moduleSection -
+//          nOccurrence    -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::FindPatternSIMD(const uint8_t* pPattern, const char* szMask,
@@ -190,8 +190,8 @@ CMemory CModule::FindPatternSIMD(const uint8_t* pPattern, const char* szMask,
 
 //-----------------------------------------------------------------------------
 // Purpose: find a string pattern in process memory using SIMD instructions
-// Input  : *szPattern     - 
-//			*moduleSection - 
+// Input  : *szPattern     -
+//			*moduleSection -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::FindPatternSIMD(const char* szPattern, const ModuleSections_t* moduleSection) const
@@ -202,8 +202,8 @@ CMemory CModule::FindPatternSIMD(const char* szPattern, const ModuleSections_t* 
 
 //-----------------------------------------------------------------------------
 // Purpose: find address of reference to string constant in executable memory
-// Input  : *szString       - 
-//          bNullTerminator - 
+// Input  : *szString       -
+//          bNullTerminator -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::FindString(const char* szString, const ptrdiff_t nOccurrence, bool bNullTerminator) const
@@ -249,8 +249,8 @@ CMemory CModule::FindString(const char* szString, const ptrdiff_t nOccurrence, b
 
 //-----------------------------------------------------------------------------
 // Purpose: find address of input string constant in read only memory
-// Input  : *szString       - 
-//          bNullTerminator - 
+// Input  : *szString       -
+//          bNullTerminator -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::FindStringReadOnly(const char* szString, bool bNullTerminator) const
@@ -289,7 +289,7 @@ CMemory CModule::FindStringReadOnly(const char* szString, bool bNullTerminator) 
 
 //-----------------------------------------------------------------------------
 // Purpose: find 'free' page in r/w/x sections
-// Input  : nSize - 
+// Input  : nSize -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::FindFreeDataPage(const size_t nSize) const
@@ -337,8 +337,8 @@ CMemory CModule::FindFreeDataPage(const size_t nSize) const
 
 //-----------------------------------------------------------------------------
 // Purpose: get address of a virtual method table by rtti type descriptor name
-// Input  : *szTableName - 
-//			nRefIndex    - 
+// Input  : *szTableName -
+//			nRefIndex    -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::GetVirtualMethodTable(const char* szTableName, const size_t nRefIndex)
@@ -380,9 +380,9 @@ CMemory CModule::GetVirtualMethodTable(const char* szTableName, const size_t nRe
 
 //-----------------------------------------------------------------------------
 // Purpose: get address of imported function in this module
-// Input  : *szModuleName         - 
-//          *szFunctionName       - 
-//          bGetFunctionReference - 
+// Input  : *szModuleName         -
+//          *szFunctionName       -
+//          bGetFunctionReference -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::GetImportedFunction(const char* szModuleName, const char* szFunctionName, const bool bGetFunctionReference) const
@@ -436,8 +436,8 @@ CMemory CModule::GetImportedFunction(const char* szModuleName, const char* szFun
 
 //-----------------------------------------------------------------------------
 // Purpose: get address of exported function in this module
-// Input  : *szFunctionName - 
-//          bNullTerminator - 
+// Input  : *szFunctionName -
+//          bNullTerminator -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CModule::GetExportedFunction(const char* szFunctionName) const
@@ -488,7 +488,7 @@ CMemory CModule::GetExportedFunction(const char* szFunctionName) const
 
 //-----------------------------------------------------------------------------
 // Purpose: get the module section by name (example: '.rdata', '.text')
-// Input  : *szSectionName - 
+// Input  : *szSectionName -
 // Output : ModuleSections_t
 //-----------------------------------------------------------------------------
 CModule::ModuleSections_t CModule::GetSectionByName(const char* szSectionName) const

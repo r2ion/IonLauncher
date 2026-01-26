@@ -146,12 +146,12 @@ ADD_SQFUNC(
 	return SQRESULT_NULL;
 }
 
-ON_DLL_LOAD("engine.dll", EngineServerChatHooks, (CModule module))
+ON_DLL_LOAD("engine.dll", EngineServerChatHooks, [](CModule module)
 {
 	g_pServerGameDLL = module.Offset(0x13F0AA98).RCast<CServerGameDLL*>();
-}
+})
 
-ON_DLL_LOAD_RELIESON("server.dll", ServerChatHooks, ServerSquirrel, (CModule module))
+ON_DLL_LOAD_RELIESON("server.dll", ServerChatHooks, ServerSquirrel, [](CModule module)
 {
 	o_pCServerGameDLL__OnReceivedSayTextMessage = module.Offset(0x1595C0).RCast<decltype(o_pCServerGameDLL__OnReceivedSayTextMessage)>();
 	HookAttach(&(PVOID&)o_pCServerGameDLL__OnReceivedSayTextMessage, (PVOID)h_CServerGameDLL__OnReceivedSayTextMessage);
@@ -167,4 +167,4 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerChatHooks, ServerSquirrel, (CModule mod
 	MessageWriteByte = module.Offset(0x158A90).RCast<void(__fastcall*)(int)>();
 	MessageWriteString = module.Offset(0x158D00).RCast<void(__fastcall*)(const char*)>();
 	MessageWriteBool = module.Offset(0x158A00).RCast<void(__fastcall*)(bool)>();
-}
+})

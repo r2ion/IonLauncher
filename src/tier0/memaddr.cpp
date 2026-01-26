@@ -6,12 +6,12 @@
 //
 //===========================================================================//
 
-#include "memaddr.h"
-#include "utils.h"
+#include "tier0/memaddr.h"
+#include "tier0/sigscan_helpers.h"
 
 //-----------------------------------------------------------------------------
 // Purpose: check array of opcodes starting from current address
-// Input  : &vOpcodeArray - 
+// Input  : &vOpcodeArray -
 // Output : true if equal, false otherwise
 //-----------------------------------------------------------------------------
 bool CMemory::CheckOpCodes(const std::vector<uint8_t>& vOpcodeArray) const
@@ -52,7 +52,7 @@ bool CMemory::IsMemoryReadable(const size_t nSize) const
 // Purpose: patch size with nop opcodes
 // Input  : nSize -
 //-----------------------------------------------------------------------------
-void CMemory::NOP(const size_t nSize) const
+void CMemory::NoOP(const size_t nSize) const
 {
 	std::vector<uint8_t> vOpcodeArray;
 	vOpcodeArray.resize(nSize);
@@ -83,7 +83,7 @@ void CMemory::Patch(const uint8_t* pOpcodeArray, const size_t nSize) const
 
 //-----------------------------------------------------------------------------
 // Purpose: patch array of opcodes starting from current address
-// Input  : &vOpcodeArray - 
+// Input  : &vOpcodeArray -
 //-----------------------------------------------------------------------------
 void CMemory::Patch(const std::vector<uint8_t>& vOpcodeArray) const
 {
@@ -103,7 +103,7 @@ void CMemory::Patch(const std::vector<uint8_t>& vOpcodeArray) const
 
 //-----------------------------------------------------------------------------
 // Purpose: patch string constant at current address
-// Input  : *szString - 
+// Input  : *szString -
 //-----------------------------------------------------------------------------
 void CMemory::PatchString(const char* szString) const
 {
@@ -122,10 +122,10 @@ void CMemory::PatchString(const char* szString) const
 
 //-----------------------------------------------------------------------------
 // Purpose: find array of bytes in process memory
-// Input  : *szPattern - 
-//			searchDirect - 
-//			opCodesToScan - 
-//			occurrence - 
+// Input  : *szPattern -
+//			searchDirect -
+//			opCodesToScan -
+//			occurrence -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CMemory::FindPattern(const char* szPattern, const Direction searchDirect, const int opCodesToScan, const ptrdiff_t occurrence) const
@@ -169,10 +169,10 @@ CMemory CMemory::FindPattern(const char* szPattern, const Direction searchDirect
 
 //-----------------------------------------------------------------------------
 // Purpose: find array of bytes in process memory starting from current address
-// Input  : *szPattern - 
-//			searchDirect - 
-//			opCodesToScan - 
-//			occurrence - 
+// Input  : *szPattern -
+//			searchDirect -
+//			opCodesToScan -
+//			occurrence -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CMemory::FindPatternSelf(const char* szPattern, const Direction searchDirect, const int opCodesToScan, const ptrdiff_t occurrence)
@@ -218,8 +218,8 @@ CMemory CMemory::FindPatternSelf(const char* szPattern, const Direction searchDi
 
 //-----------------------------------------------------------------------------
 // Purpose: ResolveRelativeAddress wrapper
-// Input  : opcodeOffset - 
-//			nextInstructionOffset - 
+// Input  : opcodeOffset -
+//			nextInstructionOffset -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CMemory::FollowNearCall(const ptrdiff_t opcodeOffset, const ptrdiff_t nextInstructionOffset) const
@@ -229,8 +229,8 @@ CMemory CMemory::FollowNearCall(const ptrdiff_t opcodeOffset, const ptrdiff_t ne
 
 //-----------------------------------------------------------------------------
 // Purpose: ResolveRelativeAddressSelf wrapper
-// Input  : opcodeOffset - 
-//			nextInstructionOffset - 
+// Input  : opcodeOffset -
+//			nextInstructionOffset -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CMemory::FollowNearCallSelf(const ptrdiff_t opcodeOffset, const ptrdiff_t nextInstructionOffset)
@@ -240,8 +240,8 @@ CMemory CMemory::FollowNearCallSelf(const ptrdiff_t opcodeOffset, const ptrdiff_
 
 //-----------------------------------------------------------------------------
 // Purpose: resolves the relative pointer to offset
-// Input  : registerOffset - 
-//			nextInstructionOffset - 
+// Input  : registerOffset -
+//			nextInstructionOffset -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CMemory::ResolveRelativeAddress(const ptrdiff_t registerOffset, const ptrdiff_t nextInstructionOffset) const
@@ -261,8 +261,8 @@ CMemory CMemory::ResolveRelativeAddress(const ptrdiff_t registerOffset, const pt
 
 //-----------------------------------------------------------------------------
 // Purpose: resolves the relative pointer to offset from current address
-// Input  : registerOffset - 
-//			nextInstructionOffset - 
+// Input  : registerOffset -
+//			nextInstructionOffset -
 // Output : CMemory
 //-----------------------------------------------------------------------------
 CMemory CMemory::ResolveRelativeAddressSelf(const ptrdiff_t registerOffset, const ptrdiff_t nextInstructionOffset)
@@ -282,10 +282,10 @@ CMemory CMemory::ResolveRelativeAddressSelf(const ptrdiff_t registerOffset, cons
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: resolve all 'call' references to ptr 
+// Purpose: resolve all 'call' references to ptr
 // (This is very slow only use for mass patching.)
-// Input  : sectionBase - 
-//			sectionSize - 
+// Input  : sectionBase -
+//			sectionSize -
 // Output : std::vector<CMemory>
 //-----------------------------------------------------------------------------
 std::vector<CMemory> CMemory::FindAllCallReferences(const uintptr_t sectionBase, const size_t sectionSize)
@@ -311,8 +311,8 @@ std::vector<CMemory> CMemory::FindAllCallReferences(const uintptr_t sectionBase,
 
 //-----------------------------------------------------------------------------
 // Purpose: patch virtual method to point to a user set function
-// Input  : virtualTable - 
-//          pHookMethod - 
+// Input  : virtualTable -
+//          pHookMethod -
 //          methodIndex -
 //          ppOriginalMethod -
 // Output : void** via ppOriginalMethod
@@ -342,8 +342,8 @@ void CMemory::HookVirtualMethod(const uintptr_t virtualTable, const void* pHookM
 
 //-----------------------------------------------------------------------------
 // Purpose: patch iat entry to point to a user set function
-// Input  : pImportedMethod - 
-//          pHookMethod - 
+// Input  : pImportedMethod -
+//          pHookMethod -
 //          ppOriginalMethod -
 // Output : void** via ppOriginalMethod
 //-----------------------------------------------------------------------------

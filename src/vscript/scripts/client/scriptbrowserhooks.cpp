@@ -13,10 +13,10 @@ static void __fastcall h_OpenExternalWebBrowser(char* pUrl, char flags)
 	*bIsOriginOverlayEnabled = bIsOriginOverlayEnabledOriginal;
 }
 
-ON_DLL_LOAD_CLIENT("engine.dll", ScriptExternalBrowserHooks, (CModule module))
+ON_DLL_LOAD_CLIENT("engine.dll", ScriptExternalBrowserHooks, [](CModule module)
 {
 	o_pOpenExternalWebBrowser = module.Offset(0x184E40).RCast<decltype(o_pOpenExternalWebBrowser)>();
 	HookAttach(&(PVOID&)o_pOpenExternalWebBrowser, (PVOID)h_OpenExternalWebBrowser);
 
 	bIsOriginOverlayEnabled = module.Offset(0x13978255).RCast<bool*>();
-}
+})

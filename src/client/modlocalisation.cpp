@@ -42,17 +42,17 @@ static void __fastcall h_CEngineVGui__Init(void* self)
 				o_pCLocalise__AddFile(g_pVguiLocalize, localisationFile.c_str(), nullptr, false);
 }
 
-ON_DLL_LOAD_CLIENT("engine.dll", VGuiInit, (CModule module))
+ON_DLL_LOAD_CLIENT("engine.dll", VGuiInit, [](CModule module)
 {
 	o_pCEngineVGui__Init = module.Offset(0x247E10).RCast<decltype(o_pCEngineVGui__Init)>();
 	HookAttach(&(PVOID&)o_pCEngineVGui__Init, (PVOID)h_CEngineVGui__Init);
-}
+})
 
-ON_DLL_LOAD_CLIENT("localize.dll", Localize, (CModule module))
+ON_DLL_LOAD_CLIENT("localize.dll", Localize, [](CModule module)
 {
 	o_pCLocalise__AddFile = module.Offset(0x6D80).RCast<decltype(o_pCLocalise__AddFile)>();
 	HookAttach(&(PVOID&)o_pCLocalise__AddFile, (PVOID)h_CLocalise__AddFile);
 
 	o_pCLocalize__ReloadLocalizationFiles = module.Offset(0xB830).RCast<decltype(o_pCLocalize__ReloadLocalizationFiles)>();
 	HookAttach(&(PVOID&)o_pCLocalize__ReloadLocalizationFiles, (PVOID)h_CLocalize__ReloadLocalizationFiles);
-}
+})

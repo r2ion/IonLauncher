@@ -177,7 +177,7 @@ static VPKData* h_MountVPK(IFileSystem* fileSystem, const char* pVpkPath)
 	return ret;
 }
 
-ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, (CModule module))
+ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, [](CModule module)
 {
 	o_pReadFileFromVPK = module.Offset(0x5CBA0).RCast<decltype(o_pReadFileFromVPK)>();
 	HookAttach(&(PVOID&)o_pReadFileFromVPK, (PVOID)h_ReadFileFromVPK);
@@ -193,4 +193,4 @@ ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, (CModule module))
 	HookAttach(&(PVOID&)o_pReadFromCache, (PVOID)h_ReadFromCache);
 	o_pMountVPK = reinterpret_cast<decltype(o_pMountVPK)>(g_pFilesystem->m_vtable->MountVPK);
 	HookAttach(&(PVOID&)o_pMountVPK, (PVOID)h_MountVPK);
-}
+})

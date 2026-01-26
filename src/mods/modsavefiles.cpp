@@ -577,14 +577,14 @@ template <ScriptContext context> std::string EncodeJSON(HSQUIRRELVM sqvm)
 	return buffer.GetString();
 }
 
-ON_DLL_LOAD("engine.dll", ModSaveFFiles_Init, (CModule module))
+ON_DLL_LOAD("engine.dll", ModSaveFFiles_Init, [](CModule module)
 {
 	savePath = fs::path(GetNorthstarPrefix()) / "save_data";
 	g_pSaveFileManager = new SaveFileManager;
 	int parm = CommandLine()->FindParm("-maxfoldersize");
 	if (parm)
 		MAX_FOLDER_SIZE = std::stoi(CommandLine()->GetParm(parm));
-}
+})
 
 int GetMaxSaveFolderSize()
 {

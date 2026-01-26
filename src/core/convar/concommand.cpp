@@ -145,8 +145,8 @@ void RegisterConCommand(
 	newCommand->m_nCallbackFlags |= 0x3; // seems to be correct?; derived from client.dll + 0x737267
 }
 
-ON_DLL_LOAD("engine.dll", ConCommand, (CModule module))
+ON_DLL_LOAD("engine.dll", ConCommand, [](CModule module)
 {
 	ConCommandConstructor = module.Offset(0x415F60).RCast<ConCommandConstructorType>();
 	AddMiscConCommands();
-}
+})

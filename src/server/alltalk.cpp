@@ -113,7 +113,7 @@ ADD_SQFUNC("bool", NSIsVoiceCommsBanned, "entity ent", "", ScriptContext::SERVER
 
 
 
-ON_DLL_LOAD_RELIESON("engine.dll", ServerAllTalk, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", ServerAllTalk, ConVar, [](CModule module)
 {
 	AUTOHOOK_DISPATCH_MODULE(engine.dll)
 	// replace strcmp function called in CClient::ProcessVoiceData with our own code that calls ShouldAllowAllTalk
@@ -126,5 +126,5 @@ ON_DLL_LOAD_RELIESON("engine.dll", ServerAllTalk, ConVar, (CModule module))
 	base.Offset(0xA).Patch("FF D0"); // call rax
 
 	// nop until compare (test eax, eax)
-	base.Offset(0xC).NOP(0x7);
-}
+	base.Offset(0xC).NoOP(0x7);
+})

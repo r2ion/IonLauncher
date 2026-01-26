@@ -1,6 +1,6 @@
 #pragma once
 #include "core/convar/convar.h"
-#include "core/memalloc.h"
+#include "tier0/memstd.h"
 #include "vscript/squirrel/squirrel.h"
 
 #include "rapidjson/document.h"
@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <regex>
 #include "mod.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 
 namespace fs = std::filesystem;
 

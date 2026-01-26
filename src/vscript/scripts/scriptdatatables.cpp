@@ -850,18 +850,18 @@ void ConCommand_dump_datatables(const CCommand& args)
 		DumpDatatable(datatable);
 }
 
-ON_DLL_LOAD_RELIESON("server.dll", ServerScriptDatatables, ServerSquirrel, (CModule module))
+ON_DLL_LOAD_RELIESON("server.dll", ServerScriptDatatables, ServerSquirrel, [](CModule module)
 {
 	SQ_GetDatatableInternal<ScriptContext::SERVER> = module.Offset(0x1250f0).RCast<Datatable* (*)(HSQUIRRELVM)>();
-}
+})
 
-ON_DLL_LOAD_RELIESON("client.dll", ClientScriptDatatables, ClientSquirrel, (CModule module))
+ON_DLL_LOAD_RELIESON("client.dll", ClientScriptDatatables, ClientSquirrel, [](CModule module)
 {
 	SQ_GetDatatableInternal<ScriptContext::CLIENT> = module.Offset(0x1C9070).RCast<Datatable* (*)(HSQUIRRELVM)>();
 	SQ_GetDatatableInternal<ScriptContext::UI> = SQ_GetDatatableInternal<ScriptContext::CLIENT>;
-}
+})
 
-ON_DLL_LOAD_RELIESON("engine.dll", SharedScriptDataTables, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", SharedScriptDataTables, ConVar, [](CModule module)
 {
 	Cvar_ns_prefer_datatable_from_disk = new ConVar(
 		"ns_prefer_datatable_from_disk",
@@ -871,4 +871,4 @@ ON_DLL_LOAD_RELIESON("engine.dll", SharedScriptDataTables, ConVar, (CModule modu
 
 	RegisterConCommand("dump_datatables", ConCommand_dump_datatables, "dumps all datatables from a hardcoded list", FCVAR_NONE);
 	RegisterConCommand("dump_datatable", ConCommand_dump_datatable, "dump a datatable", FCVAR_NONE);
-}
+})

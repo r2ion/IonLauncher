@@ -1287,12 +1287,12 @@ KeyValues* KeyValues::MakeCopy(void) const
 	return pNewKeyValue;
 }
 
-ON_DLL_LOAD("vstdlib.dll", KeyValues, (CModule module))
+ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 {
 	V_UTF8ToUnicode = module.GetExportedFunction("V_UTF8ToUnicode").RCast<int (*)(const char*, wchar_t*, int)>();
 	V_UnicodeToUTF8 = module.GetExportedFunction("V_UnicodeToUTF8").RCast<int (*)(const wchar_t*, char*, int)>();
 	KeyValuesSystem = module.GetExportedFunction("KeyValuesSystem").RCast<CKeyValuesSystem* (*)()>();
-}
+})
 
 AUTOHOOK_INIT()
 
@@ -1316,7 +1316,7 @@ char, __fastcall, (KeyValues* self, const char* pResourceName, const char* pBuff
 	return KeyValues__LoadFromBuffer(self, pResourceName, pBuffer, pFileSystem, a5, a6, a7);
 }
 
-ON_DLL_LOAD("engine.dll", EngineKeyValues, (CModule module))
+ON_DLL_LOAD("engine.dll", EngineKeyValues, [](CModule module)
 {
 	AUTOHOOK_DISPATCH()
-}
+})

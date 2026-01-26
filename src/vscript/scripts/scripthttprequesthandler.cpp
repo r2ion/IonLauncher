@@ -571,19 +571,19 @@ template <ScriptContext context> void HttpRequestHandler::RegisterSQFuncs()
 		SQ_IsLocalHttpAllowed<context>);
 }
 
-ON_DLL_LOAD_RELIESON("client.dll", HttpRequestHandler_ClientInit, ClientSquirrel, (CModule module))
+ON_DLL_LOAD_RELIESON("client.dll", HttpRequestHandler_ClientInit, ClientSquirrel, [](CModule module)
 {
 	g_httpRequestHandler->RegisterSQFuncs<ScriptContext::CLIENT>();
 	g_httpRequestHandler->RegisterSQFuncs<ScriptContext::UI>();
-}
+})
 
-ON_DLL_LOAD_RELIESON("server.dll", HttpRequestHandler_ServerInit, ServerSquirrel, (CModule module))
+ON_DLL_LOAD_RELIESON("server.dll", HttpRequestHandler_ServerInit, ServerSquirrel, [](CModule module)
 {
 	g_httpRequestHandler->RegisterSQFuncs<ScriptContext::SERVER>();
-}
+})
 
-ON_DLL_LOAD("engine.dll", HttpRequestHandler_Init, (CModule module))
+ON_DLL_LOAD("engine.dll", HttpRequestHandler_Init, [](CModule module)
 {
 	g_httpRequestHandler = new HttpRequestHandler;
 	g_httpRequestHandler->StartHttpRequestHandler();
-}
+})

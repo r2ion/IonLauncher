@@ -71,6 +71,12 @@ file(
     )
 target_sources(NorthstarIncludes INTERFACE "$<BUILD_INTERFACE:${NS_PUBLIC_HEADERS}>")
 
+target_precompile_headers(
+    NorthstarIncludes
+    INTERFACE
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/pch.h>"
+    )
+
 set(BUILD_SHARED_LIBS OFF)
 
 set(SPDLOG_WCHAR_SUPPORT ON)

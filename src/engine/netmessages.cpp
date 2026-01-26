@@ -25,7 +25,7 @@ AUTOHOOK(CClientState__ConnectionStart, engine.dll + 0x8CB40, bool, __fastcall, 
 	return CClientState__ConnectionStart(thisptr, chan);
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", NetMessages, NetChan, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", NetMessages, NetChan, [](CModule module)
 {
 	AUTOHOOK_DISPATCH();
-}
+})

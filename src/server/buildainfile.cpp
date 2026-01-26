@@ -585,7 +585,7 @@ static void __fastcall h_LoadAINFile(void* aimanager, void* buf, const char* fil
 	}
 }
 
-ON_DLL_LOAD("server.dll", BuildAINFile, (CModule module))
+ON_DLL_LOAD("server.dll", BuildAINFile, [](CModule module)
 {
 	o_pCAI_NetworkBuilder__BuildPathPatrol =
 		module.Offset(0x387DC0).RCast<decltype(o_pCAI_NetworkBuilder__BuildPathPatrol)>();
@@ -607,4 +607,4 @@ ON_DLL_LOAD("server.dll", BuildAINFile, (CModule module))
 	g_pAITraverseNodes = module.Offset(0x10639C0).RCast<CUtlVector<CAI_TraverseNode>*>();
 	sub_387F80 = module.Offset(0x387F80).RCast<decltype(sub_387F80)>();
 	g_ppAINetworkManager = module.Offset(0x10613F8).RCast<CAI_NetworkManager**>();
-}
+})

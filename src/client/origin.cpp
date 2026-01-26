@@ -230,7 +230,7 @@ void ConCommand_ns_send_friend_request(const CCommand& args)
 }
 
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule module)
 {
 	o_UpdateFriendsList = module.Offset(0x184000).RCast<decltype(o_UpdateFriendsList)>();
 	HookAttach(&(PVOID&)o_UpdateFriendsList, (PVOID)UpdateFriendsListHook);
@@ -264,7 +264,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, (CModule mod
 			return SQRESULT_NOTNULL;
 		});
 
-}
+})
 
 // static int OriginReadEnumerationSyncHook(__int64 a1, __int64 a2, __int64 a3, __int64 a4, __int64 a5, __int64 a6) {
 // 	// print all the parameters in hex format
@@ -273,7 +273,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, (CModule mod
 // 	return OriginReadEnumerationSync(a1, a2, a3, a4, a5,a6);
 // }
 
-ON_DLL_LOAD("OriginSDK.dll", OriginSDK, (CModule module))
+ON_DLL_LOAD("OriginSDK.dll", OriginSDK, [](CModule module)
 {
 	// takes 5 params: user_id (g_pLocalPlayerUserID), the game ("TITANFALL2-PC-SERVER"), callback func to strcpy the token to which looks
 	// like void(*)(__int64 a1, char* a2), and 3 ints which idk what they are but are 0, 30000 and 0 by default. probably some token ttl
@@ -289,4 +289,4 @@ ON_DLL_LOAD("OriginSDK.dll", OriginSDK, (CModule module))
 	OriginQueryOffers = module.GetExportedFunction("OriginQueryOffers").RCast<OriginQueryOffersType>();
 	OriginRequestFriendSync = module.GetExportedFunction("OriginRequestFriendSync").RCast<OriginRequestFriendSyncType>();
 	// HookAttach(&(PVOID&)OriginReadEnumerationSync, (PVOID)OriginReadEnumerationSyncHook);
-}
+})

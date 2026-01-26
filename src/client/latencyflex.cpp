@@ -13,7 +13,7 @@ void __fastcall h_OnRenderStart()
 	o_pOnRenderStart();
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", LatencyFlex, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", LatencyFlex, ConVar, [](CModule module)
 {
 	// Connect to the LatencyFleX service
 	// LatencyFleX is an open source vendor agnostic replacement for Nvidia Reflex input latency reduction technology.
@@ -37,4 +37,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("client.dll", LatencyFlex, ConVar, (CModule module))
 
 	spdlog::info("LatencyFleX initialized.");
 	Cvar_r_latencyflex = new ConVar("r_latencyflex", "1", FCVAR_ARCHIVE, "Whether or not to use LatencyFleX input latency reduction.");
-}
+})

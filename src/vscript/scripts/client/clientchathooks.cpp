@@ -62,8 +62,8 @@ ADD_SQFUNC("void", NSChatWriteLine, "int context, string text", "", ScriptContex
 	return SQRESULT_NULL;
 }
 
-ON_DLL_LOAD_CLIENT("client.dll", ClientChatHooks, (CModule module))
+ON_DLL_LOAD_CLIENT("client.dll", ClientChatHooks, [](CModule module)
 {
 	o_pCHudChat__AddGameLine = module.Offset(0x22E580).RCast<decltype(o_pCHudChat__AddGameLine)>();
 	HookAttach(&(PVOID&)o_pCHudChat__AddGameLine, (PVOID)h_CHudChat__AddGameLine);
-}
+})

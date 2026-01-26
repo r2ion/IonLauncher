@@ -1,6 +1,6 @@
 #include "client/r2client.h"
 #include "core/convar/convar.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "masterserver/masterserver.h"
 
 ConVar* Cvar_ns_has_agreed_to_send_token;
@@ -15,7 +15,7 @@ static char* __fastcall h_Auth3PToken()
 	return o_pAuth3PToken();
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, [](CModule module)
 {
 	o_pAuth3PToken = module.Offset(0x183760).RCast<decltype(o_pAuth3PToken)>();
 	HookAttach(&(PVOID&)o_pAuth3PToken, (PVOID)h_Auth3PToken);
@@ -26,4 +26,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, (CModule modu
 		"0",
 		FCVAR_ARCHIVE_PLAYERPROFILE,
 		"whether the user has agreed to send their origin token to the northstar masterserver");
-}
+})

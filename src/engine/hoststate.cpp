@@ -9,7 +9,7 @@
 #include "shared/exploit_fixes/ns_limits.h"
 #include "shared/playlist.h"
 #include "vscript/squirrel/squirrel.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 #include "mods/autodownload/moddownloader.h"
 #include "eos/eos_layer.h"
 
@@ -189,7 +189,7 @@ static void __fastcall h_CHostState__FrameUpdate(CHostState* self, double flCurr
 	g_pPluginManager->RunFrame();
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", HostState, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", HostState, ConVar, [](CModule module)
 {
 	o_pCHostState__State_NewGame = module.Offset(0x16E7D0).RCast<decltype(o_pCHostState__State_NewGame)>();
 	HookAttach(&(PVOID&)o_pCHostState__State_NewGame, (PVOID)h_CHostState__State_NewGame);
@@ -210,4 +210,4 @@ ON_DLL_LOAD_RELIESON("engine.dll", HostState, ConVar, (CModule module))
 	_Cmd_Exec_f = module.Offset(0x1232C0).RCast<decltype(_Cmd_Exec_f)>();
 
 	g_pHostState = module.Offset(0x7CF180).RCast<CHostState*>();
-}
+})

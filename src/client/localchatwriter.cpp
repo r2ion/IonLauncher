@@ -448,7 +448,7 @@ void LocalChatWriter::InsertDefaultFade()
 	}
 }
 
-ON_DLL_LOAD_CLIENT("client.dll", LocalChatWriter, (CModule module))
+ON_DLL_LOAD_CLIENT("client.dll", LocalChatWriter, [](CModule module)
 {
 	gGameSettings = module.Offset(0x11BAA48).RCast<CGameSettings**>();
 	gChatFadeLength = module.Offset(0x11BAB78).RCast<CGameFloatVar**>();
@@ -458,4 +458,4 @@ ON_DLL_LOAD_CLIENT("client.dll", LocalChatWriter, (CModule module))
 	ConvertANSIToUnicode = module.Offset(0x7339A0).RCast<ConvertANSIToUnicodeType>();
 
 	Cvar_ns_write_raw_chat_to_console = new ConVar("ns_write_raw_chat_to_console", "0", FCVAR_NONE, "Write raw chat message output to the console. 1 = enabled, 0 = disabled.");
-}
+})

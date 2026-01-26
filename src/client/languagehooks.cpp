@@ -108,8 +108,8 @@ static char* __fastcall h_GetGameLanguage()
 	return lang;
 }
 
-ON_DLL_LOAD_CLIENT("tier0.dll", LanguageHooks, (CModule module))
+ON_DLL_LOAD_CLIENT("tier0.dll", LanguageHooks, [](CModule module)
 {
 	o_pGetGameLanguage = module.Offset(0xF560).RCast<decltype(o_pGetGameLanguage)>();
 	HookAttach(&(PVOID&)o_pGetGameLanguage, (PVOID)h_GetGameLanguage);
-}
+})

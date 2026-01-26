@@ -45,7 +45,7 @@ EXPORTS
 	gethostbyaddr=ws2_32.gethostbyaddr
 	gethostbyname=ws2_32.gethostbyname @52
 	gethostname=ws2_32.gethostname @57
-	getnetbyname=PROXY_getnetbyname @ 1101
+	getnetbyname=PROXY_getnetbyname @1101
 	getpeername=ws2_32.getpeername @5
 	getprotobyname=ws2_32.getprotobyname
 	getprotobynumber=ws2_32.getprotobynumber

@@ -1,6 +1,6 @@
 #include "mods/modmanager.h"
 #include "core/filesystem/filesystem.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 
 #include <fstream>
 

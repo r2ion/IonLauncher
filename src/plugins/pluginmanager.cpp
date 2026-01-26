@@ -197,7 +197,7 @@ void ConCommand_reload_plugins(const CCommand& args)
 	g_pPluginManager->ReloadPlugins();
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", PluginManager, ConCommand, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", PluginManager, ConCommand, [](CModule module)
 {
 	RegisterConCommand("reload_plugins", ConCommand_reload_plugins, "reloads plugins", FCVAR_NONE);
-}
+})

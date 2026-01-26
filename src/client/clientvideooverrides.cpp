@@ -27,16 +27,16 @@ static void* __fastcall h_BinkOpen(const char* path, uint32_t flags)
 		return o_pBinkOpen(path, flags);
 }
 
-ON_DLL_LOAD_CLIENT("bink2w64.dll", BinkRead, (CModule module))
+ON_DLL_LOAD_CLIENT("bink2w64.dll", BinkRead, [](CModule module)
 {
 	o_pBinkOpen = module.GetExportedFunction("BinkOpen").RCast<decltype(o_pBinkOpen)>();
 	HookAttach(&(PVOID&)o_pBinkOpen, (PVOID)h_BinkOpen);
-	module.Offset(0x035BD7).NOP(0x5);
-}
+	module.Offset(0x035BD7).NoOP(5);
+})
 
-ON_DLL_LOAD_CLIENT("engine.dll", BinkVideo, (CModule module))
+ON_DLL_LOAD_CLIENT("engine.dll", BinkVideo, [](CModule module)
 {
 	// remove engine check for whether the bik we're trying to load exists in r2/media, as this will fail for biks in mods
 	// note: the check in engine is actually unnecessary, so it's just useless in practice and we lose nothing by removing it
-	module.Offset(0x459AD).NOP(6);
-}
+	module.Offset(0x459AD).NoOP(6);
+})

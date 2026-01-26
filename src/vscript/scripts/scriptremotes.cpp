@@ -1,5 +1,5 @@
 #include "vscript/squirrel/squirrel.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 
 /*
 ⢸⣿⣿⣿⢿⣿⣽⣷⣾⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀

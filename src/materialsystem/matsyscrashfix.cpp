@@ -187,7 +187,7 @@ AUTOHOOK(sub_499E0, materialsystem_dx11.dll + 0x499E0, __int64, __fastcall, (__i
     return sub_83C10(v4);
 }
 
-ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", MaterialSystemCrashFix, (CModule module))
+ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", MaterialSystemCrashFix, [](CModule module)
 {
     sub_878D0_func = module.Offset(0x878D0).RCast<sub_878D0_t>();
     sub_83C10 = module.Offset(0x83C10).RCast<sub_83C10_t>();
@@ -200,4 +200,4 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", MaterialSystemCrashFix, (CModule m
     dword_21E0E0 = *module.Offset(0x21E0E0).RCast<int*>();
     sub_44D80 = module.Offset(0x44D80);
     sub_5B20 = module.Offset(0x5B20);
-}
+})

@@ -29,8 +29,8 @@ static void __fastcall h_Host_Init(bool bDedicated)
 
 }
 
-ON_DLL_LOAD("engine.dll", Host_Init, (CModule module))
+ON_DLL_LOAD("engine.dll", Host_Init, [](CModule module)
 {
 	o_pHost_Init = module.Offset(0x155EA0).RCast<decltype(o_pHost_Init)>();
 	HookAttach(&(PVOID&)o_pHost_Init, (PVOID)h_Host_Init);
-}
+})

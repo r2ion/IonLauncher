@@ -17,7 +17,7 @@ char* g_pModName =
 
 CGlobalVars* g_pGlobals;
 
-ON_DLL_LOAD("engine.dll", R2Engine, (CModule module))
+ON_DLL_LOAD("engine.dll", R2Engine, [](CModule module)
 {
 	Cbuf_GetCurrentPlayer = module.Offset(0x120630).RCast<Cbuf_GetCurrentPlayerType>();
 	Cbuf_AddText = module.Offset(0x1203B0).RCast<Cbuf_AddTextType>();
@@ -31,4 +31,4 @@ ON_DLL_LOAD("engine.dll", R2Engine, (CModule module))
 	g_pServerState = module.Offset(0x12A53D48).RCast<server_state_t*>();
 
 	g_pGlobals = module.Offset(0x7C6F70).RCast<CGlobalVars*>();
-}
+})

@@ -357,7 +357,7 @@ bool RegisterPeerByString(const char* remoteProductUserId,
 
 } // namespace eos
 
-ON_DLL_LOAD_RELIESON("engine.dll", EOSNetwork, ConVar, (CModule module))
+ON_DLL_LOAD_RELIESON("engine.dll", EOSNetwork, ConVar, [](CModule module)
 {
 	ns_allow_eos = new ConVar("ns_has_agreed_allow_eos", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Allow using EOS P2P networking.");
-}
+})

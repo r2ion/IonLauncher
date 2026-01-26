@@ -24,8 +24,8 @@ static void h_COM_ExplainDisconnection(bool a1, const char* fmt, ...)
 	return o_pCOM_ExplainDisconnection(a1, "%s", buf);
 }
 
-ON_DLL_LOAD_CLIENT("engine.dll", RejectConnectionFixes, (CModule module))
+ON_DLL_LOAD_CLIENT("engine.dll", RejectConnectionFixes, [](CModule module)
 {
 	o_pCOM_ExplainDisconnection = module.Offset(0x1342F0).RCast<decltype(o_pCOM_ExplainDisconnection)>();
 	HookAttach(&(PVOID&)o_pCOM_ExplainDisconnection, (PVOID)h_COM_ExplainDisconnection);
-}
+})

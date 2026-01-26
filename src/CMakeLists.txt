@@ -1,5 +1,4 @@
 find_package(minhook REQUIRED)
-find_package(silver-bun REQUIRED)
 
 set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
 set(EOS_DLL "${EOS_SDK_PATH}/Bin/EOSSDK-Win64-Shipping.dll")
@@ -52,17 +51,12 @@ add_library(
     "core/math/vector.h"
     "core/math/vector2d.h"
     "core/math/vplane.h"
-    "core/hooks.cpp"
-    "core/hooks.h"
     "core/macros.h"
-    "core/memalloc.cpp"
-    "core/memalloc.h"
     "core/sourceinterface.cpp"
     "core/tier0.cpp"
     "core/tier0.h"
     "core/tier1.cpp"
     "core/tier1.h"
-    "core/vanilla.h"
     "dedicated/dedicated.cpp"
     "dedicated/dedicated.h"
     "dedicated/dedicatedlogtoclient.cpp"
@@ -191,6 +185,11 @@ add_library(
     "shared/playlist.cpp"
     "shared/playlist.h"
     "shared/signonstate.h"
+	"tier0/hooks.cpp"
+	"tier0/memaddr.cpp"
+	"tier0/memstd.cpp"
+	"tier0/module.cpp"
+	"tier0/sigscan_helpers.cpp"
     "util/annotations.h"
     "util/characterset.h"
     "util/platform.h"
@@ -301,7 +300,6 @@ target_link_libraries(
             ${EOS_LIB}
             spdlog
             libcurl
-            silver-bun
             NorthstarIncludes
     )
 

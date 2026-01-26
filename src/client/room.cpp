@@ -1,5 +1,5 @@
 #include "room.h"
-#include "core/vanilla.h"
+#include "tier0/vanilla.h"
 
 typedef void* (*JoinPlayerGameRoom_t)(const char* roomId);
 JoinPlayerGameRoom_t JoinPlayerGameRoom;
@@ -45,7 +45,7 @@ void ConCommand_ns_dump_room(const CCommand& args)
 		spdlog::info("match_partySub: {}", match_partySub);
 }
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", PartyRoom, ConCommand, (CModule module))
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", PartyRoom, ConCommand, [](CModule module)
 {
 	JoinPlayerGameRoom = module.Offset(0x187C70).RCast<JoinPlayerGameRoom_t>();
 	RegisterConCommand("ns_join_room", ConCommand_ns_join_room, "Join a server by its room ID (value of match_partySub)", FCVAR_CLIENTDLL);
@@ -54,4 +54,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", PartyRoom, ConCommand, (CModule module
 	room2 = module.Offset(0x13F8E2D0).RCast<char*>();
 	room3 = module.Offset(0x1314B1CC).RCast<char*>();
 	RegisterConCommand("ns_dump_room", ConCommand_ns_dump_room, "Dump room info", FCVAR_CLIENTDLL);
-}
+})
