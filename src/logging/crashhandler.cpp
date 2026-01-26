@@ -819,11 +819,22 @@ std::vector<std::string> CCrashHandler::FormatModules()
 		for (DWORD i = 0; i < (cbNeeded / sizeof(HMODULE)); i++)
 		{
 			CHAR szModulePath[MAX_PATH];
-			if (GetModuleFileNameExA(GetCurrentProcess(), hModules[i], szModulePath, sizeof(szModulePath)))
+			MODULEINFO moduleInfo;
+			
+			if (GetModuleInformation(GetCurrentProcess(), hModules[i], &moduleInfo, sizeof(moduleInfo)))
 			{
+				GetModuleFileNameExA(GetCurrentProcess(), hModules[i], szModulePath, sizeof(szModulePath));
 				const CHAR* pSlash = strrchr(szModulePath, '\\');
 				const CHAR* pszModuleFileName = pSlash ? (pSlash + 1) : szModulePath;
-				lines.emplace_back(pszModuleFileName);
+				char details[256];
+				sprintf_s(
+					details,
+					"%s, Size: 0x%lX, Region: 0x%p - 0x%p",
+					pszModuleFileName,
+					static_cast<unsigned long>(moduleInfo.SizeOfImage),
+					static_cast<const void*>(hModules[i]),
+					static_cast<const void*>(reinterpret_cast<const uint8_t*>(hModules[i]) + moduleInfo.SizeOfImage));
+				lines.emplace_back(details);
 			}
 		}
 	}
