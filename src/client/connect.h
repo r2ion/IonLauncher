@@ -4,7 +4,7 @@
 #include "masterserver/masterserver.h"
 #include "core/tier0.h"
 #include "engine/r2engine.h"
-#include "mods/autodownload/moddownloader.h"
+#include "modsystem/moddownloader.h"
 #include "engine/localize.h"
 
 extern bool g_bConnectingToServer;

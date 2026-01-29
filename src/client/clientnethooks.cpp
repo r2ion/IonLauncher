@@ -1,7 +1,7 @@
 #include "engine/r2engine.h"
 #include "client/r2client.h"
 #include "engine/netmessages.h"
-#include "mods/autodownload/moddownloader.h"
+#include "modsystem/moddownloader.h"
 #include "core/tier0.h"
 
 AUTOHOOK_INIT()

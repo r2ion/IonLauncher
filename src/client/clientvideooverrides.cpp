@@ -1,4 +1,4 @@
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 
 static void* (*__fastcall o_pBinkOpen)(const char* path, uint32_t flags) = nullptr;
 static void* __fastcall h_BinkOpen(const char* path, uint32_t flags)

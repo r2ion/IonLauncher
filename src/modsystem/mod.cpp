@@ -1,4 +1,28 @@
+#include "mod.h"
+#include "modmanager.h"
 #include "rapidjson/error/en.h"
+
+bool Mod::IsPathUnder(const fs::path& candidate, const fs::path& root)
+{
+	std::string candidatePath = candidate.lexically_normal().generic_string();
+	std::string rootPath = root.lexically_normal().generic_string();
+	if (!rootPath.empty() && rootPath.back() != '/')
+		rootPath.push_back('/');
+	return candidatePath.rfind(rootPath, 0) == 0;
+}
+
+ModSource Mod::ResolveModSourceFromPath(const fs::path& modDir)
+{
+	if (IsPathUnder(modDir, GetRemoteModFolderPath()))
+		return ModSource::Remote;
+	if (IsPathUnder(modDir, GetThunderstoreModFolderPath()))
+		return ModSource::Thunderstore;
+	if (IsPathUnder(modDir, GetModWorkshopModFolderPath()))
+		return ModSource::ModWorkshop;
+	if (IsPathUnder(modDir, GetModFolderPath()))
+		return ModSource::Unmanaged;
+	return ModSource::Unknown;
+}
 
 Mod::Mod(fs::path modDir, const char* jsonBuf)
 {
@@ -109,8 +133,7 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 	ParsePluginDependencies(modJson);
 	ParseInitScript(modJson);
 
-	// A mod is remote if it's located in the remote mods folder
-	m_bIsRemote = m_ModDirectory.generic_string().find(GetRemoteModFolderPath().generic_string()) != std::string::npos;
+	m_Source = ResolveModSourceFromPath(m_ModDirectory);
 
 	m_bWasReadSuccessfully = true;
 }

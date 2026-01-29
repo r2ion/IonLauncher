@@ -1,4 +1,4 @@
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "vscript/squirrel/squirrel.h"
 
 template <ScriptContext context> void ModToSquirrel(HSQUIRRELVM sqvm, Mod& mod)
@@ -34,7 +34,7 @@ template <ScriptContext context> void ModToSquirrel(HSQUIRRELVM sqvm, Mod& mod)
 	g_pSquirrel[context]->sealstructslot(sqvm, 6);
 
 	// is remote
-	g_pSquirrel[context]->pushbool(sqvm, mod.m_bIsRemote);
+	g_pSquirrel[context]->pushbool(sqvm, mod.IsRemote());
 	g_pSquirrel[context]->sealstructslot(sqvm, 7);
 
 	// convars

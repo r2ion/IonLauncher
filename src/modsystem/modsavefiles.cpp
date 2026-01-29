@@ -3,7 +3,7 @@
 #include <fstream>
 #include "vscript/squirrel/squirrel.h"
 #include "util/utils.h"
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "modsavefiles.h"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"

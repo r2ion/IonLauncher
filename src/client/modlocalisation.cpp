@@ -1,4 +1,4 @@
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 
 void* g_pVguiLocalize;
 

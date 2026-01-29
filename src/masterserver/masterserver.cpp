@@ -4,7 +4,7 @@
 #include "tier0/vanilla.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "server/auth/bansystem.h"
 #include "server/auth/serverauthentication.h"
 #include "shared/misccommands.h"

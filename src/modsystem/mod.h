@@ -1,3 +1,5 @@
+#pragma once
+
 class Mod;
 
 struct ModConVar
@@ -70,6 +72,15 @@ public:
 	size_t m_dependentPakHash;
 };
 
+enum class ModSource
+{
+	Unmanaged,
+	Remote,
+	ModWorkshop,
+	Thunderstore,
+	Unknown
+};
+
 class Mod
 {
 public:
@@ -77,7 +88,7 @@ public:
 	bool m_bEnabled = true;
 	bool m_bWasReadSuccessfully = false;
 	fs::path m_ModDirectory;
-	bool m_bIsRemote;
+	ModSource m_Source = ModSource::Unmanaged;
 	bool m_bRequiredModelReload = false;
 
 	// mod.json stuff:
@@ -127,6 +138,7 @@ public:
 
 public:
 	Mod(fs::path modPath, const char* jsonBuf);
+	bool IsRemote() const { return m_Source == ModSource::Remote; }
     bool IsCoreMod()
     {
         static const std::array<std::string_view, 4> coreMods = {
@@ -144,6 +156,9 @@ public:
     }
 
 private:
+	static bool IsPathUnder(const fs::path& candidate, const fs::path& root);
+	static ModSource ResolveModSourceFromPath(const fs::path& modDir);
+
 	void ParseConVars(rapidjson_document& json);
 	void ParseConCommands(rapidjson_document& json);
 	void ParseScripts(rapidjson_document& json);

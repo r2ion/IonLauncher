@@ -1,0 +1,151 @@
+#pragma once
+
+#include "engine/net.h"
+#include "mod.h"
+
+namespace fs = std::filesystem;
+
+class CClient;
+
+class ModDownloader;
+
+extern ModDownloader* g_pModDownloader;
+
+class ModDownloader
+{
+public:
+
+	struct modentry_s
+	{
+
+		std::string name;
+		std::string version;
+		ModSource platform = ModSource::Unknown;
+
+		std::string dependencyString;
+		std::string url;
+
+		std::string checksum;
+	};
+
+private:
+	const char* VERIFICATION_FLAG = "-disablemodverification";
+	const char* CUSTOM_MODS_URL_FLAG = "-customverifiedurl=";
+	const char* DEFAULT_MODS_LIST_URL = "https://raw.githubusercontent.com/R2Northstar/VerifiedMods/main/verified-mods.json";
+	const float SERVER_MODINFO_TIMEOUT_SECONDS = 3.0f;
+	char* modsListUrl;
+	rapidjson::Document m_Document;
+	std::vector<modentry_s> m_ParsedSchemaMods;
+	bool m_bIsListeningForServerMods = false;
+	std::vector<modentry_s> m_ServerRequestedMods;
+	int m_iTotalServerRequestedMods = 0;
+
+	ModSource resolvePlatform(std::string input)
+	{
+		if (input.compare("thunderstore") == 0)
+		{
+			return ModSource::Thunderstore;
+		}
+		if (input.compare("modworkshop") == 0)
+		{
+			return ModSource::ModWorkshop;
+		}
+		return ModSource::Unknown;
+	}
+
+	std::string GetPlatformString(ModSource platform)
+	{
+		switch (platform)
+		{
+		case ModSource::Thunderstore:
+			return std::string("thunderstore");
+		case ModSource::ModWorkshop:
+			return std::string("modworkshop");
+		case ModSource::Remote:
+			return std::string("remote");
+		case ModSource::Unmanaged:
+			return std::string("unmanaged");
+		default:
+			return std::string("unknown");
+		}
+	}
+
+	struct VerifiedModVersion
+	{
+		std::string checksum;
+		std::string downloadLink;
+		ModSource platform;
+	};
+	struct VerifiedModDetails
+	{
+		std::unordered_map<std::string, VerifiedModVersion> versions = {};
+	};
+	std::unordered_map<std::string, VerifiedModDetails> verifiedMods = {};
+
+	static int ModFetchingProgressCallback(
+		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
+	std::tuple<fs::path, bool> FetchModFromDistantStore(std::string_view modName, VerifiedModVersion modVersion);
+	bool IsModLegit(fs::path modPath, std::string_view expectedChecksum);
+	void ExtractMod(fs::path modPath, fs::path destinationPath, ModSource platform);
+	std::string GetModArchiveName(std::string url);
+
+	void ParseSchemaDocument();
+
+public:
+	ModDownloader();
+
+	void FetchModsListFromAPI();
+	bool IsModAuthorized(std::string_view modName, std::string_view modVersion);
+	void DownloadMod(std::string modName, std::string modVersion);
+
+	enum ModInstallState
+	{
+		MANIFESTO_FETCHING,
+
+		// Normal installation process
+		DOWNLOADING,
+		CHECKSUMING,
+		EXTRACTING,
+		DONE, // Everything went great, mod can be used in-game
+		ABORTED, // User cancelled mod install process
+
+		// Errors
+		FAILED, // Generic error message, should be avoided as much as possible
+		FAILED_READING_ARCHIVE,
+		FAILED_WRITING_TO_DISK,
+		MOD_FETCHING_FAILED,
+		MOD_CORRUPTED, // Downloaded archive checksum does not match verified hash
+		NO_DISK_SPACE_AVAILABLE,
+		NOT_FOUND, // Mod is not currently being auto-downloaded
+		UNKNOWN_PLATFORM
+	};
+
+	struct MOD_STATE
+	{
+		ModInstallState state;
+		std::string name;
+		std::string version;
+		int progress;
+		int total;
+		float ratio;
+	} modState = {};
+
+	void CancelDownload();
+
+	void LoadServerModSchema();
+	void PromptUserConfirmation();
+	rapidjson::Document& GetServerModSchemaDocument() { return m_Document; }
+	bool ParseServerDownloadLinks();
+	void DownloadServerMods();
+	static int ServerModFetchingProgressCallback(
+		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
+	std::vector<modentry_s>& GetServerModsToInstall() { return m_ParsedSchemaMods; }
+	std::vector<modentry_s>& GetServerRequestedMods() { return m_ServerRequestedMods; }
+	bool SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& mod, int index, int totalMods);
+	bool RecvModInfoConnectionlessPacket(bf_read& msg);
+	bool AllowingServerModDownloads() { return m_bIsListeningForServerMods; }
+	void SetIsListeningForServerMods(bool state) { m_bIsListeningForServerMods = state; }
+	bool IsListeningForServerMods() { return m_bIsListeningForServerMods; }
+	void SetTotalServerRequestedMods(int totalMods) { m_iTotalServerRequestedMods = totalMods; }
+	int GetTotalServerRequestedMods() { return m_iTotalServerRequestedMods; }
+};

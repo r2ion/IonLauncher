@@ -2,7 +2,7 @@
 #include "inetmessage.h"
 #include "dedicated/dedicated.h"
 #include "r2engine.h"
-#include "mods/autodownload/moddownloader.h"
+#include "modsystem/moddownloader.h"
 
 AUTOHOOK_INIT()
 

@@ -463,8 +463,9 @@ void ModManager::SearchFilesystemForMods()
 	std::filesystem::directory_iterator classicModsDir = fs::directory_iterator(GetModFolderPath());
 	std::filesystem::directory_iterator remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
 	std::filesystem::directory_iterator thunderstoreModsDir = fs::directory_iterator(GetThunderstoreModFolderPath());
+	std::filesystem::directory_iterator modWorkshopModsDir = fs::directory_iterator(GetModWorkshopModFolderPath());
 
-	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir})
+	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir, modWorkshopModsDir})
 		for (fs::directory_entry dir : dirIterator)
 			if (fs::exists(dir.path() / "mod.json"))
 				modDirs.push_back(dir.path());
@@ -557,7 +558,7 @@ void ModManager::SearchFilesystemForMods()
 		}
 
 		// Do not load remote mods on first load
-		if (mod.m_bIsRemote && !m_bHasLoadedMods)
+		if (mod.m_Source == ModSource::Remote && !m_bHasLoadedMods)
 		{
 			mod.m_bEnabled = false;
 		}
@@ -665,6 +666,7 @@ void ModManager::DiscoverMods()
 {
 	fs::create_directories(GetModFolderPath());
 	fs::create_directories(GetThunderstoreModFolderPath());
+	fs::create_directories(GetModWorkshopModFolderPath());
 	fs::create_directories(GetRemoteModFolderPath());
 
 	// File format checks
@@ -748,7 +750,7 @@ void ModManager::DiscoverMods()
 	for (Mod& mod : m_LoadedMods)
 	{
 		// Add mod entry to enabledmods.json if it doesn't exist
-		bool isModRemote = mod.m_bIsRemote;
+		bool isModRemote = mod.m_Source == ModSource::Remote;
 		bool modEntryExists = m_EnabledModsCfg.HasMember(mod.Name.c_str());
 		bool modEntryHasCorrectFormat = modEntryExists && m_EnabledModsCfg[mod.Name.c_str()].IsObject();
 		bool modVersionEntryExists = modEntryExists && m_EnabledModsCfg[mod.Name.c_str()].HasMember(mod.Version.c_str());
@@ -883,7 +885,7 @@ void ModManager::DeleteRemoteMod(const char* modName, const char* version) {
 		Mod& mod = *it;
 		if (!mod.Name.compare(modName) && !mod.Version.compare(version))
 		{
-			if (!mod.m_bIsRemote)
+			if (mod.m_Source != ModSource::Remote)
 				return;
 
 			std::string splitPath = mod.m_ModDirectory.generic_string().substr(GetRemoteModFolderPath().generic_string().length() + 1);
@@ -913,6 +915,10 @@ fs::path GetModFolderPath()
 fs::path GetThunderstoreModFolderPath()
 {
 	return fs::path(GetNorthstarPrefix()) / THUNDERSTORE_MOD_FOLDER_SUFFIX;
+}
+fs::path GetModWorkshopModFolderPath()
+{
+	return fs::path(GetNorthstarPrefix()) / MOD_WORKSHOP_MOD_FOLDER_SUFFIX;
 }
 fs::path GetRemoteModFolderPath()
 {

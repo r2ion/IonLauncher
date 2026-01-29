@@ -139,7 +139,7 @@ void ModDownloader::FetchModsListFromAPI()
 					std::string checksum = attribute["Checksum"].GetString();
 					std::string downloadLink = attribute["DownloadLink"].GetString();
 					std::string platformValue = attribute["Platform"].GetString();
-					VerifiedModPlatform platform = resolvePlatform(platformValue);
+					ModSource platform = resolvePlatform(platformValue);
 					modVersions.insert({version, {.checksum = checksum, .downloadLink = downloadLink, .platform = platform}});
 				}
 
@@ -433,7 +433,7 @@ int GetModArchiveSize(unzFile file, unz_global_info64 info)
 	return totalSize;
 }
 
-void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, VerifiedModPlatform platform)
+void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSource platform)
 {
 	unzFile file;
 
@@ -590,13 +590,13 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, Verif
 	fs::path rootDir = "";
 
 	// We don't know how to extract mods from unknown platforms
-	if (platform == VerifiedModPlatform::Unknown)
+	if (platform == ModSource::Unknown)
 	{
 		spdlog::error("Failed extracting mod from unknown platform.");
 		modState.state = UNKNOWN_PLATFORM;
 		return;
 	}
-	else if (platform == VerifiedModPlatform::ModWorkshop)
+	else if (platform == ModSource::ModWorkshop)
 	{
 		// find the mod.json and store the folder that it's in as the root directory
 		unzGoToFirstFile(file);
@@ -684,7 +684,7 @@ void ModDownloader::DownloadMod(std::string modName, std::string modVersion)
 	// Remove old versions of this mod before downloading the new version
 	for (auto& mod : g_pModManager->m_LoadedMods)
 	{
-		if (mod.Name == modName && mod.Version != modVersion && mod.m_bIsRemote)
+		if (mod.Name == modName && mod.Version != modVersion && mod.IsRemote())
 		{
 			spdlog::info("Removing old version {} of mod {} before downloading version {}", mod.Version, modName, modVersion);
 			g_pModManager->DeleteRemoteMod(mod.Name.c_str(), mod.Version.c_str());
@@ -759,7 +759,7 @@ void ModDownloader::DownloadMod(std::string modName, std::string modVersion)
 
 			// Mod directory name
 			/// Don't use archive name as destination with ModWorkshop
-			if (fullVersion.platform == VerifiedModPlatform::ModWorkshop)
+			if (fullVersion.platform == ModSource::ModWorkshop)
 			{
 				name = archiveLocation.stem().string();
 				modDirectory = GetRemoteModFolderPath() / std::format("{}-{}", name, modVersion);
@@ -844,7 +844,7 @@ void ModDownloader::ParseSchemaDocument()
 
 		modEntry.version = it->value["Version"].GetString();
 
-		VerifiedModPlatform platform = VerifiedModPlatform::Unknown;
+		ModSource platform = ModSource::Unknown;
 
 		if(it->value.HasMember("Platform") && it->value["Platform"].IsString())
 		{
@@ -856,7 +856,7 @@ void ModDownloader::ParseSchemaDocument()
 
 		switch(platform)
 		{
-			case VerifiedModPlatform::Thunderstore:
+			case ModSource::Thunderstore:
 				if(!it->value.HasMember("DependencyString") || !it->value["DependencyString"].IsString())
 				{
 					spdlog::error("Mod entry {} does not have a valid DependencyString field for Thunderstore platform, skipping.", modEntry.name);
@@ -864,11 +864,11 @@ void ModDownloader::ParseSchemaDocument()
 				}
 				modEntry.dependencyString = it->value["DependencyString"].GetString();
 				break;
-			case VerifiedModPlatform::ModWorkshop:
+			case ModSource::ModWorkshop:
 				spdlog::error("ModWorkshop platform is not supported in server mod schema, skipping mod {}", modEntry.name);
 				continue;
 				break;
-			case VerifiedModPlatform::Unknown:
+			case ModSource::Unknown:
 				if(!it->value.HasMember("URL") || !it->value["URL"].IsString())
 				{
 					spdlog::error("Mod entry {} does not have a valid URL field for Unknown platform, skipping.", modEntry.name);
@@ -908,17 +908,17 @@ bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& m
 	if(!msg.WriteString(mod.version.c_str()))
 		return false;
 
-	switch(mod.platform)
+		switch(mod.platform)
 	{
-		case VerifiedModPlatform::Thunderstore:
+			case ModSource::Thunderstore:
 			msg.WriteChar('T');
 			if(!msg.WriteString(mod.dependencyString.c_str()))
 				return false;
 			break;
-		case VerifiedModPlatform::ModWorkshop:
+			case ModSource::ModWorkshop:
 			msg.WriteChar('M');
 			break;
-		case VerifiedModPlatform::Unknown:
+			case ModSource::Unknown:
 			msg.WriteChar('U');
 			if(!msg.WriteString(mod.url.c_str()))
 				return false;
@@ -973,17 +973,17 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 	switch(platformChar)
 	{
 		case 'T':
-			modEntry.platform = VerifiedModPlatform::Thunderstore;
+			modEntry.platform = ModSource::Thunderstore;
 			if(!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
 				return false;
 			modEntry.dependencyString = std::string(dependencyOrUrl);
 			break;
 		case 'M':
-			modEntry.platform = VerifiedModPlatform::ModWorkshop;
+			modEntry.platform = ModSource::ModWorkshop;
 			spdlog::error("Received ModWorkshop platform mod info from server, which is unsupported, skipping mod.");
 			return false;
 		case 'U':
-			modEntry.platform = VerifiedModPlatform::Unknown;
+			modEntry.platform = ModSource::Unknown;
 			if(!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
 				return false;
 			modEntry.url = std::string(dependencyOrUrl);
@@ -1020,10 +1020,10 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 
 			switch( modEntry.platform )
 			{
-				case VerifiedModPlatform::Thunderstore:
+				case ModSource::Thunderstore:
 					versionInfo.downloadLink = "https://gcdn.thunderstore.io/live/repository/packages/" + modEntry.dependencyString + ".zip";
 					break;
-				case VerifiedModPlatform::Unknown:
+				case ModSource::Unknown:
 					versionInfo.downloadLink = modEntry.url;
 					break;
 				default:
@@ -1043,10 +1043,10 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 
 		switch( modEntry.platform )
 		{
-			case VerifiedModPlatform::Thunderstore:
+			case ModSource::Thunderstore:
 				versionInfo.downloadLink = "https://gcdn.thunderstore.io/live/repository/packages/" + modEntry.dependencyString + ".zip";
 				break;
-			case VerifiedModPlatform::Unknown:
+			case ModSource::Unknown:
 				versionInfo.downloadLink = modEntry.url;
 				break;
 			default:

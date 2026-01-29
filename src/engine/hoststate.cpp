@@ -10,7 +10,7 @@
 #include "shared/playlist.h"
 #include "vscript/squirrel/squirrel.h"
 #include "tier0/vanilla.h"
-#include "mods/autodownload/moddownloader.h"
+#include "modsystem/moddownloader.h"
 #include "eos/eos_layer.h"
 
 CHostState* g_pHostState;

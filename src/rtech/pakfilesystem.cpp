@@ -1,5 +1,5 @@
 #include "pakfilesystem.h"
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "dedicated/dedicated.h"
 #include "core/tier0.h"
 #include "util/utils.h"

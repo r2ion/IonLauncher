@@ -1,4 +1,4 @@
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "core/filesystem/filesystem.h"
 #include "tier0/vanilla.h"
 

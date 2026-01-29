@@ -3,7 +3,7 @@
 #include "crash_sounds.h"
 #include "dedicated/dedicated.h"
 #include "logging.h"
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
 #include "rtech/pakfilesystem.h"
@@ -820,7 +820,7 @@ std::vector<std::string> CCrashHandler::FormatModules()
 		{
 			CHAR szModulePath[MAX_PATH];
 			MODULEINFO moduleInfo;
-			
+
 			if (GetModuleInformation(GetCurrentProcess(), hModules[i], &moduleInfo, sizeof(moduleInfo)))
 			{
 				GetModuleFileNameExA(GetCurrentProcess(), hModules[i], szModulePath, sizeof(szModulePath));

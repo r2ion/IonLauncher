@@ -1,6 +1,6 @@
 #include "core/convar/convar.h"
 #include "core/tier0.h"
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "r2engine.h"
 #include "shared/misccommands.h"
 #include "util/printcommands.h"

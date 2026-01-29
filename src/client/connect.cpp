@@ -813,7 +813,7 @@ DECLARE_HOOK(matchmake, engine.dll + 0xF220, [](auto& hook) -> int*
 
 				for (auto& loaded : g_pModManager->m_LoadedMods)
 				{
-					if (loaded.RequiredOnClient && loaded.m_bIsRemote && loaded.m_bEnabled && !loaded.IsCoreMod())
+					if (loaded.RequiredOnClient && loaded.IsRemote() && loaded.m_bEnabled && !loaded.IsCoreMod())
 					{
 						affectedMods++;
 						loaded.m_bEnabled = false;

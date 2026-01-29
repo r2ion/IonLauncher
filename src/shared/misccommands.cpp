@@ -7,7 +7,7 @@
 #include "engine/hoststate.h"
 #include "masterserver/masterserver.h"
 #include "dedicated/dedicated.h"
-#include "mods/modmanager.h"
+#include "modsystem/modmanager.h"
 #include "server/auth/serverauthentication.h"
 #include "vscript/squirrel/squirrel.h"
 #include "client/connect.h"
