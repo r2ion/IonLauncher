@@ -130,6 +130,14 @@ void LibraryLoadError(DWORD dwMessageId, const wchar_t* libName, const wchar_t* 
 	MessageBoxA(GetForegroundWindow(), text, "Northstar Launcher Error", 0);
 }
 
+std::wstring GetCurrentProcessExeName()
+{
+    wchar_t path[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, path, MAX_PATH) == 0)
+        return L"";
+    return PathFindFileNameW(path);
+}
+
 void AwaitOriginStartup()
 {
 	WSADATA wsaData;
@@ -338,10 +346,12 @@ HMODULE LoadDediStub(const char* name)
 	}
 	return h;
 }
-
-static int RunLauncher(int argc, char* argv[])
+#ifdef DEDICATED
+int main(int argc, char* argv[])
+#else
+int RunLauncher(int argc, char* argv[])
+#endif
 {
-
 	if (strstr(GetCommandLineA(), "-waitfordebugger"))
 	{
 		while (!IsDebuggerPresent())
@@ -374,6 +384,9 @@ static int RunLauncher(int argc, char* argv[])
 			dedicated = true;
 		else if (!strcmp(argv[i], "-nostubs"))
 			nostubs = true;
+
+	if(GetCurrentProcessExeName() == L"r2ds.exe")
+		dedicated = true;
 
 	if (!noOriginStartup && !dedicated)
 	{
@@ -479,6 +492,7 @@ static int RunLauncher(int argc, char* argv[])
 		NULL, NULL, NULL, 0); // the parameters aren't really used anyways
 }
 
+#ifndef DEDICATED
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
 	UNREFERENCED_PARAMETER(hInstance);
@@ -518,3 +532,4 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	LocalFree(argvW);
 	return exitCode;
 }
+#endif

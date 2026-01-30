@@ -2,6 +2,7 @@
 
 #include "dedicated/dedicated.h"
 #include "plugins/pluginmanager.h"
+#include "util/utils.h"
 
 #include <iostream>
 #include <wchar.h>
@@ -231,6 +232,9 @@ static LPSTR WINAPI h_GetCommandLineA()
 		cmdlineOrg = o_pGetCommandLineA();
 		bool isDedi = strstr(cmdlineOrg, "-dedicated"); // well, this one has to be a real argument
 		bool ignoreStartupArgs = strstr(cmdlineOrg, "-nostartupargs");
+
+		if(GetCurrentProcessExeName() == L"r2ds.exe")
+			isDedi = true;
 
 		std::string args;
 		std::ifstream cmdlineArgFile;

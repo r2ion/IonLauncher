@@ -7,10 +7,11 @@
 #include "server/auth/serverauthentication.h"
 #include "masterserver/masterserver.h"
 #include "util/printcommands.h"
+#include "util/utils.h"
 
 bool IsDedicatedServer()
 {
-	static bool result = strstr(GetCommandLineA(), "-dedicated");
+	static bool result = strstr(GetCommandLineA(), "-dedicated") || GetCurrentProcessExeName() == L"r2ds.exe";
 	return result;
 }
 

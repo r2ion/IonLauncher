@@ -43,3 +43,5 @@ namespace std {
         }
     };
 }
+
+std::wstring GetCurrentProcessExeName();

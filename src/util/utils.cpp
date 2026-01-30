@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <Shlwapi.h>
 #include "utils.h"
 
 bool skip_valid_ansi_csi_sgr(char*& str)
@@ -115,4 +116,12 @@ void RemoveAsciiControlSequences(char* str, bool allow_color_codes)
 			else // ...but remove it otherwise
 				*pc = ' ';
 	}
+}
+
+std::wstring GetCurrentProcessExeName()
+{
+    wchar_t path[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, path, MAX_PATH) == 0)
+        return L"";
+    return PathFindFileNameW(path);
 }

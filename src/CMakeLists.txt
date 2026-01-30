@@ -305,6 +305,7 @@ target_link_libraries(
             version.lib
             winmm.lib
             dxgi.lib
+			shlwapi.lib
             ${EOS_LIB}
             spdlog
             libcurl
