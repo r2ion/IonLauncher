@@ -8,6 +8,7 @@
 #include "config/profile.h"
 #include "engine/r2engine.h"
 #include "engine/models.h"
+#include "modsystem/modshellext.h"
 
 #include "rapidjson/error/en.h"
 #include "rapidjson/document.h"
@@ -25,6 +26,8 @@ ModManager* g_pModManager;
 ModManager::ModManager()
 {
 	cfgPath = GetNorthstarPrefix() + "/enabledmods.json";
+
+	HandleModShellExtension();
 
 	// precaculated string hashes
 	// note: use backslashes for these, since we use lexically_normal for file paths which uses them
@@ -462,28 +465,27 @@ void ModManager::SearchFilesystemForMods()
 	// get mod directories
 	std::filesystem::directory_iterator classicModsDir = fs::directory_iterator(GetModFolderPath());
 	std::filesystem::directory_iterator remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
-	std::filesystem::directory_iterator thunderstoreModsDir = fs::directory_iterator(GetThunderstoreModFolderPath());
-	std::filesystem::directory_iterator modWorkshopModsDir = fs::directory_iterator(GetModWorkshopModFolderPath());
+	std::filesystem::directory_iterator packagesModsDir = fs::directory_iterator(GetPackageFolderPath());
 
-	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir, modWorkshopModsDir})
+	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir, packagesModsDir})
 		for (fs::directory_entry dir : dirIterator)
 			if (fs::exists(dir.path() / "mod.json"))
 				modDirs.push_back(dir.path());
 
-	// Special case for Thunderstore and remote mods directories
+	// Special case for packages and remote mods directories
 	// Set up regex for `AUTHOR-MOD-VERSION` pattern
 	std::regex pattern(R"(.*\\([a-zA-Z0-9_]+)-([a-zA-Z0-9_]+)-(\d+\.\d+\.\d+))");
 
 	// Reset directory iterator
 	remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
 
-	for (fs::directory_iterator dirIterator : {thunderstoreModsDir, remoteModsDir})
+	for (fs::directory_iterator dirIterator : {packagesModsDir, remoteModsDir})
 	{
 		for (fs::directory_entry dir : dirIterator)
 		{
-			fs::path modsDir = dir.path() / "mods"; // Check for mods folder in the Thunderstore mod
+			fs::path modsDir = dir.path() / "mods"; // Check for mods folder in a package
 
-			// Do not register ModWorkshop mods twice
+			// Do not register package mods twice
 			if (std::find(modDirs.begin(), modDirs.end(), dir.path()) != modDirs.end())
 			{
 				continue;
@@ -665,8 +667,7 @@ void ModManager::ExportModsConfigurationToFile()
 void ModManager::DiscoverMods()
 {
 	fs::create_directories(GetModFolderPath());
-	fs::create_directories(GetThunderstoreModFolderPath());
-	fs::create_directories(GetModWorkshopModFolderPath());
+	fs::create_directories(GetPackageFolderPath());
 	fs::create_directories(GetRemoteModFolderPath());
 
 	// File format checks
@@ -912,13 +913,9 @@ fs::path GetModFolderPath()
 {
 	return fs::path(GetNorthstarPrefix()) / MOD_FOLDER_SUFFIX;
 }
-fs::path GetThunderstoreModFolderPath()
+fs::path GetPackageFolderPath()
 {
-	return fs::path(GetNorthstarPrefix()) / THUNDERSTORE_MOD_FOLDER_SUFFIX;
-}
-fs::path GetModWorkshopModFolderPath()
-{
-	return fs::path(GetNorthstarPrefix()) / MOD_WORKSHOP_MOD_FOLDER_SUFFIX;
+	return fs::path(GetNorthstarPrefix()) / PACKAGE_MOD_FOLDER_SUFFIX;
 }
 fs::path GetRemoteModFolderPath()
 {

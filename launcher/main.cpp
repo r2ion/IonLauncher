@@ -6,6 +6,8 @@
 #include <fstream>
 #include <shlwapi.h>
 #include <iostream>
+#include <vector>
+#include <shellapi.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -337,7 +339,7 @@ HMODULE LoadDediStub(const char* name)
 	return h;
 }
 
-int main(int argc, char* argv[])
+static int RunLauncher(int argc, char* argv[])
 {
 
 	if (strstr(GetCommandLineA(), "-waitfordebugger"))
@@ -475,4 +477,44 @@ int main(int argc, char* argv[])
 	std::cout.flush();
 	return ((int(/*__fastcall*/*)(HINSTANCE, HINSTANCE, LPSTR, int))LauncherMain)(
 		NULL, NULL, NULL, 0); // the parameters aren't really used anyways
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
+{
+	UNREFERENCED_PARAMETER(hInstance);
+	UNREFERENCED_PARAMETER(hPrevInstance);
+	UNREFERENCED_PARAMETER(lpCmdLine);
+	UNREFERENCED_PARAMETER(nShowCmd);
+
+	int argc = 0;
+	LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &argc);
+	if (!argvW)
+		return RunLauncher(0, nullptr);
+
+	std::vector<std::string> argvUtf8;
+	argvUtf8.reserve(argc);
+	for (int i = 0; i < argc; i++)
+	{
+		int needed = WideCharToMultiByte(CP_UTF8, 0, argvW[i], -1, nullptr, 0, nullptr, nullptr);
+		if (needed > 0)
+		{
+			std::string value;
+			value.resize(static_cast<size_t>(needed - 1));
+			WideCharToMultiByte(CP_UTF8, 0, argvW[i], -1, value.data(), needed, nullptr, nullptr);
+			argvUtf8.push_back(std::move(value));
+		}
+		else
+		{
+			argvUtf8.emplace_back();
+		}
+	}
+
+	std::vector<char*> argv;
+	argv.reserve(argvUtf8.size());
+	for (auto& arg : argvUtf8)
+		argv.push_back(arg.data());
+
+	int exitCode = RunLauncher(static_cast<int>(argv.size()), argv.data());
+	LocalFree(argvW);
+	return exitCode;
 }

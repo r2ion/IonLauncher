@@ -1,5 +1,6 @@
 #include "mod.h"
 #include "modmanager.h"
+#include "modsystem/platform/modplatform.h"
 #include "rapidjson/error/en.h"
 
 bool Mod::IsPathUnder(const fs::path& candidate, const fs::path& root)
@@ -15,10 +16,8 @@ ModSource Mod::ResolveModSourceFromPath(const fs::path& modDir)
 {
 	if (IsPathUnder(modDir, GetRemoteModFolderPath()))
 		return ModSource::Remote;
-	if (IsPathUnder(modDir, GetThunderstoreModFolderPath()))
-		return ModSource::Thunderstore;
-	if (IsPathUnder(modDir, GetModWorkshopModFolderPath()))
-		return ModSource::ModWorkshop;
+	if (IsPathUnder(modDir, GetPackageFolderPath()))
+		return Mod_GetManagedSourceForPath(modDir);
 	if (IsPathUnder(modDir, GetModFolderPath()))
 		return ModSource::Unmanaged;
 	return ModSource::Unknown;

@@ -221,7 +221,6 @@ bool ConnectionManager::ParseAddress(const std::string& address, std::string& ip
 		if (ip.rfind(prefix, 0) == 0)
 		{
 			std::string rest = ip.substr(prefix.size());
-			// v4-mapped form ::ffff:a.b.c.d -> NOT v6
 			if (!(rest.find('.') != std::string::npos && rest.find(':') == std::string::npos))
 				isV6 = true; // some other IPv6, or non‑standard form
 		}
@@ -405,7 +404,7 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 
 	if (!m_bUseSCRPlaque && unverifiedModCount > 0)
 	{
-		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", unverifiedModCount, info->name);
+		g_pModDownloader->NotifyConfirmDownloadMods(unverifiedModCount, info->name);
 		while (m_eModAcceptState == eModAcceptState::NOT_DECIDED && !IsCancelled())
 			Sleep(100);
 
@@ -415,7 +414,7 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 		RETURN_IF_CANCELLED()
 	}
 
-	g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStarted");
+	g_pModDownloader->NotifyDownloadStarted();
 
 	for (const auto& mod : info->requiredMods)
 	{
@@ -505,7 +504,7 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 		RETURN_IF_CANCELLED()
 	}
 
-	g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStopped");
+	g_pModDownloader->NotifyDownloadStopped();
 
 	RETURN_IF_CANCELLED()
 

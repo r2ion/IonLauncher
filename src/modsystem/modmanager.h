@@ -15,8 +15,7 @@
 namespace fs = std::filesystem;
 
 const fs::path MOD_FOLDER_SUFFIX = "mods";
-const fs::path THUNDERSTORE_MOD_FOLDER_SUFFIX = "packages";
-const fs::path MOD_WORKSHOP_MOD_FOLDER_SUFFIX = "packages";
+const fs::path PACKAGE_MOD_FOLDER_SUFFIX = "packages";
 const fs::path REMOTE_MOD_FOLDER_SUFFIX = "runtime\\remote\\mods";
 const fs::path MOD_OVERRIDE_DIR = "mod";
 const fs::path COMPILED_ASSETS_SUFFIX = "runtime\\compiled";
@@ -132,8 +131,7 @@ public:
 
 fs::path GetModFolderPath();
 fs::path GetRemoteModFolderPath();
-fs::path GetThunderstoreModFolderPath();
-fs::path GetModWorkshopModFolderPath();
+fs::path GetPackageFolderPath();
 fs::path GetCompiledAssetsPath();
 
 extern ModManager* g_pModManager;

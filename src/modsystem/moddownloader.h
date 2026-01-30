@@ -2,6 +2,7 @@
 
 #include "engine/net.h"
 #include "mod.h"
+#include "vscript/squirrel/squirrel.h"
 
 namespace fs = std::filesystem;
 
@@ -93,6 +94,27 @@ private:
 
 public:
 	ModDownloader();
+
+	void NotifyDownloadStarted()
+	{
+		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
+			return;
+		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStarted");
+	}
+
+	void NotifyDownloadStopped()
+	{
+		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
+			return;
+		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStopped");
+	}
+
+	void NotifyConfirmDownloadMods(int modCount, const std::string& serverName)
+	{
+		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
+			return;
+		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", modCount, serverName.c_str());
+	}
 
 	void FetchModsListFromAPI();
 	bool IsModAuthorized(std::string_view modName, std::string_view modVersion);

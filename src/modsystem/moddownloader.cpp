@@ -4,6 +4,7 @@
 #include "config/profile.h"
 #include "engine/r2engine.h"
 #include "core/tier0.h"
+#include "modsystem/platform/modworkshop.h"
 
 #include <rapidjson/fwd.h>
 #include <rapidjson/writer.h>
@@ -598,34 +599,8 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 	}
 	else if (platform == ModSource::ModWorkshop)
 	{
-		// find the mod.json and store the folder that it's in as the root directory
-		unzGoToFirstFile(file);
-		for (uint64_t i = 0; i < gi.number_entry; ++i)
-		{
-			char zipFilename[256];
-			unz_file_info64 fileInfo;
-			status = unzGetCurrentFileInfo64(file, &fileInfo, zipFilename, sizeof(zipFilename), NULL, 0, NULL, 0);
-			fs::path filePath = zipFilename;
-
-			if (filePath.has_filename() && filePath.filename() == "mod.json")
-			{
-				fs::path parentPath = modPath.filename();
-				if (filePath.has_parent_path())
-					rootDir = filePath.parent_path() / "";
-
-				break;
-			}
-
-			if ((i + 1) < gi.number_entry)
-			{
-				status = unzGoToNextFile(file);
-				if (status != UNZ_OK)
-				{
-					spdlog::error("Error while browsing archive files (error code: {}).", status);
-					return;
-				}
-			}
-		}
+		if (auto foundRootDir = ModWorkshop_FindRootDir(file, gi))
+			rootDir = *foundRootDir;
 	}
 
 	unzGoToFirstFile(file);
