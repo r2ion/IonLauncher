@@ -6,6 +6,8 @@
 
 void HandleModShellExtension();
 void HandleModShellExtensionUri(const std::string& uri);
+void Mod_StorePendingWorkshopDownload(const std::string& id);
+std::optional<std::string> Mod_TakePendingWorkshopDownload();
 std::optional<std::string> Mod_TryGetUriFromCommandLine();
 bool Mod_ForwardUriToRunningInstance(const std::string& uri);
 void Mod_StartUriServer();

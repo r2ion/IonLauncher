@@ -5,9 +5,11 @@
 
 #include <spdlog/spdlog.h>
 
+#include "modsystem/moddownloader.h"
 #include "modsystem/platform/modworkshop.h"
 
 static const char* kModShellPipeName = "\\\\.\\pipe\\NorthstarUriPipe";
+static std::optional<std::string> s_PendingWorkshopId;
 
 std::optional<std::string> Mod_FindUriArgument(std::string_view commandLine, std::string_view schemePrefix)
 {
@@ -31,8 +33,10 @@ void HandleModShellExtensionUri(const std::string& uri)
 	if (auto modId = ModWorkshop_TryParseInstallId(uri))
 	{
 		spdlog::info("Received ModWorkshop install URI. Mod ID: {}", *modId);
-		// TODO: After local ModWorkshop installs are supported, write a .mws_id marker
-		// into the installed package directory so the mod becomes managed.
+		if (g_pModDownloader)
+			g_pModDownloader->QueueWorkshopDownload(*modId);
+		else
+			Mod_StorePendingWorkshopDownload(*modId);
 		return;
 	}
 
@@ -118,4 +122,20 @@ void HandleModShellExtension()
 		return;
 
 	HandleModShellExtensionUri(*uri);
+}
+
+void Mod_StorePendingWorkshopDownload(const std::string& id)
+{
+	if (!id.empty())
+		s_PendingWorkshopId = id;
+}
+
+std::optional<std::string> Mod_TakePendingWorkshopDownload()
+{
+	if (!s_PendingWorkshopId)
+		return std::nullopt;
+
+	std::optional<std::string> value = std::move(s_PendingWorkshopId);
+	s_PendingWorkshopId.reset();
+	return value;
 }

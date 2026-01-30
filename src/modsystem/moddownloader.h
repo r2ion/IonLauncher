@@ -4,6 +4,8 @@
 #include "mod.h"
 #include "vscript/squirrel/squirrel.h"
 
+#include <optional>
+
 namespace fs = std::filesystem;
 
 class CClient;
@@ -40,6 +42,8 @@ private:
 	bool m_bIsListeningForServerMods = false;
 	std::vector<modentry_s> m_ServerRequestedMods;
 	int m_iTotalServerRequestedMods = 0;
+	std::optional<std::string> m_PendingWorkshopId;
+	bool m_bDownloadReady = false;
 
 	ModSource resolvePlatform(std::string input)
 	{
@@ -83,14 +87,22 @@ private:
 	};
 	std::unordered_map<std::string, VerifiedModDetails> verifiedMods = {};
 
+
 	static int ModFetchingProgressCallback(
 		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
 	std::tuple<fs::path, bool> FetchModFromDistantStore(std::string_view modName, VerifiedModVersion modVersion);
 	bool IsModLegit(fs::path modPath, std::string_view expectedChecksum);
 	void ExtractMod(fs::path modPath, fs::path destinationPath, ModSource platform);
 	std::string GetModArchiveName(std::string url);
+	std::string SanitizeFolderComponent(std::string value);
 
 	void ParseSchemaDocument();
+	void StartDownloadThread(
+		std::string modName,
+		std::string modVersion,
+		const VerifiedModVersion& version,
+		const std::optional<fs::path>& destinationDir,
+		const std::optional<std::string>& managedId);
 
 public:
 	ModDownloader();
@@ -119,6 +131,11 @@ public:
 	void FetchModsListFromAPI();
 	bool IsModAuthorized(std::string_view modName, std::string_view modVersion);
 	void DownloadMod(std::string modName, std::string modVersion);
+	void SetDownloadReady(bool ready);
+	bool IsDownloadReady() const { return m_bDownloadReady; }
+	void QueueWorkshopDownload(std::string id);
+	bool StartPendingWorkshopDownload();
+	bool IsDownloadInProgress() const;
 
 	enum ModInstallState
 	{
