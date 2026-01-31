@@ -19,7 +19,7 @@ set(launcher_libs
     odbc32.lib
     odbccp32.lib
     ws2_32.lib
-)
+    )
 
 foreach(target ${launcher_targets})
     target_compile_definitions(${target} PRIVATE UNICODE _UNICODE)
@@ -33,7 +33,7 @@ foreach(target ${launcher_targets})
                    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${NS_BINARY_DIR}"
                    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${NS_BINARY_DIR}"
                    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${NS_BINARY_DIR}"
-    )
+        )
 endforeach()
 
 target_compile_definitions(r2ds PRIVATE DEDICATED)
