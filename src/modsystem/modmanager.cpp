@@ -478,6 +478,7 @@ void ModManager::SearchFilesystemForMods()
 
 	// Reset directory iterator
 	remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
+	packagesModsDir = fs::directory_iterator(GetPackageFolderPath());
 
 	for (fs::directory_iterator dirIterator : {packagesModsDir, remoteModsDir})
 	{
