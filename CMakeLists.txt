@@ -137,6 +137,12 @@ CPMAddPackage(
   	GITHUB_REPOSITORY curl/curl
   	GIT_TAG curl-8_18_0
 )
+
+CPMAddPackage(
+  	NAME vtfedit-reloaded
+  	GITHUB_REPOSITORY Sky-rym/VTFEdit-Reloaded
+  	GIT_TAG 2.1.9
+)
 # cmake-format: on
 
 add_subdirectory(src)

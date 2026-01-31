@@ -1,4 +1,5 @@
 find_package(minhook REQUIRED)
+find_package(VTFLib REQUIRED)
 
 set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
 set(EOS_DLL "${EOS_SDK_PATH}/Bin/EOSSDK-Win64-Shipping.dll")
@@ -116,6 +117,7 @@ add_library(
     "modsystem/compiled/modkeyvalues.cpp"
     "modsystem/compiled/modpdef.cpp"
     "modsystem/compiled/modscriptsrson.cpp"
+	"modsystem/compiled/vmt_icons.cpp"
     "modsystem/mod.cpp"
     "modsystem/mod.h"
     "modsystem/modmanager.cpp"
@@ -295,6 +297,7 @@ target_link_libraries(
     NorthstarDLL
     PRIVATE minhook
             minizip
+			VTFLib::VTFLib
             ws2_32.lib
             crypt32.lib
             cryptui.lib
