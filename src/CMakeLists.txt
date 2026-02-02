@@ -117,7 +117,7 @@ add_library(
     "modsystem/compiled/modkeyvalues.cpp"
     "modsystem/compiled/modpdef.cpp"
     "modsystem/compiled/modscriptsrson.cpp"
-	"modsystem/compiled/vmt_icons.cpp"
+	# "modsystem/compiled/vmt_icons.cpp"
     "modsystem/mod.cpp"
     "modsystem/mod.h"
     "modsystem/modmanager.cpp"
