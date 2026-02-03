@@ -19,7 +19,6 @@
 #include <string>
 #include <sstream>
 #include <vector>
-#include <regex>
 
 ModManager* g_pModManager;
 
@@ -461,20 +460,35 @@ void ModManager::SearchFilesystemForMods()
 {
 	std::vector<fs::path> modDirs;
 	m_LoadedMods.clear();
+	bool warnedLegacyModsDir = false;
 
 	// get mod directories
 	std::filesystem::directory_iterator classicModsDir = fs::directory_iterator(GetModFolderPath());
 	std::filesystem::directory_iterator remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
 	std::filesystem::directory_iterator packagesModsDir = fs::directory_iterator(GetPackageFolderPath());
 
-	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir, packagesModsDir})
-		for (fs::directory_entry dir : dirIterator)
-			if (fs::exists(dir.path() / "mod.json"))
-				modDirs.push_back(dir.path());
+	auto addModDir = [&](const fs::path& dirPath)
+	{
+		const std::string dirPathStr = dirPath.string();
+		const std::string legacyModsPath = GetModFolderPath().string();
+		if (!warnedLegacyModsDir && dirPathStr.rfind(legacyModsPath, 0) == 0)
+		{
+			spdlog::warn(
+				"Loading mods from legacy directory '{}'. This path is deprecated; move mods into the packages directory.",
+				legacyModsPath);
+			warnedLegacyModsDir = true;
+		}
+		modDirs.push_back(dirPath);
+	};
 
-	// Special case for packages and remote mods directories
-	// Set up regex for `AUTHOR-MOD-VERSION` pattern
-	std::regex pattern(R"(.*\\([a-zA-Z0-9_]+)-([a-zA-Z0-9_]+)-(\d+\.\d+\.\d+))");
+	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir, packagesModsDir})
+	{
+		for (fs::directory_entry dir : dirIterator)
+		{
+			if (fs::exists(dir.path() / "mod.json"))
+				addModDir(dir.path());
+		}
+	}
 
 	// Reset directory iterator
 	remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
@@ -492,20 +506,12 @@ void ModManager::SearchFilesystemForMods()
 				continue;
 			}
 
-			// Use regex to match `AUTHOR-MOD-VERSION` pattern
-			if (!std::regex_match(dir.path().string(), pattern))
-			{
-				spdlog::warn("The following directory did not match 'AUTHOR-MOD-VERSION': {}", dir.path().string());
-				continue; // skip loading mod that doesn't match
-			}
 			if (fs::exists(modsDir) && fs::is_directory(modsDir))
 			{
 				for (fs::directory_entry subDir : fs::directory_iterator(modsDir))
 				{
 					if (fs::exists(subDir.path() / "mod.json"))
-					{
-						modDirs.push_back(subDir.path());
-					}
+						addModDir(subDir.path());
 				}
 			}
 		}

@@ -1,6 +1,5 @@
 #include "pluginmanager.h"
 
-#include <regex>
 #include <ranges>
 #include "plugins.h"
 #include "config/profile.h"
@@ -73,27 +72,31 @@ bool PluginManager::LoadPlugins(bool reloaded)
 	if (fs::exists(libPath) && fs::is_directory(libPath))
 		AddDllDirectory(libPath.wstring().c_str());
 
+	const size_t legacyPluginsStartCount = paths.size();
 	FindPlugins(pluginPath, paths);
-
-	// Special case for Thunderstore mods dir
-	std::filesystem::directory_iterator thunderstoreModsDir = fs::directory_iterator(GetPackageFolderPath());
-	// Set up regex for `AUTHOR-MOD-VERSION` pattern
-	std::regex pattern(R"(.*\\([a-zA-Z0-9_]+)-([a-zA-Z0-9_]+)-(\d+\.\d+\.\d+))");
-	for (fs::directory_entry dir : thunderstoreModsDir)
+	if (paths.size() > legacyPluginsStartCount)
 	{
-		fs::path pluginsDir = dir.path() / "plugins";
-		// Use regex to match `AUTHOR-MOD-VERSION` pattern
-		if (!std::regex_match(dir.path().string(), pattern))
+		NS::log::PLUGINSYS->warn(
+			"Loading plugins from legacy directory '{}'. This path is deprecated; move plugins into a package's plugins/ folder.",
+			pluginPath);
+	}
+
+	std::filesystem::directory_iterator packageModsDir = fs::directory_iterator(GetPackageFolderPath());
+	std::filesystem::directory_iterator remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
+	for (fs::directory_iterator dirIterator : {packageModsDir, remoteModsDir})
+	{
+		for (fs::directory_entry dir : dirIterator)
 		{
-			spdlog::warn("The following directory did not match 'AUTHOR-MOD-VERSION': {}", dir.path().string());
-			continue; // skip loading package that doesn't match
+			fs::path pluginsDir = dir.path() / "plugins";
+			if (!fs::exists(pluginsDir) || !fs::is_directory(pluginsDir))
+				continue;
+
+			fs::path libDir = fs::absolute(pluginsDir / "lib");
+			if (fs::exists(libDir) && fs::is_directory(libDir))
+				AddDllDirectory(libDir.wstring().c_str());
+
+			FindPlugins(pluginsDir, paths);
 		}
-
-		fs::path libDir = fs::absolute(pluginsDir / "lib");
-		if (fs::exists(libDir) && fs::is_directory(libDir))
-			AddDllDirectory(libDir.wstring().c_str());
-
-		FindPlugins(pluginsDir, paths);
 	}
 
 	if (paths.empty())
