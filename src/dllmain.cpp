@@ -126,8 +126,6 @@ bool InitialiseNorthstar()
 	if (!uriMutexExists)
 		Mod_StartUriServer();
 
-	if (strstr(GetCommandLineA(), "-allocconsole") != NULL)
-		LogSys_InitialiseConsole();
 	// initialise logging before most other things so that they can use spdlog and it have the proper formatting
 	LogSys_InitialiseLogging();
 	InitialiseVersion();
@@ -143,7 +141,8 @@ bool InitialiseNorthstar()
 
 	// Init minhook
 	HookSys_Init();
-
+	if (strstr(GetCommandLineA(), "-allocconsole") != NULL)
+		LogSys_InitialiseConsole();
 	// Init loadlibrary callbacks
 	LibSys_Init();
 
