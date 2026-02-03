@@ -10,7 +10,7 @@
 namespace fs = std::filesystem;
 
 static constexpr const char* kModWorkshopMarkerFile = ".mws_id";
-static constexpr const char* kThunderstoreMarkerFile = ".ts_mod";
+static constexpr const char* kThunderstoreMarkerFile = ".ts_id";
 
 ModSource Mod_GetManagedSourceForPath(const fs::path& modDir);
 std::optional<std::string> Mod_TryReadManagedId(const fs::path& modDir, ModSource platform);

@@ -19,6 +19,7 @@ const fs::path PACKAGE_MOD_FOLDER_SUFFIX = "packages";
 const fs::path REMOTE_MOD_FOLDER_SUFFIX = "runtime\\remote\\mods";
 const fs::path MOD_OVERRIDE_DIR = "mod";
 const fs::path COMPILED_ASSETS_SUFFIX = "runtime\\compiled";
+const fs::path MOD_ICONS_SUFFIX = "runtime\\icons";
 
 const std::set<std::string> MODS_BLACKLIST = {"Mod Settings"};
 
@@ -123,6 +124,7 @@ public:
 
 	// compile asset type stuff, these are done in files under runtime/compiled/
 	void BuildScriptsRson();
+	void BuildLocalPackageIcons();
 	void TryBuildKeyValues(const char* filename);
 	void TryChangeoverKeyValues(const char* filename, ModOverrideFile& modFile);
 	void BuildPdef();
@@ -133,5 +135,6 @@ fs::path GetModFolderPath();
 fs::path GetRemoteModFolderPath();
 fs::path GetPackageFolderPath();
 fs::path GetCompiledAssetsPath();
+fs::path GetModIconPath();
 
 extern ModManager* g_pModManager;

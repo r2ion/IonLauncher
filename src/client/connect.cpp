@@ -594,10 +594,10 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			RETURN_IF_CANCELLED()
 
-			UpdateMessage("#MANIFESTO_FETCHING_TEXT");
+			UpdateMessage("#MANIFEST_FETCHING_TEXT");
 			g_pModDownloader->FetchModsListFromAPI();
 
-			while (g_pModDownloader->modState.state == ModDownloader::MANIFESTO_FETCHING && !IsCancelled())
+			while (g_pModDownloader->modState.state == ModDownloader::MANIFEST_FETCHING && !IsCancelled())
 				Sleep(100);
 
 			RETURN_IF_CANCELLED()

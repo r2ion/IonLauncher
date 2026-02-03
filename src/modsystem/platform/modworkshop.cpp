@@ -66,6 +66,8 @@ bool ModWorkshop_TryParseDetails(const std::string& json, ModWorkshopDetails& ou
 	if (!doc.IsObject())
 		return false;
 
+	out.dependencies.clear();
+
 	if (!doc.HasMember("download") || !doc["download"].IsObject())
 		return false;
 
@@ -78,11 +80,57 @@ bool ModWorkshop_TryParseDetails(const std::string& json, ModWorkshopDetails& ou
 	if (download.HasMember("name") && download["name"].IsString())
 		out.author = download["name"].GetString();
 
+	if (doc.HasMember("user") && doc["user"].IsObject())
+	{
+		auto& user = doc["user"];
+		if (user.HasMember("name") && user["name"].IsString())
+			out.author = user["name"].GetString();
+	}
+
 	if (doc.HasMember("name") && doc["name"].IsString())
 		out.name = doc["name"].GetString();
 
 	if (download.HasMember("version") && download["version"].IsString())
 		out.version = download["version"].GetString();
+
+	if (out.version.empty() && doc.HasMember("version") && doc["version"].IsString())
+		out.version = doc["version"].GetString();
+
+	if (doc.HasMember("dependencies") && doc["dependencies"].IsArray())
+	{
+		for (auto& depValue : doc["dependencies"].GetArray())
+		{
+			if (!depValue.IsObject())
+				continue;
+
+			ModWorkshopDetails::Dependency dependency;
+
+			if (depValue.HasMember("name") && depValue["name"].IsString())
+				dependency.name = depValue["name"].GetString();
+
+			if (depValue.HasMember("url") && depValue["url"].IsString())
+				dependency.url = depValue["url"].GetString();
+
+			if (depValue.HasMember("offsite") && depValue["offsite"].IsBool())
+				dependency.offsite = depValue["offsite"].GetBool();
+
+			if (depValue.HasMember("optional") && depValue["optional"].IsBool())
+				dependency.optional = depValue["optional"].GetBool();
+
+			if (depValue.HasMember("mod_id"))
+			{
+				if (depValue["mod_id"].IsString())
+					dependency.modId = depValue["mod_id"].GetString();
+				else if (depValue["mod_id"].IsInt())
+					dependency.modId = std::to_string(depValue["mod_id"].GetInt());
+				else if (depValue["mod_id"].IsUint64())
+					dependency.modId = std::to_string(depValue["mod_id"].GetUint64());
+			}
+
+			if (!dependency.name.empty() || !dependency.url.empty() || dependency.modId)
+				out.dependencies.push_back(std::move(dependency));
+		}
+	}
 
 	return true;
 }

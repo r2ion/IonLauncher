@@ -926,6 +926,10 @@ fs::path GetCompiledAssetsPath()
 {
 	return fs::path(GetNorthstarPrefix()) / COMPILED_ASSETS_SUFFIX;
 }
+fs::path GetModIconPath()
+{
+	return fs::path(GetNorthstarPrefix()) / MOD_ICONS_SUFFIX;
+}
 
 ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer), [](CModule module)
 {

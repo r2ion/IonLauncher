@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <compat/unzip.h>
 
@@ -20,6 +21,15 @@ struct ModWorkshopDetails
 	std::string author;
 	std::string name;
 	std::string version;
+	struct Dependency
+	{
+		std::string name;
+		std::string url;
+		std::optional<std::string> modId;
+		bool offsite = false;
+		bool optional = false;
+	};
+	std::vector<Dependency> dependencies;
 };
 
 bool ModWorkshop_TryParseDetails(const std::string& json, ModWorkshopDetails& out);

@@ -128,6 +128,8 @@ add_library(
     "modsystem/modshellext.h"
     "modsystem/platform/modplatform.cpp"
     "modsystem/platform/modplatform.h"
+    "modsystem/platform/thunderstore.cpp"
+    "modsystem/platform/thunderstore.h"
     "modsystem/platform/modworkshop.cpp"
     "modsystem/platform/modworkshop.h"
     "plugins/interfaces/interface.h"

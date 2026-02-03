@@ -6,6 +6,7 @@
 #include "core/tier0.h"
 #include "modsystem/platform/modworkshop.h"
 #include "modsystem/platform/modplatform.h"
+#include "modsystem/platform/thunderstore.h"
 #include "modsystem/modshellext.h"
 
 #include <rapidjson/fwd.h>
@@ -73,7 +74,7 @@ size_t WriteToString(void* ptr, size_t size, size_t count, void* stream)
 
 void ModDownloader::FetchModsListFromAPI()
 {
-	modState.state = MANIFESTO_FETCHING;
+	modState.state = MANIFEST_FETCHING;
 
 	std::thread requestThread(
 		[this]()
@@ -147,7 +148,7 @@ void ModDownloader::FetchModsListFromAPI()
 					std::string checksum = attribute["Checksum"].GetString();
 					std::string downloadLink = attribute["DownloadLink"].GetString();
 					std::string platformValue = attribute["Platform"].GetString();
-					ModSource platform = resolvePlatform(platformValue);
+					ModSource platform = ResolvePlatform(platformValue);
 					modVersions.insert({version, {.checksum = checksum, .downloadLink = downloadLink, .platform = platform}});
 				}
 
@@ -224,6 +225,52 @@ std::string ModDownloader::SanitizeFolderComponent(std::string value)
 	return value;
 }
 
+bool ModDownloader::BuildThunderstoreDownload(
+	const std::string& dependencyName,
+	const std::string& dependencyUrl,
+	PendingModDownload& outDownload)
+{
+	std::string namespaceName;
+	std::string packageName;
+	if (!Thunderstore_ParsePackageUrl(dependencyUrl, namespaceName, packageName))
+	{
+		spdlog::error("Unsupported offsite dependency URL '{}', aborting install.", dependencyUrl);
+		return false;
+	}
+
+	ThunderstorePackageDetails tsDetails;
+	if (!Thunderstore_FetchPackageDetails(namespaceName, packageName, tsDetails))
+	{
+		spdlog::error("Failed fetching Thunderstore details for dependency '{}' ({}), aborting install.", dependencyName, dependencyUrl);
+		return false;
+	}
+
+	std::string depName = !tsDetails.name.empty() ? tsDetails.name : dependencyName;
+	if (depName.empty() || tsDetails.version.empty() || tsDetails.downloadUrl.empty())
+	{
+		spdlog::error("Thunderstore dependency details missing fields for '{}', aborting install.", dependencyUrl);
+		return false;
+	}
+
+	std::string folderName = SanitizeFolderComponent(tsDetails.namespaceName) + "-" +
+		SanitizeFolderComponent(depName) + "-" +
+		SanitizeFolderComponent(tsDetails.version);
+
+	VerifiedModVersion depVersion = {};
+	depVersion.platform = ModSource::Thunderstore;
+	depVersion.checksum = "";
+	depVersion.downloadLink = tsDetails.downloadUrl;
+
+	outDownload = {
+		.name = depName,
+		.version = tsDetails.version,
+		.versionInfo = depVersion,
+		.destinationDir = GetPackageFolderPath() / folderName,
+		.managedId = tsDetails.namespaceName + " " + depName};
+
+	return true;
+}
+
 std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_view modName, VerifiedModVersion version)
 {
 	std::string url = version.downloadLink;
@@ -240,9 +287,22 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 	// Download the actual archive
 	bool success = false;
 	FILE* fp = fopen(downloadPath.generic_string().c_str(), "wb");
+	if (!fp)
+	{
+		spdlog::error("Failed opening destination file for download: {}", downloadPath.generic_string());
+		modState.state = FAILED_WRITING_TO_DISK;
+		return {downloadPath, false};
+	}
 	CURLcode result;
 	CURL* easyhandle;
 	easyhandle = curl_easy_init();
+	if (!easyhandle)
+	{
+		spdlog::error("Failed initializing curl for download.");
+		fclose(fp);
+		modState.state = MOD_FETCHING_FAILED;
+		return {downloadPath, false};
+	}
 
 	curl_easy_setopt(easyhandle, CURLOPT_URL, url.data());
 	curl_easy_setopt(easyhandle, CURLOPT_FAILONERROR, 1L);
@@ -260,8 +320,10 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 	ScopeGuard cleanup(
 		[&]
 		{
-			curl_easy_cleanup(easyhandle);
-			fclose(fp);
+			if (easyhandle)
+				curl_easy_cleanup(easyhandle);
+			if (fp)
+				fclose(fp);
 		});
 
 	if (result == CURLcode::CURLE_OK)
@@ -696,111 +758,149 @@ void ModDownloader::DownloadMod(std::string modName, std::string modVersion)
 	}
 
 	VerifiedModVersion fullVersion = verifiedMods[modName].versions[modVersion];
-	StartDownloadThread(modName, modVersion, fullVersion, std::nullopt, std::nullopt);
+	StartDownloadThread(modName, modVersion, fullVersion, std::nullopt, std::nullopt, {});
 }
 
-void ModDownloader::StartDownloadThread(
-	std::string modName,
-	std::string modVersion,
-	const VerifiedModVersion& version,
-	const std::optional<fs::path>& destinationDir,
-	const std::optional<std::string>& managedId)
+bool ModDownloader::DownloadModInternal(const PendingModDownload& download)
 {
 	modState.state = DOWNLOADING;
-	modState.name = modName;
-	modState.version = modVersion;
+	modState.name = download.name;
+	modState.version = download.version;
 	modState.progress = 0;
 	modState.total = 0;
 	modState.ratio = 0.0f;
 
+	std::string name;
+	fs::path archiveLocation;
+	fs::path modDirectory;
+
+	ScopeGuard cleanup(
+		[&]
+		{
+			// Remove downloaded archive
+			try
+			{
+				remove(archiveLocation);
+			}
+			catch (const std::exception& a)
+			{
+				spdlog::error("Error while removing downloaded archive: {}", a.what());
+			}
+
+			// Remove mod if auto-download process failed
+			if (modState.state != DONE)
+			{
+				try
+				{
+					remove_all(modDirectory);
+				}
+				catch (const std::exception& e)
+				{
+					spdlog::error("Error while removing downloaded mod: {}", e.what());
+				}
+			}
+		});
+
+	const std::tuple<fs::path, bool> downloadResult = FetchModFromDistantStore(std::string_view(download.name), download.versionInfo);
+	archiveLocation = get<0>(downloadResult);
+	bool downloadSuccessful = get<1>(downloadResult);
+
+	if (!downloadSuccessful)
+	{
+		spdlog::error("Something went wrong while fetching archive, aborting.");
+		if (modState.state != ABORTED)
+			modState.state = MOD_FETCHING_FAILED;
+		return false;
+	}
+
+	if (!IsModLegit(archiveLocation, std::string_view(download.versionInfo.checksum)))
+	{
+		spdlog::warn("Archive hash does not match expected checksum, aborting.");
+		modState.state = MOD_CORRUPTED;
+		return false;
+	}
+
+	if (download.destinationDir)
+	{
+		modDirectory = *download.destinationDir;
+	}
+	else
+	{
+		name = archiveLocation.filename().string();
+		name = name.substr(0, name.length() - 4);
+		modDirectory = GetRemoteModFolderPath() / name;
+	}
+
+	ExtractMod(archiveLocation, modDirectory, download.versionInfo.platform);
+
+	if (download.managedId && modState.state == DONE)
+		Mod_WriteManagedMarker(modDirectory, download.versionInfo.platform, *download.managedId);
+
+	return modState.state == DONE;
+}
+
+bool ModDownloader::IsModInstalled(std::string_view modName) const
+{
+	if (!g_pModManager)
+		return false;
+
+	for (const auto& mod : g_pModManager->m_LoadedMods)
+	{
+		if (mod.Name == modName)
+			return true;
+	}
+
+	return false;
+}
+
+bool ModDownloader::StartDownloadThread(
+	std::string modName,
+	std::string modVersion,
+	const VerifiedModVersion& version,
+	const std::optional<fs::path>& destinationDir,
+	const std::optional<std::string>& managedId,
+	std::vector<PendingModDownload> dependencies)
+{
+	bool expected = false;
+	if (!m_bDownloadThreadRunning.compare_exchange_strong(expected, true))
+	{
+		spdlog::warn("Download thread already running, skipping start for {} {}", modName, modVersion);
+		return false;
+	}
+
 	NotifyDownloadStarted();
 
 	std::thread requestThread(
-		[this, modName, modVersion, version, destinationDir, managedId]()
+		[this, modName, modVersion, version, destinationDir, managedId, dependencies = std::move(dependencies)]() mutable
 		{
-			std::string name;
-			fs::path archiveLocation;
-			fs::path modDirectory;
-
 			ScopeGuard cleanup(
 				[&]
 				{
+					m_bDownloadThreadRunning = false;
 					NotifyDownloadStopped();
-					// Remove downloaded archive
-					try
-					{
-						remove(archiveLocation);
-					}
-					catch (const std::exception& a)
-					{
-						spdlog::error("Error while removing downloaded archive: {}", a.what());
-					}
-
-					// Remove mod if auto-download process failed
-					if (modState.state != DONE)
-					{
-						try
-						{
-							remove_all(modDirectory);
-						}
-						catch (const std::exception& e)
-						{
-							spdlog::error("Error while removing downloaded mod: {}", e.what());
-						}
-					}
 				});
 
-			const std::tuple<fs::path, bool> downloadResult = FetchModFromDistantStore(std::string_view(modName), version);
-			archiveLocation = get<0>(downloadResult);
-			bool downloadSuccessful = get<1>(downloadResult);
-
-			if (!downloadSuccessful)
+			for (const auto& dependency : dependencies)
 			{
-				spdlog::error("Something went wrong while fetching archive, aborting.");
-				if (modState.state != ABORTED)
-					modState.state = MOD_FETCHING_FAILED;
-				return;
+				if (!DownloadModInternal(dependency))
+				{
+					if (modState.state == ABORTED)
+						return;
+					spdlog::warn("Dependency download failed for {} v{}, continuing with remaining downloads.", dependency.name, dependency.version);
+				}
 			}
 
-			if (!IsModLegit(archiveLocation, std::string_view(version.checksum)))
-			{
-				spdlog::warn("Archive hash does not match expected checksum, aborting.");
-				modState.state = MOD_CORRUPTED;
-				return;
-			}
-
-			if (destinationDir)
-			{
-				modDirectory = *destinationDir;
-			}
-			else
-			{
-				name = archiveLocation.filename().string();
-				name = name.substr(0, name.length() - 4);
-				modDirectory = GetRemoteModFolderPath() / name;
-			}
-
-			ExtractMod(archiveLocation, modDirectory, version.platform);
-
-			if (managedId && modState.state == DONE)
-				Mod_WriteManagedMarker(modDirectory, ModSource::ModWorkshop, *managedId);
+			PendingModDownload mainDownload = {
+				.name = modName,
+				.version = modVersion,
+				.versionInfo = version,
+				.destinationDir = destinationDir,
+				.managedId = managedId};
+			DownloadModInternal(mainDownload);
 		});
 
 	requestThread.detach();
-}
-
-bool ModDownloader::IsDownloadInProgress() const
-{
-	switch (modState.state)
-	{
-	case MANIFESTO_FETCHING:
-	case DOWNLOADING:
-	case CHECKSUMING:
-	case EXTRACTING:
-		return true;
-	default:
-		return false;
-	}
+	return true;
 }
 
 void ModDownloader::QueueWorkshopDownload(std::string id)
@@ -809,6 +909,13 @@ void ModDownloader::QueueWorkshopDownload(std::string id)
 		return;
 
 	m_PendingWorkshopId = std::move(id);
+
+	if (!m_bDownloadReady)
+	{
+		spdlog::info("Mod download readiness not set; enabling to handle ModWorkshop install.");
+		SetDownloadReady(true);
+		return;
+	}
 
 	if (m_bDownloadReady && !IsDownloadInProgress())
 		StartPendingWorkshopDownload();
@@ -834,6 +941,20 @@ bool ModDownloader::StartPendingWorkshopDownload()
 
 	std::string id = std::move(*m_PendingWorkshopId);
 	m_PendingWorkshopId.reset();
+	NotifyDownloadStarted();
+	modState.state = CHECKING_DETAILS;
+	modState.name = "";
+	modState.version = "";
+	modState.progress = 0;
+	modState.total = 0;
+	modState.ratio = 0.0f;
+	bool startedDownloadThread = false;
+	ScopeGuard callbackCleanup(
+		[&]
+		{
+			if (!startedDownloadThread)
+				NotifyDownloadStopped();
+		});
 
 	ModWorkshopDetails details;
 	if (!ModWorkshop_FetchDetails(id, details))
@@ -844,7 +965,101 @@ bool ModDownloader::StartPendingWorkshopDownload()
 	}
 
 	if (details.version.empty() || details.name.empty() || details.downloadUrl.empty())
+	{
+		modState.state = MOD_FETCHING_FAILED;
 		return false;
+	}
+
+	modState.name = details.name;
+	modState.version = details.version;
+
+	std::vector<PendingModDownload> dependencyDownloads;
+	bool hasInvalidDependency = false;
+	for (const auto& dependency : details.dependencies)
+	{
+		if (dependency.optional)
+			continue;
+
+		if (!dependency.name.empty() && IsModInstalled(dependency.name))
+			continue;
+
+		if (dependency.offsite)
+		{
+			modState.state = CHECKING_DETAILS;
+			modState.name = !dependency.name.empty() ? dependency.name : dependency.url;
+			modState.version.clear();
+			modState.progress = 0;
+			modState.total = 0;
+			modState.ratio = 0.0f;
+
+			PendingModDownload depDownload;
+			if (!BuildThunderstoreDownload(dependency.name, dependency.url, depDownload))
+			{
+				hasInvalidDependency = true;
+				break;
+			}
+
+			modState.name = depDownload.name;
+			modState.version = depDownload.version;
+			dependencyDownloads.push_back(std::move(depDownload));
+		}
+		else
+		{
+			if (!dependency.modId)
+			{
+				spdlog::error("Dependency '{}' is missing a ModWorkshop id, aborting install.", dependency.name);
+				hasInvalidDependency = true;
+				break;
+			}
+
+			modState.state = CHECKING_DETAILS;
+			modState.name = !dependency.name.empty() ? dependency.name : *dependency.modId;
+			modState.version.clear();
+			modState.progress = 0;
+			modState.total = 0;
+			modState.ratio = 0.0f;
+
+			ModWorkshopDetails depDetails;
+			if (!ModWorkshop_FetchDetails(*dependency.modId, depDetails))
+			{
+				spdlog::error("Failed fetching ModWorkshop details for dependency id {}, aborting install.", *dependency.modId);
+				hasInvalidDependency = true;
+				break;
+			}
+
+			if (depDetails.version.empty() || depDetails.name.empty() || depDetails.downloadUrl.empty())
+			{
+				spdlog::error("Dependency details missing fields for id {}, aborting install.", *dependency.modId);
+				hasInvalidDependency = true;
+				break;
+			}
+
+			modState.name = depDetails.name;
+			modState.version = depDetails.version;
+
+			std::string folderName = SanitizeFolderComponent(depDetails.author) + "-" +
+				SanitizeFolderComponent(depDetails.name) + "-" +
+				SanitizeFolderComponent(depDetails.version);
+
+			VerifiedModVersion depVersion = {};
+			depVersion.platform = ModSource::ModWorkshop;
+			depVersion.checksum = "";
+			depVersion.downloadLink = depDetails.downloadUrl;
+
+			dependencyDownloads.push_back({
+				.name = depDetails.name,
+				.version = depDetails.version,
+				.versionInfo = depVersion,
+				.destinationDir = GetPackageFolderPath() / folderName,
+				.managedId = *dependency.modId});
+		}
+	}
+
+	if (hasInvalidDependency)
+	{
+		modState.state = INVALID_DEPENDENCY;
+		return false;
+	}
 
 	std::string folderName = SanitizeFolderComponent(details.author) + "-" +
 		SanitizeFolderComponent(details.name) + "-" +
@@ -855,8 +1070,9 @@ bool ModDownloader::StartPendingWorkshopDownload()
 	version.checksum = "";
 	version.downloadLink = details.downloadUrl;
 
-	StartDownloadThread(details.name, details.version, version, GetPackageFolderPath() / folderName, id);
-	return true;
+	startedDownloadThread = true;
+	startedDownloadThread = StartDownloadThread(details.name, details.version, version, GetPackageFolderPath() / folderName, id, std::move(dependencyDownloads));
+	return startedDownloadThread;
 }
 
 void ModDownloader::CancelDownload()
@@ -929,7 +1145,7 @@ void ModDownloader::ParseSchemaDocument()
 		if(it->value.HasMember("Platform") && it->value["Platform"].IsString())
 		{
 			std::string platformValue = it->value["Platform"].GetString();
-			platform = resolvePlatform(platformValue);
+			platform = ResolvePlatform(platformValue);
 		}
 
 		modEntry.platform = platform;

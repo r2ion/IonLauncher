@@ -5,6 +5,7 @@
 #include "vscript/squirrel/squirrel.h"
 
 #include <optional>
+#include <atomic>
 
 namespace fs = std::filesystem;
 
@@ -44,8 +45,10 @@ private:
 	int m_iTotalServerRequestedMods = 0;
 	std::optional<std::string> m_PendingWorkshopId;
 	bool m_bDownloadReady = false;
+	bool m_bDownloadCallbacksActive = false;
+	std::atomic_bool m_bDownloadThreadRunning {false};
 
-	ModSource resolvePlatform(std::string input)
+	ModSource ResolvePlatform(std::string input)
 	{
 		if (input.compare("thunderstore") == 0)
 		{
@@ -87,6 +90,15 @@ private:
 	};
 	std::unordered_map<std::string, VerifiedModDetails> verifiedMods = {};
 
+	struct PendingModDownload
+	{
+		std::string name;
+		std::string version;
+		VerifiedModVersion versionInfo;
+		std::optional<fs::path> destinationDir;
+		std::optional<std::string> managedId;
+	};
+
 
 	static int ModFetchingProgressCallback(
 		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
@@ -97,25 +109,38 @@ private:
 	std::string SanitizeFolderComponent(std::string value);
 
 	void ParseSchemaDocument();
-	void StartDownloadThread(
+	bool BuildThunderstoreDownload(
+		const std::string& dependencyName,
+		const std::string& dependencyUrl,
+		PendingModDownload& outDownload);
+	bool DownloadModInternal(const PendingModDownload& download);
+	bool IsModInstalled(std::string_view modName) const;
+	bool StartDownloadThread(
 		std::string modName,
 		std::string modVersion,
 		const VerifiedModVersion& version,
 		const std::optional<fs::path>& destinationDir,
-		const std::optional<std::string>& managedId);
+		const std::optional<std::string>& managedId,
+		std::vector<PendingModDownload> dependencies);
 
 public:
 	ModDownloader();
 
 	void NotifyDownloadStarted()
 	{
+		if (m_bDownloadCallbacksActive)
+			return;
 		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
 			return;
+		m_bDownloadCallbacksActive = true;
 		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStarted");
 	}
 
 	void NotifyDownloadStopped()
 	{
+		if (!m_bDownloadCallbacksActive)
+			return;
+		m_bDownloadCallbacksActive = false;
 		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
 			return;
 		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStopped");
@@ -135,11 +160,16 @@ public:
 	bool IsDownloadReady() const { return m_bDownloadReady; }
 	void QueueWorkshopDownload(std::string id);
 	bool StartPendingWorkshopDownload();
-	bool IsDownloadInProgress() const;
+	bool IsDownloadInProgress() const
+	{
+		return modState.state < ModInstallState::DONE;
+	}
 
 	enum ModInstallState
 	{
-		MANIFESTO_FETCHING,
+		// Initial states
+		MANIFEST_FETCHING,
+		CHECKING_DETAILS, // fetching platform specific details i.e thunderstore or modworkshop info
 
 		// Normal installation process
 		DOWNLOADING,
@@ -155,6 +185,7 @@ public:
 		MOD_FETCHING_FAILED,
 		MOD_CORRUPTED, // Downloaded archive checksum does not match verified hash
 		NO_DISK_SPACE_AVAILABLE,
+		INVALID_DEPENDENCY,
 		NOT_FOUND, // Mod is not currently being auto-downloaded
 		UNKNOWN_PLATFORM
 	};
