@@ -26,7 +26,7 @@ AUTOHOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, bool,
 		switch(packetType)
 		{
 			case S2C_MODDOWNLOADINFO:
-				return g_pModDownloader->RecvModInfoConnectionlessPacket(msg);
+				return false;
 			case S2A_CUSTOMSERVERINFO:
 				version = msg.ReadLong();
 				if(version != CUSTOMSERVERINFO_VERSION)

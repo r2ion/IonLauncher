@@ -283,8 +283,6 @@ void ConnectionManager::AuthenticateToMasterServer()
 void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAuthUs, bool requestMods)
 {
 	g_bReceivedServerInfo = false;
-	if (serverAuthUs)
-		g_bReceivedAuthNotify = false;
 
 	char buffer[256];
 	bf_write msg(buffer, sizeof(buffer));
@@ -609,22 +607,8 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			RETURN_IF_CANCELLED()
 
-			g_pModDownloader->GetServerRequestedMods().clear();
-			g_pModDownloader->SetTotalServerRequestedMods(0);
-			g_pModDownloader->SetIsListeningForServerMods(true);
-
 			std::string netAdr = fmt::format("[::ffff:{}]:{}", ip, port);
 			SendInfoRequestPacket(CNetAdr(netAdr.c_str()), false, true);
-
-			float modInfoStartTime = Plat_FloatTime();
-			float modInfoTimeout = g_pModDownloader->GetServerModInfoTimeoutSeconds();
-			while (g_pModDownloader->IsListeningForServerMods() && !IsCancelled() &&
-					Plat_FloatTime() - modInfoStartTime < modInfoTimeout)
-			{
-				Sleep(50);
-			}
-			if (g_pModDownloader->IsListeningForServerMods())
-				g_pModDownloader->SetIsListeningForServerMods(false);
 
 			RETURN_IF_CANCELLED()
 
