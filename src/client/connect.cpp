@@ -450,12 +450,19 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 		while (!IsCancelled())
 		{
 			auto state = g_pModDownloader->modState.state;
-			if (state != ModDownloader::DOWNLOADING && state != ModDownloader::CHECKSUMING && state != ModDownloader::EXTRACTING)
+			if (state == ModDownloader::DOWNLOADING || state == ModDownloader::CHECKSUMING || state == ModDownloader::EXTRACTING)
 			{
-				break;
+				Sleep(100);
+				continue;
 			}
 
-			Sleep(100);
+			if (g_pModDownloader->IsDownloadThreadRunning())
+			{
+				Sleep(50);
+				continue;
+			}
+
+			break;
 		}
 
 		RETURN_IF_CANCELLED()
@@ -602,8 +609,22 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			RETURN_IF_CANCELLED()
 
+			g_pModDownloader->GetServerRequestedMods().clear();
+			g_pModDownloader->SetTotalServerRequestedMods(0);
+			g_pModDownloader->SetIsListeningForServerMods(true);
+
 			std::string netAdr = fmt::format("[::ffff:{}]:{}", ip, port);
 			SendInfoRequestPacket(CNetAdr(netAdr.c_str()), false, true);
+
+			float modInfoStartTime = Plat_FloatTime();
+			float modInfoTimeout = g_pModDownloader->GetServerModInfoTimeoutSeconds();
+			while (g_pModDownloader->IsListeningForServerMods() && !IsCancelled() &&
+					Plat_FloatTime() - modInfoStartTime < modInfoTimeout)
+			{
+				Sleep(50);
+			}
+			if (g_pModDownloader->IsListeningForServerMods())
+				g_pModDownloader->SetIsListeningForServerMods(false);
 
 			RETURN_IF_CANCELLED()
 

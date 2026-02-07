@@ -158,6 +158,7 @@ public:
 	void DownloadMod(std::string modName, std::string modVersion);
 	void SetDownloadReady(bool ready);
 	bool IsDownloadReady() const { return m_bDownloadReady; }
+	bool IsDownloadThreadRunning() const { return m_bDownloadThreadRunning.load(); }
 	void QueueWorkshopDownload(std::string id);
 	bool StartPendingWorkshopDownload();
 	bool IsDownloadInProgress() const
@@ -218,4 +219,5 @@ public:
 	bool IsListeningForServerMods() { return m_bIsListeningForServerMods; }
 	void SetTotalServerRequestedMods(int totalMods) { m_iTotalServerRequestedMods = totalMods; }
 	int GetTotalServerRequestedMods() { return m_iTotalServerRequestedMods; }
+	float GetServerModInfoTimeoutSeconds() const { return SERVER_MODINFO_TIMEOUT_SECONDS; }
 };
