@@ -2,89 +2,47 @@
 #include "tier0/module.h"
 #include "logging/logging.h"
 #include "core/convar/convar.h"
+#include "engine/bitbuf.h"
 #include <vector>
 AUTOHOOK_INIT()
 
-// NOTE:
-// - engine.dll + 0x22A670 is the generic CNetMessage::WriteToBuffer wrapper (type + payload write),
-//   not specifically SVC_CreateStringTable.
-// - Use raw engine bitbuf field offsets derived from IDA to avoid depending on local bf_write ABI.
-struct EngineBitWriteRaw
+
+static ConVar* Cvar_sv_compress_playlists = nullptr;
+
+static bool(__fastcall* s_NET_BufferToBufferCompress)(void* pDest, __int64* pDestLen, const void* pSrc, int srcLen) = nullptr;
+
+struct VSVC_PlaylistsLayout
 {
-    void* m_pData;        // +0x00
-    int m_nDataBytes;     // +0x08
-    int m_nDataBits;      // +0x0C
-    int m_iCurBit;        // +0x10
-    bool m_bOverflow;     // +0x14
+    char pad0[0x20];
+    bool hasCompressedData; // +0x20
+    char pad1[0x3];         // +0x21
+    int dataBytes;          // +0x24
+    void* dataPtr;          // +0x28
+    int uncompressedBytes;  // +0x30
 };
 
-static ConVar* s_svCompressPlaylists = nullptr;
-static bool(__fastcall* s_NET_BufferToBufferCompress)(void* pDest, __int64* pDestLen, const void* pSrc, int srcLen) = nullptr;
-static thread_local std::vector<unsigned char> s_PlaylistsCompressedTls;
-static bool s_LoggedMissingSvCompressPlaylists = false;
+static_assert(offsetof(VSVC_PlaylistsLayout, hasCompressedData) == 0x20);
+static_assert(offsetof(VSVC_PlaylistsLayout, dataBytes) == 0x24);
+static_assert(offsetof(VSVC_PlaylistsLayout, dataPtr) == 0x28);
+static_assert(offsetof(VSVC_PlaylistsLayout, uncompressedBytes) == 0x30);
 
-static bool ShouldCompressPlaylists()
+AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall, (__int64 msg, bf_write* buffer))
 {
-    if (!s_svCompressPlaylists && g_pCVar)
-        s_svCompressPlaylists = g_pCVar->FindVar("sv_compressPlaylists");
+	static thread_local std::vector<unsigned char> s_PlaylistsCompressedTls;
 
-    if (!s_svCompressPlaylists)
-    {
-        if (!s_LoggedMissingSvCompressPlaylists)
-        {
-            spdlog::warn("sv_compressPlaylists not found yet; defaulting playlist compression to enabled");
-            s_LoggedMissingSvCompressPlaylists = true;
-        }
-        return true;
-    }
-
-    return s_svCompressPlaylists->GetBool();
-}
-
-static inline int GetRawBitsWritten(void* buf)
-{
-    return reinterpret_cast<EngineBitWriteRaw*>(buf)->m_iCurBit;
-}
-
-static inline int GetRawMaxBits(void* buf)
-{
-    return reinterpret_cast<EngineBitWriteRaw*>(buf)->m_nDataBits;
-}
-
-static inline bool GetRawOverflow(void* buf)
-{
-    return reinterpret_cast<EngineBitWriteRaw*>(buf)->m_bOverflow;
-}
-
-static inline int GetRawBitsLeft(void* buf)
-{
-    int maxBits = GetRawMaxBits(buf);
-    int curBits = GetRawBitsWritten(buf);
-    return maxBits - curBits;
-}
-
-// VSVC_Playlists::WriteToBuffer at engine.dll + 0x22BBD0
-// Layout from IDA:
-// +0x20: bool hasCompressedData
-// +0x24: int dataBytes
-// +0x28: void* dataPtr
-// +0x30: int uncompressedBytes
-AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall, (__int64 msg, __int64 buf))
-{
-    void* msgPtr = reinterpret_cast<void*>(msg);
-    void* buffer = reinterpret_cast<void*>(buf);
-
-    bool hasCompressedData = *reinterpret_cast<unsigned char*>(msg + 0x20) != 0;
-    int dataBytes = *reinterpret_cast<int*>(msg + 0x24);
-    void* dataPtr = *reinterpret_cast<void**>(msg + 0x28);
-    int uncompressedBytes = *reinterpret_cast<int*>(msg + 0x30);
+	void* msgPtr = reinterpret_cast<void*>(msg);
+    auto* msgLayout = reinterpret_cast<VSVC_PlaylistsLayout*>(msgPtr);
+    bool hasCompressedData = msgLayout->hasCompressedData;
+    int dataBytes = msgLayout->dataBytes;
+    void* dataPtr = msgLayout->dataPtr;
+    int uncompressedBytes = msgLayout->uncompressedBytes;
 
     const bool canTryCompress =
         !hasCompressedData && dataPtr && dataBytes > 0 && s_NET_BufferToBufferCompress
-        && ShouldCompressPlaylists();
+        && Cvar_sv_compress_playlists->GetBool();
 
     bool usedTempCompression = false;
-    unsigned char oldCompressedFlag = *reinterpret_cast<unsigned char*>(msg + 0x20);
+    unsigned char oldCompressedFlag = msgLayout->hasCompressedData ? 1 : 0;
     int oldDataBytes = dataBytes;
     void* oldDataPtr = dataPtr;
     int oldUncompressedBytes = uncompressedBytes;
@@ -99,10 +57,10 @@ AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall,
         if (s_NET_BufferToBufferCompress(s_PlaylistsCompressedTls.data(), &compressedBytes, oldDataPtr, oldDataBytes)
             && compressedBytes > 0 && compressedBytes < oldDataBytes)
         {
-            *reinterpret_cast<unsigned char*>(msg + 0x20) = 1;
-            *reinterpret_cast<int*>(msg + 0x24) = static_cast<int>(compressedBytes);
-            *reinterpret_cast<void**>(msg + 0x28) = s_PlaylistsCompressedTls.data();
-            *reinterpret_cast<int*>(msg + 0x30) = oldDataBytes;
+            msgLayout->hasCompressedData = true;
+            msgLayout->dataBytes = static_cast<int>(compressedBytes);
+            msgLayout->dataPtr = s_PlaylistsCompressedTls.data();
+            msgLayout->uncompressedBytes = oldDataBytes;
             usedTempCompression = true;
 
             hasCompressedData = true;
@@ -112,24 +70,24 @@ AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall,
         }
     }
 
-    int bitsBefore = GetRawBitsWritten(buffer);
-    int bitsLeftBefore = GetRawBitsLeft(buffer);
-    bool overflowBefore = GetRawOverflow(buffer);
+    int bitsBefore = buffer->GetNumBitsWritten();
+    int bitsLeftBefore = buffer->GetNumBitsLeft();
+    bool overflowBefore = buffer->IsOverflowed();
 
-    bool result = VSVC_Playlists__WriteToBuffer(msg, buf);
+    bool result = VSVC_Playlists__WriteToBuffer(msg, buffer);
 
     if (usedTempCompression)
     {
-        *reinterpret_cast<unsigned char*>(msg + 0x20) = oldCompressedFlag;
-        *reinterpret_cast<int*>(msg + 0x24) = oldDataBytes;
-        *reinterpret_cast<void**>(msg + 0x28) = oldDataPtr;
-        *reinterpret_cast<int*>(msg + 0x30) = oldUncompressedBytes;
+        msgLayout->hasCompressedData = (oldCompressedFlag != 0);
+        msgLayout->dataBytes = oldDataBytes;
+        msgLayout->dataPtr = oldDataPtr;
+        msgLayout->uncompressedBytes = oldUncompressedBytes;
     }
 
     if (!result)
     {
-        int bitsAfter = GetRawBitsWritten(buffer);
-        bool overflowAfter = GetRawOverflow(buffer);
+        int bitsAfter = buffer->GetNumBitsWritten();
+        bool overflowAfter = buffer->IsOverflowed();
 
         spdlog::error("  !!! VSVC_Playlists::WriteToBuffer FAILED");
         spdlog::error(
