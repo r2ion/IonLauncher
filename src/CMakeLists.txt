@@ -85,6 +85,7 @@ add_library(
     "engine/netchannel.h"
     "engine/netmessages.cpp"
     "engine/netmessages.h"
+    "engine/networkstringtables.cpp"
     "engine/localize.h"
     "engine/localize.cpp"
     "engine/models.cpp"
