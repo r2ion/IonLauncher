@@ -84,6 +84,10 @@ public:
 	GPUInfo_s GetBestGpuInfoDxgi();
 
 private:
+	static int SafeCaptureStackBackTrace(PVOID* frames, ULONG maxFrames);
+	static bool SafeGetModuleHandleFromAddr(LPCVOID address, HMODULE* outModule);
+	static bool SafeGetModuleFileNameExA(HANDLE process, HMODULE module, CHAR* buffer, DWORD bufferSize);
+
 	PVOID m_hExceptionFilter;
 	EXCEPTION_POINTERS* m_pExceptionInfos;
 

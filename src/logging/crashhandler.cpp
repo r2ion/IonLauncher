@@ -230,6 +230,57 @@ void CCrashHandler::Shutdown()
 	}
 }
 
+int CCrashHandler::SafeCaptureStackBackTrace(PVOID* frames, ULONG maxFrames)
+{
+	if (!frames || maxFrames == 0)
+		return 0;
+	__try
+	{
+		return static_cast<int>(RtlCaptureStackBackTrace(0, maxFrames, frames, NULL));
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return 0;
+	}
+}
+
+bool CCrashHandler::SafeGetModuleHandleFromAddr(LPCVOID address, HMODULE* outModule)
+{
+	if (!outModule)
+		return false;
+	*outModule = nullptr;
+	if (!address)
+		return false;
+	__try
+	{
+		return GetModuleHandleExA(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			reinterpret_cast<LPCSTR>(address),
+			outModule) != 0;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		*outModule = nullptr;
+		return false;
+	}
+}
+
+bool CCrashHandler::SafeGetModuleFileNameExA(HANDLE process, HMODULE module, CHAR* buffer, DWORD bufferSize)
+{
+	if (!buffer || bufferSize == 0)
+		return false;
+	buffer[0] = '\0';
+	__try
+	{
+		return GetModuleFileNameExA(process, module, buffer, bufferSize) != 0;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		buffer[0] = '\0';
+		return false;
+	}
+}
+
 bool CCrashHandler::TryCopyCString(const char* src, char* dst, size_t dstSize)
 {
 	if (!dst || dstSize == 0)
@@ -506,11 +557,21 @@ std::vector<std::string> CCrashHandler::FormatCallstack()
 {
 	std::vector<std::string> lines;
 
+	if (m_pExceptionInfos && m_pExceptionInfos->ExceptionRecord
+		&& m_pExceptionInfos->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW)
+	{
+		lines.emplace_back("<callstack unavailable: stack overflow>");
+		return lines;
+	}
+
 	PVOID pFrames[CRASHHANDLER_MAX_FRAMES];
 
-	int iFrames = RtlCaptureStackBackTrace(0, CRASHHANDLER_MAX_FRAMES, pFrames, NULL);
+	int iFrames = SafeCaptureStackBackTrace(pFrames, CRASHHANDLER_MAX_FRAMES);
 	if (iFrames <= 0)
+	{
+		lines.emplace_back("<callstack unavailable>");
 		return lines;
+	}
 
 	lines.reserve(static_cast<size_t>(iFrames));
 
@@ -523,17 +584,22 @@ std::vector<std::string> CCrashHandler::FormatCallstack()
 		std::string svModuleFileName;
 
 		uintptr_t addr = reinterpret_cast<uintptr_t>(pFrames[i]);
+		if (addr == 0)
+		{
+			lines.emplace_back("<null frame>");
+			continue;
+		}
 		LPCSTR pAddress = reinterpret_cast<LPCSTR>(addr);
 
 		HMODULE hModule = nullptr;
-		if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, pAddress, &hModule))
+		if (!SafeGetModuleHandleFromAddr(pAddress, &hModule))
 		{
 			svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
 		}
 		else
 		{
 			CHAR szModulePath[MAX_PATH] = {};
-			if (GetModuleFileNameExA(GetCurrentProcess(), hModule, szModulePath, sizeof(szModulePath)))
+			if (SafeGetModuleFileNameExA(GetCurrentProcess(), hModule, szModulePath, sizeof(szModulePath)))
 			{
 				const CHAR* pSlash = strrchr(szModulePath, '\\');
 				svModuleFileName = pSlash ? (pSlash + 1) : szModulePath;
