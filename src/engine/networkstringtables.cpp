@@ -1,111 +1,9 @@
 #include "core/tier0.h"
 #include "tier0/module.h"
 #include "logging/logging.h"
-#include "engine/bitbuf.h"
 #include "core/convar/convar.h"
-#include <cstring>
-#include <intrin.h>
-#include <mutex>
 #include <vector>
-#include <unordered_set>
 AUTOHOOK_INIT()
-
-// CUtlVector template
-template<typename T>
-struct CUtlVector
-{
-    T* m_pMemory;              // 0x00
-    int m_nAllocationCount;    // 0x08
-    int m_nGrowSize;           // 0x0C
-    int m_Size;                // 0x10
-    T* m_pElements;            // 0x14
-};
-
-// Forward declarations
-struct CNetworkStringTable
-{
-    virtual ~CNetworkStringTable() = 0;
-    virtual const char* GetTableName() = 0;
-    virtual int GetTableId() = 0;
-    virtual int GetNumStrings() = 0;
-    virtual int GetMaxStrings() = 0;
-};
-
-// Based on IDA structures (x64 layout)
-struct CNetworkStringTableContainer
-{
-    // 0x00: vtable
-    // 0x08: padding
-    // 0x10: m_bAllowCreation + m_nTickCount
-    // 0x18: m_bLocked + m_bEnableRollback + padding
-    CUtlVector<CNetworkStringTable*> m_Tables;  // 0x20, so m_Size is at 0x20 + 0x10 = 0x30
-
-    virtual ~CNetworkStringTableContainer() = 0;
-    virtual CNetworkStringTable* CreateStringTable(const char*, int, int, int, int) = 0;
-    virtual void RemoveAllTables() = 0;
-    virtual CNetworkStringTable* FindTable(const char*) = 0;
-    virtual CNetworkStringTable* GetTable(int) = 0;
-    virtual int GetNumTables() = 0;
-};
-
-// Hook WriteBaselines to instrument what's happening
-// CNetworkStringTableContainer::WriteBaselines at engine.dll + 0x234C80
-AUTOHOOK(CNetworkStringTableContainer__WriteBaselines, engine.dll + 0x234C80, __int64, __fastcall, (CNetworkStringTableContainer* thisptr, __int64 a2, __int64 a3))
-{
-    spdlog::info("=== WriteBaselines START ===");
-
-    // Log how many tables we're processing using the proper API
-    int tableCount = thisptr->GetNumTables();
-    spdlog::info("  Table count: {}", tableCount);
-
-    // Call original and log result
-    __int64 result = CNetworkStringTableContainer__WriteBaselines(thisptr, a2, a3);
-
-    spdlog::info("=== WriteBaselines END (result: {}) ===", result);
-    return result;
-}
-
-// Hook individual table processing to see which one fails
-// CNetworkStringTable::WriteUpdate - fixed signature with __int64 for last param
-AUTOHOOK(CNetworkStringTable__WriteUpdate, engine.dll + 0x2352F0, __int64, __fastcall, (CNetworkStringTable* thisptr, __int64 startItem, void* buf, int clientIndex))
-{
-    const char* tableName = thisptr->GetTableName();
-    int numStrings = thisptr->GetNumStrings();
-    int maxStrings = thisptr->GetMaxStrings();
-
-    // Check buffer state before write
-    bf_write* buffer = reinterpret_cast<bf_write*>(buf);
-    int bitsAvailableBefore = buffer->GetNumBitsLeft();
-    int bitsWrittenBefore = buffer->GetNumBitsWritten();
-
-    spdlog::info("  Writing table '{}': {} / {} strings (clientIndex: {}), buffer: {} / {} bits ({} bytes left)",
-        tableName, numStrings, maxStrings, clientIndex,
-        buffer->GetNumBitsWritten(), buffer->GetMaxNumBits(), buffer->GetNumBytesLeft());
-
-    int result = CNetworkStringTable__WriteUpdate(thisptr, startItem, buf, clientIndex);
-
-    // Log buffer state after write
-    int bitsWritten = buffer->GetNumBitsWritten() - bitsWrittenBefore;
-    spdlog::info("      After write: {} bits written, {} / {} total, overflow flag: {}",
-        bitsWritten, buffer->GetNumBitsWritten(), buffer->GetMaxNumBits(), buffer->IsOverflowed());
-
-    // Check if buffer overflowed during this write
-    if (buffer->IsOverflowed())
-    {
-        spdlog::error("  !!! Table '{}' caused buffer OVERFLOW during write! Attempted to write {} bits, only {} available",
-            tableName, bitsWritten, bitsAvailableBefore);
-    }
-
-    // Note: When clientIndex != -1, result will be different from numStrings (writing only 1 client's entry)
-    // Only log mismatch when writing full baseline (clientIndex == -1)
-    if (clientIndex == -1 && result != numStrings)
-    {
-        spdlog::error("  !!! Table '{}' BASELINE write mismatch! Expected {}, got {}", tableName, numStrings, result);
-    }
-
-    return result;
-}
-
 
 // NOTE:
 // - engine.dll + 0x22A670 is the generic CNetMessage::WriteToBuffer wrapper (type + payload write),
@@ -120,8 +18,6 @@ struct EngineBitWriteRaw
     bool m_bOverflow;     // +0x14
 };
 
-static std::mutex s_NetMsgWriteTraceMutex;
-static std::unordered_set<void*> s_PoisonedWriteBuffers;
 static ConVar* s_svCompressPlaylists = nullptr;
 static bool(__fastcall* s_NET_BufferToBufferCompress)(void* pDest, __int64* pDestLen, const void* pSrc, int srcLen) = nullptr;
 static thread_local std::vector<unsigned char> s_PlaylistsCompressedTls;
@@ -166,26 +62,6 @@ static inline int GetRawBitsLeft(void* buf)
     int curBits = GetRawBitsWritten(buf);
     return maxBits - curBits;
 }
-
-static inline int GetRawBytesLeft(void* buf)
-{
-    int bitsLeft = GetRawBitsLeft(buf);
-    return bitsLeft > 0 ? (bitsLeft / 8) : 0;
-}
-
-static inline unsigned int GetMsgTypeFromVTable(void* msg)
-{
-    if (!msg)
-        return 0xFFFFFFFFu;
-
-    auto vtable = *reinterpret_cast<void***>(msg);
-    if (!vtable || !vtable[8]) // +0x40
-        return 0xFFFFFFFFu;
-
-    using GetTypeFn = unsigned int(__fastcall*)(void*);
-    return reinterpret_cast<GetTypeFn>(vtable[8])(msg);
-}
-
 
 // VSVC_Playlists::WriteToBuffer at engine.dll + 0x22BBD0
 // Layout from IDA:
