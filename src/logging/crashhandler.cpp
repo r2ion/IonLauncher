@@ -1145,6 +1145,23 @@ std::string CCrashHandler::GetWindowsVersionFormatted()
 	if (!ntdll)
 		return "Unknown Windows version";
 
+	typedef const char*(CDECL* wine_get_host_version_type)(const char**, const char**);
+	wine_get_host_version_type wine_get_host_version;
+
+	typedef const char*(CDECL* wine_get_build_id_type)(void);
+	wine_get_build_id_type wine_get_build_id;
+
+
+	wine_get_host_version = (wine_get_host_version_type)GetProcAddress(ntdll, "wine_get_host_version");
+	if (wine_get_host_version)
+	{
+		const char* sysname;
+		wine_get_host_version(&sysname, NULL);
+
+		wine_get_build_id = (wine_get_build_id_type)GetProcAddress(ntdll, "wine_get_build_id");
+		return fmt::format("Wine {} (build {})", sysname, wine_get_build_id ? wine_get_build_id() : "unknown");
+	}
+
 	RtlGetVersionPtr rtlGetVersion = (RtlGetVersionPtr)GetProcAddress(ntdll, "RtlGetVersion");
 	if (!rtlGetVersion)
 		return "Unknown Windows version";
