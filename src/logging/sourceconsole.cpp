@@ -13,8 +13,8 @@ CGameConsole* g_pGameConsole;
 typedef void (*ConColorMsgType)(const Color& clr, const char* pszFormat, ...);
 typedef void (*ConMsgType)(const char* pszFormat, ...);
 
-static ConColorMsgType ConColorMsg_fn = nullptr;
-static ConMsgType ConMsg_fn = nullptr;
+static ConColorMsgType ConColorMsg = nullptr;
+static ConMsgType ConMsg = nullptr;
 
 void ConCommand_toggleconsole(const CCommand& arg)
 {
@@ -39,7 +39,7 @@ void ConCommand_hideconsole(const CCommand& arg)
 
 void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 {
-	if (!g_pGameConsole->m_bInitialized || !ConColorMsg_fn || !ConMsg_fn)
+	if (!g_pGameConsole->m_bInitialized || !ConColorMsg || !ConMsg)
 		return;
 
 	spdlog::memory_buf_t formatted;
@@ -58,13 +58,18 @@ void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 	Color loggerColorConverted(loggerColor.R, loggerColor.G, loggerColor.B, loggerColor.A);
 	Color levelColorConverted(levelColor.R, levelColor.G, levelColor.B, levelColor.A);
 
-	// Use tier0 ConColorMsg instead of broken console panel calls
-	ConColorMsg_fn(loggerColorConverted, "[%s] ", name.c_str());
+	// set time to be not the logger color
+	if (msg.level != spdlog::level::info)
+		ConColorMsg(levelColorConverted, "");
+	else
+		ConMsg("");
+
+	ConColorMsg(loggerColorConverted, "[%s] ", name.c_str());
 
 	if (msg.level != spdlog::level::info)
-		ConColorMsg_fn(levelColorConverted, "%s", str.c_str());
+		ConColorMsg(levelColorConverted, "%s", str.c_str());
 	else
-		ConMsg_fn("%s", str.c_str());
+		ConMsg("%s", str.c_str());
 }
 
 void SourceConsoleSink::flush_() {}
@@ -74,11 +79,8 @@ HOOK(OnCommandSubmittedHook, OnCommandSubmitted,
 void, __fastcall, (CConsoleDialog* consoleDialog, const char* pCommand))
 // clang-format on
 {
-	// Use tier0 ConMsg instead of console panel
-	if (ConMsg_fn)
-	{
-		ConMsg_fn("] %s\n", pCommand);
-	}
+	if (ConMsg)
+		ConMsg("] %s\n", pCommand);
 
 	TryPrintCvarHelpForCommand(pCommand);
 
@@ -122,14 +124,15 @@ void InitialiseConsoleOnInterfaceCreation()
 	RegisterSink(consoleSink);
 }
 
+ON_DLL_LOAD_CLIENT("tier0.dll", Tier0ConsoleFunctions, [](CModule module)
+{
+	ConColorMsg = module.Offset(0xE1E0).RCast<ConColorMsgType>();
+	ConMsg = module.Offset(0xE290).RCast<ConMsgType>();
+})
+
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", SourceConsole, ConCommand, [](CModule module)
 {
 	g_pGameConsole = Sys_GetFactoryPtr("client.dll", "GameConsole004").RCast<CGameConsole*>();
-
-	// Initialize tier0 console functions
-	CModule tier0Module("tier0.dll");
-	ConColorMsg_fn = tier0Module.Offset(0xE1E0).RCast<ConColorMsgType>();
-	ConMsg_fn = tier0Module.Offset(0xE290).RCast<ConMsgType>();
 
 	RegisterConCommand("toggleconsole", ConCommand_toggleconsole, "Show/hide the console.", FCVAR_DONTRECORD);
 	RegisterConCommand("showconsole", ConCommand_showconsole, "Show the console.", FCVAR_DONTRECORD);
