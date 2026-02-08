@@ -4,8 +4,17 @@
 #include "core/convar/concommand.h"
 #include "util/printcommands.h"
 #include "client/r2client.h"
+#include "tier0/module.h"
+#include <core/tier0.h>
 
 CGameConsole* g_pGameConsole;
+
+// Tier0 console functions
+typedef void (*ConColorMsgType)(const Color& clr, const char* pszFormat, ...);
+typedef void (*ConMsgType)(const char* pszFormat, ...);
+
+static ConColorMsgType ConColorMsg_fn = nullptr;
+static ConMsgType ConMsg_fn = nullptr;
 
 void ConCommand_toggleconsole(const CCommand& arg)
 {
@@ -30,7 +39,7 @@ void ConCommand_hideconsole(const CCommand& arg)
 
 void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 {
-	if (!g_pGameConsole->m_bInitialized)
+	if (!g_pGameConsole->m_bInitialized || !ConColorMsg_fn || !ConMsg_fn)
 		return;
 
 	spdlog::memory_buf_t formatted;
@@ -45,20 +54,17 @@ void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 
 	CClientState* client = GetBaseLocalClient();
 
-	g_pGameConsole->m_pConsole->m_pConsolePanel->ColorPrint(loggerColor, ("[" + name + "]").c_str());
-	g_pGameConsole->m_pConsole->m_pConsolePanel->Print(" ");
+	// Convert SourceColor to Color for tier0 functions
+	Color loggerColorConverted(loggerColor.R, loggerColor.G, loggerColor.B, loggerColor.A);
+	Color levelColorConverted(levelColor.R, levelColor.G, levelColor.B, levelColor.A);
 
-    if(client->m_nSignonState >= eSignonState::CONNECTED)
-    {
-        const std::string uptimeStr = fmt::format("{:.3f}", client->m_flServerUptime);
-        g_pGameConsole->m_pConsole->m_pConsolePanel->Print(("[" + uptimeStr + "]").c_str());
-        g_pGameConsole->m_pConsole->m_pConsolePanel->Print(" ");
-    }
+	// Use tier0 ConColorMsg instead of broken console panel calls
+	ConColorMsg_fn(loggerColorConverted, "[%s] ", name.c_str());
 
 	if (msg.level != spdlog::level::info)
-		g_pGameConsole->m_pConsole->m_pConsolePanel->ColorPrint(levelColor, str.c_str());
+		ConColorMsg_fn(levelColorConverted, "%s", str.c_str());
 	else
-		g_pGameConsole->m_pConsole->m_pConsolePanel->Print(str.c_str());
+		ConMsg_fn("%s", str.c_str());
 }
 
 void SourceConsoleSink::flush_() {}
@@ -68,9 +74,11 @@ HOOK(OnCommandSubmittedHook, OnCommandSubmitted,
 void, __fastcall, (CConsoleDialog* consoleDialog, const char* pCommand))
 // clang-format on
 {
-	consoleDialog->m_pConsolePanel->Print("] ");
-	consoleDialog->m_pConsolePanel->Print(pCommand);
-	consoleDialog->m_pConsolePanel->Print("\n");
+	// Use tier0 ConMsg instead of console panel
+	if (ConMsg_fn)
+	{
+		ConMsg_fn("] %s\n", pCommand);
+	}
 
 	TryPrintCvarHelpForCommand(pCommand);
 
@@ -83,7 +91,29 @@ void InitialiseConsoleOnInterfaceCreation()
 	g_pGameConsole->Initialize();
 	// hook OnCommandSubmitted so we print inputted commands
 	OnCommandSubmittedHook.Dispatch((LPVOID)g_pGameConsole->m_pConsole->m_vtable->OnCommandSubmitted);
+	CCommandLine* cmdLine = CommandLine();
 
+	if (cmdLine)
+	{
+		// Check if we should NOT activate
+		bool hasForceStartupMenu = cmdLine->FindParm("-forcestartupmenu") != 0;
+		bool hasHideConsole = cmdLine->FindParm("-hideconsole") != 0;
+
+		if (!hasForceStartupMenu && !hasHideConsole)
+		{
+			// Check if we have any of the activation flags
+			bool hasToConsole = cmdLine->FindParm("-toconsole") != 0;
+			bool hasConsole = cmdLine->FindParm("-console") != 0;
+			bool hasRpt = cmdLine->FindParm("-rpt") != 0;
+			bool hasAllowDebug = cmdLine->FindParm("-allowdebug") != 0;
+
+			if (hasToConsole || hasConsole || hasRpt || hasAllowDebug)
+			{
+				spdlog::info("Activating GameConsole based on command line flags");
+				g_pGameConsole->Activate();
+			}
+		}
+	}
 	auto consoleSink = std::make_shared<SourceConsoleSink>();
 	if (g_bSpdLog_UseAnsiColor)
 		consoleSink->set_pattern("%v"); // no need to include the level in the game console, the text colour signifies it anyway
@@ -95,6 +125,11 @@ void InitialiseConsoleOnInterfaceCreation()
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", SourceConsole, ConCommand, [](CModule module)
 {
 	g_pGameConsole = Sys_GetFactoryPtr("client.dll", "GameConsole004").RCast<CGameConsole*>();
+
+	// Initialize tier0 console functions
+	CModule tier0Module("tier0.dll");
+	ConColorMsg_fn = tier0Module.Offset(0xE1E0).RCast<ConColorMsgType>();
+	ConMsg_fn = tier0Module.Offset(0xE290).RCast<ConMsgType>();
 
 	RegisterConCommand("toggleconsole", ConCommand_toggleconsole, "Show/hide the console.", FCVAR_DONTRECORD);
 	RegisterConCommand("showconsole", ConCommand_showconsole, "Show the console.", FCVAR_DONTRECORD);

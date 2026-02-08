@@ -1,8 +1,8 @@
 #include "modsystem/modmanager.h"
 
+// Exported for use in enginevguiconsole.cpp
 void* g_pVguiLocalize;
-
-static bool(__fastcall* o_pCLocalise__AddFile)(
+bool(__fastcall* o_pCLocalise__AddFile)(
 	void* pVguiLocalize, const char* path, const char* pathId, bool bIncludeFallbackSearchPaths) = nullptr;
 static bool __fastcall h_CLocalise__AddFile(void* pVguiLocalize, const char* path, const char* pathId, bool bIncludeFallbackSearchPaths)
 {
@@ -29,24 +29,7 @@ static void __fastcall h_CLocalize__ReloadLocalizationFiles(void* pVguiLocalize)
 	o_pCLocalize__ReloadLocalizationFiles(pVguiLocalize);
 }
 
-static void(__fastcall* o_pCEngineVGui__Init)(void* self) = nullptr;
-static void __fastcall h_CEngineVGui__Init(void* self)
-{
-	o_pCEngineVGui__Init(self); // this loads r1_english, valve_english, dev_english
-
-	// previously we did this in CLocalize::AddFile, but for some reason it won't properly overwrite localization from
-	// files loaded previously if done there, very weird but this works so whatever
-	for (Mod mod : g_pModManager->m_LoadedMods)
-		if (mod.m_bEnabled)
-			for (std::string& localisationFile : mod.LocalisationFiles)
-				o_pCLocalise__AddFile(g_pVguiLocalize, localisationFile.c_str(), nullptr, false);
-}
-
-ON_DLL_LOAD_CLIENT("engine.dll", VGuiInit, [](CModule module)
-{
-	o_pCEngineVGui__Init = module.Offset(0x247E10).RCast<decltype(o_pCEngineVGui__Init)>();
-	HookAttach(&(PVOID&)o_pCEngineVGui__Init, (PVOID)h_CEngineVGui__Init);
-})
+// CEngineVGui::Init hook moved to engine/enginevguiconsole.cpp to consolidate with GameConsole setup
 
 ON_DLL_LOAD_CLIENT("localize.dll", Localize, [](CModule module)
 {
