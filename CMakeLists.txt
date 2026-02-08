@@ -115,7 +115,13 @@ set(BUILD_TESTING OFF)
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
-CPMAddPackage("gh:Tencent/rapidjson@1.1.0")
+
+# Use master branch of rapidjson for modern CMake compatibility
+CPMAddPackage(
+    NAME rapidjson
+    GITHUB_REPOSITORY Tencent/rapidjson
+    GIT_TAG master
+)
 CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
 
 #CPMAddPackage(
