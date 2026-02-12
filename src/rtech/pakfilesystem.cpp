@@ -6,6 +6,8 @@
 #include "rtech/pakstate.h"
 #include <algorithm>
 
+DECLARE_MODULE(PakFilesystemHooks)
+
 #pragma pack(push, 1)
 struct PakLoadFuncs
 {
@@ -358,9 +360,9 @@ static void HandlePakAliases(std::string& originalPath)
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static bool (*o_pLoadMapRpaks)(char* mapPath) = nullptr;
-static bool h_LoadMapRpaks(char* mapPath)
+DECLARE_HOOK(LoadMapRpaks, engine.dll + 0x15A8C0, [](auto& hook, char* mapPath) -> bool
 {
+	NOTE_UNUSED(hook);
 	// unload all mod rpaks that are marked for unload
 	g_pPakLoadManager->UnloadMarkedPaks();
 	g_pPakLoadManager->CleanUpUnloadedPaks();
@@ -416,17 +418,17 @@ static bool h_LoadMapRpaks(char* mapPath)
 		*piCurrentMapPatchRpakHandle = PakHandle::INVALID;
 	}
 
-	*piCurrentMapRpakHandle = g_pakLoadApi->LoadRpakFileAsync(mapRpakStr, *g_pAlignedMemAlloc , 7);
+	*piCurrentMapRpakHandle = g_pakLoadApi->LoadRpakFileAsync(mapRpakStr, *g_pAlignedMemAlloc, 7);
 
 	// load special _patch rpak (seemingly used for dev things?)
 	char levelPatchRpakStr[272];
 	snprintf(levelPatchRpakStr, 272, "%s_patch.rpak", mapName.c_str());
-	*piCurrentMapPatchRpakHandle = g_pakLoadApi->LoadRpakFileAsync(levelPatchRpakStr, *g_pAlignedMemAlloc , 7);
+	*piCurrentMapPatchRpakHandle = g_pakLoadApi->LoadRpakFileAsync(levelPatchRpakStr, *g_pAlignedMemAlloc, 7);
 
 	// we just reloaded the paks, so we don't need to force it again
 	g_pPakLoadManager->SetForceReloadOnMapLoad(false);
 	return true;
-}
+})
 
 // clang-format off
 HOOK(LoadPakAsyncHook, LoadPakAsync,
@@ -610,9 +612,7 @@ ON_DLL_LOAD("engine.dll", RpakFilesystem, [](CModule module)
 	o_pCModelLoader_UnreferenceAllModels = module.Offset(0x5ED580).RCast<decltype(o_pCModelLoader_UnreferenceAllModels)>();
 	o_pLoadlevelLoadscreen = module.Offset(0x15A810).RCast<decltype(o_pLoadlevelLoadscreen)>();
 
-	o_pLoadMapRpaks = module.Offset(0x15A8C0).RCast<decltype(o_pLoadMapRpaks)>();
-	HookAttach(&(PVOID&)o_pLoadMapRpaks, (PVOID)h_LoadMapRpaks);
-
+	DISPATCH_MODULE(PakFilesystemHooks)
 	CModule rtechModule(GetModuleHandleA("rtech_game.dll"));
 	o_pGetPakPatchNumber = rtechModule.Offset(0x9A00).RCast<decltype(o_pGetPakPatchNumber)>();
 	Pak_Free = rtechModule.Offset(0x8410).RCast<Pak_Free_t>();

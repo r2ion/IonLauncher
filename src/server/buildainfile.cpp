@@ -556,47 +556,34 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	writeStream.close();
 }
 
-static __int64(__fastcall* o_pCAI_NetworkBuilder__BuildPathPatrol)(void* builder, CAI_Network* aiNetwork) = nullptr;
-static __int64 __fastcall h_CAI_NetworkBuilder__BuildPathPatrol(void* builder, CAI_Network* aiNetwork)
+DECLARE_MODULE(BuildAINFileHooks)
+DECLARE_HOOK(CAI_NetworkBuilder::BuildPathPatrol, server.dll + 0x387DC0, [](auto& hook, void* builder, CAI_Network* aiNetwork) -> __int64
 {
-	__int64 result = o_pCAI_NetworkBuilder__BuildPathPatrol(builder, aiNetwork);
+	__int64 result = hook.Original(builder, aiNetwork);
 	if (sub_387F80)
 		sub_387F80((__int64)builder, aiNetwork);
 	return result;
-}
-
-static void(__fastcall* o_pCAI_NetworkBuilder__Build)(void* builder, CAI_Network* aiNetwork, void* unknown) = nullptr;
-static void __fastcall h_CAI_NetworkBuilder__Build(void* builder, CAI_Network* aiNetwork, void* unknown)
+})
+DECLARE_HOOK(CAI_NetworkBuilder::Build, server.dll + 0x385E20, [](auto& hook, void* builder, CAI_Network* aiNetwork, void* unknown)
 {
-	o_pCAI_NetworkBuilder__Build(builder, aiNetwork, unknown);
+	hook.Original(builder, aiNetwork, unknown);
 
 	DumpAINInfo(aiNetwork);
-}
-
-static void(__fastcall* o_pLoadAINFile)(void* aimanager, void* buf, const char* filename) = nullptr;
-static void __fastcall h_LoadAINFile(void* aimanager, void* buf, const char* filename)
+})
+DECLARE_HOOK(LoadAINFile, server.dll + 0x3933A0, [](auto& hook, void* aimanager, void* buf, const char* filename)
 {
-	o_pLoadAINFile(aimanager, buf, filename);
+	hook.Original(aimanager, buf, filename);
 
 	if (Cvar_ns_ai_dumpAINfileFromLoad->GetBool())
 	{
 		spdlog::info("running DumpAINInfo for loaded file {}", filename);
 		DumpAINInfo(*(CAI_Network**)((char*)aimanager + 2536));
 	}
-}
+})
 
 ON_DLL_LOAD("server.dll", BuildAINFile, [](CModule module)
 {
-	o_pCAI_NetworkBuilder__BuildPathPatrol =
-		module.Offset(0x387DC0).RCast<decltype(o_pCAI_NetworkBuilder__BuildPathPatrol)>();
-	HookAttach(&(PVOID&)o_pCAI_NetworkBuilder__BuildPathPatrol, (PVOID)h_CAI_NetworkBuilder__BuildPathPatrol);
-
-	o_pCAI_NetworkBuilder__Build = module.Offset(0x385E20).RCast<decltype(o_pCAI_NetworkBuilder__Build)>();
-	HookAttach(&(PVOID&)o_pCAI_NetworkBuilder__Build, (PVOID)h_CAI_NetworkBuilder__Build);
-
-	o_pLoadAINFile = module.Offset(0x3933A0).RCast<decltype(o_pLoadAINFile)>();
-	HookAttach(&(PVOID&)o_pLoadAINFile, (PVOID)h_LoadAINFile);
-
+	DISPATCH_MODULE(BuildAINFileHooks)
 	Cvar_ns_ai_dumpAINfileFromLoad = new ConVar(
 		"ns_ai_dumpAINfileFromLoad", "0", FCVAR_NONE, "For debugging: whether we should dump ain data for ains loaded from disk");
 

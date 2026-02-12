@@ -3,15 +3,7 @@
 
 #define XINPUT1_3_DLL "XInput1_3.dll"
 
-typedef HMODULE (*WINAPI ILoadLibraryA)(LPCSTR lpLibFileName);
-typedef HMODULE (*WINAPI ILoadLibraryExA)(LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags);
-typedef HMODULE (*WINAPI ILoadLibraryW)(LPCWSTR lpLibFileName);
-typedef HMODULE (*WINAPI ILoadLibraryExW)(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags);
-
-ILoadLibraryA o_LoadLibraryA = nullptr;
-ILoadLibraryExA o_LoadLibraryExA = nullptr;
-ILoadLibraryW o_LoadLibraryW = nullptr;
-ILoadLibraryExW o_LoadLibraryExW = nullptr;
+DECLARE_MODULE(LibSysHooks)
 
 //-----------------------------------------------------------------------------
 // Purpose: Run detour callbacks for given HMODULE
@@ -52,100 +44,85 @@ void LibSys_RunModuleCallbacks(HMODULE hModule)
 
 //-----------------------------------------------------------------------------
 // Load library callbacks
-
-HMODULE WINAPI WLoadLibraryA(LPCSTR lpLibFileName)
+DECLARE_HOOK_PROC(LibSysLoadLibraryA, KERNEL32.DLL, LoadLibraryA, [](auto& hook, LPCSTR lpLibFileName) -> HMODULE
 {
-	HMODULE hModule = o_LoadLibraryA(lpLibFileName);
-
+	HMODULE hModule = hook.Original(lpLibFileName);
 	LibSys_RunModuleCallbacks(hModule);
-
 	return hModule;
-}
+})
 
-HMODULE WINAPI WLoadLibraryExA(LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
+DECLARE_HOOK_PROC(LibSysLoadLibraryExA, KERNEL32.DLL, LoadLibraryExA, [](auto& hook, LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags) -> HMODULE
 {
-	HMODULE hModule;
+	HMODULE hModule = nullptr;
 
-	LPCSTR lpLibFileNameEnd = lpLibFileName + strlen(lpLibFileName);
-	LPCSTR lpLibName = lpLibFileNameEnd - strlen(XINPUT1_3_DLL);
-
-	// replace xinput dll with one that has ASLR
-	if (lpLibFileName <= lpLibName && !strncmp(lpLibName, XINPUT1_3_DLL, strlen(XINPUT1_3_DLL) + 1))
+	if (lpLibFileName)
 	{
-		const char* pszReplacementDll = "XInput1_4.dll";
-		hModule = o_LoadLibraryExA(pszReplacementDll, hFile, dwFlags);
+		LPCSTR lpLibFileNameEnd = lpLibFileName + strlen(lpLibFileName);
+		LPCSTR lpLibName = lpLibFileNameEnd - strlen(XINPUT1_3_DLL);
 
-		if (!hModule)
+		// replace xinput dll with one that has ASLR
+		if (lpLibFileName <= lpLibName && !strncmp(lpLibName, XINPUT1_3_DLL, strlen(XINPUT1_3_DLL) + 1))
 		{
-			pszReplacementDll = "XInput9_1_0.dll";
-			spdlog::warn("Couldn't load XInput1_4.dll. Will try XInput9_1_0.dll. If on Windows 7 this is expected");
-			hModule = o_LoadLibraryExA(pszReplacementDll, hFile, dwFlags);
+			const char* pszReplacementDll = "XInput1_4.dll";
+			hModule = hook.Original(pszReplacementDll, hFile, dwFlags);
+
+			if (!hModule)
+			{
+				pszReplacementDll = "XInput9_1_0.dll";
+				spdlog::warn("Couldn't load XInput1_4.dll. Will try XInput9_1_0.dll. If on Windows 7 this is expected");
+				hModule = hook.Original(pszReplacementDll, hFile, dwFlags);
+			}
+
+			if (!hModule)
+			{
+				spdlog::error("Couldn't load XInput9_1_0.dll");
+				MessageBoxA(
+					0,
+					"Could not load a replacement for XInput1_3.dll\nTried: XInput1_4.dll and XInput9_1_0.dll",
+					"Northstar",
+					MB_ICONERROR);
+				exit(EXIT_FAILURE);
+				return nullptr;
+			}
+
+			spdlog::info("Successfully loaded {} as a replacement for XInput1_3.dll", pszReplacementDll);
 		}
-
-		if (!hModule)
-		{
-			spdlog::error("Couldn't load XInput9_1_0.dll");
-			MessageBoxA(
-				0, "Could not load a replacement for XInput1_3.dll\nTried: XInput1_4.dll and XInput9_1_0.dll", "Northstar", MB_ICONERROR);
-			exit(EXIT_FAILURE);
-
-			return nullptr;
-		}
-
-		spdlog::info("Successfully loaded {} as a replacement for XInput1_3.dll", pszReplacementDll);
 	}
-	else
-	{
-		hModule = o_LoadLibraryExA(lpLibFileName, hFile, dwFlags);
-	}
+
+	if (!hModule)
+		hModule = hook.Original(lpLibFileName, hFile, dwFlags);
 
 	bool bShouldRunCallbacks =
 		!(dwFlags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE));
 	if (bShouldRunCallbacks)
-	{
 		LibSys_RunModuleCallbacks(hModule);
-	}
 
 	return hModule;
-}
+})
 
-HMODULE WINAPI WLoadLibraryW(LPCWSTR lpLibFileName)
+DECLARE_HOOK_PROC(LibSysLoadLibraryW, KERNEL32.DLL, LoadLibraryW, [](auto& hook, LPCWSTR lpLibFileName) -> HMODULE
 {
-	HMODULE hModule = o_LoadLibraryW(lpLibFileName);
-
+	HMODULE hModule = hook.Original(lpLibFileName);
 	LibSys_RunModuleCallbacks(hModule);
-
 	return hModule;
-}
+})
 
-HMODULE WINAPI WLoadLibraryExW(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
+DECLARE_HOOK_PROC(LibSysLoadLibraryExW, KERNEL32.DLL, LoadLibraryExW, [](auto& hook, LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags) -> HMODULE
 {
-	HMODULE hModule = o_LoadLibraryExW(lpLibFileName, hFile, dwFlags);
+	HMODULE hModule = hook.Original(lpLibFileName, hFile, dwFlags);
 
 	bool bShouldRunCallbacks =
 		!(dwFlags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE));
 	if (bShouldRunCallbacks)
-	{
 		LibSys_RunModuleCallbacks(hModule);
-	}
 
 	return hModule;
-}
+})
 
 //-----------------------------------------------------------------------------
 // Purpose: Initilase dll load callbacks
 //-----------------------------------------------------------------------------
 void LibSys_Init()
 {
-	HMODULE hKernel = GetModuleHandleA("KERNEL32.DLL");
-
-	o_LoadLibraryA = reinterpret_cast<ILoadLibraryA>(GetProcAddress(hKernel, "LoadLibraryA"));
-	o_LoadLibraryExA = reinterpret_cast<ILoadLibraryExA>(GetProcAddress(hKernel, "LoadLibraryExA"));
-	o_LoadLibraryW = reinterpret_cast<ILoadLibraryW>(GetProcAddress(hKernel, "LoadLibraryW"));
-	o_LoadLibraryExW = reinterpret_cast<ILoadLibraryExW>(GetProcAddress(hKernel, "LoadLibraryExW"));
-
-	HookAttach(&(PVOID&)o_LoadLibraryA, (PVOID)WLoadLibraryA);
-	HookAttach(&(PVOID&)o_LoadLibraryExA, (PVOID)WLoadLibraryExA);
-	HookAttach(&(PVOID&)o_LoadLibraryW, (PVOID)WLoadLibraryW);
-	HookAttach(&(PVOID&)o_LoadLibraryExW, (PVOID)WLoadLibraryExW);
+	DISPATCH_MODULE(LibSysHooks)
 }

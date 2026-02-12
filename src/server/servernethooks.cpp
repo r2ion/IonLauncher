@@ -13,7 +13,7 @@
 #include <thread>
 #include <bcrypt.h>
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(ServerNetHooks)
 
 static ConVar* Cvar_net_debug_atlas_packet;
 static ConVar* Cvar_net_debug_atlas_packet_insecure;
@@ -270,7 +270,7 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 	return true;
 }
 
-AUTOHOOK(CServer__ProcessConnectionlessPacket, engine.dll + 0x117800, bool, __fastcall, (void* a1, netpacket_t* packet))
+DECLARE_HOOK(CServer::ProcessConnectionlessPacket, engine.dll + 0x117800, [](auto& hook, void* a1, netpacket_t* packet) -> bool
 {
 	// packet->data consists of 0xFFFFFFFF (int32 -1) to indicate packets aren't split, followed by a header consisting of a single
 	// character, which is used to uniquely identify the packet kind. Most kinds follow this with a null-terminated string payload
@@ -280,7 +280,7 @@ AUTOHOOK(CServer__ProcessConnectionlessPacket, engine.dll + 0x117800, bool, __fa
 	unsigned int header = msg.ReadLong();
 
 	if( header != CONNECTIONLESS_HEADER )
-		return CServer__ProcessConnectionlessPacket(a1, packet);
+		return hook.Original(a1, packet);
 
 	char packetType = msg.ReadChar();
 
@@ -302,12 +302,12 @@ AUTOHOOK(CServer__ProcessConnectionlessPacket, engine.dll + 0x117800, bool, __fa
 	}
 
 	// A, H, I, N
-	return CServer__ProcessConnectionlessPacket(a1, packet);
-}
+	return hook.Original(a1, packet);
+})
 
 ON_DLL_LOAD_RELIESON("engine.dll", ServerNetHooks, ConVar, [](CModule module)
 {
-	AUTOHOOK_DISPATCH_MODULE(engine.dll)
+	DISPATCH_MODULE(ServerNetHooks)
 
 	if (!InitHMACSHA256())
 		throw std::runtime_error("failed to initialize bcrypt");

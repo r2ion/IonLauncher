@@ -1,7 +1,7 @@
 #include "core/tier0.h"
 #include "maxplayers.h"
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(MaxPlayersHooks)
 
 // never set this to anything below 32
 #define NEW_MAX_PLAYERS 64
@@ -66,8 +66,8 @@ template <class T> void ChangeOffset(CMemory addr, unsigned int offset)
 }
 
 // clang-format off
-AUTOHOOK(StringTables_CreateStringTable, engine.dll + 0x22E220,
-void*,, (void* thisptr, const char* name, int maxentries, int userdatafixedsize, int userdatanetworkbits, int flags))
+DECLARE_HOOK(StringTables_CreateStringTable, engine.dll + 0x22E220,
+[](auto& hook, void* thisptr, const char* name, int maxentries, int userdatafixedsize, int userdatanetworkbits, int flags) -> void*
 // clang-format on
 {
 	// Change the amount of entries to account for a bigger player amount
@@ -80,15 +80,15 @@ void*,, (void* thisptr, const char* name, int maxentries, int userdatafixedsize,
 		maxentries = maxPlayersPowerOf2;
 	}
 
-	return StringTables_CreateStringTable(thisptr, name, maxentries, userdatafixedsize, userdatanetworkbits, flags);
-}
+	return hook.Original(thisptr, name, maxentries, userdatafixedsize, userdatanetworkbits, flags);
+})
 
 ON_DLL_LOAD("engine.dll", MaxPlayersOverride_Engine, [](CModule module)
 {
 	if (!MaxPlayersIncreaseEnabled())
 		return;
 
-	AUTOHOOK_DISPATCH_MODULE(engine.dll)
+	MaxPlayersHooks.DispatchForModule("engine.dll");
 
 	// patch GetPlayerLimits to ignore the boundary limit
 	module.Offset(0x116458).Patch("0xEB"); // jle => jmp
@@ -133,10 +133,11 @@ auto RandomIntZeroMax = (__int64(__fastcall*)())0;
 
 // lazy rebuild
 // clang-format off
-AUTOHOOK(RunUserCmds, server.dll + 0x483D10,
-void,, (bool a1, float a2))
+DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
+[](auto& hook, bool a1, float a2)
 // clang-format on
 {
+	NOTE_UNUSED(hook);
 	unsigned char v3; // bl
 	int v5; // er14
 	int i; // edi
@@ -274,26 +275,26 @@ void,, (bool a1, float a2))
 		}
 		sub_180485590(*(__int64*)(base + 0xB7B2D8));
 	}
-}
+})
 
 // clang-format off
-AUTOHOOK(SendPropArray2, server.dll + 0x12B130,
-__int64,, (__int64 recvProp, int elements, int flags, const char* name, __int64 proxyFn, unsigned char unk1))
+DECLARE_HOOK(SendPropArray2, server.dll + 0x12B130,
+[](auto& hook, __int64 recvProp, int elements, int flags, const char* name, __int64 proxyFn, unsigned char unk1) -> __int64
 // clang-format on
 {
 	// Change the amount of elements to account for a bigger player amount
 	if (!strcmp(name, "\"player_array\""))
 		elements = NEW_MAX_PLAYERS;
 
-	return SendPropArray2(recvProp, elements, flags, name, proxyFn, unk1);
-}
+	return hook.Original(recvProp, elements, flags, name, proxyFn, unk1);
+})
 
 ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, [](CModule module)
 {
 	if (!MaxPlayersIncreaseEnabled())
 		return;
 
-	AUTOHOOK_DISPATCH_MODULE(server.dll)
+	MaxPlayersHooks.DispatchForModule("server.dll");
 
 	// get required data
 	serverBase = (HMODULE)module.GetModuleBase();
@@ -448,23 +449,23 @@ ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, [](CModule module)
 })
 
 // clang-format off
-AUTOHOOK(RecvPropArray2, client.dll + 0x1CEDA0,
-__int64,, (__int64 recvProp, int elements, int flags, const char* name, __int64 proxyFn))
+DECLARE_HOOK(RecvPropArray2, client.dll + 0x1CEDA0,
+[](auto& hook, __int64 recvProp, int elements, int flags, const char* name, __int64 proxyFn) -> __int64
 // clang-format on
 {
 	// Change the amount of elements to account for a bigger player amount
 	if (!strcmp(name, "\"player_array\""))
 		elements = NEW_MAX_PLAYERS;
 
-	return RecvPropArray2(recvProp, elements, flags, name, proxyFn);
-}
+	return hook.Original(recvProp, elements, flags, name, proxyFn);
+})
 
 ON_DLL_LOAD("client.dll", MaxPlayersOverride_Client, [](CModule module)
 {
 	if (!MaxPlayersIncreaseEnabled())
 		return;
 
-	AUTOHOOK_DISPATCH_MODULE(client.dll)
+	MaxPlayersHooks.DispatchForModule("client.dll");
 
 	constexpr int C_PlayerResource_OriginalSize = 5768;
 	constexpr int C_PlayerResource_AddedSize = PlayerResource_TotalSize;

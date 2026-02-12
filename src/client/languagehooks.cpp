@@ -5,6 +5,8 @@
 
 namespace fs = std::filesystem;
 
+DECLARE_MODULE(LanguageHooks)
+
 typedef LANGID (*Tier0_DetectDefaultLanguageType)();
 
 bool CheckLangAudioExists(char* lang)
@@ -46,8 +48,7 @@ std::string GetAnyInstalledAudioLanguage()
 	return "NO LANGUAGE DETECTED";
 }
 
-static char*(__fastcall* o_pGetGameLanguage)() = nullptr;
-static char* __fastcall h_GetGameLanguage()
+DECLARE_HOOK(GetGameLanguage, tier0.dll + 0xF560, [](auto& hook) -> char*
 {
 	auto tier0Handle = GetModuleHandleA("tier0.dll");
 	auto Tier0_DetectDefaultLanguageType = GetProcAddress(tier0Handle, "Tier0_DetectDefaultLanguage");
@@ -74,7 +75,7 @@ static char* __fastcall h_GetGameLanguage()
 
 	canOriginDictateLang = true; // let it try
 	{
-		auto lang = o_pGetGameLanguage();
+		auto lang = hook.Original();
 		if (!CheckLangAudioExists(lang))
 		{
 			if (strcmp(lang, "russian") !=
@@ -92,7 +93,7 @@ static char* __fastcall h_GetGameLanguage()
 	Tier0_DetectDefaultLanguageType(); // force the global in tier0 to be populated with language inferred from user's system rather than
 									   // defaulting to Russian
 	canOriginDictateLang = false; // Origin has no say anymore, we will fallback to user's system setup language
-	auto lang = o_pGetGameLanguage();
+	auto lang = hook.Original();
 	spdlog::info("Detected system language: {}", lang);
 	if (!CheckLangAudioExists(lang))
 	{
@@ -106,10 +107,9 @@ static char* __fastcall h_GetGameLanguage()
 	}
 
 	return lang;
-}
+})
 
 ON_DLL_LOAD_CLIENT("tier0.dll", LanguageHooks, [](CModule module)
 {
-	o_pGetGameLanguage = module.Offset(0xF560).RCast<decltype(o_pGetGameLanguage)>();
-	HookAttach(&(PVOID&)o_pGetGameLanguage, (PVOID)h_GetGameLanguage);
+	DISPATCH_MODULE(LanguageHooks)
 })

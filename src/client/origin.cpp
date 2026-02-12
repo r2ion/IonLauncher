@@ -2,6 +2,8 @@
 #include "r2client.h"
 #include "util/utils.h"
 
+DECLARE_MODULE(OriginHooks)
+
 OriginRequestAuthCodeType OriginRequestAuthCode;
 OriginGetPresenceType OriginGetPresence;
 OriginQueryPresenceType OriginQueryPresence;
@@ -109,8 +111,7 @@ public:
 
 // 0x185AE0
 
-static __int64 (*__fastcall o_185AE0)(__int64 a1, unsigned int a2, FriendPresence* p) = nullptr;
-static __int64 __fastcall sub_185AE0(__int64 uid, unsigned int a2, FriendPresence* pFriendPresence)
+DECLARE_HOOK(OriginSub185AE0, engine.dll + 0x185AE0, [](auto& hook, __int64 uid, unsigned int a2, FriendPresence* pFriendPresence) -> __int64
 {
 	if (pFriendPresence->GamePresence)
 	{
@@ -127,28 +128,24 @@ static __int64 __fastcall sub_185AE0(__int64 uid, unsigned int a2, FriendPresenc
 			{
 				if (g_IDPartySubMap.contains(pFriendPresence->uid))
 					g_IDPartySubMap.erase(pFriendPresence->uid);
-
-				spdlog::info("GamePresence for uid {} is empty", uid);
 			}
 		}
 		else
 		{
 			if (g_IDPartySubMap.contains(pFriendPresence->uid))
 				g_IDPartySubMap.erase(pFriendPresence->uid);
-
-			spdlog::info("GamePresence for uid {} is empty", uid);
 		}
 	}
-	return o_185AE0(uid, a2, pFriendPresence);
-}
 
-static __int64 (*__fastcall o_UpdateFriendsList)(__int64 a1, __int64 a2, unsigned __int64 a3, __int64 a4, int a5) = nullptr;
+	return hook.Original(uid, a2, pFriendPresence);
+})
 
-static __int64 __fastcall UpdateFriendsListHook(__int64 a1, __int64 a2, unsigned __int64 a3, __int64 a4, int a5)
+DECLARE_HOOK(UpdateFriendsList, engine.dll + 0x184000, [](auto& hook, __int64 a1, __int64 a2, unsigned __int64 a3, __int64 a4, int a5) -> __int64
 {
 	spdlog::info("UpdateFriendsListHook called with a1: {}, a2: {}, a3: {}, a4: {}, a5: {}", a1, a2, a3, a4, a5);
-	return o_UpdateFriendsList(a1, a2, a3, a4, a5);
-}
+	return hook.Original(a1, a2, a3, a4, a5);
+})
+
 void PresenceCallback(__int64 a1, __int64 a2, __int64 a3, __int64 a4)
 {
 	spdlog::log(spdlog::level::info, "PresenceCallback called with a1: {}, a2: {}, a3: {}, a4: {}", a1, a2, a3, a4);
@@ -232,11 +229,7 @@ void ConCommand_ns_send_friend_request(const CCommand& args)
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule module)
 {
-	o_UpdateFriendsList = module.Offset(0x184000).RCast<decltype(o_UpdateFriendsList)>();
-	HookAttach(&(PVOID&)o_UpdateFriendsList, (PVOID)UpdateFriendsListHook);
-
-	o_185AE0 = module.Offset(0x185AE0).RCast<decltype(o_185AE0)>();
-	HookAttach(&(PVOID&)o_185AE0, (PVOID)sub_185AE0);
+	DISPATCH_MODULE(OriginHooks)
 
 	RegisterConCommand("ns_fetchpres", ConCommand_ns_fetch_presence, "Fetch presence for uid", FCVAR_CLIENTDLL);
 	RegisterConCommand("ns_send_friend_request", ConCommand_ns_send_friend_request, "Send friend request to uid", FCVAR_CLIENTDLL);
@@ -288,5 +281,4 @@ ON_DLL_LOAD("OriginSDK.dll", OriginSDK, [](CModule module)
 	OriginQueryPresenceSync = module.GetExportedFunction("OriginQueryPresenceSync").RCast<OriginQueryPresenceSyncType>();
 	OriginQueryOffers = module.GetExportedFunction("OriginQueryOffers").RCast<OriginQueryOffersType>();
 	OriginRequestFriendSync = module.GetExportedFunction("OriginRequestFriendSync").RCast<OriginRequestFriendSyncType>();
-	// HookAttach(&(PVOID&)OriginReadEnumerationSync, (PVOID)OriginReadEnumerationSyncHook);
 })

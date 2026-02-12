@@ -8,7 +8,7 @@
 #include "server/auth/serverauthentication.h"
 #include "vscript/squirrel/squirrel.h"
 
-DECLARE_MODULE(ConnectHooksModule)
+DECLARE_MODULE(ConnectHooks)
 
 void(__fastcall* SCR_BeginLoadingPlaque)(const char* levelName) = nullptr;
 void(__fastcall* SCR_EndLoadingPlaque)() = nullptr;
@@ -1042,7 +1042,7 @@ ADD_SQFUNC("void", NSDecideModDownload, "bool accept", "", ScriptContext::UI)
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ConnectHooks, ConVar, [](CModule module)
 {
-	DISPATCH_MODULE(ConnectHooksModule)
+	DISPATCH_MODULE(ConnectHooks)
 
 	g_pConnectionManager = new ConnectionManager();
 

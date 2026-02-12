@@ -7,11 +7,12 @@
 #include "util/printmaps.h"
 #include "eos/eos_network.h"
 
-static void(__fastcall* o_pHost_Init)(bool bDedicated) = nullptr;
-static void __fastcall h_Host_Init(bool bDedicated)
+DECLARE_MODULE(HostHooks)
+
+DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 {
 	spdlog::info("Host_Init()");
-	o_pHost_Init(bDedicated);
+	hook.Original(bDedicated);
 	FixupCvarFlags();
 	// need to initialise these after host_init since they do stuff to preexisting concommands/convars without being client/server specific
 	InitialiseCommandPrint();
@@ -26,11 +27,9 @@ static void __fastcall h_Host_Init(bool bDedicated)
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_client", cmd_source_t::kCommandSrcCode);
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_listenserver", cmd_source_t::kCommandSrcCode);
 	}
-
-}
+})
 
 ON_DLL_LOAD("engine.dll", Host_Init, [](CModule module)
 {
-	o_pHost_Init = module.Offset(0x155EA0).RCast<decltype(o_pHost_Init)>();
-	HookAttach(&(PVOID&)o_pHost_Init, (PVOID)h_Host_Init);
+	DISPATCH_MODULE(HostHooks)
 })

@@ -1,17 +1,18 @@
 #include "core/convar/convar.h"
 
+DECLARE_MODULE(LatencyFlexHooks)
+
 ConVar* Cvar_r_latencyflex;
 
 void (*m_winelfx_WaitAndBeginFrame)();
 
-void(__fastcall* o_pOnRenderStart)() = nullptr;
-void __fastcall h_OnRenderStart()
+DECLARE_HOOK(OnRenderStart, client.dll + 0x1952C0, [](auto& hook)
 {
 	if (Cvar_r_latencyflex->GetBool() && m_winelfx_WaitAndBeginFrame)
 		m_winelfx_WaitAndBeginFrame();
 
-	o_pOnRenderStart();
-}
+	hook.Original();
+})
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", LatencyFlex, ConVar, [](CModule module)
 {
@@ -32,8 +33,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("client.dll", LatencyFlex, ConVar, [](CModule module
 		return;
 	}
 
-	o_pOnRenderStart = module.Offset(0x1952C0).RCast<decltype(o_pOnRenderStart)>();
-	HookAttach(&(PVOID&)o_pOnRenderStart, (PVOID)h_OnRenderStart);
+	DISPATCH_MODULE(LatencyFlexHooks)
 
 	spdlog::info("LatencyFleX initialized.");
 	Cvar_r_latencyflex = new ConVar("r_latencyflex", "1", FCVAR_ARCHIVE, "Whether or not to use LatencyFleX input latency reduction.");

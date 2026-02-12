@@ -105,10 +105,11 @@ sub_739B90_t sub_739B90 = nullptr;
 
 HMODULE clientBase = 0;
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(ScriptHudElemHooks)
 
-AUTOHOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, bool, __fastcall, (__int64 a1))
+DECLARE_HOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, ([](auto& hook, __int64 a1) -> bool
 {
+	NOTE_UNUSED(hook);
   __int64 v3; // rcx
   __int64 v4; // rax
   __int64 v5; // rbx
@@ -163,7 +164,7 @@ AUTOHOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, bool, __fastca
       return 1;
   }
   return 0;
-}
+}))
 
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", CGameUIConVarRef, ConVar, [](CModule module)
@@ -175,6 +176,6 @@ ON_DLL_LOAD_CLIENT_RELIESON("client.dll", CGameUIConVarRef, ConVar, [](CModule m
 	sub_739B90 = module.Offset(0x739B90).RCast<sub_739B90_t>();
     clientBase = (HMODULE)module.GetModuleBase();
 
-	AUTOHOOK_DISPATCH()
+	DISPATCH_MODULE(ScriptHudElemHooks);
 	CGameUIConVarRef__Init = module.Offset(0x4A34A0).RCast<CGameUIConVarRef__Init_t>();
 })

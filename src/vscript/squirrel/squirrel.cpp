@@ -16,8 +16,6 @@
 #include <any>
 #include <ns_version.h>
 
-AUTOHOOK_INIT()
-
 SquirrelManagerManager g_pSquirrel;
 
 float g_LastSQErrorTimes[3] = {0.0f, 0.0f, 0.0f};
@@ -706,7 +704,7 @@ ADD_SQFUNC(
 
 ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module)
 {
-	AUTOHOOK_DISPATCH_MODULE(client.dll)
+	HookSys::GetOrCreateFileHookModule(__FILE__, "SquirrelHooksModule").DispatchForModule("client.dll");
 
 	g_pSquirrel[ScriptContext::CLIENT]->__sq_defconst = module.Offset(0x12120).RCast<sq_defconstType>();
 	g_pSquirrel[ScriptContext::UI]->__sq_defconst = g_pSquirrel[ScriptContext::CLIENT]->__sq_defconst;
@@ -830,7 +828,7 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module
 
 ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module)
 {
-	AUTOHOOK_DISPATCH_MODULE(server.dll)
+	HookSys::GetOrCreateFileHookModule(__FILE__, "SquirrelHooksModule").DispatchForModule("server.dll");
 
 	g_pSquirrel[ScriptContext::SERVER]->__sq_defconst = module.Offset(0x1F550).RCast<sq_defconstType>();
 

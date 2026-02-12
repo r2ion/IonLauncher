@@ -1,5 +1,3 @@
-AUTOHOOK_INIT()
-
 HWND* g_gameHWND;
 HMODULE g_NorthstarModule = 0;
 

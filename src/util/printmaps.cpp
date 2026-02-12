@@ -11,7 +11,7 @@
 #include <filesystem>
 #include <regex>
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(PrintMapsHooks)
 
 enum class MapSource_t
 {
@@ -131,10 +131,11 @@ void RefreshMapList()
 }
 
 // clang-format off
-AUTOHOOK(_Host_Map_f_CompletionFunc, engine.dll + 0x161AE0,
-int, __fastcall, (const char *const cmdname, const char *const partial, char commands[COMMAND_COMPLETION_MAXITEMS][COMMAND_COMPLETION_ITEM_LENGTH]))
+DECLARE_HOOK(_Host_Map_f_CompletionFunc, engine.dll + 0x161AE0,
+[](auto& hook, const char *const cmdname, const char *const partial, char commands[COMMAND_COMPLETION_MAXITEMS][COMMAND_COMPLETION_ITEM_LENGTH]) -> int
 // clang-format on
 {
+	NOTE_UNUSED(hook);
 	RefreshMapList();
 
 	// use a custom autocomplete func for all map loading commands
@@ -157,7 +158,7 @@ int, __fastcall, (const char *const cmdname, const char *const partial, char com
 	}
 
 	return numMaps;
-}
+})
 
 ADD_SQFUNC(
 	"array<string>",
@@ -197,9 +198,10 @@ void ConCommand_maps(const CCommand& args)
 }
 
 // clang-format off
-AUTOHOOK(Host_Map_f, engine.dll + 0x15B340, void, __fastcall, (const CCommand& args))
+DECLARE_HOOK(Host_Map_f, engine.dll + 0x15B340, [](auto& hook, const CCommand& args)
 // clang-format on
 {
+	NOTE_UNUSED(hook);
 	RefreshMapList();
 
 	server_state_t state = g_pServerState ? *g_pServerState : server_state_t::ss_dead;
@@ -250,11 +252,11 @@ AUTOHOOK(Host_Map_f, engine.dll + 0x15B340, void, __fastcall, (const CCommand& a
 		return Host_Changelevel_f(args);
 	else
 		return Host_Map_helper(args, nullptr);
-}
+})
 
 void InitialiseMapsPrint()
 {
-	AUTOHOOK_DISPATCH()
+	DISPATCH_MODULE(PrintMapsHooks)
 
 	ConCommand* mapsCommand = g_pCVar->FindCommand("maps");
 	mapsCommand->m_pCommandCallback = ConCommand_maps;

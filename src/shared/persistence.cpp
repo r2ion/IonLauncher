@@ -72,14 +72,14 @@ bool CLC_SendPersistentData::Process(void)
 	return true;
 }
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(PersistenceHooks)
 
-AUTOHOOK(CClient__SendSignonData, engine.dll + 0x105760, bool, __fastcall, (CClient* pThis))
+DECLARE_HOOK(CClient__SendSignonData, engine.dll + 0x105760, [](auto& hook, CClient* pThis) -> bool
 {
-	return CClient__SendSignonData(pThis);
-}
+	return hook.Original(pThis);
+})
 
 ON_DLL_LOAD_RELIESON("engine.dll", PersistenceNetMessages, ConVar, [](CModule module)
 {
-	AUTOHOOK_DISPATCH()
+	DISPATCH_MODULE(PersistenceHooks)
 })

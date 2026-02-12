@@ -5,6 +5,8 @@
 #include <iostream>
 #include <sstream>
 
+DECLARE_MODULE(FilesystemHooks)
+
 // the currently accepted sources for files
 int iFileSourceType = FileSourceType_Any;
 
@@ -122,7 +124,8 @@ static bool __fastcall h_ReadFromCache(IFileSystem* filesystem, char* pPath, voi
 }
 
 static FileHandle_t(__fastcall* o_pReadFileFromVPK)(VPKData* vpkInfo, uint64_t* b, char* filename) = nullptr;
-static FileHandle_t __fastcall h_ReadFileFromVPK(VPKData* vpkInfo, uint64_t* b, char* filename)
+
+DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0, [](auto& hook, VPKData* vpkInfo, uint64_t* b, char* filename) -> FileHandle_t
 {
 	// don't compile here because this is only ever called from OpenEx, which already compiles
 	if (TryReplaceFile(filename, false))
@@ -131,18 +134,24 @@ static FileHandle_t __fastcall h_ReadFileFromVPK(VPKData* vpkInfo, uint64_t* b, 
 		return b;
 	}
 
-	return o_pReadFileFromVPK(vpkInfo, b, filename);
-}
+	return hook.Original(vpkInfo, b, filename);
+})
 
 static FileHandle_t(__fastcall* o_pCBaseFileSystem__OpenEx)(
 	IFileSystem* filesystem, const char* pPath, const char* pOptions, uint32_t flags, const char* pPathID, char** ppszResolvedFilename) =
 	nullptr;
-static FileHandle_t __fastcall h_CBaseFileSystem__OpenEx(
-	IFileSystem* filesystem, const char* pPath, const char* pOptions, uint32_t flags, const char* pPathID, char** ppszResolvedFilename)
+
+DECLARE_HOOK(CBaseFileSystem_OpenEx, filesystem_stdio.dll + 0x15F50, [](auto& hook,
+	IFileSystem* filesystem,
+	const char* pPath,
+	const char* pOptions,
+	uint32_t flags,
+	const char* pPathID,
+	char** ppszResolvedFilename) -> FileHandle_t
 {
 	TryReplaceFile(pPath, true);
-	return o_pCBaseFileSystem__OpenEx(filesystem, pPath, pOptions, flags, pPathID, ppszResolvedFilename);
-}
+	return hook.Original(filesystem, pPath, pOptions, flags, pPathID, ppszResolvedFilename);
+})
 
 static VPKData* (*o_pMountVPK)(IFileSystem* fileSystem, const char* pVpkPath) = nullptr;
 static VPKData* h_MountVPK(IFileSystem* fileSystem, const char* pVpkPath)
@@ -177,20 +186,23 @@ static VPKData* h_MountVPK(IFileSystem* fileSystem, const char* pVpkPath)
 	return ret;
 }
 
+static ManualHook AddSearchPathHook("AddSearchPath", (LPVOID*)&o_pAddSearchPath, (LPVOID)h_AddSearchPath);
+static ManualHook ReadFromCacheHook("ReadFromCache", (LPVOID*)&o_pReadFromCache, (LPVOID)h_ReadFromCache);
+static ManualHook MountVPKHook("MountVPK", (LPVOID*)&o_pMountVPK, (LPVOID)h_MountVPK);
+
 ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, [](CModule module)
 {
-	o_pReadFileFromVPK = module.Offset(0x5CBA0).RCast<decltype(o_pReadFileFromVPK)>();
-	HookAttach(&(PVOID&)o_pReadFileFromVPK, (PVOID)h_ReadFileFromVPK);
-
-	o_pCBaseFileSystem__OpenEx = module.Offset(0x15F50).RCast<decltype(o_pCBaseFileSystem__OpenEx)>();
-	HookAttach(&(PVOID&)o_pCBaseFileSystem__OpenEx, (PVOID)h_CBaseFileSystem__OpenEx);
+	DISPATCH_MODULE(FilesystemHooks)
+	o_pReadFileFromVPK = HookSys::GetOriginalFunction<decltype(o_pReadFileFromVPK)>(HookSys::FindHook("ReadFileFromVPK"));
+	o_pCBaseFileSystem__OpenEx =
+		HookSys::GetOriginalFunction<decltype(o_pCBaseFileSystem__OpenEx)>(HookSys::FindHook("CBaseFileSystem_OpenEx"));
 
 	g_pFilesystem = Sys_GetFactoryPtr("filesystem_stdio.dll", "VFileSystem017").RCast<IFileSystem*>();
 
 	o_pAddSearchPath = reinterpret_cast<decltype(o_pAddSearchPath)>(g_pFilesystem->m_vtable->AddSearchPath);
-	HookAttach(&(PVOID&)o_pAddSearchPath, (PVOID)h_AddSearchPath);
+	AddSearchPathHook.Dispatch(reinterpret_cast<LPVOID>(g_pFilesystem->m_vtable->AddSearchPath));
 	o_pReadFromCache = reinterpret_cast<decltype(o_pReadFromCache)>(g_pFilesystem->m_vtable->ReadFromCache);
-	HookAttach(&(PVOID&)o_pReadFromCache, (PVOID)h_ReadFromCache);
+	ReadFromCacheHook.Dispatch(reinterpret_cast<LPVOID>(g_pFilesystem->m_vtable->ReadFromCache));
 	o_pMountVPK = reinterpret_cast<decltype(o_pMountVPK)>(g_pFilesystem->m_vtable->MountVPK);
-	HookAttach(&(PVOID&)o_pMountVPK, (PVOID)h_MountVPK);
+	MountVPKHook.Dispatch(reinterpret_cast<LPVOID>(g_pFilesystem->m_vtable->MountVPK));
 })

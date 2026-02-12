@@ -24,9 +24,11 @@ class CPureCall : IPureCall
 	virtual void CallMeIDareYou() {}
 };
 
-static void (*o_pCC_crash_test_f)(const CCommand& args);
-static void h_CC_crash_test_f(const CCommand& args)
+DECLARE_MODULE(ClientModeSharedHooks)
+
+DECLARE_HOOK(CC_crash_test_f, engine.dll + 0x15BEE0, [](auto& hook, const CCommand& args)
 {
+	NOTE_UNUSED(hook);
 	int crashtype = 0;
 	int dummy;
 	if (args.ArgC() > 1)
@@ -57,10 +59,9 @@ static void h_CC_crash_test_f(const CCommand& args)
 		spdlog::info("Unknown variety of crash. You have now failed to crash. I hope you're happy.");
 		break;
 	}
-}
+})
 
 ON_DLL_LOAD("engine.dll", ClientModeShared, [](CModule module)
 {
-	o_pCC_crash_test_f = module.Offset(0x15BEE0).RCast<decltype(o_pCC_crash_test_f)>();
-	HookAttach(&(PVOID&)o_pCC_crash_test_f, (PVOID)h_CC_crash_test_f);
+	DISPATCH_MODULE(ClientModeSharedHooks)
 })

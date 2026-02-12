@@ -4,9 +4,9 @@
 #include "modsystem/moddownloader.h"
 #include "core/tier0.h"
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(ClientNetHooks)
 
-AUTOHOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, bool, __fastcall, (CClientState* self, netpacket_t* packet))
+DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [](auto& hook, CClientState* self, netpacket_t* packet) -> bool
 {
 	bf_read msg(packet->data, packet->size);
 	unsigned int header = msg.ReadLong();
@@ -86,10 +86,10 @@ AUTOHOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, bool,
 		}
 	}
 
-	return CClientState__ProcessConnectionlessPacket(self, packet);
-}
+	return hook.Original(self, packet);
+})
 
 ON_DLL_LOAD_RELIESON("engine.dll", ClientNetHooks, R2Engine, [](CModule module)
 {
-	AUTOHOOK_DISPATCH();
+	DISPATCH_MODULE(ClientNetHooks);
 })

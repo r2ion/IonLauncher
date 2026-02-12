@@ -1,6 +1,6 @@
-AUTOHOOK_INIT()
+DECLARE_MODULE(ImagePanelCrashFixHooks)
 
-AUTOHOOK(sub_1E5F0, client.dll + 0x1E5F0, __int64, __fastcall, (__int64 a1))
+DECLARE_HOOK(sub_1E5F0, client.dll + 0x1E5F0, ([](auto& hook, __int64 a1) -> __int64
 {
     if (!a1)
         return 0;
@@ -22,10 +22,10 @@ AUTOHOOK(sub_1E5F0, client.dll + 0x1E5F0, __int64, __fastcall, (__int64 a1))
         return 0;
     }
 
-    return sub_1E5F0(a1);
-}
+    return hook.Original(a1);
+}))
 
 ON_DLL_LOAD_CLIENT("client.dll", ImagePanelCrashFix, [](CModule module)
 {
-	AUTOHOOK_DISPATCH()
+    DISPATCH_MODULE(ImagePanelCrashFixHooks);
 })

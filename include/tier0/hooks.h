@@ -54,27 +54,6 @@ void AddDllLoadCallbackForClient(std::string dll, DllLoadCallbackFuncType callba
 //-----------------------------------------------------------------------------
 void HookSys_Init();
 
-//-----------------------------------------------------------------------------
-// Purpose: MH_MakeHook wrapper
-// Input  : *ppOriginal - Original function being detoured
-//          pDetour - Detour function
-//-----------------------------------------------------------------------------
-inline void HookAttach(PVOID* ppOriginal, PVOID pDetour)
-{
-    PVOID pAddr = *ppOriginal;
-    if (MH_CreateHook(pAddr, pDetour, ppOriginal) == MH_OK)
-    {
-        if (MH_EnableHook(pAddr) != MH_OK)
-        {
-            spdlog::error("Failed enabling a function hook!");
-        }
-    }
-    else
-    {
-        spdlog::error("Failed creating a function hook!");
-    }
-}
-
 void* HookImportByOrdinal(const char* module, const char* targetDll, WORD targetOrdinal, void* replacement);
 void* HookImportByName(const char* module, const char* targetDll, const char* funcName, void* replacement);
 
@@ -121,195 +100,6 @@ class __dllLoadCallback
 #define ON_DLL_LOAD_DEDI_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                                          \
     __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, __STR(reliesOn), lambdaExpr)
 
-// new macro hook stuff
-class __autohook;
-class __autovar;
-
-class __fileAutohook
-{
-  public:
-    std::vector<__autohook*> hooks;
-    std::vector<__autovar*> vars;
-
-    void Dispatch();
-    void DispatchForModule(const char* pModuleName);
-};
-
-// initialise autohooks for this file
-#define AUTOHOOK_INIT()                                                                                                                              \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    __fileAutohook __FILEAUTOHOOK;                                                                                                                   \
-    }
-
-// dispatch all autohooks in this file
-#define AUTOHOOK_DISPATCH()                                                                                                                         \
-    __FILEAUTOHOOK.Dispatch();                                                                                                                      \
-    HookSys::GetOrCreateFileHookModule(__FILE__).Dispatch();
-
-#define AUTOHOOK_DISPATCH_MODULE(moduleName)                                                                                                        \
-    __FILEAUTOHOOK.DispatchForModule(__STR(moduleName));                                                                                            \
-    HookSys::GetOrCreateFileHookModule(__FILE__).DispatchForModule(__STR(moduleName));
-
-class __autohook
-{
-  public:
-    enum AddressResolutionMode
-    {
-        OFFSET_STRING, // we're using a string that of the format dllname.dll + offset
-        ABSOLUTE_ADDR, // we're using an absolute address, we don't need to process it at all
-        PROCADDRESS    // resolve using GetModuleHandle and GetProcAddress
-    };
-
-    char* pFuncName;
-
-    LPVOID pHookFunc;
-    LPVOID* ppOrigFunc;
-
-    // address resolution props
-    AddressResolutionMode iAddressResolutionMode;
-    char* pAddrString = nullptr;       // for OFFSET_STRING
-    LPVOID iAbsoluteAddress = nullptr; // for ABSOLUTE_ADDR
-    char* pModuleName;                 // for PROCADDRESS
-    char* pProcName;                   // for PROCADDRESS
-
-  public:
-    __autohook() = delete;
-
-    __autohook(__fileAutohook* autohook, const char* funcName, LPVOID absoluteAddress, LPVOID* orig, LPVOID func)
-        : pHookFunc(func), ppOrigFunc(orig), iAbsoluteAddress(absoluteAddress)
-    {
-        iAddressResolutionMode = ABSOLUTE_ADDR;
-
-        const size_t iFuncNameStrlen = strlen(funcName) + 1;
-        pFuncName = new char[iFuncNameStrlen];
-        memcpy(pFuncName, funcName, iFuncNameStrlen);
-
-        autohook->hooks.push_back(this);
-    }
-
-    __autohook(__fileAutohook* autohook, const char* funcName, const char* addrString, LPVOID* orig, LPVOID func) : pHookFunc(func), ppOrigFunc(orig)
-    {
-        iAddressResolutionMode = OFFSET_STRING;
-
-        const size_t iFuncNameStrlen = strlen(funcName) + 1;
-        pFuncName = new char[iFuncNameStrlen];
-        memcpy(pFuncName, funcName, iFuncNameStrlen);
-
-        const size_t iAddrStrlen = strlen(addrString) + 1;
-        pAddrString = new char[iAddrStrlen];
-        memcpy(pAddrString, addrString, iAddrStrlen);
-
-        autohook->hooks.push_back(this);
-    }
-
-    __autohook(__fileAutohook* autohook, const char* funcName, const char* moduleName, const char* procName, LPVOID* orig, LPVOID func)
-        : pHookFunc(func), ppOrigFunc(orig)
-    {
-        iAddressResolutionMode = PROCADDRESS;
-
-        const size_t iFuncNameStrlen = strlen(funcName) + 1;
-        pFuncName = new char[iFuncNameStrlen];
-        memcpy(pFuncName, funcName, iFuncNameStrlen);
-
-        const size_t iModuleNameStrlen = strlen(moduleName) + 1;
-        pModuleName = new char[iModuleNameStrlen];
-        memcpy(pModuleName, moduleName, iModuleNameStrlen);
-
-        const size_t iProcNameStrlen = strlen(procName) + 1;
-        pProcName = new char[iProcNameStrlen];
-        memcpy(pProcName, procName, iProcNameStrlen);
-
-        autohook->hooks.push_back(this);
-    }
-
-    ~__autohook()
-    {
-        delete[] pFuncName;
-
-        if (pAddrString)
-            delete[] pAddrString;
-
-        if (pModuleName)
-            delete[] pModuleName;
-
-        if (pProcName)
-            delete[] pProcName;
-    }
-
-    void Dispatch()
-    {
-        LPVOID targetAddr = nullptr;
-
-        // determine the address of the function we're hooking
-        switch (iAddressResolutionMode)
-        {
-        case ABSOLUTE_ADDR:
-        {
-            targetAddr = iAbsoluteAddress;
-            break;
-        }
-
-        case OFFSET_STRING:
-        {
-            targetAddr = (LPVOID)ParseDLLOffsetString(pAddrString);
-            break;
-        }
-
-        case PROCADDRESS:
-        {
-            targetAddr = (LPVOID)GetProcAddress(GetModuleHandleA(pModuleName), pProcName);
-            break;
-        }
-        }
-
-        if (!targetAddr)
-            spdlog::error("Address for hook {} is invalid", pFuncName);
-        else if (MH_CreateHook(targetAddr, pHookFunc, ppOrigFunc) == MH_OK)
-        {
-            if (MH_EnableHook(targetAddr) == MH_OK)
-                spdlog::info("Enabling hook {}", pFuncName);
-            else
-                spdlog::error("MH_EnableHook failed for function {}", pFuncName);
-        }
-        else
-            spdlog::error("MH_CreateHook failed for function {}", pFuncName);
-    }
-};
-
-// hook a function at a given offset from a dll to be dispatched with AUTOHOOK_DISPATCH()
-#define AUTOHOOK(name, addrString, type, callingConvention, args)                                                                                    \
-    type callingConvention CONCAT2(__autohookfunc, name) args;                                                                                       \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    type(*name) args;                                                                                                                                \
-    __autohook CONCAT2(__autohook, __LINE__)(&__FILEAUTOHOOK, __STR(name), __STR(addrString), (LPVOID*)&name,                                        \
-                                             (LPVOID)CONCAT2(__autohookfunc, name));                                                                 \
-    }                                                                                                                                                \
-    type callingConvention CONCAT2(__autohookfunc, name) args
-
-// hook a function at a given absolute constant address to be dispatched with AUTOHOOK_DISPATCH()
-#define AUTOHOOK_ABSOLUTEADDR(name, addr, type, callingConvention, args)                                                                             \
-    type callingConvention CONCAT2(__autohookfunc, name) args;                                                                                       \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    type(*name) args;                                                                                                                                \
-    __autohook CONCAT2(__autohook, __LINE__)(&__FILEAUTOHOOK, __STR(name), addr, (LPVOID*)&name, (LPVOID)CONCAT2(__autohookfunc, name));             \
-    }                                                                                                                                                \
-    type callingConvention CONCAT2(__autohookfunc, name) args
-
-// hook a function at a given module and exported function to be dispatched with AUTOHOOK_DISPATCH()
-#define AUTOHOOK_PROCADDRESS(name, moduleName, procName, type, callingConvention, args)                                                              \
-    type callingConvention CONCAT2(__autohookfunc, name) args;                                                                                       \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    type(*name) args;                                                                                                                                \
-    __autohook CONCAT2(__autohook, __LINE__)(&__FILEAUTOHOOK, __STR(name), __STR(moduleName), __STR(procName), (LPVOID*)&name,                       \
-                                             (LPVOID)CONCAT2(__autohookfunc, name));                                                                 \
-    }                                                                                                                                                \
-    type callingConvention CONCAT2(__autohookfunc, name)                                                                                             \
-    args
-
 class ManualHook
 {
   public:
@@ -343,54 +133,6 @@ class ManualHook
 
 void MakeHook(LPVOID pTarget, LPVOID pDetour, void* ppOriginal, const char* pFuncName = "");
 #define MAKEHOOK(pTarget, pDetour, ppOriginal) MakeHook((LPVOID)pTarget, (LPVOID)pDetour, (void*)ppOriginal, __STR(pDetour))
-
-class __autovar
-{
-  public:
-    char* m_pAddrString;
-    void** m_pTarget;
-
-  public:
-    __autovar(__fileAutohook* pAutohook, const char* pAddrString, void** pTarget)
-    {
-        m_pTarget = pTarget;
-
-        const size_t iAddrStrlen = strlen(pAddrString) + 1;
-        m_pAddrString = new char[iAddrStrlen];
-        memcpy(m_pAddrString, pAddrString, iAddrStrlen);
-
-        pAutohook->vars.push_back(this);
-    }
-
-    void Dispatch()
-    {
-        *m_pTarget = (void*)ParseDLLOffsetString(m_pAddrString);
-    }
-};
-
-// VAR_AT(engine.dll+0x404, ConVar*, Cvar_host_timescale)
-#define VAR_AT(addrString, type, name)                                                                                                               \
-    type name;                                                                                                                                       \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    __autovar CONCAT2(__autovar, __LINE__)(&__FILEAUTOHOOK, __STR(addrString), (void**)&name);                                                       \
-    }
-
-// FUNCTION_AT(engine.dll + 0xDEADBEEF, void, __fastcall, SomeFunc, (void* a1))
-#define FUNCTION_AT(addrString, type, callingConvention, name, args)                                                                                 \
-    type(*name) args;                                                                                                                                \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    __autovar CONCAT2(__autovar, __LINE__)(&__FILEAUTOHOOK, __STR(addrString), (void**)&name);                                                       \
-    }
-
-// int* g_pSomeInt;
-// DEFINED_VAR_AT(engine.dll + 0x5005, g_pSomeInt)
-#define DEFINED_VAR_AT(addrString, name)                                                                                                             \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    __autovar CONCAT2(__autovar, __LINE__)(&__FILEAUTOHOOK, __STR(addrString), (void**)&name);                                                       \
-    }
 
 namespace HookSys
 {
@@ -459,6 +201,30 @@ template <typename LambdaT, typename = void> struct lambda_traits_for_hook : lam
 template <typename LambdaT>
 struct lambda_traits_for_hook<LambdaT, std::void_t<decltype(&LambdaT::template operator()<hook_placeholder>)>>
     : lambda_traits<decltype(&LambdaT::template operator()<hook_placeholder>)>
+{
+};
+
+template <typename T> struct function_traits;
+
+template <typename R, typename... Args> struct function_traits<R (*)(Args...)>
+{
+    using return_type = R;
+    using args_tuple = std::tuple<Args...>;
+    static constexpr bool is_variadic = false;
+};
+
+template <typename R, typename... Args> struct function_traits<R (*)(Args..., ...)>
+{
+    using return_type = R;
+    using args_tuple = std::tuple<Args...>;
+    static constexpr bool is_variadic = true;
+};
+
+template <typename R, typename... Args> struct function_traits<R (&)(Args...)> : function_traits<R (*)(Args...)>
+{
+};
+
+template <typename R, typename... Args> struct function_traits<R (&)(Args..., ...)> : function_traits<R (*)(Args..., ...)>
 {
 };
 
@@ -669,14 +435,23 @@ template <typename Fn, typename HookT, typename... Args> decltype(auto) InvokeHo
         }
     }
 
-    if constexpr (std::is_void_v<std::invoke_result_t<Fn, Args...>>)
+    else if constexpr (std::is_invocable_v<Fn, Args...>)
     {
-        std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
-        return;
+        if constexpr (std::is_void_v<std::invoke_result_t<Fn, Args...>>)
+        {
+            std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
+        }
     }
+
     else
     {
-        return std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
+        static_assert(std::is_invocable_v<Fn, HookT&, Args...> || std::is_invocable_v<Fn, Args...>,
+                      "Hook target is not invocable with either (hook, args...) or (args...) signature");
     }
 }
 
@@ -696,14 +471,23 @@ decltype(auto) InvokeMethodHook(Method method, InstanceT&& instance, HookT& hook
         }
     }
 
-    if constexpr (std::is_void_v<std::invoke_result_t<Method, InstanceT, Args...>>)
+    else if constexpr (std::is_invocable_v<Method, InstanceT, Args...>)
     {
-        std::invoke(method, std::forward<InstanceT>(instance), std::forward<Args>(args)...);
-        return;
+        if constexpr (std::is_void_v<std::invoke_result_t<Method, InstanceT, Args...>>)
+        {
+            std::invoke(method, std::forward<InstanceT>(instance), std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(method, std::forward<InstanceT>(instance), std::forward<Args>(args)...);
+        }
     }
+
     else
     {
-        return std::invoke(method, std::forward<InstanceT>(instance), std::forward<Args>(args)...);
+        static_assert(std::is_invocable_v<Method, InstanceT, HookT&, Args...> || std::is_invocable_v<Method, InstanceT, Args...>,
+                      "Method hook target is not invocable with either (instance, hook, args...) or (instance, args...) signature");
     }
 }
 
@@ -1149,18 +933,122 @@ template <typename HookT> struct LambdaHookRegistrationProc
 
 // Hook using a regular free function (with or without hook ref as first arg)
 #define DECLARE_HOOK_FN_CC(debugName, addrString, callingConvention, func)                                                                           \
-    DECLARE_HOOK_CC(debugName, addrString, callingConvention, [](auto& hook, auto... args) -> decltype(auto)                                         \
+    namespace                                                                                                                                        \
     {                                                                                                                                                \
-        if constexpr (std::is_void_v<decltype(HookSys::InvokeHookTarget(func, hook, args...))>)                                                      \
+    struct CONCAT2(__funcHook_, __LINE__) : public HookSys::LambdaHookBase                                                                           \
+    {                                                                                                                                                \
+        using Self = CONCAT2(__funcHook_, __LINE__);                                                                                                 \
+        using FnPtr = std::remove_reference_t<decltype(&func)>;                                                                                      \
+        using Traits = HookSys::function_traits<FnPtr>;                                                                                              \
+        using ReturnT = typename Traits::return_type;                                                                                                \
+        using ArgsTuple = typename Traits::args_tuple;                                                                                                \
+        static constexpr bool kVarargs = Traits::is_variadic;                                                                                        \
+        using FixedArgsTuple = ArgsTuple;                                                                                                            \
+        template <typename... Args> struct Helper                                                                                                    \
         {                                                                                                                                            \
-            HookSys::InvokeHookTarget(func, hook, args...);                                                                                          \
-            return;                                                                                                                                  \
-        }                                                                                                                                            \
-        else                                                                                                                                         \
+            using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                                 \
+            static ReturnT callingConvention Detour(Args... args)                                                                                    \
+            {                                                                                                                                        \
+                if constexpr (std::is_void_v<ReturnT>)                                                                                               \
+                    Self::Instance().Invoke(args...);                                                                                                \
+                else                                                                                                                                 \
+                    return Self::Instance().Invoke(args...);                                                                                         \
+            }                                                                                                                                        \
+        };                                                                                                                                           \
+        template <typename... Args> struct VarargHelper                                                                                              \
         {                                                                                                                                            \
-            return HookSys::InvokeHookTarget(func, hook, args...);                                                                                   \
+            static_assert(sizeof...(Args) > 0, "Varargs hooks require at least one fixed argument");                                                 \
+            static_assert(sizeof...(Args) <= 8, "Varargs hooks support up to 8 fixed args");                                                         \
+        };                                                                                                                                           \
+        HOOKSYS_DEFINE_VARARG_HELPERS_NESTED_CC(callingConvention)                                                                                   \
+        using HelperT = std::conditional_t<kVarargs, typename HookSys::apply_tuple<VarargHelper, FixedArgsTuple>::type,                              \
+                                           typename HookSys::apply_tuple<Helper, ArgsTuple>::type>;                                                  \
+        using OriginalFn = typename HelperT::OriginalFn;                                                                                             \
+        inline static OriginalFn s_original = nullptr;                                                                                               \
+        inline static thread_local void* s_returnAddress = nullptr;                                                                                  \
+        inline static thread_local bool s_hasVaList = false;                                                                                         \
+        inline static thread_local va_list s_vaList;                                                                                                 \
+        static Self& Instance()                                                                                                                      \
+        {                                                                                                                                            \
+            static Self inst;                                                                                                                        \
+            return inst;                                                                                                                             \
         }                                                                                                                                            \
-    })
+        void* ReturnAddress() const                                                                                                                  \
+        {                                                                                                                                            \
+            return s_returnAddress;                                                                                                                  \
+        }                                                                                                                                            \
+        bool HasVarArgs() const                                                                                                                      \
+        {                                                                                                                                            \
+            return s_hasVaList;                                                                                                                      \
+        }                                                                                                                                            \
+        va_list* VarArgs()                                                                                                                           \
+        {                                                                                                                                            \
+            assert(s_hasVaList && "VarArgs() called without active varargs");                                                                        \
+            return &s_vaList;                                                                                                                        \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
+        {                                                                                                                                            \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                func(args...);                                                                                                                       \
+            else                                                                                                                                     \
+                return func(args...);                                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
+        {                                                                                                                                            \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                func(args...);                                                                                                                       \
+            else                                                                                                                                     \
+                return func(args...);                                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT Original(Args... args)                                                                                   \
+        {                                                                                                                                            \
+            if (!s_original)                                                                                                                         \
+            {                                                                                                                                        \
+                spdlog::error("Original function for hook {} is null", DebugName());                                                                 \
+                if constexpr (!std::is_void_v<ReturnT>)                                                                                              \
+                    return ReturnT{};                                                                                                                \
+                else                                                                                                                                 \
+                    return;                                                                                                                          \
+            }                                                                                                                                        \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                s_original(args...);                                                                                                                 \
+            else                                                                                                                                     \
+                return s_original(args...);                                                                                                          \
+        }                                                                                                                                            \
+        bool Dispatch() override                                                                                                                     \
+        {                                                                                                                                            \
+            const uintptr_t addr = ResolveAddress();                                                                                                 \
+            if (!addr)                                                                                                                               \
+            {                                                                                                                                        \
+                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
+                return false;                                                                                                                        \
+            }                                                                                                                                        \
+            if (MH_CreateHook(reinterpret_cast<LPVOID>(addr), reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original)) == \
+                MH_OK)                                                                                                                               \
+            {                                                                                                                                        \
+                if (MH_EnableHook(reinterpret_cast<LPVOID>(addr)) == MH_OK)                                                                          \
+                {                                                                                                                                    \
+                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
+                    return true;                                                                                                                     \
+                }                                                                                                                                    \
+                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
+            }                                                                                                                                        \
+            else                                                                                                                                     \
+                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
+            return false;                                                                                                                            \
+        }                                                                                                                                            \
+        void* GetOriginalRaw() const override                                                                                                        \
+        {                                                                                                                                            \
+            return reinterpret_cast<void*>(s_original);                                                                                              \
+        }                                                                                                                                            \
+        static void OnModuleLoaded(CModule)                                                                                                          \
+        {                                                                                                                                            \
+            Instance().Dispatch();                                                                                                                   \
+        }                                                                                                                                            \
+    };                                                                                                                                               \
+    HookSys::LambdaHookRegistrationOffset<CONCAT2(__funcHook_, __LINE__)> CONCAT2(__funcHookReg_, __LINE__)(                                        \
+        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(addrString));                                                         \
+    }
 
 #define DECLARE_HOOK_FN(debugName, addrString, func) DECLARE_HOOK_FN_CC(debugName, addrString, HOOKSYS_CALLCONV, func)
 
@@ -1266,18 +1154,122 @@ template <typename HookT> struct LambdaHookRegistrationProc
 
 // Hook using a regular free function at an absolute address
 #define DECLARE_HOOK_ABSOLUTE_FN_CC(debugName, addr, callingConvention, func)                                                                        \
-    DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, callingConvention, [](auto& hook, auto... args) -> decltype(auto)                                      \
+    namespace                                                                                                                                        \
     {                                                                                                                                                \
-        if constexpr (std::is_void_v<decltype(HookSys::InvokeHookTarget(func, hook, args...))>)                                                      \
+    struct CONCAT2(__funcAbsHook_, __LINE__) : public HookSys::LambdaHookBase                                                                        \
+    {                                                                                                                                                \
+        using Self = CONCAT2(__funcAbsHook_, __LINE__);                                                                                              \
+        using FnPtr = std::remove_reference_t<decltype(&func)>;                                                                                      \
+        using Traits = HookSys::function_traits<FnPtr>;                                                                                              \
+        using ReturnT = typename Traits::return_type;                                                                                                \
+        using ArgsTuple = typename Traits::args_tuple;                                                                                                \
+        static constexpr bool kVarargs = Traits::is_variadic;                                                                                        \
+        using FixedArgsTuple = ArgsTuple;                                                                                                            \
+        template <typename... Args> struct Helper                                                                                                    \
         {                                                                                                                                            \
-            HookSys::InvokeHookTarget(func, hook, args...);                                                                                          \
-            return;                                                                                                                                  \
-        }                                                                                                                                            \
-        else                                                                                                                                         \
+            using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                                 \
+            static ReturnT callingConvention Detour(Args... args)                                                                                    \
+            {                                                                                                                                        \
+                if constexpr (std::is_void_v<ReturnT>)                                                                                               \
+                    Self::Instance().Invoke(args...);                                                                                                \
+                else                                                                                                                                 \
+                    return Self::Instance().Invoke(args...);                                                                                         \
+            }                                                                                                                                        \
+        };                                                                                                                                           \
+        template <typename... Args> struct VarargHelper                                                                                              \
         {                                                                                                                                            \
-            return HookSys::InvokeHookTarget(func, hook, args...);                                                                                   \
+            static_assert(sizeof...(Args) > 0, "Varargs hooks require at least one fixed argument");                                                 \
+            static_assert(sizeof...(Args) <= 8, "Varargs hooks support up to 8 fixed args");                                                         \
+        };                                                                                                                                           \
+        HOOKSYS_DEFINE_VARARG_HELPERS_NESTED_CC(callingConvention)                                                                                   \
+        using HelperT = std::conditional_t<kVarargs, typename HookSys::apply_tuple<VarargHelper, FixedArgsTuple>::type,                              \
+                                           typename HookSys::apply_tuple<Helper, ArgsTuple>::type>;                                                  \
+        using OriginalFn = typename HelperT::OriginalFn;                                                                                             \
+        inline static OriginalFn s_original = nullptr;                                                                                               \
+        inline static thread_local void* s_returnAddress = nullptr;                                                                                  \
+        inline static thread_local bool s_hasVaList = false;                                                                                         \
+        inline static thread_local va_list s_vaList;                                                                                                 \
+        static Self& Instance()                                                                                                                      \
+        {                                                                                                                                            \
+            static Self inst;                                                                                                                        \
+            return inst;                                                                                                                             \
         }                                                                                                                                            \
-    })
+        void* ReturnAddress() const                                                                                                                  \
+        {                                                                                                                                            \
+            return s_returnAddress;                                                                                                                  \
+        }                                                                                                                                            \
+        bool HasVarArgs() const                                                                                                                      \
+        {                                                                                                                                            \
+            return s_hasVaList;                                                                                                                      \
+        }                                                                                                                                            \
+        va_list* VarArgs()                                                                                                                           \
+        {                                                                                                                                            \
+            assert(s_hasVaList && "VarArgs() called without active varargs");                                                                        \
+            return &s_vaList;                                                                                                                        \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
+        {                                                                                                                                            \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                func(args...);                                                                                                                       \
+            else                                                                                                                                     \
+                return func(args...);                                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
+        {                                                                                                                                            \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                func(args...);                                                                                                                       \
+            else                                                                                                                                     \
+                return func(args...);                                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT Original(Args... args)                                                                                   \
+        {                                                                                                                                            \
+            if (!s_original)                                                                                                                         \
+            {                                                                                                                                        \
+                spdlog::error("Original function for hook {} is null", DebugName());                                                                 \
+                if constexpr (!std::is_void_v<ReturnT>)                                                                                              \
+                    return ReturnT{};                                                                                                                \
+                else                                                                                                                                 \
+                    return;                                                                                                                          \
+            }                                                                                                                                        \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                s_original(args...);                                                                                                                 \
+            else                                                                                                                                     \
+                return s_original(args...);                                                                                                          \
+        }                                                                                                                                            \
+        bool Dispatch() override                                                                                                                     \
+        {                                                                                                                                            \
+            const uintptr_t addrResolved = ResolveAddress();                                                                                         \
+            if (!addrResolved)                                                                                                                       \
+            {                                                                                                                                        \
+                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
+                return false;                                                                                                                        \
+            }                                                                                                                                        \
+            if (MH_CreateHook(reinterpret_cast<LPVOID>(addrResolved), reinterpret_cast<LPVOID>(&HelperT::Detour),                                    \
+                              reinterpret_cast<LPVOID*>(&s_original)) == MH_OK)                                                                      \
+            {                                                                                                                                        \
+                if (MH_EnableHook(reinterpret_cast<LPVOID>(addrResolved)) == MH_OK)                                                                  \
+                {                                                                                                                                    \
+                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
+                    return true;                                                                                                                     \
+                }                                                                                                                                    \
+                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
+            }                                                                                                                                        \
+            else                                                                                                                                     \
+                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
+            return false;                                                                                                                            \
+        }                                                                                                                                            \
+        void* GetOriginalRaw() const override                                                                                                        \
+        {                                                                                                                                            \
+            return reinterpret_cast<void*>(s_original);                                                                                              \
+        }                                                                                                                                            \
+        static void OnModuleLoaded(CModule)                                                                                                          \
+        {                                                                                                                                            \
+            Instance().Dispatch();                                                                                                                   \
+        }                                                                                                                                            \
+    };                                                                                                                                               \
+    HookSys::LambdaHookRegistrationAbsolute<CONCAT2(__funcAbsHook_, __LINE__)> CONCAT2(__funcAbsHookReg_, __LINE__)(                                \
+        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), static_cast<uintptr_t>(addr));                                              \
+    }
 
 #define DECLARE_HOOK_ABSOLUTE_FN(debugName, addr, func) DECLARE_HOOK_ABSOLUTE_FN_CC(debugName, addr, HOOKSYS_CALLCONV, func)
 
@@ -1378,22 +1370,126 @@ template <typename HookT> struct LambdaHookRegistrationProc
         HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(moduleName), __STR(procName));                                        \
     }
 
-#define DECLARE_HOOK_PROC(debugName, moduleName, procName, lambda) DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, HookSys_CALLCONV, lambda)
+#define DECLARE_HOOK_PROC(debugName, moduleName, procName, lambda) DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, HOOKSYS_CALLCONV, lambda)
 
 // Hook using a regular free function resolved via GetProcAddress
 #define DECLARE_HOOK_PROC_FN_CC(debugName, moduleName, procName, callingConvention, func)                                                            \
-    DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, callingConvention, [](auto& hook, auto... args) -> decltype(auto)                          \
+    namespace                                                                                                                                        \
     {                                                                                                                                                \
-        if constexpr (std::is_void_v<decltype(HookSys::InvokeHookTarget(func, hook, args...))>)                                                      \
+    struct CONCAT2(__funcProcHook_, __LINE__) : public HookSys::LambdaHookBase                                                                       \
+    {                                                                                                                                                \
+        using Self = CONCAT2(__funcProcHook_, __LINE__);                                                                                             \
+        using FnPtr = std::remove_reference_t<decltype(&func)>;                                                                                      \
+        using Traits = HookSys::function_traits<FnPtr>;                                                                                              \
+        using ReturnT = typename Traits::return_type;                                                                                                \
+        using ArgsTuple = typename Traits::args_tuple;                                                                                                \
+        static constexpr bool kVarargs = Traits::is_variadic;                                                                                        \
+        using FixedArgsTuple = ArgsTuple;                                                                                                            \
+        template <typename... Args> struct Helper                                                                                                    \
         {                                                                                                                                            \
-            HookSys::InvokeHookTarget(func, hook, args...);                                                                                          \
-            return;                                                                                                                                  \
-        }                                                                                                                                            \
-        else                                                                                                                                         \
+            using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                                 \
+            static ReturnT callingConvention Detour(Args... args)                                                                                    \
+            {                                                                                                                                        \
+                if constexpr (std::is_void_v<ReturnT>)                                                                                               \
+                    Self::Instance().Invoke(args...);                                                                                                \
+                else                                                                                                                                 \
+                    return Self::Instance().Invoke(args...);                                                                                         \
+            }                                                                                                                                        \
+        };                                                                                                                                           \
+        template <typename... Args> struct VarargHelper                                                                                              \
         {                                                                                                                                            \
-            return HookSys::InvokeHookTarget(func, hook, args...);                                                                                   \
+            static_assert(sizeof...(Args) > 0, "Varargs hooks require at least one fixed argument");                                                 \
+            static_assert(sizeof...(Args) <= 8, "Varargs hooks support up to 8 fixed args");                                                         \
+        };                                                                                                                                           \
+        HOOKSYS_DEFINE_VARARG_HELPERS_NESTED_CC(callingConvention)                                                                                   \
+        using HelperT = std::conditional_t<kVarargs, typename HookSys::apply_tuple<VarargHelper, FixedArgsTuple>::type,                              \
+                                           typename HookSys::apply_tuple<Helper, ArgsTuple>::type>;                                                  \
+        using OriginalFn = typename HelperT::OriginalFn;                                                                                             \
+        inline static OriginalFn s_original = nullptr;                                                                                               \
+        inline static thread_local void* s_returnAddress = nullptr;                                                                                  \
+        inline static thread_local bool s_hasVaList = false;                                                                                         \
+        inline static thread_local va_list s_vaList;                                                                                                 \
+        static Self& Instance()                                                                                                                      \
+        {                                                                                                                                            \
+            static Self inst;                                                                                                                        \
+            return inst;                                                                                                                             \
         }                                                                                                                                            \
-    })
+        void* ReturnAddress() const                                                                                                                  \
+        {                                                                                                                                            \
+            return s_returnAddress;                                                                                                                  \
+        }                                                                                                                                            \
+        bool HasVarArgs() const                                                                                                                      \
+        {                                                                                                                                            \
+            return s_hasVaList;                                                                                                                      \
+        }                                                                                                                                            \
+        va_list* VarArgs()                                                                                                                           \
+        {                                                                                                                                            \
+            assert(s_hasVaList && "VarArgs() called without active varargs");                                                                        \
+            return &s_vaList;                                                                                                                        \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
+        {                                                                                                                                            \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                func(args...);                                                                                                                       \
+            else                                                                                                                                     \
+                return func(args...);                                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
+        {                                                                                                                                            \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                func(args...);                                                                                                                       \
+            else                                                                                                                                     \
+                return func(args...);                                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT Original(Args... args)                                                                                   \
+        {                                                                                                                                            \
+            if (!s_original)                                                                                                                         \
+            {                                                                                                                                        \
+                spdlog::error("Original function for hook {} is null", DebugName());                                                                 \
+                if constexpr (!std::is_void_v<ReturnT>)                                                                                              \
+                    return ReturnT{};                                                                                                                \
+                else                                                                                                                                 \
+                    return;                                                                                                                          \
+            }                                                                                                                                        \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                s_original(args...);                                                                                                                 \
+            else                                                                                                                                     \
+                return s_original(args...);                                                                                                          \
+        }                                                                                                                                            \
+        bool Dispatch() override                                                                                                                     \
+        {                                                                                                                                            \
+            const uintptr_t addrResolved = ResolveAddress();                                                                                         \
+            if (!addrResolved)                                                                                                                       \
+            {                                                                                                                                        \
+                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
+                return false;                                                                                                                        \
+            }                                                                                                                                        \
+            if (MH_CreateHook(reinterpret_cast<LPVOID>(addrResolved), reinterpret_cast<LPVOID>(&HelperT::Detour),                                    \
+                              reinterpret_cast<LPVOID*>(&s_original)) == MH_OK)                                                                      \
+            {                                                                                                                                        \
+                if (MH_EnableHook(reinterpret_cast<LPVOID>(addrResolved)) == MH_OK)                                                                  \
+                {                                                                                                                                    \
+                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
+                    return true;                                                                                                                     \
+                }                                                                                                                                    \
+                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
+            }                                                                                                                                        \
+            else                                                                                                                                     \
+                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
+            return false;                                                                                                                            \
+        }                                                                                                                                            \
+        void* GetOriginalRaw() const override                                                                                                        \
+        {                                                                                                                                            \
+            return reinterpret_cast<void*>(s_original);                                                                                              \
+        }                                                                                                                                            \
+        static void OnModuleLoaded(CModule)                                                                                                          \
+        {                                                                                                                                            \
+            Instance().Dispatch();                                                                                                                   \
+        }                                                                                                                                            \
+    };                                                                                                                                               \
+    HookSys::LambdaHookRegistrationProc<CONCAT2(__funcProcHook_, __LINE__)> CONCAT2(__funcProcHookReg_, __LINE__)(                                  \
+        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(moduleName), __STR(procName));                                        \
+    }
 
 #define DECLARE_HOOK_PROC_FN(debugName, moduleName, procName, func) DECLARE_HOOK_PROC_FN_CC(debugName, moduleName, procName, HOOKSYS_CALLCONV, func)
 

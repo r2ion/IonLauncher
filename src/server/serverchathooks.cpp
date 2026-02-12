@@ -9,6 +9,8 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+DECLARE_MODULE(ServerChatHooks)
+
 class CServerGameDLL;
 
 class CRecipientFilter
@@ -32,10 +34,11 @@ void(__fastcall* MessageWriteBool)(bool bValue);
 
 bool bShouldCallSayTextHook = false;
 
-static void(__fastcall* o_pCServerGameDLL__OnReceivedSayTextMessage)(
-	CServerGameDLL* self, unsigned int senderPlayerId, const char* text, bool isTeam) = nullptr;
-static void __fastcall h_CServerGameDLL__OnReceivedSayTextMessage(
-	CServerGameDLL* self, unsigned int senderPlayerId, const char* text, bool isTeam)
+using CServerGameDLL_OnReceivedSayTextMessage_Original = void(__fastcall*)(
+	CServerGameDLL* self, unsigned int senderPlayerId, const char* text, bool isTeam);
+static CServerGameDLL_OnReceivedSayTextMessage_Original pCServerGameDLL_OnReceivedSayTextMessage_Original = nullptr;
+
+DECLARE_HOOK(CServerGameDLL::OnReceivedSayTextMessage, server.dll + 0x1595C0, [](auto& hook, CServerGameDLL* self, unsigned int senderPlayerId, const char* text, bool isTeam)
 {
 	RemoveAsciiControlSequences(const_cast<char*>(text), true);
 
@@ -44,7 +47,7 @@ static void __fastcall h_CServerGameDLL__OnReceivedSayTextMessage(
 	if (bShouldCallSayTextHook)
 	{
 		bShouldCallSayTextHook = false;
-		o_pCServerGameDLL__OnReceivedSayTextMessage(self, senderPlayerId, text, isTeam);
+		hook.Original(self, senderPlayerId, text, isTeam);
 		return;
 	}
 
@@ -56,13 +59,16 @@ static void __fastcall h_CServerGameDLL__OnReceivedSayTextMessage(
 		"CServerGameDLL_ProcessMessageStartThread", static_cast<int>(senderPlayerId) - 1, text, isTeam);
 
 	if (result == SQRESULT_ERROR)
-		o_pCServerGameDLL__OnReceivedSayTextMessage(self, senderPlayerId, text, isTeam);
-}
+		hook.Original(self, senderPlayerId, text, isTeam);
+})
 
 void ChatSendMessage(unsigned int playerIndex, const char* text, bool isTeam)
 {
+	if (!pCServerGameDLL_OnReceivedSayTextMessage_Original)
+		return;
+
 	bShouldCallSayTextHook = true;
-	h_CServerGameDLL__OnReceivedSayTextMessage(
+	pCServerGameDLL_OnReceivedSayTextMessage_Original(
 		g_pServerGameDLL,
 		// Ensure the first bit isn't set, since this indicates a custom message
 		(playerIndex + 1) & CUSTOM_MESSAGE_INDEX_MASK,
@@ -153,8 +159,10 @@ ON_DLL_LOAD("engine.dll", EngineServerChatHooks, [](CModule module)
 
 ON_DLL_LOAD_RELIESON("server.dll", ServerChatHooks, ServerSquirrel, [](CModule module)
 {
-	o_pCServerGameDLL__OnReceivedSayTextMessage = module.Offset(0x1595C0).RCast<decltype(o_pCServerGameDLL__OnReceivedSayTextMessage)>();
-	HookAttach(&(PVOID&)o_pCServerGameDLL__OnReceivedSayTextMessage, (PVOID)h_CServerGameDLL__OnReceivedSayTextMessage);
+	DISPATCH_MODULE(ServerChatHooks)
+	pCServerGameDLL_OnReceivedSayTextMessage_Original =
+		HookSys::GetOriginalFunction<CServerGameDLL_OnReceivedSayTextMessage_Original>(
+			HookSys::FindHook("CServerGameDLL_OnReceivedSayTextMessage"));
 
 	CRecipientFilter__Construct = module.Offset(0x1E9440).RCast<void(__fastcall*)(CRecipientFilter*)>();
 	CRecipientFilter__Destruct = module.Offset(0x1E9700).RCast<void(__fastcall*)(CRecipientFilter*)>();

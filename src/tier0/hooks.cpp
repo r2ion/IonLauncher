@@ -15,6 +15,8 @@
 
 namespace fs = std::filesystem;
 
+DECLARE_MODULE(HookSysInternalHooks)
+
 // called from the ON_DLL_LOAD macros
 __dllLoadCallback::__dllLoadCallback(
 	eDllLoadCallbackSide side, const std::string dllName, DllLoadCallbackFuncType callback, std::string uniqueStr, std::string reliesOn)
@@ -65,25 +67,6 @@ __dllLoadCallback::__dllLoadCallback(
 		break;
 	}
 	}
-}
-
-void __fileAutohook::Dispatch()
-{
-	for (__autovar* var : vars)
-		var->Dispatch();
-
-	for (__autohook* hook : hooks)
-		hook->Dispatch();
-}
-
-void __fileAutohook::DispatchForModule(const char* pModuleName)
-{
-	const size_t iModuleNameLen = strlen(pModuleName);
-
-	for (__autohook* hook : hooks)
-		if ((hook->iAddressResolutionMode == __autohook::OFFSET_STRING && !strncmp(pModuleName, hook->pAddrString, iModuleNameLen)) ||
-			(hook->iAddressResolutionMode == __autohook::PROCADDRESS && !strcmp(pModuleName, hook->pModuleName)))
-			hook->Dispatch();
 }
 
 ManualHook::ManualHook(const char* funcName, LPVOID func)
@@ -221,15 +204,14 @@ void MakeHook(LPVOID pTarget, LPVOID pDetour, void* ppOriginal, const char* pFun
 		spdlog::error("MH_CreateHook failed for function {}", pStrippedFuncName);
 }
 
-static LPSTR(WINAPI* o_pGetCommandLineA)() = nullptr;
-static LPSTR WINAPI h_GetCommandLineA()
+DECLARE_HOOK_PROC(HookSysGetCommandLineA, KERNEL32.DLL, GetCommandLineA, [](auto& hook) -> LPSTR
 {
 	static char* cmdlineModified;
 	static char* cmdlineOrg;
 
 	if (cmdlineOrg == nullptr || cmdlineModified == nullptr)
 	{
-		cmdlineOrg = o_pGetCommandLineA();
+		cmdlineOrg = hook.Original();
 		bool isDedi = strstr(cmdlineOrg, "-dedicated"); // well, this one has to be a real argument
 		bool ignoreStartupArgs = strstr(cmdlineOrg, "-nostartupargs");
 
@@ -284,7 +266,7 @@ static LPSTR WINAPI h_GetCommandLineA()
 	}
 
 	return cmdlineModified;
-}
+})
 
 std::vector<std::string> calledTags;
 void CallLoadLibraryACallbacks(LPCSTR lpLibFileName, HMODULE moduleAddress)
@@ -525,6 +507,5 @@ void HookSys_Init()
 		spdlog::error("MH_Initialize (minhook initialization) failed");
 	}
 
-	o_pGetCommandLineA = GetCommandLineA;
-	HookAttach(&(PVOID&)o_pGetCommandLineA, (PVOID)h_GetCommandLineA);
+	DISPATCH_MODULE(HookSysInternalHooks)
 }

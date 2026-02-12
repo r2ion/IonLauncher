@@ -2,7 +2,7 @@
 #include "core/tier0.h"
 #include "server/auth/serverauthentication.h"
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(BaseModUIHooks)
 
 LoadingProgressDescription_t g_ListenServerLoadingProgressDescriptions[] = {
 	{PROGRESS_NONE, 0, 0, NULL},
@@ -73,15 +73,30 @@ LoadingProgressDescription_t* GetProgressDescription(LevelLoadingProgress_e ePro
 	return g_pLoadingProgressDescriptions;
 }
 
-// clang-format off
-AUTOHOOK(BaseModUI__LoadingProgress__PaintBackground, client.dll + 0x4CEB20,
-void, __fastcall, (__int64 thisptr))
-// clang-format on
+static void(__fastcall* o_BaseModUI__LoadingProgress__PaintBackground)(__int64) = nullptr;
+static void(__fastcall* o_FadeOutFunc)(__int64, int) = nullptr;
+
+static void EnsureBaseModUIOriginals()
 {
+	if (!o_BaseModUI__LoadingProgress__PaintBackground)
+		o_BaseModUI__LoadingProgress__PaintBackground = HookSys::GetOriginalFunction<decltype(o_BaseModUI__LoadingProgress__PaintBackground)>(
+			HookSys::FindHook("BaseModUI__LoadingProgress__PaintBackground"));
+
+	if (!o_FadeOutFunc)
+		o_FadeOutFunc = HookSys::GetOriginalFunction<decltype(o_FadeOutFunc)>(HookSys::FindHook("FadeOutFunc"));
+}
+
+DECLARE_HOOK(BaseModUI__LoadingProgress__PaintBackground, client.dll + 0x4CEB20, [](auto& hook, __int64 thisptr)
+{
+	NOTE_UNUSED(hook);
+	EnsureBaseModUIOriginals();
+	if (!o_BaseModUI__LoadingProgress__PaintBackground)
+		return;
+
 	vgui::Panel* loadingRes = reinterpret_cast<vgui::Panel*>(thisptr);
 
 	if(!loadingRes)
-		return BaseModUI__LoadingProgress__PaintBackground(thisptr);
+		return o_BaseModUI__LoadingProgress__PaintBackground(thisptr);
 
 	vgui::ContinuousProgressBar* loadingBar = reinterpret_cast<vgui::ContinuousProgressBar*>(loadingRes->FindChildByName("LoadingProgressBar", false));
 
@@ -95,24 +110,20 @@ void, __fastcall, (__int64 thisptr))
 		else
 		{
 			float currentProgress = *(float*)(loadingBar + 620);
-			float maxStep = dt * 0.5f; // Maximum step size proportional to delta time
+			float maxStep = dt * 0.5f;
 			float diff = flPerc - currentProgress;
 
 			if (std::abs(diff) > maxStep)
-			{
-				currentProgress += (diff > 0 ? maxStep : -maxStep); // Move by maxStep towards flPerc
-			}
+				currentProgress += (diff > 0 ? maxStep : -maxStep);
 			else
-			{
-				currentProgress = flPerc; // Snap to target if within maxStep
-			}
+				currentProgress = flPerc;
 
 			*(float*)(loadingBar + 620) = currentProgress;
 		}
 	}
 
-	BaseModUI__LoadingProgress__PaintBackground(thisptr);
-};
+	o_BaseModUI__LoadingProgress__PaintBackground(thisptr);
+})
 
 void WaitForFadeout()
 {
@@ -135,12 +146,14 @@ void WaitForFadeout()
 	g_flLastUpdateTime = 0;
 }
 
-// clang-format off
-AUTOHOOK(FadeOutFunc, client.dll + 0x76FE10,
-void, __fastcall, (__int64 thisptr, int a2))
-// clang-format on
+DECLARE_HOOK(FadeOutFunc, client.dll + 0x76FE10, [](auto& hook, __int64 thisptr, int a2)
 {
-	FadeOutFunc(thisptr, a2);
+	NOTE_UNUSED(hook);
+	EnsureBaseModUIOriginals();
+	if (!o_FadeOutFunc)
+		return;
+
+	o_FadeOutFunc(thisptr, a2);
 
 	vgui::Panel* basemodpanel = reinterpret_cast<vgui::Panel*>(BaseModUI::CBaseModPanel::GetSingleton());
 	vgui::Panel* loadingRes = basemodpanel->FindChildByName("LoadingProgress", false);
@@ -155,7 +168,7 @@ void, __fastcall, (__int64 thisptr, int a2))
 
 	if (loadingBar && flPerc == 1.0)
 	{
-		FadeOutFunc((__int64)loadingBar, a2);
+		o_FadeOutFunc((__int64)loadingBar, a2);
 		std::thread t1(WaitForFadeout);
 		t1.detach();
 	}
@@ -166,19 +179,17 @@ void, __fastcall, (__int64 thisptr, int a2))
 		return;
 
 	if (loadingText && flPerc == 1.0)
-	{
-		FadeOutFunc((__int64)loadingText, a2);
-	}
-}
+		o_FadeOutFunc((__int64)loadingText, a2);
+})
 
 // clang-format off
-AUTOHOOK(CEngineVGui__UpdateProgressBar, engine.dll + 0x249ED0,
-__int64, __fastcall, (__int64 a1, LevelLoadingProgress_e progress))
+DECLARE_HOOK(CEngineVGui__UpdateProgressBar, engine.dll + 0x249ED0,
+[](auto& hook, __int64 a1, LevelLoadingProgress_e progress) -> __int64
 // clang-format on
 {
 	// don't go backwards
 	if (progress < m_eLastProgressPoint)
-		return CEngineVGui__UpdateProgressBar(a1, progress);
+		return hook.Original(a1, progress);
 
 	if (g_pServerAuthentication->m_bStartingLocalSPGame)
 		g_pLoadingProgressDescriptions = g_ListenServerLoadingProgressDescriptions;
@@ -192,7 +203,7 @@ __int64, __fastcall, (__int64 a1, LevelLoadingProgress_e progress))
 	float dt = t - g_flLastUpdateTime;
 	if ((!bNewCheckpoint && (dt < 0.050000001)))
 	{
-		return CEngineVGui__UpdateProgressBar(a1, progress);
+		return hook.Original(a1, progress);
 	}
 
 	// count progress repeats
@@ -222,18 +233,18 @@ __int64, __fastcall, (__int64 a1, LevelLoadingProgress_e progress))
 	vgui::Panel* loadingRes = basemodpanel->FindChildByName("LoadingProgress", false);
 
 	if(!loadingRes)
-		return CEngineVGui__UpdateProgressBar(a1, progress);
+		return hook.Original(a1, progress);
 
 	vgui::Label* loadingText = reinterpret_cast<vgui::Label*>(loadingRes->FindChildByName("LoadingLabelInfo", false));
 
 	if(!loadingText)
-		return CEngineVGui__UpdateProgressBar(a1, progress);
+		return hook.Original(a1, progress);
 
 	if (loadingText && desc->pszDesc)
 		vgui_Label_SetText(loadingText, desc->pszDesc);
 
-	return CEngineVGui__UpdateProgressBar(a1, progress);
-}
+	return hook.Original(a1, progress);
+})
 
 typedef BaseModUI::CBaseModPanel* (*BaseModPanel_GetSingletonType)();
 BaseModPanel_GetSingletonType BaseModPanel_GetSingleton;
@@ -248,5 +259,6 @@ ON_DLL_LOAD_CLIENT_RELIESON("client.dll", BaseModUIHooks, ConVar, [](CModule mod
 {
 	BaseModPanel_GetSingleton = module.Offset(0x4B1690).RCast<BaseModPanel_GetSingletonType>();
 
-	AUTOHOOK_DISPATCH()
+	DISPATCH_MODULE(BaseModUIHooks);
+	EnsureBaseModUIOriginals();
 })

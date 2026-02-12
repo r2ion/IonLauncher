@@ -9,6 +9,8 @@
 #include "util/printcommands.h"
 #include "util/utils.h"
 
+DECLARE_MODULE(DedicatedHooks)
+
 bool IsDedicatedServer()
 {
 	static bool result = strstr(GetCommandLineA(), "-dedicated") || GetCurrentProcessExeName() == L"r2ds.exe";
@@ -114,18 +116,17 @@ DWORD WINAPI ConsoleInputThread(PVOID pThreadParameter)
 	return 0;
 }
 
-static bool (*o_pIsGameActiveWindow)() = nullptr;
-static bool h_IsGameActiveWindow()
+DECLARE_HOOK(IsGameActiveWindow, engine.dll + 0x1CDC80, [](auto& hook) -> bool
 {
+	NOTE_UNUSED(hook);
 	return true;
-}
+})
 
 ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, [](CModule module)
 {
 	spdlog::info("InitialiseDedicated");
 
-	o_pIsGameActiveWindow = module.Offset(0x1CDC80).RCast<decltype(o_pIsGameActiveWindow)>();
-	HookAttach(&(PVOID&)o_pIsGameActiveWindow, (PVOID)h_IsGameActiveWindow);
+	DedicatedHooks.DispatchForModule("engine.dll");
 
 	// Host_Init
 	// prevent a particle init that relies on client dll
@@ -268,10 +269,9 @@ ON_DLL_LOAD_DEDI("tier0.dll", DedicatedServerOrigin, [](CModule module)
 	module.GetExportedFunction("Tier0_InitOrigin").Patch("C3");
 })
 
-static void(__fastcall* o_pPrintSquirrelError)(void* sqvm) = nullptr;
-static void __fastcall h_PrintSquirrelError(void* sqvm)
+DECLARE_HOOK(PrintSquirrelError, server.dll + 0x794D0, [](auto& hook, void* sqvm)
 {
-	o_pPrintSquirrelError(sqvm);
+	hook.Original(sqvm);
 
 	// close dedicated server if a fatal error is hit
 	// atm, this will crash if not aborted, so this just closes more gracefully
@@ -281,12 +281,11 @@ static void __fastcall h_PrintSquirrelError(void* sqvm)
 		NS::log::FlushLoggers();
 		abort();
 	}
-}
+})
 
 ON_DLL_LOAD_DEDI("server.dll", DedicatedServerGameDLL, [](CModule module)
 {
-	o_pPrintSquirrelError = module.Offset(0x794D0).RCast<decltype(o_pPrintSquirrelError)>();
-	HookAttach(&(PVOID&)o_pPrintSquirrelError, (PVOID)h_PrintSquirrelError);
+	DedicatedHooks.DispatchForModule("server.dll");
 
 	if (CommandLine()->CheckParm("-nopakdedi"))
 	{

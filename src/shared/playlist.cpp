@@ -8,22 +8,13 @@
 #include "server/serverpresence.h"
 #include "dedicated/dedicated.h"
 
-AUTOHOOK_INIT()
-
-// use the R2 namespace for game funcs
-namespace R2
-{
-	DEFINED_VAR_AT(engine.dll + 0x18C640, GetCurrentPlaylistName);
-	DEFINED_VAR_AT(engine.dll + 0x18EB20, SetCurrentPlaylist);
-	DEFINED_VAR_AT(engine.dll + 0x18ED00, SetPlaylistVarOverride);
-	DEFINED_VAR_AT(engine.dll + 0x18C680, GetCurrentPlaylistVar);
-} // namespace R2
+DECLARE_MODULE(PlaylistHooks)
 
 ConVar* Cvar_ns_use_clc_SetPlaylistVarOverride;
 
 // clang-format off
-AUTOHOOK(clc_SetPlaylistVarOverride__Process, engine.dll + 0x222180,
-char, __fastcall, (void* a1, void* a2))
+DECLARE_HOOK(clc_SetPlaylistVarOverride::Process, engine.dll + 0x222180,
+[](auto& hook, void* a1, void* a2) -> char
 // clang-format on
 {
 	// the private_match playlist on mp_lobby is the only situation where there should be any legitimate sending of this netmessage
@@ -31,15 +22,15 @@ char, __fastcall, (void* a1, void* a2))
 		strcmp(g_pGlobals->m_pMapName, "mp_lobby"))
 		return 1;
 
-	return clc_SetPlaylistVarOverride__Process(a1, a2);
-}
+	return hook.Original(a1, a2);
+})
 
 // clang-format off
-AUTOHOOK(SetCurrentPlaylist, engine.dll + 0x18EB20,
-bool, __fastcall, (const char* pPlaylistName))
+DECLARE_HOOK(SetCurrentPlaylist, engine.dll + 0x18EB20,
+[](auto& hook, const char* pPlaylistName) -> bool
 // clang-format on
 {
-	bool bSuccess = SetCurrentPlaylist(pPlaylistName);
+	bool bSuccess = hook.Original(pPlaylistName);
 
 	if (bSuccess)
 	{
@@ -48,42 +39,42 @@ bool, __fastcall, (const char* pPlaylistName))
 	}
 
 	return bSuccess;
-}
+})
 
 // clang-format off
-AUTOHOOK(SetPlaylistVarOverride, engine.dll + 0x18ED00,
-void, __fastcall, (const char* pVarName, const char* pValue))
+DECLARE_HOOK(SetPlaylistVarOverride, engine.dll + 0x18ED00,
+[](auto& hook, const char* pVarName, const char* pValue)
 // clang-format on
 {
 	if (strlen(pValue) >= 64)
 		return;
 
-	SetPlaylistVarOverride(pVarName, pValue);
-}
+	hook.Original(pVarName, pValue);
+})
 
 // clang-format off
-AUTOHOOK(GetCurrentPlaylistVar, engine.dll + 0x18C680,
-const char*, __fastcall, (const char* pVarName, bool bUseOverrides))
+DECLARE_HOOK(GetCurrentPlaylistVar, engine.dll + 0x18C680,
+[](auto& hook, const char* pVarName, bool bUseOverrides) -> const char*
 // clang-format on
 {
 	if (!bUseOverrides && !strcmp(pVarName, "max_players"))
 		bUseOverrides = true;
 
-	return GetCurrentPlaylistVar(pVarName, bUseOverrides);
-}
+	return hook.Original(pVarName, bUseOverrides);
+})
 
 // clang-format off
-AUTOHOOK(GetCurrentGamemodeMaxPlayers, engine.dll + 0x18C430,
-int, __fastcall, ())
+DECLARE_HOOK(GetCurrentGamemodeMaxPlayers, engine.dll + 0x18C430,
+[](auto& hook) -> int
 // clang-format on
 {
 	const char* pMaxPlayers = R2::GetCurrentPlaylistVar("max_players", 0);
 	if (!pMaxPlayers)
-		return GetCurrentGamemodeMaxPlayers();
+		return hook.Original();
 
 	int iMaxPlayers = atoi(pMaxPlayers);
 	return iMaxPlayers;
-}
+})
 
 void ConCommand_playlist(const CCommand& args)
 {
@@ -104,7 +95,12 @@ void ConCommand_setplaylistvaroverride(const CCommand& args)
 
 ON_DLL_LOAD_RELIESON("engine.dll", PlaylistHooks, (ConCommand, ConVar), [](CModule module)
 {
-	AUTOHOOK_DISPATCH()
+	DISPATCH_MODULE(PlaylistHooks)
+
+	R2::GetCurrentPlaylistName = module.Offset(0x18C640).RCast<decltype(R2::GetCurrentPlaylistName)>();
+	R2::SetCurrentPlaylist = module.Offset(0x18EB20).RCast<decltype(R2::SetCurrentPlaylist)>();
+	R2::SetPlaylistVarOverride = module.Offset(0x18ED00).RCast<decltype(R2::SetPlaylistVarOverride)>();
+	R2::GetCurrentPlaylistVar = module.Offset(0x18C680).RCast<decltype(R2::GetCurrentPlaylistVar)>();
 
 	// playlist is the name of the command on respawn servers, but we already use setplaylist so can't get rid of it
 	RegisterConCommand("playlist", ConCommand_playlist, "Sets the current playlist", FCVAR_NONE);

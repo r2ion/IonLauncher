@@ -30,7 +30,8 @@ typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 #pragma comment(lib, "dbghelp.lib")
 
 #define CRASHHANDLER_MAX_FRAMES 32
-#define CRASHHANDLER_GETMODULEHANDLE_FAIL "GetModuleHandleExA failed!"
+#define CRASHHANDLER_GETMODULEHANDLE_FAIL "<unknown module>"
+#define CRASHHANDLER_NULL_INSTRUCTION_PTR "<null instruction pointer>"
 
 struct GPUInfo_s
 {
@@ -234,13 +235,50 @@ int CCrashHandler::SafeCaptureStackBackTrace(PVOID* frames, ULONG maxFrames)
 {
 	if (!frames || maxFrames == 0)
 		return 0;
+	typedef USHORT(WINAPI* CaptureStackBackTraceFn)(ULONG, ULONG, PVOID*, PULONG);
+	static CaptureStackBackTraceFn pCaptureStackBackTrace = nullptr;
+	if (!pCaptureStackBackTrace)
+	{
+		HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+		if (!hKernel32)
+			return 0;
+		pCaptureStackBackTrace = reinterpret_cast<CaptureStackBackTraceFn>(GetProcAddress(hKernel32, "RtlCaptureStackBackTrace"));
+	}
+
+	if (!pCaptureStackBackTrace)
+		return 0;
+
 	__try
 	{
-		return static_cast<int>(RtlCaptureStackBackTrace(0, maxFrames, frames, NULL));
+		return static_cast<int>(pCaptureStackBackTrace(0, maxFrames, frames, NULL));
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
 		return 0;
+	}
+}
+
+bool CCrashHandler::SafeStackWalk64(DWORD machineType, LPSTACKFRAME64 stackFrame, PCONTEXT context)
+{
+	if (!stackFrame || !context)
+		return false;
+
+	__try
+	{
+		return ::StackWalk64(
+				machineType,
+				GetCurrentProcess(),
+				GetCurrentThread(),
+				stackFrame,
+				context,
+				nullptr,
+				SymFunctionTableAccess64,
+				SymGetModuleBase64,
+				nullptr) == TRUE;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
 	}
 }
 
@@ -253,10 +291,23 @@ bool CCrashHandler::SafeGetModuleHandleFromAddr(LPCVOID address, HMODULE* outMod
 		return false;
 	__try
 	{
-		return GetModuleHandleExA(
-			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-			reinterpret_cast<LPCSTR>(address),
-			outModule) != 0;
+		if (GetModuleHandleExA(
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				reinterpret_cast<LPCSTR>(address),
+				outModule) != 0)
+		{
+			return true;
+		}
+
+		MEMORY_BASIC_INFORMATION mbi = {};
+		if (VirtualQuery(address, &mbi, sizeof(mbi)) == 0)
+			return false;
+
+		if (!mbi.AllocationBase)
+			return false;
+
+		*outModule = reinterpret_cast<HMODULE>(mbi.AllocationBase);
+		return *outModule != nullptr;
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
@@ -352,13 +403,20 @@ void CCrashHandler::SetExceptionInfos(EXCEPTION_POINTERS* pExceptionPointers)
 //-----------------------------------------------------------------------------
 void CCrashHandler::SetCrashedModule()
 {
-	LPCSTR pCrashAddress = static_cast<LPCSTR>(m_pExceptionInfos->ExceptionRecord->ExceptionAddress);
-	HMODULE hCrashedModule;
-	if (!GetModuleHandleExA(
-			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, pCrashAddress, &hCrashedModule))
+	const LPCVOID pCrashAddress = m_pExceptionInfos->ExceptionRecord->ExceptionAddress;
+	if (!pCrashAddress)
+	{
+		m_svCrashedModule = CRASHHANDLER_NULL_INSTRUCTION_PTR;
+		m_svCrashedOffset = "0x0";
+		m_svError.clear();
+		return;
+	}
+
+	HMODULE hCrashedModule = nullptr;
+	if (!CCrashHandler::SafeGetModuleHandleFromAddr(pCrashAddress, &hCrashedModule))
 	{
 		m_svCrashedModule = CRASHHANDLER_GETMODULEHANDLE_FAIL;
-		m_svCrashedOffset = "";
+		m_svCrashedOffset = fmt::format("{:#x}", static_cast<uint64_t>(reinterpret_cast<uintptr_t>(pCrashAddress)));
 
 		DWORD dwErrorID = GetLastError();
 		if (dwErrorID != 0)
@@ -385,10 +443,10 @@ void CCrashHandler::SetCrashedModule()
 
 	// Get module filename
 	CHAR szCrashedModulePath[MAX_PATH] = {};
-	if (!GetModuleFileNameExA(GetCurrentProcess(), hCrashedModule, szCrashedModulePath, sizeof(szCrashedModulePath)))
+	if (!CCrashHandler::SafeGetModuleFileNameExA(GetCurrentProcess(), hCrashedModule, szCrashedModulePath, sizeof(szCrashedModulePath)))
 	{
 		m_svCrashedModule = CRASHHANDLER_GETMODULEHANDLE_FAIL;
-		m_svCrashedOffset = "";
+		m_svCrashedOffset = fmt::format("{:#x}", static_cast<uint64_t>(reinterpret_cast<uintptr_t>(pCrashAddress)));
 		return;
 	}
 
@@ -564,42 +622,159 @@ std::vector<std::string> CCrashHandler::FormatCallstack()
 		return lines;
 	}
 
-	PVOID pFrames[CRASHHANDLER_MAX_FRAMES];
+	std::vector<uintptr_t> frameAddrs;
+	frameAddrs.reserve(CRASHHANDLER_MAX_FRAMES);
 
-	int iFrames = SafeCaptureStackBackTrace(pFrames, CRASHHANDLER_MAX_FRAMES);
-	if (iFrames <= 0)
+	bool bUsedExceptionContext = false;
+	bool bNullInstructionPointer = false;
+
+	if (m_pExceptionInfos && m_pExceptionInfos->ContextRecord)
 	{
-		lines.emplace_back("<callstack unavailable>");
-		return lines;
+		CONTEXT context = *m_pExceptionInfos->ContextRecord;
+		bUsedExceptionContext = true;
+
+#ifdef _WIN64
+		DWORD machineType = IMAGE_FILE_MACHINE_AMD64;
+		uintptr_t ip = static_cast<uintptr_t>(context.Rip);
+		uintptr_t sp = static_cast<uintptr_t>(context.Rsp);
+		uintptr_t fp = static_cast<uintptr_t>(context.Rbp);
+#else
+		DWORD machineType = IMAGE_FILE_MACHINE_I386;
+		uintptr_t ip = static_cast<uintptr_t>(context.Eip);
+		uintptr_t sp = static_cast<uintptr_t>(context.Esp);
+		uintptr_t fp = static_cast<uintptr_t>(context.Ebp);
+#endif
+
+		if (ip == 0)
+		{
+			bNullInstructionPointer = true;
+			uintptr_t guessedReturn = 0;
+			if (sp != 0 && TryReadMemory(reinterpret_cast<const void*>(sp), &guessedReturn, sizeof(guessedReturn)) && guessedReturn != 0)
+				frameAddrs.push_back(guessedReturn);
+		}
+		else
+		{
+			frameAddrs.push_back(ip);
+		}
+
+		STACKFRAME64 stackFrame {};
+		stackFrame.AddrPC.Offset = (ip != 0) ? static_cast<DWORD64>(ip)
+			: (frameAddrs.empty() ? 0 : static_cast<DWORD64>(frameAddrs.front()));
+		stackFrame.AddrPC.Mode = AddrModeFlat;
+		stackFrame.AddrStack.Offset = static_cast<DWORD64>(sp);
+		stackFrame.AddrStack.Mode = AddrModeFlat;
+		stackFrame.AddrFrame.Offset = static_cast<DWORD64>(fp);
+		stackFrame.AddrFrame.Mode = AddrModeFlat;
+
+		if (stackFrame.AddrPC.Offset != 0)
+		{
+			for (int i = 0; i < CRASHHANDLER_MAX_FRAMES; ++i)
+			{
+				const bool walkOk = CCrashHandler::SafeStackWalk64(machineType, &stackFrame, &context);
+
+				if (!walkOk || stackFrame.AddrPC.Offset == 0)
+					break;
+
+				uintptr_t walkedAddr = static_cast<uintptr_t>(stackFrame.AddrPC.Offset);
+				if (frameAddrs.empty() || frameAddrs.back() != walkedAddr)
+					frameAddrs.push_back(walkedAddr);
+			}
+		}
 	}
 
-	lines.reserve(static_cast<size_t>(iFrames));
+	if (frameAddrs.empty())
+	{
+		PVOID pFrames[CRASHHANDLER_MAX_FRAMES] = {};
+		int iFrames = CCrashHandler::SafeCaptureStackBackTrace(pFrames, CRASHHANDLER_MAX_FRAMES);
+		if (iFrames <= 0)
+		{
+			lines.emplace_back("<callstack unavailable>");
+			return lines;
+		}
+
+		for (int i = 0; i < iFrames; ++i)
+			frameAddrs.push_back(reinterpret_cast<uintptr_t>(pFrames[i]));
+	}
+
+	lines.reserve(frameAddrs.size() + 2);
+	if (bNullInstructionPointer)
+		lines.emplace_back("<faulting instruction pointer is null; possible null function pointer call>");
 
 	bool bSkipExceptionHandlingFrames = true;
 	if (m_svCrashedOffset.empty())
 		bSkipExceptionHandlingFrames = false;
+	if (m_svCrashedModule == CRASHHANDLER_GETMODULEHANDLE_FAIL || m_svCrashedModule == CRASHHANDLER_NULL_INSTRUCTION_PTR)
+		bSkipExceptionHandlingFrames = false;
+	if (bUsedExceptionContext)
+		bSkipExceptionHandlingFrames = false;
 
-	for (int i = 0; i < iFrames; i++)
+	HMODULE hMainModule = GetModuleHandleA(nullptr);
+	uintptr_t mainModuleBase = 0;
+	uintptr_t mainModuleEnd = 0;
+	uintptr_t mainModuleSize = 0;
+	std::string svMainModuleFileName;
+	if (hMainModule)
+	{
+		MODULEINFO moduleInfo = {};
+		if (GetModuleInformation(GetCurrentProcess(), hMainModule, &moduleInfo, sizeof(moduleInfo)))
+		{
+			mainModuleBase = reinterpret_cast<uintptr_t>(moduleInfo.lpBaseOfDll);
+			mainModuleSize = static_cast<uintptr_t>(moduleInfo.SizeOfImage);
+			mainModuleEnd = mainModuleBase + mainModuleSize;
+		}
+
+		CHAR szMainModulePath[MAX_PATH] = {};
+		if (CCrashHandler::SafeGetModuleFileNameExA(GetCurrentProcess(), hMainModule, szMainModulePath, sizeof(szMainModulePath)))
+		{
+			const CHAR* pSlash = strrchr(szMainModulePath, '\\');
+			svMainModuleFileName = pSlash ? (pSlash + 1) : szMainModulePath;
+		}
+	}
+
+	for (size_t i = 0; i < frameAddrs.size(); i++)
 	{
 		std::string svModuleFileName;
+		bool bAddressIsMainModuleRva = false;
 
-		uintptr_t addr = reinterpret_cast<uintptr_t>(pFrames[i]);
+		uintptr_t addr = frameAddrs[i];
 		if (addr == 0)
 		{
 			lines.emplace_back("<null frame>");
 			continue;
 		}
-		LPCSTR pAddress = reinterpret_cast<LPCSTR>(addr);
+		LPCVOID pAddress = reinterpret_cast<LPCVOID>(addr);
 
 		HMODULE hModule = nullptr;
-		if (!SafeGetModuleHandleFromAddr(pAddress, &hModule))
+		if (!CCrashHandler::SafeGetModuleHandleFromAddr(pAddress, &hModule))
 		{
-			svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
+			if (mainModuleBase != 0 && addr >= mainModuleBase && addr < mainModuleEnd)
+			{
+				hModule = hMainModule;
+				svModuleFileName = svMainModuleFileName.empty() ? "Titanfall2.exe" : svMainModuleFileName;
+			}
+			else
+			{
+				constexpr uintptr_t kLikelyMainModuleRvaUpperBound = 0x10000000; // 256 MB
+				const bool bLooksLikeMainModuleRva =
+					hMainModule && addr >= 0x1000
+					&& ((mainModuleSize != 0 && addr < mainModuleSize) || (addr < kLikelyMainModuleRvaUpperBound));
+
+				if (bLooksLikeMainModuleRva)
+				{
+					hModule = hMainModule;
+					bAddressIsMainModuleRva = true;
+					svModuleFileName = svMainModuleFileName.empty() ? "Titanfall2.exe" : svMainModuleFileName;
+				}
+				else
+				{
+					svModuleFileName = CRASHHANDLER_GETMODULEHANDLE_FAIL;
+				}
+			}
 		}
 		else
 		{
 			CHAR szModulePath[MAX_PATH] = {};
-			if (SafeGetModuleFileNameExA(GetCurrentProcess(), hModule, szModulePath, sizeof(szModulePath)))
+			if (CCrashHandler::SafeGetModuleFileNameExA(GetCurrentProcess(), hModule, szModulePath, sizeof(szModulePath)))
 			{
 				const CHAR* pSlash = strrchr(szModulePath, '\\');
 				svModuleFileName = pSlash ? (pSlash + 1) : szModulePath;
@@ -611,7 +786,33 @@ std::vector<std::string> CCrashHandler::FormatCallstack()
 		}
 
 		uintptr_t moduleBase = reinterpret_cast<uintptr_t>(hModule);
-		uintptr_t offset = moduleBase ? (addr - moduleBase) : addr;
+		uintptr_t offset = bAddressIsMainModuleRva ? addr : (moduleBase ? (addr - moduleBase) : addr);
+		if (svModuleFileName == CRASHHANDLER_GETMODULEHANDLE_FAIL && hMainModule)
+		{
+			constexpr uintptr_t kLikelyMainModuleRvaUpperBound = 0x10000000; // 256 MB
+			auto isLikelyMainRva = [&](uintptr_t value)
+			{
+				if (value < 0x1000)
+					return false;
+				if (mainModuleSize != 0 && value < mainModuleSize)
+					return true;
+				return value < kLikelyMainModuleRvaUpperBound;
+			};
+
+			uintptr_t inferredRva = 0;
+			if (isLikelyMainRva(addr))
+				inferredRva = addr;
+			else if (isLikelyMainRva(offset))
+				inferredRva = offset;
+
+			if (inferredRva != 0)
+			{
+				hModule = hMainModule;
+				svModuleFileName = svMainModuleFileName.empty() ? "Titanfall2.exe" : svMainModuleFileName;
+				bAddressIsMainModuleRva = true;
+				offset = inferredRva;
+			}
+		}
 		std::string svCrashOffset = fmt::format("{:#x}", static_cast<uint64_t>(offset));
 
 		if (bSkipExceptionHandlingFrames)
@@ -626,6 +827,8 @@ std::vector<std::string> CCrashHandler::FormatCallstack()
 		if (m_bSymInit)
 		{
 			DWORD64 symAddr = static_cast<DWORD64>(addr);
+			if (bAddressIsMainModuleRva && mainModuleBase != 0)
+				symAddr = static_cast<DWORD64>(mainModuleBase + offset);
 
 			alignas(SYMBOL_INFO) char symBuffer[sizeof(SYMBOL_INFO) + 256];
 			PSYMBOL_INFO pSym = reinterpret_cast<PSYMBOL_INFO>(symBuffer);
@@ -679,6 +882,9 @@ std::vector<std::string> CCrashHandler::FormatCallstack()
 		if (!printed)
 			lines.emplace_back(fmt::format("{} + {:#x}", svModuleFileName, static_cast<uint64_t>(offset)));
 	}
+
+	if (lines.empty())
+		lines.emplace_back("<callstack unavailable>");
 
 	return lines;
 }
@@ -952,6 +1158,12 @@ void CCrashHandler::WriteCrashComment()
 	stream << std::put_time(&currentTime, (GetNorthstarPrefix() + "/logs/nscrash%Y-%m-%d %H-%M-%S.log").c_str());
 
 	std::ofstream commentFile(stream.str(), std::ios::out | std::ios::app);
+	if (!commentFile.is_open())
+	{
+		spdlog::error("Failed to open crash comment file {}", stream.str());
+		return;
+	}
+
 	commentFile << "Unfortunately Ion has crashed, please send this to a developer - you can reach us at:\n* GitHub: "
 				   "https://github.com/R2Ion/Ion\n* Discord (in #ion-tech-support): https://discord.gg/UhPwruvSFH\n\n";
 	commentFile << "=== Crash Report ===\n";
@@ -969,7 +1181,35 @@ void CCrashHandler::WriteCrashComment()
 	for (const std::string& line : FormatCallstack())
 		commentFile << line << "\n";
 	commentFile << "\n=== Registers ===\n";
-	PCONTEXT pContext = m_pExceptionInfos->ContextRecord;
+	PCONTEXT pContext = (m_pExceptionInfos != nullptr) ? m_pExceptionInfos->ContextRecord : nullptr;
+	if (!pContext)
+	{
+		commentFile << "<register context unavailable>\n";
+		commentFile << "\n=== Loaded Mods ===\n";
+		for (const std::string& line : FormatLoadedMods())
+			commentFile << line << "\n";
+
+		commentFile << "\n=== Loaded Plugins ===\n";
+		for (const std::string& line : FormatLoadedPlugins())
+			commentFile << line << "\n";
+
+		commentFile << "\n=== Custom Paks ===\n";
+		for (const std::string& line : FormatLoadedPaks())
+			commentFile << line << "\n";
+
+		commentFile << "\n=== Loaded Modules ===\n";
+		for (const std::string& line : FormatModules())
+			commentFile << line << "\n";
+
+		commentFile << "\n=== Recent Log (last 200 lines) ===\n";
+		const std::vector<std::string>& lines = !m_PreCrashLogLines.empty() ? m_PreCrashLogLines : NS::log::GetRecentLogLines(200);
+		for (const std::string& line : lines)
+			commentFile << line << "\n";
+
+		commentFile.close();
+		OpenCrashComment(stream.str());
+		return;
+	}
 
 	commentFile << fmt::format("{}\n", FormatFlags("Flags:", pContext->ContextFlags));
 

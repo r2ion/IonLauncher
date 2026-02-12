@@ -11,6 +11,8 @@
 
 namespace fs = std::filesystem;
 
+DECLARE_MODULE(AudioHooks)
+
 static const char* pszAudioEventName;
 
 ConVar* Cvar_mileslog_enable;
@@ -389,16 +391,23 @@ bool ShouldPlayAudioEvent(const char* eventName, const std::shared_ptr<EventOver
 	return true; // good to go
 }
 
-static bool(__fastcall* o_pLoadSampleMetadata)(void* sample, void* audioBuffer, unsigned int audioBufferLength, int audioType) = nullptr;
-static bool __fastcall h_LoadSampleMetadata(void* sample, void* audioBuffer, unsigned int audioBufferLength, int audioType)
+using AudioSamplePair = std::pair<size_t, std::unique_ptr<uint8_t[]>>;
+using SetThreadDescriptionFn = HRESULT(WINAPI*)(HANDLE hThread, PCWSTR lpThreadDescription);
+static SetThreadDescriptionFn pSetThreadDescription = reinterpret_cast<SetThreadDescriptionFn>(GetProcAddress(GetModuleHandleA("Kernel32.dll"), "SetThreadDescription"));
+
+
+DECLARE_HOOK(LoadSampleMetadata, mileswin64.dll + 0xF110, [](auto& hook, void* sample, void* audioBuffer, unsigned int audioBufferLength, int audioType) -> bool
 {
-	// Raw source, used for voice data only
+	NOTE_UNUSED(hook);
+
 	if (audioType == 0)
-		return o_pLoadSampleMetadata(sample, audioBuffer, audioBufferLength, audioType);
+		return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
 
 	const char* eventName = pszAudioEventName;
+	if (!eventName)
+		return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
 
-	if (Cvar_ns_print_played_sounds->GetInt() > 0)
+	if (Cvar_ns_print_played_sounds && Cvar_ns_print_played_sounds->GetInt() > 0)
 		spdlog::info("[AUDIO] Playing event {}", eventName);
 
 	auto iter = g_CustomAudioManager.m_loadedAudioOverrides.find(eventName);
@@ -406,27 +415,19 @@ static bool __fastcall h_LoadSampleMetadata(void* sample, void* audioBuffer, uns
 
 	if (iter == g_CustomAudioManager.m_loadedAudioOverrides.end())
 	{
-		// override for that specific event not found, try wildcard
 		iter = g_CustomAudioManager.m_loadedAudioOverrides.find("*");
 
 		if (iter == g_CustomAudioManager.m_loadedAudioOverrides.end())
 		{
-			// not found
-
-			// try regex
 			for (const auto& item : g_CustomAudioManager.m_loadedAudioOverridesRegex)
 				for (const auto& regexData : item.second->EventIdsRegex)
 					if (std::regex_search(eventName, regexData.second))
 						overrideData = item.second;
 
 			if (!overrideData)
-				// not found either
-				return o_pLoadSampleMetadata(sample, audioBuffer, audioBufferLength, audioType);
-			else
-			{
-				// cache found pattern to improve performance
-				g_CustomAudioManager.m_loadedAudioOverrides[eventName] = overrideData;
-			}
+				return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
+
+			g_CustomAudioManager.m_loadedAudioOverrides[eventName] = overrideData;
 		}
 		else
 			overrideData = iter->second;
@@ -435,22 +436,19 @@ static bool __fastcall h_LoadSampleMetadata(void* sample, void* audioBuffer, uns
 		overrideData = iter->second;
 
 	if (!ShouldPlayAudioEvent(eventName, overrideData))
-		return o_pLoadSampleMetadata(sample, audioBuffer, audioBufferLength, audioType);
+		return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
 
-	void* data = 0;
+	void* data = nullptr;
 	unsigned int dataLength = 0;
 
 	if (overrideData->Samples.size() == 0)
 	{
-		// 0 samples, turn off this particular event.
-
-		// using a dummy empty wave file
 		data = EMPTY_WAVE;
 		dataLength = sizeof(EMPTY_WAVE);
 	}
 	else
 	{
-		std::pair<size_t, std::unique_ptr<uint8_t[]>>* dat = NULL;
+		AudioSamplePair* dat = nullptr;
 
 		switch (overrideData->Strategy)
 		{
@@ -461,7 +459,7 @@ static bool __fastcall h_LoadSampleMetadata(void* sample, void* audioBuffer, uns
 		default:
 			dat = &overrideData->Samples[overrideData->CurrentIndex++];
 			if (overrideData->CurrentIndex >= overrideData->Samples.size())
-				overrideData->CurrentIndex = 0; // reset back to the first sample entry
+				overrideData->CurrentIndex = 0;
 			break;
 		}
 
@@ -477,87 +475,74 @@ static bool __fastcall h_LoadSampleMetadata(void* sample, void* audioBuffer, uns
 	if (!data)
 	{
 		spdlog::warn("Could not fetch override sample data for event {}! Using original data instead.", eventName);
-		return o_pLoadSampleMetadata(sample, audioBuffer, audioBufferLength, audioType);
+		return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
 	}
 
 	audioBuffer = data;
 	audioBufferLength = dataLength;
-
-	// most important change: set the sample class buffer so that the correct audio plays
 	*(void**)((uintptr_t)sample + 0xE8) = audioBuffer;
 	*(unsigned int*)((uintptr_t)sample + 0xF0) = audioBufferLength;
 
-	// 64 - Auto-detect sample type
-	bool res = o_pLoadSampleMetadata(sample, audioBuffer, audioBufferLength, 64);
+	bool res = hook.Original(sample, audioBuffer, audioBufferLength, 64);
 	if (!res)
 		spdlog::error("LoadSampleMetadata failed! The game will crash :(");
 
 	return res;
-}
-
-static void*(__fastcall* o_pSub_1800294C0)(void* a1, void* a2) = nullptr;
-static void* __fastcall h_Sub_1800294C0(void* a1, void* a2)
+})
+DECLARE_HOOK(Sub_1800294C0, mileswin64.dll + 0x294C0, [](auto& hook, void* a1, void* a2) -> void*
 {
+	NOTE_UNUSED(hook);
 	pszAudioEventName = reinterpret_cast<const char*>((*((__int64*)a2 + 6)));
-	return o_pSub_1800294C0(a1, a2);
-}
-
-static void(__fastcall* o_pMilesLog)(int level, const char* string) = nullptr;
-static void __fastcall h_MilesLog(int level, const char* string)
+	return hook.Original(a1, a2);
+})
+DECLARE_HOOK(Sub_18003EBD0, mileswin64.dll + 0x3EBD0, [](auto& hook, DWORD dwThreadID, const char* threadName)
 {
-	if (!Cvar_mileslog_enable->GetBool())
+	NOTE_UNUSED(hook);
+	if (!threadName)
+	{
+		hook.Original(dwThreadID, threadName);
 		return;
+	}
 
-	spdlog::info("[MSS] {} - {}", level, string);
-}
-
-static void(__fastcall* o_pSub_18003EBD0)(DWORD dwThreadID, const char* threadName) = nullptr;
-static void __fastcall h_Sub_18003EBD0(DWORD dwThreadID, const char* threadName)
-{
 	HANDLE hThread = OpenThread(THREAD_SET_LIMITED_INFORMATION, FALSE, dwThreadID);
 
 	if (hThread != NULL)
 	{
-		// TODO: This "method" of "charset conversion" from string to wstring is abhorrent. Change it to a proper one
-		// as soon as Northstar has some helper function to do proper charset conversions.
 		auto tmp = std::string(threadName);
-		HRESULT WINAPI _SetThreadDescription(HANDLE hThread, PCWSTR lpThreadDescription);
-		_SetThreadDescription(hThread, std::wstring(tmp.begin(), tmp.end()).c_str());
+		if (pSetThreadDescription)
+			pSetThreadDescription(hThread, std::wstring(tmp.begin(), tmp.end()).c_str());
 
 		CloseHandle(hThread);
 	}
 
-	o_pSub_18003EBD0(dwThreadID, threadName);
-}
-
-static char*(__fastcall* o_pSub_18003BC10)(void* a1, void* a2, void* a3, void* a4, void* a5, int a6) = nullptr;
-static char* __fastcall h_Sub_18003BC10(void* a1, void* a2, void* a3, void* a4, void* a5, int a6)
+	hook.Original(dwThreadID, threadName);
+})
+DECLARE_HOOK(Sub_18003BC10, mileswin64.dll + 0x3BC10, [](auto& hook, void* a1, void* a2, void* a3, void* a4, void* a5, int a6) -> char*
 {
+	NOTE_UNUSED(hook);
 	HANDLE hThread;
-	char* ret = o_pSub_18003BC10(a1, a2, a3, a4, a5, a6);
+	char* ret = hook.Original(a1, a2, a3, a4, a5, a6);
 
 	if (ret != NULL && (hThread = reinterpret_cast<HANDLE>(*((uint64_t*)ret + 55))) != NULL)
 	{
-		HRESULT WINAPI _SetThreadDescription(HANDLE hThread, PCWSTR lpThreadDescription);
-		_SetThreadDescription(hThread, L"[Miles] WASAPI Service Thread");
+		if (pSetThreadDescription)
+			pSetThreadDescription(hThread, L"[Miles] WASAPI Service Thread");
 	}
 
 	return ret;
-}
+})
+DECLARE_HOOK(MilesLog, client.dll + 0x57DAD0, [](auto& hook, int level, const char* string)
+{
+	NOTE_UNUSED(hook);
+	if (!Cvar_mileslog_enable || !Cvar_mileslog_enable->GetBool())
+		return;
+
+	spdlog::info("[MSS] {} - {}", level, string);
+})
 
 ON_DLL_LOAD("mileswin64.dll", MilesWin64_Audio, [](CModule module)
 {
-	o_pLoadSampleMetadata = module.Offset(0xF110).RCast<decltype(o_pLoadSampleMetadata)>();
-	HookAttach(&(PVOID&)o_pLoadSampleMetadata, (PVOID)h_LoadSampleMetadata);
-
-	o_pSub_1800294C0 = module.Offset(0x294C0).RCast<decltype(o_pSub_1800294C0)>();
-	HookAttach(&(PVOID&)o_pSub_1800294C0, (PVOID)h_Sub_1800294C0);
-
-	o_pSub_18003EBD0 = module.Offset(0x3EBD0).RCast<decltype(o_pSub_18003EBD0)>();
-	HookAttach(&(PVOID&)o_pSub_18003EBD0, (PVOID)h_Sub_18003EBD0);
-
-	o_pSub_18003BC10 = module.Offset(0x3BC10).RCast<decltype(o_pSub_18003BC10)>();
-	HookAttach(&(PVOID&)o_pSub_18003BC10, (PVOID)h_Sub_18003BC10);
+	AudioHooks.DispatchForModule("mileswin64.dll");
 })
 
 ON_DLL_LOAD_RELIESON("engine.dll", MilesLogFuncHooks, ConVar, [](CModule module)
@@ -567,8 +552,7 @@ ON_DLL_LOAD_RELIESON("engine.dll", MilesLogFuncHooks, ConVar, [](CModule module)
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", AudioHooks, ConVar, [](CModule module)
 {
-	o_pMilesLog = module.Offset(0x57DAD0).RCast<decltype(o_pMilesLog)>();
-	HookAttach(&(PVOID&)o_pMilesLog, (PVOID)h_MilesLog);
+	AudioHooks.DispatchForModule("client.dll");
 
 	Cvar_ns_print_played_sounds = new ConVar("ns_print_played_sounds", "0", FCVAR_NONE, "");
 	MilesStopAll = module.Offset(0x580850).RCast<MilesStopAll_Type>();

@@ -6,8 +6,9 @@
 
 #include <rapidjson/document.h>
 
-static void(__fastcall* o_pCHudChat__AddGameLine)(void* self, const char* message, int inboxId, bool isTeam, bool isDead) = nullptr;
-static void __fastcall h_CHudChat__AddGameLine(void* self, const char* message, int inboxId, bool isTeam, bool isDead)
+DECLARE_MODULE(ClientChatHooks)
+
+DECLARE_HOOK(CHudChat::AddGameLine, client.dll + 0x22E580, [](auto& hook, void* self, const char* message, int inboxId, bool isTeam, bool isDead)
 {
 	// This hook is called for each HUD, but we only want our logic to run once.
 	if (self != *CHudChat::allHuds)
@@ -32,8 +33,8 @@ static void __fastcall h_CHudChat__AddGameLine(void* self, const char* message, 
 		"CHudChat_ProcessMessageStartThread", static_cast<int>(senderId) - 1, payload, isTeam, isDead, type);
 	if (result == SQRESULT_ERROR)
 		for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
-			o_pCHudChat__AddGameLine(hud, message, inboxId, isTeam, isDead);
-}
+			hook.Original(hud, message, inboxId, isTeam, isDead);
+})
 
 ADD_SQFUNC("void", NSChatWrite, "int context, string text", "", ScriptContext::CLIENT)
 {
@@ -64,6 +65,5 @@ ADD_SQFUNC("void", NSChatWriteLine, "int context, string text", "", ScriptContex
 
 ON_DLL_LOAD_CLIENT("client.dll", ClientChatHooks, [](CModule module)
 {
-	o_pCHudChat__AddGameLine = module.Offset(0x22E580).RCast<decltype(o_pCHudChat__AddGameLine)>();
-	HookAttach(&(PVOID&)o_pCHudChat__AddGameLine, (PVOID)h_CHudChat__AddGameLine);
+	DISPATCH_MODULE(ClientChatHooks)
 })

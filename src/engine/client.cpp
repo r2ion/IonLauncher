@@ -31,18 +31,18 @@ CClientExtended* CClient::GetClientExtended(void) const
 	return g_pServer->GetClientExtended(m_nUserID);
 }
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(EngineClientHooks)
 
-AUTOHOOK(CClient__Clear, engine.dll + 0x101480, void, __fastcall, (CClient* thisptr))
+DECLARE_HOOK(CClient__Clear, engine.dll + 0x101480, [](auto& hook, CClient* thisptr)
 {
 	/*g_pServer->GetClientExtended(thisptr->m_nUserID)->Reset();*/
 	thisptr->GetClientExtended()->Reset();
-	CClient__Clear(thisptr);
-}
+	hook.Original(thisptr);
+})
 
 ON_DLL_LOAD("engine.dll", CClient, [](CModule module)
 {
-	AUTOHOOK_DISPATCH()
+	DISPATCH_MODULE(EngineClientHooks)
 
 	CClient__Disconnect = module.Offset(0x1012C0).RCast<void (*)(void*, uint32_t, const char*, ...)>();
 	CClient__SendDataBlock = module.Offset(0x104870).RCast<void (*)(void*, bf_write*)>();

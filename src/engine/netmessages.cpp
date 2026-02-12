@@ -9,23 +9,19 @@ bool g_bNextServerAllowingAuthUs = false;
 bool g_bReceivedAuthNotify = false;
 bool g_bReceivedServerInfo = false;
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(NetMessagesHooks)
 
-// clang-format off
-AUTOHOOK(CClient__ConnectionStart, engine.dll + 0x1019C0, bool, __fastcall, (__int64 thisptr, CNetChan* chan))
-// clang-format on
+DECLARE_HOOK(CClient__ConnectionStart, engine.dll + 0x1019C0, [](auto& hook, __int64 thisptr, CNetChan* chan) -> bool
 {
-	return CClient__ConnectionStart(thisptr, chan);
-}
+	return hook.Original(thisptr, chan);
+})
 
-// clang-format off
-AUTOHOOK(CClientState__ConnectionStart, engine.dll + 0x8CB40, bool, __fastcall, (__int64 thisptr, CNetChan* chan))
-// clang-format on
+DECLARE_HOOK(CClientState__ConnectionStart, engine.dll + 0x8CB40, [](auto& hook, __int64 thisptr, CNetChan* chan) -> bool
 {
-	return CClientState__ConnectionStart(thisptr, chan);
-}
+	return hook.Original(thisptr, chan);
+})
 
 ON_DLL_LOAD_RELIESON("engine.dll", NetMessages, NetChan, [](CModule module)
 {
-	AUTOHOOK_DISPATCH();
+	DISPATCH_MODULE(NetMessagesHooks);
 })

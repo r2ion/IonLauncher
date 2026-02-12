@@ -8,16 +8,16 @@ char* room1;
 char* room2;
 char* room3;
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(RoomHooks)
 
 // clang-format off
-AUTOHOOK(JoinPlayerRoomHook, engine.dll + 0x187C70, __int64, __fastcall, (__int64 a1))
+DECLARE_HOOK(JoinPlayerRoomHook, engine.dll + 0x187C70, [](auto& hook, __int64 a1) -> __int64
 // clang-format on
 {
 	g_pVanillaCompatibility->SetCompatabilityMode(VanillaCompatibility::CompatibilityMode::Vanilla);
 
-	return JoinPlayerRoomHook(a1);
-}
+	return hook.Original(a1);
+})
 
 void ConCommand_ns_join_room(const CCommand& args)
 {
@@ -47,6 +47,8 @@ void ConCommand_ns_dump_room(const CCommand& args)
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", PartyRoom, ConCommand, [](CModule module)
 {
+	DISPATCH_MODULE(RoomHooks)
+
 	JoinPlayerGameRoom = module.Offset(0x187C70).RCast<JoinPlayerGameRoom_t>();
 	RegisterConCommand("ns_join_room", ConCommand_ns_join_room, "Join a server by its room ID (value of match_partySub)", FCVAR_CLIENTDLL);
 

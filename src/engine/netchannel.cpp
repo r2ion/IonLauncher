@@ -4,7 +4,7 @@
 #include "r2engine.h"
 #include "modsystem/moddownloader.h"
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(NetChannelHooks)
 
 ConVar* Cvar_ns_log_registered_netmessages = nullptr;
 
@@ -13,10 +13,10 @@ std::vector<std::pair<std::string, int>> g_DebugInfoRegisteredNetMessages;
 CNetChan__RegisterMessage_t CNetChan__RegisterMessage = nullptr;
 
 // clang-format off
-AUTOHOOK(CNetChan_RegisterMessage, engine.dll + 0x2129D0, bool, __fastcall, (CNetChan* thisptr, INetMessage* msg))
+DECLARE_HOOK(CNetChan_RegisterMessage, engine.dll + 0x2129D0, [](auto& hook, CNetChan* thisptr, INetMessage* msg) -> bool
 // clang-format on
 {
-	if (CNetChan_RegisterMessage(thisptr, msg))
+	if (hook.Original(thisptr, msg))
 	{
 		if(Cvar_ns_log_registered_netmessages && Cvar_ns_log_registered_netmessages->GetBool())
 		{
@@ -39,7 +39,7 @@ AUTOHOOK(CNetChan_RegisterMessage, engine.dll + 0x2129D0, bool, __fastcall, (CNe
 	}
 
 	return false;
-}
+})
 
 void ConCommand_ns_dump_registered_netmessages(const CCommand& args)
 {
@@ -64,7 +64,7 @@ void ConCommand_ns_dump_registered_netmessages(const CCommand& args)
 
 ON_DLL_LOAD_RELIESON("engine.dll", NetChan, ConVar, [](CModule module)
 {
-	AUTOHOOK_DISPATCH();
+	DISPATCH_MODULE(NetChannelHooks);
 
 	RegisterConCommand("ns_dump_registered_netmessages", ConCommand_ns_dump_registered_netmessages, "Dumps registered netmessages", FCVAR_NONE);
 

@@ -1,5 +1,7 @@
 #include "net.h"
 
+DECLARE_MODULE(NetHooks)
+
 //===========================================================================//
 //
 // Purpose: implementation of the CNetAdr class.
@@ -294,23 +296,21 @@ bool CNetAdr::SetFromString(const char* const pch, const bool bUseDNS)
 	return false;
 }
 
-const char* __fastcall GetIpStringFromClientHook(int64_t a1) {
+DECLARE_HOOK(GetIpStringFromClient, engine.dll + 0x2101A0, [](auto& hook, int64_t a1) -> const char*
+{
 	if (a1 == 0)
-	{
 		return "null";
-	}
+
 	void* net_chan = reinterpret_cast<void*>(a1 + 0x368C);
+
 	if (net_chan == nullptr)
-	{
 		return "null";
-	}
-	return GetIpStringFromClient(a1);
-}
+	return hook.Original(a1);
+})
 
 ON_DLL_LOAD("engine.dll", Net, [](CModule module)
 {
-	GetIpStringFromClient = module.Offset(0x2101A0).RCast<decltype(GetIpStringFromClient)>();
-	HookAttach(&(PVOID&)GetIpStringFromClient, (PVOID)GetIpStringFromClientHook);
+	DISPATCH_MODULE(NetHooks)
 	NET_SendPacket = module.Offset(0x21C240).RCast<decltype(NET_SendPacket)>();
 	netadr_s__GetEncryptionKey = module.Offset(0x2154C0).RCast<netadr_s__GetEncryptionKey_t>();
 })

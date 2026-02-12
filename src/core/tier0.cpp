@@ -3,6 +3,8 @@
 #include <codecvt>
 #include <locale>
 
+DECLARE_MODULE(CoreTier0Hooks)
+
 IMemAlloc* g_pMemAllocSingleton = nullptr;
 
 CommandLineType CommandLine;
@@ -33,8 +35,7 @@ HRESULT WINAPI _SetThreadDescription(HANDLE hThread, PCWSTR lpThreadDescription)
 	return ERROR_OLD_WIN_VERSION;
 }
 
-static void(__fastcall* o_pThreadSetDebugName)(HANDLE threadHandle, const char* name) = nullptr;
-static void __fastcall h_ThreadSetDebugName(HANDLE threadHandle, const char* name)
+DECLARE_HOOK_PROC(ThreadSetDebugName, tier0.dll, ThreadSetDebugName, [](auto& hook, HANDLE threadHandle, const char* name)
 {
 	if (threadHandle == 0)
 		threadHandle = GetCurrentThread();
@@ -44,16 +45,15 @@ static void __fastcall h_ThreadSetDebugName(HANDLE threadHandle, const char* nam
 	wideName = converter.from_bytes(name);
 	_SetThreadDescription(threadHandle, wideName.c_str());
 
-	o_pThreadSetDebugName(threadHandle, name);
-}
+	hook.Original(threadHandle, name);
+})
 
 ON_DLL_LOAD("tier0.dll", Tier0GameFuncs, [](CModule module)
 {
 	// shouldn't be necessary, but do this just in case
 	TryCreateGlobalMemAlloc();
 
-	o_pThreadSetDebugName = module.GetExportedFunction("ThreadSetDebugName").RCast<decltype(o_pThreadSetDebugName)>();
-	HookAttach(&(PVOID&)o_pThreadSetDebugName, (PVOID)h_ThreadSetDebugName);
+	DISPATCH_MODULE(CoreTier0Hooks)
 
 	// setup tier0 funcs
 	CommandLine = module.GetExportedFunction("CommandLine").RCast<CommandLineType>();

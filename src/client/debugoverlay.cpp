@@ -5,6 +5,8 @@
 #include "core/math/vector.h"
 #include "server/ai_helper.h"
 
+DECLARE_MODULE(DebugOverlayHooks)
+
 enum OverlayType_t
 {
 	OVERLAY_BOX = 0,
@@ -120,8 +122,7 @@ OverlayBase_t** s_pOverlays;
 int* g_nRenderTickCount;
 int* g_nOverlayTickCount;
 
-static void(__fastcall* o_pDrawOverlay)(OverlayBase_t* pOverlay) = nullptr;
-static void __fastcall h_DrawOverlay(OverlayBase_t* pOverlay)
+static void h_DrawOverlay(OverlayBase_t* pOverlay)
 {
 	EnterCriticalSection(s_OverlayMutex);
 
@@ -201,9 +202,11 @@ static void __fastcall h_DrawOverlay(OverlayBase_t* pOverlay)
 	LeaveCriticalSection(s_OverlayMutex);
 }
 
-static void(__fastcall* o_pDrawAllOverlays)(bool bRender) = nullptr;
-static void __fastcall h_DrawAllOverlays(bool bRender)
+DECLARE_HOOK_FN(DrawOverlay, engine.dll + 0xABCB0, h_DrawOverlay)
+
+DECLARE_HOOK(DrawAllOverlays, engine.dll + 0xAB780, [](auto& hook, bool bRender)
 {
+	NOTE_UNUSED(hook);
 	EnterCriticalSection(s_OverlayMutex);
 
 	OverlayBase_t* pCurrOverlay = *s_pOverlays; // rbx
@@ -267,15 +270,11 @@ static void __fastcall h_DrawAllOverlays(bool bRender)
 	}
 
 	LeaveCriticalSection(s_OverlayMutex);
-}
+})
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", DebugOverlay, ConVar, [](CModule module)
 {
-	o_pDrawOverlay = module.Offset(0xABCB0).RCast<decltype(o_pDrawOverlay)>();
-	HookAttach(&(PVOID&)o_pDrawOverlay, (PVOID)h_DrawOverlay);
-
-	o_pDrawAllOverlays = module.Offset(0xAB780).RCast<decltype(o_pDrawAllOverlays)>();
-	HookAttach(&(PVOID&)o_pDrawAllOverlays, (PVOID)h_DrawAllOverlays);
+	DISPATCH_MODULE(DebugOverlayHooks)
 
 	OverlayBase_t__IsDead = module.Offset(0xACAC0).RCast<decltype(OverlayBase_t__IsDead)>();
 	OverlayBase_t__DestroyOverlay = module.Offset(0xAB680).RCast<decltype(OverlayBase_t__DestroyOverlay)>();

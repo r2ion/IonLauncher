@@ -26,9 +26,6 @@ void ConCommand_dump_pak_info(const CCommand& args)
 	}
 }
 
-AUTOHOOK_INIT()
-
-
 PakGlobalState_s* Pak_GetGlobals()
 {
 	if(g_pakGlobalState)

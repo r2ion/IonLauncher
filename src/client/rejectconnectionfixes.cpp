@@ -1,31 +1,33 @@
 #include "engine/r2engine.h"
 
+DECLARE_MODULE(RejectConnectionFixesHooks)
+
 // this is called from  when our connection is rejected, this is the only case we're hooking this for
-static void (*o_pCOM_ExplainDisconnection)(bool a1, const char* fmt, ...) = nullptr;
-static void h_COM_ExplainDisconnection(bool a1, const char* fmt, ...)
+DECLARE_HOOK(COM_ExplainDisconnection, engine.dll + 0x1342F0, [](auto& hook, bool a1, const char* fmt, ...)
 {
-	va_list va;
-	va_start(va, fmt);
-	char buf[4096];
-	vsnprintf_s(buf, 4096, fmt, va);
-	va_end(va);
+	char buf[4096] = {};
 
-	// slightly hacky comparison, but patching the function that calls this for reject would be worse
-	if (!strncmp(fmt, "Connection rejected: ", 21))
+	if (hook.HasVarArgs())
 	{
-		// when COM_ExplainDisconnection is called from engine.dll + 19ff1c for connection rejected, it doesn't
-		// call Host_Disconnect, which properly shuts down listen server
-		// not doing this gets our client in a pretty weird state so we need to shut it down manually here
+		va_list copied;
+		va_copy(copied, *hook.VarArgs());
+		vsnprintf_s(buf, sizeof(buf), _TRUNCATE, fmt, copied);
+		va_end(copied);
+	}
+	else
+	{
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE, "%s", fmt ? fmt : "");
+	}
 
-		// don't call Cbuf_Execute because we don't need this called immediately
+	if (fmt && !strncmp(fmt, "Connection rejected: ", 21))
+	{
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "disconnect", cmd_source_t::kCommandSrcCode);
 	}
 
-	return o_pCOM_ExplainDisconnection(a1, "%s", buf);
-}
+	hook.Original(a1, "%s", buf);
+})
 
 ON_DLL_LOAD_CLIENT("engine.dll", RejectConnectionFixes, [](CModule module)
 {
-	o_pCOM_ExplainDisconnection = module.Offset(0x1342F0).RCast<decltype(o_pCOM_ExplainDisconnection)>();
-	HookAttach(&(PVOID&)o_pCOM_ExplainDisconnection, (PVOID)h_COM_ExplainDisconnection);
+	DISPATCH_MODULE(RejectConnectionFixesHooks)
 })

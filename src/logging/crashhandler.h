@@ -85,6 +85,7 @@ public:
 
 private:
 	static int SafeCaptureStackBackTrace(PVOID* frames, ULONG maxFrames);
+	static bool SafeStackWalk64(DWORD machineType, LPSTACKFRAME64 stackFrame, PCONTEXT context);
 	static bool SafeGetModuleHandleFromAddr(LPCVOID address, HMODULE* outModule);
 	static bool SafeGetModuleFileNameExA(HANDLE process, HMODULE module, CHAR* buffer, DWORD bufferSize);
 

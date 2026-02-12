@@ -1,4 +1,5 @@
 #include <atomic>
+#include "core/tier0.h"
 #include <d3d11.h>
 #include <map>
 #include <mutex>
@@ -15,7 +16,7 @@ struct Ns_Constant_Buffer
 	float data[320];
 };
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(NSCustomDXBufferHooks)
 
 static Ns_Constant_Buffer NSCustomDXBuffer;
 static std::mutex NSCustomDXBufferMutex;
@@ -23,9 +24,12 @@ static std::mutex NSCustomDXBufferMutex;
 // map to later on associate guid > buffer
 static std::map<uint64_t, Ns_Constant_Buffer> NSCustomBuffersPerMaterial = {};
 
-AUTOHOOK(SUB_511D0, materialsystem_dx11.dll + 0x511D0, __int64, __fastcall, (__int64 a1, __int64 a2, __int64 a3, __int64 a4))
+DECLARE_HOOK(SUB_511D0, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
 {
-	int64_t subResult = SUB_511D0(a1, a2, a3, a4);
+	auto subResult = hook.Original(a1, a2, a3, a4);
+
+	if (!DeviceContext || !D3D11Device_14E8DD0 || !*DeviceContext || !*D3D11Device_14E8DD0)
+		return subResult;
 
 	uint32_t glueFlags = *(uint32_t*)((uint8_t*)a4 + 176);
 
@@ -68,7 +72,7 @@ AUTOHOOK(SUB_511D0, materialsystem_dx11.dll + 0x511D0, __int64, __fastcall, (__i
 		(*DeviceContext)->PSSetConstantBuffers(4, 1, &resource);
 	}
 	return subResult;
-}
+})
 
 bool isValidMaterialGUID(const std::string& str)
 {
@@ -138,14 +142,16 @@ template <ScriptContext context> SQRESULT NSSetCustomDXBuffer(HSQUIRRELVM sqvm)
 
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module)
 {
-	AUTOHOOK_DISPATCH_MODULE(materialsystem_dx11.dll)
-
 	DeviceContext = module.Offset(0x14E8DD8).RCast<ID3D11DeviceContext**>();
 	D3D11Device_14E8DD0 = module.Offset(0x14E8DD0).RCast<ID3D11Device**>();
+
+	DISPATCH_MODULE(NSCustomDXBufferHooks)
+
+	auto clientSetCustomDXBuffer = NSSetCustomDXBuffer<ScriptContext::CLIENT>;
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
 		"void",
 		"NSSetCustomDXBuffer",
 		"string rPakMaterialGUID array NSCustomBufferPerMaterialData",
 		"",
-		NSSetCustomDXBuffer<ScriptContext::CLIENT>);
+		clientSetCustomDXBuffer);
 })

@@ -1,7 +1,8 @@
 #include "modsystem/modmanager.h"
 
-static void* (*__fastcall o_pBinkOpen)(const char* path, uint32_t flags) = nullptr;
-static void* __fastcall h_BinkOpen(const char* path, uint32_t flags)
+DECLARE_MODULE(ClientVideoOverridesHooks)
+
+DECLARE_HOOK_PROC(BinkOpen, bink2w64.dll, BinkOpen, [](auto& hook, const char* path, uint32_t flags) -> void*
 {
 	std::string filename(fs::path(path).filename().string());
 	spdlog::info("BinkOpen {}", filename);
@@ -21,16 +22,15 @@ static void* __fastcall h_BinkOpen(const char* path, uint32_t flags)
 	{
 		// create new path
 		fs::path binkPath(fileOwner->m_ModDirectory / "media" / filename);
-		return o_pBinkOpen(binkPath.string().c_str(), flags);
+		return hook.Original(binkPath.string().c_str(), flags);
 	}
-	else
-		return o_pBinkOpen(path, flags);
-}
+
+	return hook.Original(path, flags);
+})
 
 ON_DLL_LOAD_CLIENT("bink2w64.dll", BinkRead, [](CModule module)
 {
-	o_pBinkOpen = module.GetExportedFunction("BinkOpen").RCast<decltype(o_pBinkOpen)>();
-	HookAttach(&(PVOID&)o_pBinkOpen, (PVOID)h_BinkOpen);
+	DISPATCH_MODULE(ClientVideoOverridesHooks)
 	module.Offset(0x035BD7).NoOP(5);
 })
 

@@ -2,7 +2,9 @@
 #include "engine/r2engine.h"
 #include "server/r2server.h"
 #include "engine/client.h"
-AUTOHOOK_INIT()
+
+DECLARE_MODULE(ServerAllTalkHooks)
+
 size_t __fastcall ShouldAllowAlltalk()
 {
 	// this needs to return a 64 bit integer where 0 = true and 1 = false
@@ -24,21 +26,21 @@ CClient* AdjustShiftedThisPointer(CClient* shiftedPointer)
 	return reinterpret_cast<CClient*>(pShifted);
 }
 
-AUTOHOOK(CClient_ProcessVoiceData, engine.dll + 0x104560, bool, __fastcall, (CClient* client, void* pMsg))
+DECLARE_HOOK(CClient_ProcessVoiceData, engine.dll + 0x104560, [](auto& hook, CClient* client, void* pMsg) -> bool
 {
 	auto pAdj = AdjustShiftedThisPointer(client);
 	auto extended = pAdj->GetClientExtended();
 	if (!extended)
 	{
 		spdlog::error("failed to get extended");
-		return CClient_ProcessVoiceData(client, pMsg);
+		return hook.Original(client, pMsg);
 	}
 	if (extended->IsClientCommsBanned())
 	{
 		return true;
 	}
-	return CClient_ProcessVoiceData(client, pMsg);
-}
+	return hook.Original(client, pMsg);
+})
 
 ADD_SQFUNC("void", NSSetVoiceCommsBanned, "entity ent, bool value", "", ScriptContext::SERVER)
 {
@@ -115,7 +117,7 @@ ADD_SQFUNC("bool", NSIsVoiceCommsBanned, "entity ent", "", ScriptContext::SERVER
 
 ON_DLL_LOAD_RELIESON("engine.dll", ServerAllTalk, ConVar, [](CModule module)
 {
-	AUTOHOOK_DISPATCH_MODULE(engine.dll)
+	ServerAllTalkHooks.DispatchForModule("engine.dll");
 	// replace strcmp function called in CClient::ProcessVoiceData with our own code that calls ShouldAllowAllTalk
 	CMemory base = module.Offset(0x1085FA);
 

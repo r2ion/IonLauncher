@@ -1,11 +1,11 @@
-#include "core/tier0.h"
-#include "tier0/module.h"
-#include "logging/logging.h"
 #include "core/convar/convar.h"
+#include "core/tier0.h"
 #include "engine/bitbuf.h"
+#include "logging/logging.h"
+#include "tier0/module.h"
 #include <vector>
-AUTOHOOK_INIT()
 
+DECLARE_MODULE(NetworkStringTablesHooks)
 
 static ConVar* Cvar_sv_compress_playlists = nullptr;
 
@@ -26,11 +26,11 @@ static_assert(offsetof(VSVC_PlaylistsLayout, dataBytes) == 0x24);
 static_assert(offsetof(VSVC_PlaylistsLayout, dataPtr) == 0x28);
 static_assert(offsetof(VSVC_PlaylistsLayout, uncompressedBytes) == 0x30);
 
-AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall, (__int64 msg, bf_write* buffer))
+DECLARE_HOOK(SVC_Playlists::WriteToBuffer, engine.dll + 0x22BBD0, [](auto& hook, __int64 msg, bf_write* buffer) -> bool
 {
-	static thread_local std::vector<unsigned char> s_PlaylistsCompressedTls;
+    static thread_local std::vector<unsigned char> s_PlaylistsCompressedTls;
 
-	void* msgPtr = reinterpret_cast<void*>(msg);
+    void* msgPtr = reinterpret_cast<void*>(msg);
     auto* msgLayout = reinterpret_cast<VSVC_PlaylistsLayout*>(msgPtr);
     bool hasCompressedData = msgLayout->hasCompressedData;
     int dataBytes = msgLayout->dataBytes;
@@ -38,8 +38,7 @@ AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall,
     int uncompressedBytes = msgLayout->uncompressedBytes;
 
     const bool canTryCompress =
-        !hasCompressedData && dataPtr && dataBytes > 0 && s_NET_BufferToBufferCompress
-        && Cvar_sv_compress_playlists->GetBool();
+        !hasCompressedData && dataPtr && dataBytes > 0 && s_NET_BufferToBufferCompress && Cvar_sv_compress_playlists->GetBool();
 
     bool usedTempCompression = false;
     unsigned char oldCompressedFlag = msgLayout->hasCompressedData ? 1 : 0;
@@ -54,8 +53,8 @@ AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall,
             s_PlaylistsCompressedTls.resize(neededBytes);
 
         __int64 compressedBytes = static_cast<__int64>(s_PlaylistsCompressedTls.size());
-        if (s_NET_BufferToBufferCompress(s_PlaylistsCompressedTls.data(), &compressedBytes, oldDataPtr, oldDataBytes)
-            && compressedBytes > 0 && compressedBytes < oldDataBytes)
+        if (s_NET_BufferToBufferCompress(s_PlaylistsCompressedTls.data(), &compressedBytes, oldDataPtr, oldDataBytes) && compressedBytes > 0 &&
+            compressedBytes < oldDataBytes)
         {
             msgLayout->hasCompressedData = true;
             msgLayout->dataBytes = static_cast<int>(compressedBytes);
@@ -74,7 +73,7 @@ AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall,
     int bitsLeftBefore = buffer->GetNumBitsLeft();
     bool overflowBefore = buffer->IsOverflowed();
 
-    bool result = VSVC_Playlists__WriteToBuffer(msg, buffer);
+    bool result = hook.Original(msg, buffer);
 
     if (usedTempCompression)
     {
@@ -90,42 +89,23 @@ AUTOHOOK(VSVC_Playlists__WriteToBuffer, engine.dll + 0x22BBD0, bool, __fastcall,
         bool overflowAfter = buffer->IsOverflowed();
 
         spdlog::error("  !!! VSVC_Playlists::WriteToBuffer FAILED");
-        spdlog::error(
-            "      msg=0x{:X} vtbl=0x{:X} compressed={} dataBytes={} uncompressedBytes={} dataPtr=0x{:X}",
-            reinterpret_cast<uintptr_t>(msgPtr),
-            msgPtr ? reinterpret_cast<uintptr_t>(*reinterpret_cast<void**>(msgPtr)) : 0ull,
-            hasCompressedData,
-            dataBytes,
-            uncompressedBytes,
-            reinterpret_cast<uintptr_t>(dataPtr));
-        spdlog::error(
-            "      buffer: beforeBits={} bitsLeftBefore={} overflowBefore={}, afterBits={} overflowAfter={}",
-            bitsBefore,
-            bitsLeftBefore,
-            overflowBefore,
-            bitsAfter,
-            overflowAfter);
+        spdlog::error("      msg=0x{:X} vtbl=0x{:X} compressed={} dataBytes={} uncompressedBytes={} dataPtr=0x{:X}",
+                      reinterpret_cast<uintptr_t>(msgPtr), msgPtr ? reinterpret_cast<uintptr_t>(*reinterpret_cast<void**>(msgPtr)) : 0ull,
+                      hasCompressedData, dataBytes, uncompressedBytes, reinterpret_cast<uintptr_t>(dataPtr));
+        spdlog::error("      buffer: beforeBits={} bitsLeftBefore={} overflowBefore={}, afterBits={} overflowAfter={}", bitsBefore, bitsLeftBefore,
+                      overflowBefore, bitsAfter, overflowAfter);
     }
     else if (usedTempCompression)
     {
-        spdlog::info(
-            "  VSVC_Playlists compressed for send: {} -> {} bytes",
-            oldDataBytes,
-            dataBytes);
+        spdlog::info("  SVC_Playlists compressed for send: {} -> {} bytes", oldDataBytes, dataBytes);
     }
 
     return result;
-}
+})
 
+ON_DLL_LOAD_RELIESON("engine.dll", NetworkStringTables, (ConCommand), [](CModule module)
+{
+    s_NET_BufferToBufferCompress = module.Offset(0x218F50).RCast<decltype(s_NET_BufferToBufferCompress)>();
 
-ON_DLL_LOAD_RELIESON(
-	"engine.dll",
-	NetworkStringTables,
-	(ConCommand),
-	[](CModule module)
-	{
-    s_NET_BufferToBufferCompress =
-        module.Offset(0x218F50).RCast<decltype(s_NET_BufferToBufferCompress)>();
-
-	AUTOHOOK_DISPATCH()
+    DISPATCH_MODULE(NetworkStringTablesHooks)
 })

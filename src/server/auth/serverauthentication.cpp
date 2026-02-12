@@ -218,141 +218,7 @@ void ServerAuthenticationManager::WritePersistentData(CClient* pPlayer)
 char* pNextPlayerToken;
 uint64_t iNextPlayerUid;
 
-static void* (*o_pCServer__ConnectClient)(
-	void* self,
-	void* addr,
-	void* a3,
-	uint32_t a4,
-	uint32_t a5,
-	int32_t a6,
-	void* a7,
-	char* playerName,
-	char* serverFilter,
-	void* a10,
-	char a11,
-	void* a12,
-	char a13,
-	char a14,
-	int64_t uid,
-	uint32_t a16,
-	uint32_t a17) = nullptr;
-static void* h_CServer__ConnectClient(
-	void* self,
-	void* addr,
-	void* a3,
-	uint32_t a4,
-	uint32_t a5,
-	int32_t a6,
-	void* a7,
-	char* playerName,
-	char* serverFilter,
-	void* a10,
-	char a11,
-	void* a12,
-	char a13,
-	char a14,
-	int64_t uid,
-	uint32_t a16,
-	uint32_t a17)
-{
-	// auth tokens are sent with serverfilter, can't be accessed from player struct to my knowledge, so have to do this here
-	pNextPlayerToken = serverFilter;
-	iNextPlayerUid = uid;
-
-	return o_pCServer__ConnectClient(self, addr, a3, a4, a5, a6, a7, playerName, serverFilter, a10, a11, a12, a13, a14, uid, a16, a17);
-}
-
 ConVar* Cvar_ns_allowuserclantags;
-
-static bool (*o_pCClient__Connect)(
-	CClient* self, char* pName, void* pNetChannel, char bFakePlayer, void* a5, char pDisconnectReason[256], void* a7) = nullptr;
-static bool
-h_CClient__Connect(CClient* self, char* pName, void* pNetChannel, char bFakePlayer, void* a5, char pDisconnectReason[256], void* a7)
-{
-	self->GetClientExtended()->Reset();
-	const char* pAuthenticationFailure = nullptr;
-	char pVerifiedName[64];
-
-	if (!bFakePlayer)
-	{
-		if (!g_pServerAuthentication->VerifyPlayerName(pNextPlayerToken, pName, pVerifiedName))
-			pAuthenticationFailure = "Invalid Name.";
-		else if (!g_pBanSystem->IsUIDAllowed(iNextPlayerUid))
-			pAuthenticationFailure = "Banned From server.";
-		else if (!g_pServerAuthentication->CheckAuthentication(self, iNextPlayerUid, pNextPlayerToken))
-			pAuthenticationFailure = "Authentication Failed.";
-	}
-	else // need to copy name for bots still
-		strncpy_s(pVerifiedName, pName, 63);
-
-	if (pAuthenticationFailure)
-	{
-		spdlog::info("{}'s (uid {}) connection was rejected: \"{}\"", pName, iNextPlayerUid, pAuthenticationFailure);
-
-		strncpy_s(pDisconnectReason, 256, pAuthenticationFailure, 255);
-		return false;
-	}
-
-	// try to actually connect the player
-	if (!o_pCClient__Connect(self, pVerifiedName, pNetChannel, bFakePlayer, a5, pDisconnectReason, a7))
-		return false;
-
-	// we already know this player's authentication data is legit, actually write it to them now
-	g_pServerAuthentication->AuthenticatePlayer(self, iNextPlayerUid, pNextPlayerToken);
-
-	g_pServerAuthentication->AddPlayer(self, pNextPlayerToken);
-	g_pServerLimits->AddPlayer(self);
-
-	return true;
-}
-
-static void (*o_pCClient__ActivatePlayer)(CClient* self) = nullptr;
-static void h_CClient__ActivatePlayer(CClient* self)
-{
-	// if we're authed, write our persistent data
-	// RemovePlayerAuthData returns true if it removed successfully, i.e. on first call only, and we only want to write on >= second call
-	// (since this func is called on map loads)
-	if (self->m_iPersistenceReady >= ePersistenceReady::READY && !g_pServerAuthentication->RemovePlayerAuthData(self))
-	{
-		g_pServerAuthentication->m_bForceResetLocalPlayerPersistence = false;
-		g_pServerAuthentication->WritePersistentData(self);
-		g_pServerPresence->SetPlayerCount((int)g_pServerAuthentication->m_PlayerAuthenticationData.size());
-	}
-
-	o_pCClient__ActivatePlayer(self);
-}
-
-static void (*o_pCClient__Disconnect)(CClient* self, uint32_t unknownButAlways1, const char* pReason, ...) = nullptr;
-static void h_CClient__Disconnect(CClient* self, uint32_t unknownButAlways1, const char* pReason, ...)
-{
-	// have to manually format message because can't pass varargs to original func
-	char buf[1024];
-
-	va_list va;
-	va_start(va, pReason);
-	vsprintf(buf, pReason, va);
-	va_end(va);
-
-	// this reason is used while connecting to a local server, hacky, but just ignore it
-	if (strcmp(pReason, "Connection closing"))
-	{
-		spdlog::info("Player {} disconnected: \"{}\"", self->m_szServerName, buf);
-
-		// dcing, write persistent data
-		if (g_pServerAuthentication->m_PlayerAuthenticationData[self].needPersistenceWriteOnLeave)
-			g_pServerAuthentication->WritePersistentData(self);
-
-		memset(self->m_PersistenceBuffer, 0, g_pServerAuthentication->m_PlayerAuthenticationData[self].pdataSize);
-		g_pServerAuthentication->RemovePlayerAuthData(self); // won't do anything 99% of the time, but just in case
-
-		g_pServerAuthentication->RemovePlayer(self);
-		g_pServerLimits->RemovePlayer(self);
-	}
-
-	g_pServerPresence->SetPlayerCount((int)g_pServerAuthentication->m_PlayerAuthenticationData.size());
-
-	o_pCClient__Disconnect(self, unknownButAlways1, buf);
-}
 
 void ConCommand_ns_resetpersistence(const CCommand& args)
 {
@@ -367,18 +233,126 @@ void ConCommand_ns_resetpersistence(const CCommand& args)
 	g_pServerAuthentication->m_bForceResetLocalPlayerPersistence = true;
 }
 
+DECLARE_MODULE(ServerAuthenticationHooks)
+DECLARE_HOOK(CServer::ConnectClient, engine.dll + 0x114430, [](auto& hook,
+	void* self,
+	void* addr,
+	void* a3,
+	uint32_t a4,
+	uint32_t a5,
+	int32_t a6,
+	void* a7,
+	char* playerName,
+	char* serverFilter,
+	void* a10,
+	char a11,
+	void* a12,
+	char a13,
+	char a14,
+	int64_t uid,
+	uint32_t a16,
+	uint32_t a17) -> void*
+{
+	// auth tokens are sent with serverfilter, can't be accessed from player struct to my knowledge, so have to do this here
+	pNextPlayerToken = serverFilter;
+	iNextPlayerUid = uid;
+
+	return hook.Original(self, addr, a3, a4, a5, a6, a7, playerName, serverFilter, a10, a11, a12, a13, a14, uid, a16, a17);
+})
+DECLARE_HOOK(CClient::Connect, engine.dll + 0x101740, [](auto& hook,
+	CClient* self,
+	char* pName,
+	void* pNetChannel,
+	char bFakePlayer,
+	void* a5,
+	char pDisconnectReason[256],
+	void* a7) -> bool
+{
+	self->GetClientExtended()->Reset();
+	const char* pAuthenticationFailure = nullptr;
+	char pVerifiedName[64];
+
+	if (!bFakePlayer)
+	{
+		if (!g_pServerAuthentication->VerifyPlayerName(pNextPlayerToken, pName, pVerifiedName))
+			pAuthenticationFailure = "Invalid Name.";
+		else if (!g_pBanSystem->IsUIDAllowed(iNextPlayerUid))
+			pAuthenticationFailure = "Banned From server.";
+		else if (!g_pServerAuthentication->CheckAuthentication(self, iNextPlayerUid, pNextPlayerToken))
+			pAuthenticationFailure = "Authentication Failed.";
+	}
+	else
+		strncpy_s(pVerifiedName, pName, 63);
+
+	if (pAuthenticationFailure)
+	{
+		spdlog::info("{}'s (uid {}) connection was rejected: \"{}\"", pName, iNextPlayerUid, pAuthenticationFailure);
+		strncpy_s(pDisconnectReason, 256, pAuthenticationFailure, 255);
+		return false;
+	}
+
+	if (!hook.Original(self, pVerifiedName, pNetChannel, bFakePlayer, a5, pDisconnectReason, a7))
+		return false;
+
+	g_pServerAuthentication->AuthenticatePlayer(self, iNextPlayerUid, pNextPlayerToken);
+	g_pServerAuthentication->AddPlayer(self, pNextPlayerToken);
+	g_pServerLimits->AddPlayer(self);
+
+	return true;
+})
+DECLARE_HOOK(CClient::ActivatePlayer, engine.dll + 0x100F80, [](auto& hook, CClient* self)
+{
+	// if we're authed, write our persistent data
+	// RemovePlayerAuthData returns true if it removed successfully, i.e. on first call only, and we only want to write on >= second call
+	// (since this func is called on map loads)
+	if (self->m_iPersistenceReady >= ePersistenceReady::READY && !g_pServerAuthentication->RemovePlayerAuthData(self))
+	{
+		g_pServerAuthentication->m_bForceResetLocalPlayerPersistence = false;
+		g_pServerAuthentication->WritePersistentData(self);
+		g_pServerPresence->SetPlayerCount((int)g_pServerAuthentication->m_PlayerAuthenticationData.size());
+	}
+
+	hook.Original(self);
+})
+DECLARE_HOOK(CClient::Disconnect, engine.dll + 0x1012C0, [](auto& hook, CClient* self, uint32_t unknownButAlways1, const char* pReason, ...)
+{
+	char buf[4096] = {};
+	if (hook.HasVarArgs())
+	{
+		va_list copied;
+		va_copy(copied, *hook.VarArgs());
+		vsnprintf_s(buf, sizeof(buf), _TRUNCATE, pReason, copied);
+		va_end(copied);
+	}
+	else
+	{
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE, "%s", pReason ? pReason : "");
+	}
+
+	// this reason is used while connecting to a local server, hacky, but just ignore it
+	if (strcmp(pReason, "Connection closing"))
+	{
+		spdlog::info("Player {} disconnected: \"{}\"", self->m_szServerName, buf);
+
+		// dcing, write persistent data
+		if (g_pServerAuthentication->m_PlayerAuthenticationData[self].needPersistenceWriteOnLeave)
+			g_pServerAuthentication->WritePersistentData(self);
+
+		memset(self->m_PersistenceBuffer, 0, g_pServerAuthentication->m_PlayerAuthenticationData[self].pdataSize);
+		g_pServerAuthentication->RemovePlayerAuthData(self);
+
+		g_pServerAuthentication->RemovePlayer(self);
+		g_pServerLimits->RemovePlayer(self);
+	}
+
+	g_pServerPresence->SetPlayerCount((int)g_pServerAuthentication->m_PlayerAuthenticationData.size());
+
+	hook.Original(self, unknownButAlways1, "%s", buf);
+})
+
 ON_DLL_LOAD_RELIESON("engine.dll", ServerAuthentication, (ConCommand, ConVar), [](CModule module)
 {
-	o_pCServer__ConnectClient = module.Offset(0x114430).RCast<decltype(o_pCServer__ConnectClient)>();
-	HookAttach(&(PVOID&)o_pCServer__ConnectClient, (PVOID)h_CServer__ConnectClient);
-
-	o_pCClient__Connect = module.Offset(0x101740).RCast<decltype(o_pCClient__Connect)>();
-	HookAttach(&(PVOID&)o_pCClient__Connect, (PVOID)h_CClient__Connect);
-	o_pCClient__ActivatePlayer = module.Offset(0x100F80).RCast<decltype(o_pCClient__ActivatePlayer)>();
-	HookAttach(&(PVOID&)o_pCClient__ActivatePlayer, (PVOID)h_CClient__ActivatePlayer);
-
-	o_pCClient__Disconnect = module.Offset(0x1012C0).RCast<decltype(o_pCClient__Disconnect)>();
-	HookAttach(&(PVOID&)o_pCClient__Disconnect, (PVOID)h_CClient__Disconnect);
+	DISPATCH_MODULE(ServerAuthenticationHooks)
 	g_pServerAuthentication = new ServerAuthenticationManager;
 
 	g_pServerAuthentication->Cvar_ns_erase_auth_info =

@@ -1,51 +1,47 @@
 #include "logging/sourceconsole.h"
 
+DECLARE_MODULE(SourceInterfaceHooks)
+
 // really wanted to do a modular callback system here but honestly couldn't be bothered so hardcoding stuff for now: todo later
 
-static void*(__fastcall* o_pClientCreateInterface)(const char* pName, const int* pReturnCode) = nullptr;
-static void* __fastcall h_ClientCreateInterface(const char* pName, const int* pReturnCode)
+DECLARE_HOOK_PROC(ClientCreateInterface, client.dll, CreateInterface, [](auto& hook, const char* pName, const int* pReturnCode) -> void*
 {
-	void* ret = o_pClientCreateInterface(pName, pReturnCode);
+	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface CLIENT {}", pName);
 
 	if (!strcmp(pName, "GameClientExports001"))
 		InitialiseConsoleOnInterfaceCreation();
 
 	return ret;
-}
+})
 
-static void*(__fastcall* o_pServerCreateInterface)(const char* pName, const int* pReturnCode) = nullptr;
-static void* __fastcall h_ServerCreateInterface(const char* pName, const int* pReturnCode)
+DECLARE_HOOK_PROC(ServerCreateInterface, server.dll, CreateInterface, [](auto& hook, const char* pName, const int* pReturnCode) -> void*
 {
-	void* ret = o_pServerCreateInterface(pName, pReturnCode);
+	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface SERVER {}", pName);
 
 	return ret;
-}
+})
 
-static void*(__fastcall* o_pEngineCreateInterface)(const char* pName, const int* pReturnCode) = nullptr;
-static void* __fastcall h_EngineCreateInterface(const char* pName, const int* pReturnCode)
+DECLARE_HOOK_PROC(EngineCreateInterface, engine.dll, CreateInterface, [](auto& hook, const char* pName, const int* pReturnCode) -> void*
 {
-	void* ret = o_pEngineCreateInterface(pName, pReturnCode);
+	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface ENGINE {}", pName);
 
 	return ret;
-}
+})
 
 ON_DLL_LOAD("client.dll", ClientInterface, [](CModule module)
 {
-	o_pClientCreateInterface = module.GetExportedFunction("CreateInterface").RCast<decltype(o_pClientCreateInterface)>();
-	HookAttach(&(PVOID&)o_pClientCreateInterface, (PVOID)h_ClientCreateInterface);
+	DISPATCH_MODULE(SourceInterfaceHooks)
 })
 
 ON_DLL_LOAD("server.dll", ServerInterface, [](CModule module)
 {
-	o_pServerCreateInterface = module.GetExportedFunction("CreateInterface").RCast<decltype(o_pServerCreateInterface)>();
-	HookAttach(&(PVOID&)o_pServerCreateInterface, (PVOID)h_ServerCreateInterface);
+	DISPATCH_MODULE(SourceInterfaceHooks)
 })
 
 ON_DLL_LOAD("engine.dll", EngineInterface, [](CModule module)
 {
-	o_pEngineCreateInterface = module.GetExportedFunction("CreateInterface").RCast<decltype(o_pEngineCreateInterface)>();
-	HookAttach(&(PVOID&)o_pEngineCreateInterface, (PVOID)h_EngineCreateInterface);
+	DISPATCH_MODULE(SourceInterfaceHooks)
 })

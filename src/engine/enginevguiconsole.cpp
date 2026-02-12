@@ -4,11 +4,9 @@
 #include "logging/sourceconsole.h"
 #include "modsystem/modmanager.h"
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(EngineVGuiConsoleHooks)
 
-// Global GameConsole pointer at engine.dll + 0x14055B88
-// Using CGameConsole from sourceconsole.h
-VAR_AT(engine.dll + 0x14055B88, CGameConsole**, g_pEngineGameConsole);
+static CGameConsole** g_pEngineGameConsole = nullptr;
 
 // External declarations for localization hooks
 extern void* g_pVguiLocalize;
@@ -16,7 +14,7 @@ extern bool(__fastcall* o_pCLocalise__AddFile)(void* pVguiLocalize, const char* 
 
 // CEngineVGui::Init hook at engine.dll + 0x0247E10
 // Consolidated hook that handles both GameConsole setup AND mod localization loading
-AUTOHOOK(CEngineVGui__Init, engine.dll + 0x247E10, void, __fastcall, (void* thisptr))
+DECLARE_HOOK(CEngineVGui__Init, engine.dll + 0x247E10, [](auto& hook, void* thisptr)
 {
     // Get GameConsole004 interface from client.dll BEFORE calling Init
     CModule clientModule("client.dll");
@@ -48,7 +46,7 @@ AUTOHOOK(CEngineVGui__Init, engine.dll + 0x247E10, void, __fastcall, (void* this
 
     // Call the original Init function
     // This loads r1_english, valve_english, dev_english
-    CEngineVGui__Init(thisptr);
+    hook.Original(thisptr);
 
     // AFTER Init: Load mod localization files
     // Previously this was in modlocalisation.cpp h_CEngineVGui__Init
@@ -66,10 +64,11 @@ AUTOHOOK(CEngineVGui__Init, engine.dll + 0x247E10, void, __fastcall, (void* this
         }
     }
 
-  
-}
+
+})
 
 ON_DLL_LOAD("engine.dll", EngineVGuiConsole, [](CModule module)
 {
-    AUTOHOOK_DISPATCH()
+    g_pEngineGameConsole = module.Offset(0x14055B88).RCast<CGameConsole**>();
+    DISPATCH_MODULE(EngineVGuiConsoleHooks)
 })
