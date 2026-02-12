@@ -1,11 +1,12 @@
 #include "core/tier0.h"
+#include "tier0/hooks.h"
 #include "tier0/module.h"
 #include "logging/logging.h"
 #include "core/convar/cvar.h"
 #include "core/convar/convar.h"
 #include "util/strtools.h"
 
-AUTOHOOK_INIT()
+DECLARE_MODULE(ConsoleLoggingFixHooks)
 
 // Console filter convars
 ConVar* Cvar_con_filter_enable;
@@ -18,12 +19,14 @@ static bool g_fColorPrintf = false;
 
 // Con_ColorPrintf - Hook the completely gutted R2 version and restore CSGO/Portal 2 functionality
 // This is the varargs version that formats and then prints
-AUTOHOOK(Con_ColorPrintf, engine.dll + 0x0A8830, void, __cdecl, (const Color& clr, const char* fmt, ...))
+DECLARE_HOOK_CC(Con_ColorPrintf, engine.dll + 0x0A8830, __cdecl, [](auto& hook, const Color& clr, const char* fmt, ...)
 {
+    va_list* args = hook.VarArgs();
+
     // Format the message (matching CSGO Q_vsnprintf behavior)
     char msg[4096];
     va_list argptr;
-    va_start(argptr, fmt);
+    va_copy(argptr, *args);
     vsnprintf(msg, sizeof(msg), fmt, argptr);
     va_end(argptr);
 
@@ -99,11 +102,11 @@ AUTOHOOK(Con_ColorPrintf, engine.dll + 0x0A8830, void, __cdecl, (const Color& cl
     }
 
     g_bInColorPrint = false;
-}
+})
 
 ON_DLL_LOAD_RELIESON("engine.dll", ConsoleLoggingFix, ConVar, [](CModule module)
 {
-    AUTOHOOK_DISPATCH()
+    DISPATCH_MODULE(ConsoleLoggingFixHooks)
 
     // Create console filter convars (matching Source engine implementation)
     Cvar_con_filter_enable = new ConVar("con_filter_enable", "0", FCVAR_NONE, "Filters console output based on the setting of con_filter_text. 1 filters completely, 2 displays filtered text brighter than other text.");

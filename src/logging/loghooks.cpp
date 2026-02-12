@@ -68,9 +68,12 @@ const std::unordered_map<SpewType_t, const char> PrintSpewTypes_Short = {
 
 ICenterPrint* pInternalCenterPrint = NULL;
 
-static void (*o_pTextMsg)(bf_read* msg) = nullptr;
-static void h_TextMsg(bf_read* msg)
+DECLARE_MODULE(LogHooks)
+
+DECLARE_HOOK_CC(TextMsg, client.dll + 0x198710, __cdecl, [](auto& hook, bf_read* msg)
 {
+	NOTE_UNUSED(hook);
+
 	TextMsgPrintType_t msg_dest = (TextMsgPrintType_t)msg->ReadByte();
 
 	char text[256];
@@ -97,18 +100,16 @@ static void h_TextMsg(bf_read* msg)
 		spdlog::info(text);
 		break;
 	}
-}
+})
 
-static int (*o_pfprintf)(void* const stream, const char* const format, ...) = nullptr;
-static int h_fprintf(void* const stream, const char* const format, ...)
+DECLARE_HOOK_CC(fprintf, engine.dll + 0x51B1F0, __cdecl, [](auto& hook, void* const stream, const char* const format, ...)
 {
 	NOTE_UNUSED(stream);
 
-	va_list va;
-	va_start(va, format);
+	va_list* va = hook.VarArgs();
 
 	SQChar buf[1024];
-	int charsWritten = vsnprintf_s(buf, _TRUNCATE, format, va);
+	int charsWritten = vsnprintf_s(buf, sizeof(buf), _TRUNCATE, format, *va);
 
 	if (charsWritten > 0)
 	{
@@ -117,20 +118,21 @@ static int h_fprintf(void* const stream, const char* const format, ...)
 		NS::log::NATIVE_EN->info("{}", buf);
 	}
 
-	va_end(va);
 	return 0;
-}
+})
 
-static void (*o_pConCommand_echo)(const CCommand& arg) = nullptr;
-static void h_ConCommand_echo(const CCommand& arg)
+DECLARE_HOOK_CC(ConCommand_echo, engine.dll + 0x123680, __cdecl, [](auto& hook, const CCommand& arg)
 {
+	NOTE_UNUSED(hook);
+
 	if (arg.ArgC() >= 2)
 		NS::log::echo->info("{}", arg.ArgS());
-}
+})
 
-static void(__fastcall* o_pEngineSpewFunc)(void* pEngineServer, SpewType_t type, const char* format, va_list args) = nullptr;
-static void __fastcall h_EngineSpewFunc(void* pEngineServer, SpewType_t type, const char* format, va_list args)
+DECLARE_HOOK_CC(EngineSpewFunc, engine.dll + 0x11CA80, __fastcall, [](auto& hook, void* pEngineServer, SpewType_t type, const char* format, va_list args)
 {
+	NOTE_UNUSED(hook);
+
 	NOTE_UNUSED(pEngineServer);
 	if (!Cvar_spewlog_enable->GetBool())
 		return;
@@ -201,29 +203,27 @@ static void __fastcall h_EngineSpewFunc(void* pEngineServer, SpewType_t type, co
 		formatted[endpos - 1] = '\0'; // cut off repeated newline
 
 	NS::log::NATIVE_SV->log(PrintSpewLevels.at(type), "{}", formatted);
-}
+})
 
 // used for printing the output of status
-static void (*o_pStatus_ConMsg)(const char* text, ...) = nullptr;
-static void h_Status_ConMsg(const char* text, ...)
+DECLARE_HOOK_CC(Status_ConMsg, engine.dll + 0x15ABD0, __cdecl, [](auto& hook, const char* text, ...)
 {
 	char formatted[2048];
-	va_list list;
+	va_list* list = hook.VarArgs();
 
-	va_start(list, text);
-	vsprintf_s(formatted, text, list);
-	va_end(list);
+	vsprintf_s(formatted, text, *list);
 
 	auto endpos = strlen(formatted);
 	if (formatted[endpos - 1] == '\n')
 		formatted[endpos - 1] = '\0'; // cut off repeated newline
 
 	spdlog::info(formatted);
-}
+})
 
-static bool (*o_pCClientState_ProcessPrint)(void* thisptr, uintptr_t msg) = nullptr;
-static bool h_CClientState_ProcessPrint(void* thisptr, uintptr_t msg)
+DECLARE_HOOK_CC(CClientState_ProcessPrint, engine.dll + 0x1A1530, __cdecl, [](auto& hook, void* thisptr, uintptr_t msg)
 {
+	NOTE_UNUSED(hook);
+
 	NOTE_UNUSED(thisptr);
 
 	char* text = *(char**)(msg + 0x20);
@@ -234,32 +234,23 @@ static bool h_CClientState_ProcessPrint(void* thisptr, uintptr_t msg)
 
 	spdlog::info(text);
 	return true;
-}
+})
 
 ON_DLL_LOAD_RELIESON("engine.dll", EngineSpewFuncHooks, ConVar, [](CModule module)
 {
-	o_pfprintf = module.Offset(0x51B1F0).RCast<decltype(o_pfprintf)>();
-	HookAttach(&(PVOID&)o_pfprintf, (PVOID)h_fprintf);
-
-	o_pConCommand_echo = module.Offset(0x123680).RCast<decltype(o_pConCommand_echo)>();
-	HookAttach(&(PVOID&)o_pConCommand_echo, (PVOID)h_ConCommand_echo);
-
-	o_pEngineSpewFunc = module.Offset(0x11CA80).RCast<decltype(o_pEngineSpewFunc)>();
-	HookAttach(&(PVOID&)o_pEngineSpewFunc, (PVOID)h_EngineSpewFunc);
-
-	o_pStatus_ConMsg = module.Offset(0x15ABD0).RCast<decltype(o_pStatus_ConMsg)>();
-	HookAttach(&(PVOID&)o_pStatus_ConMsg, (PVOID)h_Status_ConMsg);
-
-	o_pCClientState_ProcessPrint = module.Offset(0x1A1530).RCast<decltype(o_pCClientState_ProcessPrint)>();
-	HookAttach(&(PVOID&)o_pCClientState_ProcessPrint, (PVOID)h_CClientState_ProcessPrint);
+	NOTE_UNUSED(module);
+	DISPATCH_HOOK(LogHooks, fprintf)
+	DISPATCH_HOOK(LogHooks, ConCommand_echo)
+	DISPATCH_HOOK(LogHooks, EngineSpewFunc)
+	DISPATCH_HOOK(LogHooks, Status_ConMsg)
+	DISPATCH_HOOK(LogHooks, CClientState_ProcessPrint)
 
 	Cvar_spewlog_enable = new ConVar("spewlog_enable", "0", FCVAR_NONE, "Enables/disables whether the engine spewfunc should be logged");
 })
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", ClientPrintHooks, ConVar, [](CModule module)
 {
-	o_pTextMsg = module.Offset(0x198710).RCast<decltype(o_pTextMsg)>();
-	HookAttach(&(PVOID&)o_pTextMsg, (PVOID)h_TextMsg);
+	DISPATCH_HOOK(LogHooks, TextMsg)
 
 	Cvar_cl_showtextmsg = new ConVar("cl_showtextmsg", "1", FCVAR_NONE, "Enable/disable text messages printing on the screen.");
 	pInternalCenterPrint = module.Offset(0x216E940).RCast<ICenterPrint*>();
