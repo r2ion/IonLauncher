@@ -11,7 +11,7 @@
 #include "util/version.h"
 #include "util/wininfo.h"
 
-#include "windows/libsys.h"
+#include "tier0/callbacks.h"
 
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
@@ -87,7 +87,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		break;
 	case DLL_THREAD_ATTACH:
 	case DLL_THREAD_DETACH:
+		break;
 	case DLL_PROCESS_DETACH:
+		if (g_pCallbackManager)
+			g_pCallbackManager->Shutdown();
 		break;
 	}
 
@@ -145,8 +148,7 @@ bool InitialiseNorthstar()
 	LogSys_StartupLog();
 
 
-	// Init loadlibrary callbacks
-	LibSys_Init();
+	g_pCallbackManager->Initialize();
 
 	g_pServerPresence = new ServerPresenceManager();
 
@@ -160,8 +162,7 @@ bool InitialiseNorthstar()
 
 	curl_global_init_mem(CURL_GLOBAL_DEFAULT, _malloc_base, _free_base, _realloc_base, _strdup_base, _calloc_base);
 
-	// run callbacks for any libraries that are already loaded by now
-	CallAllPendingDLLLoadCallbacks();
+	g_pCallbackManager->ProcessLoadedModules();
 
 	return true;
 }

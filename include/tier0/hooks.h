@@ -19,6 +19,7 @@
 #include <intrin.h>
 
 #include "logging/logging.h"
+#include "tier0/callbacks.h"
 #include "tier0/module.h"
 
 #ifndef __CONCAT2
@@ -40,15 +41,6 @@
 // Forward declarations from core hooks system
 uintptr_t ParseDLLOffsetString(const char* pAddrString);
 
-#ifndef NS_DLL_LOAD_CALLBACK_TYPE_DEFINED
-#define NS_DLL_LOAD_CALLBACK_TYPE_DEFINED
-typedef void (*DllLoadCallbackFuncType)(CModule moduleAddress);
-void AddDllLoadCallback(std::string dll, DllLoadCallbackFuncType callback, std::string tag = "", std::vector<std::string> reliesOn = {});
-void AddDllLoadCallbackForDedicatedServer(std::string dll, DllLoadCallbackFuncType callback, std::string tag = "",
-                                          std::vector<std::string> reliesOn = {});
-void AddDllLoadCallbackForClient(std::string dll, DllLoadCallbackFuncType callback, std::string tag = "", std::vector<std::string> reliesOn = {});
-#endif
-
 //-----------------------------------------------------------------------------
 // Purpose: Init minhook
 //-----------------------------------------------------------------------------
@@ -56,49 +48,6 @@ void HookSys_Init();
 
 void* HookImportByOrdinal(const char* module, const char* targetDll, WORD targetOrdinal, void* replacement);
 void* HookImportByName(const char* module, const char* targetDll, const char* funcName, void* replacement);
-
-void CallLoadLibraryACallbacks(LPCSTR lpLibFileName, HMODULE moduleAddress);
-
-void CallAllPendingDLLLoadCallbacks();
-
-// new dll load callback stuff
-enum class eDllLoadCallbackSide
-{
-    UNSIDED,
-    CLIENT,
-    DEDICATED_SERVER
-};
-
-class __dllLoadCallback
-{
-  public:
-    __dllLoadCallback() = delete;
-    __dllLoadCallback(eDllLoadCallbackSide side, const std::string dllName, DllLoadCallbackFuncType callback, std::string uniqueStr,
-                      std::string reliesOn);
-};
-
-// adds a callback to be called when a given dll is loaded, for creating hooks and such
-#define __ON_DLL_LOAD(dllName, side, uniquestr, reliesOn, lambdaExpr)                                                                                \
-    namespace                                                                                                                                        \
-    {                                                                                                                                                \
-    inline auto CONCAT2(__dllLoadCallbackLambda_, uniquestr) = lambdaExpr;                                                                           \
-    void CONCAT2(__dllLoadCallback, uniquestr)(CModule module)                                                                                       \
-    {                                                                                                                                                \
-        CONCAT2(__dllLoadCallbackLambda_, uniquestr)(module);                                                                                        \
-    }                                                                                                                                                \
-    __dllLoadCallback CONCAT2(__dllLoadCallbackInstance, __LINE__)(side, dllName, CONCAT2(__dllLoadCallback, uniquestr), __STR(uniquestr),           \
-                                                                   reliesOn);                                                                        \
-    }
-
-#define ON_DLL_LOAD(dllName, uniquestr, lambdaExpr) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::UNSIDED, uniquestr, "", lambdaExpr)
-#define ON_DLL_LOAD_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                                               \
-    __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::UNSIDED, uniquestr, __STR(reliesOn), lambdaExpr)
-#define ON_DLL_LOAD_CLIENT(dllName, uniquestr, lambdaExpr) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::CLIENT, uniquestr, "", lambdaExpr)
-#define ON_DLL_LOAD_CLIENT_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                                        \
-    __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::CLIENT, uniquestr, __STR(reliesOn), lambdaExpr)
-#define ON_DLL_LOAD_DEDI(dllName, uniquestr, lambdaExpr) __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, "", lambdaExpr)
-#define ON_DLL_LOAD_DEDI_RELIESON(dllName, uniquestr, reliesOn, lambdaExpr)                                                                          \
-    __ON_DLL_LOAD(dllName, eDllLoadCallbackSide::DEDICATED_SERVER, uniquestr, __STR(reliesOn), lambdaExpr)
 
 class ManualHook
 {
