@@ -371,6 +371,8 @@ int RunLauncher(int argc, char* argv[])
 		return 1;
 	}
 
+	SetEnvironmentVariableA("OPENSSL_ia32cap", "~0x200000200000000");
+
 	SetCurrentDirectoryW(exePath);
 
 	bool noOriginStartup = false;

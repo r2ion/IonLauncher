@@ -10,7 +10,6 @@
 #include "shell.h"
 #include "util/version.h"
 #include "util/wininfo.h"
-
 #include "tier0/callbacks.h"
 
 #include "rapidjson/document.h"
@@ -22,59 +21,6 @@
 #include <string>
 #include <string.h>
 #include <windows.h>
-
-static bool StartGameWithUri(const std::string& uri)
-{
-	if (!g_NorthstarModule)
-		return false;
-
-	wchar_t modulePath[MAX_PATH] = {};
-	if (GetModuleFileNameW(g_NorthstarModule, modulePath, MAX_PATH) == 0)
-		return false;
-
-	std::filesystem::path moduleDir = std::filesystem::path(modulePath).parent_path();
-	std::filesystem::path launcherExePath = moduleDir / L"NorthstarLauncher.exe";
-	if (!std::filesystem::exists(launcherExePath))
-		return false;
-
-	int wideLen = MultiByteToWideChar(CP_UTF8, 0, uri.c_str(), -1, nullptr, 0);
-	if (wideLen <= 0)
-		return false;
-
-	std::wstring uriWide;
-	uriWide.resize(static_cast<size_t>(wideLen - 1));
-	MultiByteToWideChar(CP_UTF8, 0, uri.c_str(), -1, uriWide.data(), wideLen);
-
-	std::wstring command = L"\"" + launcherExePath.wstring() + L"\" \"" + uriWide + L"\"";
-	std::vector<wchar_t> commandLine(command.begin(), command.end());
-	commandLine.push_back(L'\0');
-
-	STARTUPINFOW si = {};
-	si.cb = sizeof(si);
-	PROCESS_INFORMATION pi = {};
-
-	BOOL ok = CreateProcessW(
-		launcherExePath.c_str(),
-		commandLine.data(),
-		nullptr,
-		nullptr,
-		FALSE,
-		0,
-		nullptr,
-		moduleDir.c_str(),
-		&si,
-		&pi);
-
-	if (ok)
-	{
-		CloseHandle(pi.hThread);
-		CloseHandle(pi.hProcess);
-		return true;
-	}
-
-	return false;
-}
-
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
@@ -89,8 +35,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	case DLL_THREAD_DETACH:
 		break;
 	case DLL_PROCESS_DETACH:
-		if (g_pCallbackManager)
-			g_pCallbackManager->Shutdown();
+		g_pCallbackManager->Shutdown();
 		break;
 	}
 
@@ -157,7 +102,6 @@ bool InitialiseNorthstar()
 
 	g_pSquirrel.InitialiseSquirrelManagers();
 
-	// Fix some users' failure to connect to respawn datacenters
 	SetEnvironmentVariableA("OPENSSL_ia32cap", "~0x200000200000000");
 
 	curl_global_init_mem(CURL_GLOBAL_DEFAULT, _malloc_base, _free_base, _realloc_base, _strdup_base, _calloc_base);

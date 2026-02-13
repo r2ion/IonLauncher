@@ -18,6 +18,8 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID)
 		if (!ProvisionNorthstar()) // does not call InitialiseNorthstar yet, will do it on LauncherMain hook
 			return true;
 
+		SetEnvironmentVariableA("OPENSSL_ia32cap", "~0x200000200000000");
+
 		GetSystemDirectoryW(wsockPath, 4096);
 		swprintf_s(wsockPath, 4096, L"%s\\wsock32.dll", wsockPath);
 
