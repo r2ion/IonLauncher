@@ -62,12 +62,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: DoozyX/clang-format-lint-action@v0.18.2
+    - uses: DoozyX/clang-format-lint-action@v0.20
       with:
-        source: 'src'
-        exclude: 'src/include src/thirdparty src/wsockproxy'
+        source: 'src include proxy dedicated'
+        exclude: 'src/thirdparty'
         extensions: 'h,cpp'
-        clangFormatVersion: 16
+        clangFormatVersion: 20
         inplace: true
         style: file
 
