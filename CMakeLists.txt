@@ -45,15 +45,16 @@ add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 # This determines the real binary root directory
 set(NS_BINARY_DIR_DEFAULT "${CMAKE_BINARY_DIR}/game")
 
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
+else()
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake.in"
-        "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/config.cmake"
         @ONLY
         )
+    include("${CMAKE_CURRENT_BINARY_DIR}/config.cmake" OPTIONAL)
 endif()
-
-include("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake" OPTIONAL)
 
 if(NOT
    DEFINED
@@ -61,6 +62,28 @@ if(NOT
    )
     set(NS_BINARY_DIR "${NS_BINARY_DIR_DEFAULT}")
 endif()
+
+set(NS_VERSION_NUMERIC
+    "0,0,0,1"
+    CACHE STRING
+          "Windows numeric FILEVERSION/PRODUCTVERSION value (comma separated)."
+    )
+set(NS_VERSION_STRING
+    "DEV"
+    CACHE STRING
+          "Windows string FileVersion/ProductVersion value."
+    )
+set(NS_ION_PATCH
+    "0"
+    CACHE STRING
+          "ION patch value for include/ns_version.h."
+    )
+
+add_compile_definitions(
+    NORTHSTAR_VERSION=${NS_VERSION_NUMERIC}
+    NORTHSTAR_VERSION_STR="${NS_VERSION_STRING}"
+    ION_PATCH=${NS_ION_PATCH}
+    )
 
 # NOTE [Fifty]: Visual studio deems Build root with the value "${projectDir}" in CMakeSettings.json as invalid and
 # defaults to using a temporary dir somewhere in %USER%/CMakeBuilds. To combat this we set it to "${projectDir}/build"

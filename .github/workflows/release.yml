@@ -9,10 +9,11 @@ permissions:
 
 env:
   NORTHSTAR_VERSION: ${{ github.ref_name }}
+  NS_BINARY_OUTPUT: ${{ github.workspace }}/build/game
 
 jobs:
   build-launcher:
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -26,47 +27,41 @@ jobs:
           path: src/thirdparty/eossdk
       - name: Setup msvc
         uses: ilammy/msvc-dev-cmd@v1
-      - name: Configure cmake
-        run: cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE:STRING="Release"
-      - name: Setup resource file version
+      - name: Compute CMake version values
         shell: bash
         run: |
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' src/resources.rc
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' launcher/resources.rc
+          VERSION_FULL=$(echo "${{ env.NORTHSTAR_VERSION }}" | sed 's/^v//')
+          VERSION_BASE=$(echo "${VERSION_FULL}" | cut -d'_' -f1)
+          PATCH_VERSION=$(echo "${VERSION_FULL}" | cut -d'_' -f2)
 
-          # Extract version and patch from tag (e.g., v1.31.3_2)
-          VERSION_FULL=$(echo ${{ env.NORTHSTAR_VERSION }} | sed 's/^v//')
-          VERSION_BASE=$(echo ${VERSION_FULL} | cut -d'_' -f1)
-          PATCH_VERSION=$(echo ${VERSION_FULL} | cut -d'_' -f2)
-
-          # If no underscore, patch version is 0
           if [[ "${VERSION_FULL}" == "${PATCH_VERSION}" ]]; then
             PATCH_VERSION=0
           fi
 
-          # Convert version to comma-separated format for FILEVERSION
-          FILEVERSION=$(echo ${VERSION_BASE} | tr '.' ',')
+          VERSION_NUMERIC=$(echo "${VERSION_BASE}" | tr '.' ',')
 
-          # Update ns_version.h with both version and patch
-          sed -i "s/0,0,0,1/${FILEVERSION}/g" include/ns_version.h
-          sed -i "s/#define ION_PATCH 0/#define ION_PATCH ${PATCH_VERSION}/g" include/ns_version.h
+          echo "NS_VERSION_STRING=${{ env.NORTHSTAR_VERSION }}" >> $GITHUB_ENV
+          echo "NS_VERSION_NUMERIC=${VERSION_NUMERIC}" >> $GITHUB_ENV
+          echo "NS_ION_PATCH=${PATCH_VERSION}" >> $GITHUB_ENV
+      - name: Configure cmake
+        run: >
+          cmake -G "Visual Studio 18 2026" -A x64 -B build
+          -DNS_BINARY_DIR:PATH="${{ env.NS_BINARY_OUTPUT }}"
+          -DNS_VERSION_NUMERIC:STRING="$NS_VERSION_NUMERIC"
+          -DNS_VERSION_STRING:STRING="$NS_VERSION_STRING"
+          -DNS_ION_PATCH:STRING="$NS_ION_PATCH"
       - name: Build
-        run: cmake --build build/
+        run: cmake --build build/ --config Release
       - name: Upload launcher build as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ion-launcher
           path: |
-            build/game/*.exe
-            build/game/*.dll
-            build/game/bin/x64_retail/*.dll
-      - name: Upload debug build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: launcher-debug-files
-          path: |
-            build/game/*.pdb
-            build/game/bin/x64_retail/*.pdb
+            ${{ env.NS_BINARY_OUTPUT }}/*.exe
+            ${{ env.NS_BINARY_OUTPUT }}/*.dll
+            ${{ env.NS_BINARY_OUTPUT }}/*.pdb
+            ${{ env.NS_BINARY_OUTPUT }}/bin/x64_retail/*.dll
+            ${{ env.NS_BINARY_OUTPUT }}/bin/x64_retail/*.pdb
 
   upload-launcher-to-release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -78,19 +73,10 @@ jobs:
         with:
           name: ion-launcher
           path: ion-launcher
-      - name: Download compiled launcher
-        uses: actions/download-artifact@v4
-        with:
-          name: launcher-debug-files
-          path: launcher-debug-files
       - name: Create zip with binaries
         run: |
           cd ion-launcher
           zip --recurse-paths --quiet ../ion-launcher.zip *
-      - name: Create zip with debug symbols
-        run: |
-          cd launcher-debug-files
-          zip --recurse-paths --quiet ../launcher-debug-files.zip *
       - name: Upload files to release
         uses: softprops/action-gh-release@v1
         with:
@@ -98,4 +84,3 @@ jobs:
           draft: false
           files: |
             ion-launcher.zip
-            launcher-debug-files.zip

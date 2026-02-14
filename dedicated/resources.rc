@@ -85,12 +85,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Northstar Developers"
             VALUE "FileDescription", "Northstar Launcher"
-            VALUE "FileVersion", "DEV"
+            VALUE "FileVersion", NORTHSTAR_VERSION_STR
             VALUE "InternalName", "NorthstarLauncher.exe"
             VALUE "LegalCopyright", "Copyright (C) 2021"
             VALUE "OriginalFilename", "NorthstarLauncher.exe"
             VALUE "ProductName", "Northstar Launcher"
-            VALUE "ProductVersion", "DEV"
+            VALUE "ProductVersion", NORTHSTAR_VERSION_STR
         END
     END
     BLOCK "VarFileInfo"

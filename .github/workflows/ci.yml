@@ -4,10 +4,11 @@ on: [push, pull_request]
 env:
   BUILD_PROFILE: Release
   NORTHSTAR_VERSION: 0.0.0.${{github.run_number}}
+  NS_BINARY_OUTPUT: ${{ github.workspace }}/build/game
 
 jobs:
   build:
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     strategy:
       matrix:
         config:
@@ -28,17 +29,23 @@ jobs:
           path: src/thirdparty/eossdk
       - name: Setup msvc
         uses: ilammy/msvc-dev-cmd@v1
-      - name: Configure cmake
-        run: cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE:STRING="${{ env.BUILD_PROFILE }}"
-      - name: Setup resource file version
+      - name: Compute CMake version values
         shell: bash
         run: |
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' launcher/resources.rc
-          sed -i 's/DEV/${{ env.NORTHSTAR_VERSION }}/g' launcher/resources.rc
-          FILEVERSION=$(echo ${{ env.NORTHSTAR_VERSION }} | tr '.' ',' | sed -E 's/-rc[0-9]+//' | tr -d '[:alpha:]')
-          sed -i "s/0,0,0,1/${FILEVERSION}/g" include/ns_version.h
+          VERSION_TEXT="${{ env.NORTHSTAR_VERSION }}"
+          VERSION_NUMERIC=$(echo "${VERSION_TEXT}" | sed -E 's/-rc[0-9]+//' | tr '.' ',' | tr -cd '0-9,')
+          echo "NS_VERSION_STRING=${VERSION_TEXT}" >> $GITHUB_ENV
+          echo "NS_VERSION_NUMERIC=${VERSION_NUMERIC}" >> $GITHUB_ENV
+          echo "NS_ION_PATCH=0" >> $GITHUB_ENV
+      - name: Configure cmake
+        run: >
+          cmake -G "Visual Studio 18 2026" -A x64 -B build
+          -DNS_BINARY_DIR:PATH="${{ env.NS_BINARY_OUTPUT }}"
+          -DNS_VERSION_NUMERIC:STRING="$NS_VERSION_NUMERIC"
+          -DNS_VERSION_STRING:STRING="$NS_VERSION_STRING"
+          -DNS_ION_PATCH:STRING="$NS_ION_PATCH"
       - name: Build
-        run: cmake --build build/
+        run: cmake --build build/ --config "${{ env.BUILD_PROFILE }}"
       - name: Extract Short Commit Hash
         id: extract
         shell: bash
@@ -48,7 +55,7 @@ jobs:
         with:
           name: NorthstarLauncher-${{ matrix.config.name }}-${{ steps.extract.outputs.commit }}
           path: |
-            build/game/
+            ${{ env.NS_BINARY_OUTPUT }}/
 
   format-check:
     runs-on: ubuntu-latest
