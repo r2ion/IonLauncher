@@ -30,7 +30,7 @@ set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_AllowUnsafeBlocks "true
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_ApplicationIcon "ns_icon.ico")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_AssemblyTitle "Northstar")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Company "Northstar Developers")
-set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Description "Northstar Launcher")
+set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Description "Northstar")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Product "Northstar")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Copyright "Copyright (C) 2021")
 
