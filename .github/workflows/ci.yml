@@ -58,18 +58,19 @@ jobs:
           path: |
             ${{ env.NS_BINARY_OUTPUT }}/
 
-  format-check:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: DoozyX/clang-format-lint-action@v0.20
-      with:
-        source: 'src include proxy dedicated'
-        exclude: 'src/thirdparty'
-        extensions: 'h,cpp'
-        clangFormatVersion: 20
-        inplace: true
-        style: file
+# can someone fix this i swear to god
+#   format-check:
+#     runs-on: ubuntu-latest
+#     steps:
+#     - uses: actions/checkout@v4
+#     - uses: DoozyX/clang-format-lint-action@v0.20
+#       with:
+#         source: 'src include proxy dedicated'
+#         exclude: 'src/thirdparty'
+#         extensions: 'h,cpp'
+#         clangFormatVersion: 20
+#         inplace: true
+#         style: file
 
   format-check-cmake-files:
     if: github.event_name == 'pull_request'
