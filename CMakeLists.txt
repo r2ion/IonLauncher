@@ -50,10 +50,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
 else()
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/config.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake"
         @ONLY
         )
-    include("${CMAKE_CURRENT_BINARY_DIR}/config.cmake" OPTIONAL)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake" OPTIONAL)
 endif()
 
 if(NOT
