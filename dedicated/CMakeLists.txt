@@ -1,9 +1,12 @@
 # NorthstarLauncher
 
-add_executable(NorthstarLauncherCXX WIN32 "main.cpp" "resources.rc")
 add_executable(r2ds "main.cpp" "resources.rc")
 
-set(launcher_targets NorthstarLauncherCXX r2ds)
+set(launcher_targets r2ds)
+if(NS_BUILD_LEGACY_CPP_LAUNCHER)
+    add_executable(NorthstarLauncherCXX WIN32 "main.cpp" "resources.rc")
+    list(APPEND launcher_targets NorthstarLauncherCXX)
+endif()
 set(launcher_libs
     shlwapi.lib
     kernel32.lib
