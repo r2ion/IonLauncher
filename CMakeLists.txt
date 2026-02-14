@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 4.1.1)
 
 cmake_policy(
     SET
@@ -10,10 +10,16 @@ cmake_policy(
     CMP0169
     OLD
     )
+cmake_policy(
+    SET
+    CMP0175
+    OLD
+    )
 
 project(
     Northstar
     C
+	CSharp
     CXX
     ASM_MASM
     )
@@ -95,6 +101,7 @@ set(RAPIDJSON_BUILD_THIRDPARTY_GTEST OFF)
 
 set(CURL_USE_LIBPSL OFF)
 set(BUILD_CURL_EXE OFF)
+set(BUILD_EXAMPLES OFF)
 set(CURL_USE_SCHANNEL ON)
 set(CMAKE_USE_OPENSSL OFF)
 set(USE_LIBIDN2 OFF)
@@ -104,6 +111,9 @@ set(ENABLE_ARES OFF)
 set(CURL_ZLIB OFF)
 set(CURL_DISABLE_LDAP ON)
 set(CURL_DISABLE_LDAPS ON)
+set(CURL_BUILD_TESTING OFF)
+set(BUILD_LIBCURL_DOCS OFF)
+set(CURL_ENABLE_EXPORT_TARGET OFF)
 
 set(MZ_FETCH_LIBS ON)
 set(MZ_FORCE_FETCH_LIBS ON)
@@ -116,19 +126,15 @@ set(BUILD_TESTING OFF)
 # cmake-format: off
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
 
-# Use master branch of rapidjson for modern CMake compatibility
+set(RAPIDJSON_GIT_TAG "24b5e7a8b27f42fa16b96fc70aade9106cf7102f" CACHE STRING "rapidjson git tag/branch/commit to fetch")
+
+# Use configured rapidjson ref for modern CMake compatibility
 CPMAddPackage(
     NAME rapidjson
     GITHUB_REPOSITORY Tencent/rapidjson
-    GIT_TAG master
+    GIT_TAG ${RAPIDJSON_GIT_TAG}
 )
 CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
-
-#CPMAddPackage(
-#	NAME zlib-ng
-#	GITHUB_REPOSITORY zlib-ng/zlib-ng
-#	GIT_TAG 2.3.2
-#)
 
 CPMAddPackage(
 	NAME minizip-ng
@@ -153,6 +159,7 @@ CPMAddPackage(
 
 add_subdirectory(src)
 add_subdirectory(proxy)
+add_subdirectory(dedicated)
 add_subdirectory(launcher)
 
 # Forces Minizip to not use functions that are not available in Win 7 libraries.
