@@ -33,8 +33,6 @@ if(NOT CMAKE_BUILD_TYPE)
         )
 endif()
 
-include(config.cmake OPTIONAL)
-
 # Language specs
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 17)
@@ -45,11 +43,23 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 
 # This determines the real binary root directory
+set(NS_BINARY_DIR_DEFAULT "${CMAKE_BINARY_DIR}/game")
+
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake.in"
+        "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake"
+        @ONLY
+        )
+endif()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake" OPTIONAL)
+
 if(NOT
    DEFINED
    NS_BINARY_DIR
    )
-    set(NS_BINARY_DIR ${CMAKE_BINARY_DIR}/game)
+    set(NS_BINARY_DIR "${NS_BINARY_DIR_DEFAULT}")
 endif()
 
 # NOTE [Fifty]: Visual studio deems Build root with the value "${projectDir}" in CMakeSettings.json as invalid and
