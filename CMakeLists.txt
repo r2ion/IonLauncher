@@ -44,6 +44,8 @@ add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 
 # This determines the real binary root directory
 set(NS_BINARY_DIR_DEFAULT "${CMAKE_BINARY_DIR}/game")
+set(NS_PUBLISH_LAUNCHER_DEFAULT OFF)
+set(NS_LAUNCHER_RUNTIME_IDENTIFIER_DEFAULT "win-x64")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
     include("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
@@ -62,6 +64,18 @@ if(NOT
    )
     set(NS_BINARY_DIR "${NS_BINARY_DIR_DEFAULT}")
 endif()
+
+option(
+    NS_PUBLISH_LAUNCHER
+    "Publish C# launcher as a self-contained single-file executable during build"
+    ${NS_PUBLISH_LAUNCHER_DEFAULT}
+    )
+set(
+    NS_LAUNCHER_RUNTIME_IDENTIFIER
+    "${NS_LAUNCHER_RUNTIME_IDENTIFIER_DEFAULT}"
+    CACHE STRING
+          "Runtime identifier used when publishing the C# launcher."
+    )
 
 set(NS_VERSION_NUMERIC
     "0,0,0,1"
@@ -91,6 +105,7 @@ add_compile_definitions(
 # without it being cluttered up by cmake files.
 
 message(STATUS "NS: Building to ${NS_BINARY_DIR}")
+message(STATUS "NS: Publish launcher ${NS_PUBLISH_LAUNCHER} (RID: ${NS_LAUNCHER_RUNTIME_IDENTIFIER})")
 
 list(
     APPEND

@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using NorthstarLauncher.Models;
 using NorthstarLauncher.Services;
 
@@ -8,6 +8,7 @@ namespace NorthstarLauncher
     {
         protected override void OnStartup(StartupEventArgs e)
         {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
             base.OnStartup(e);
 
             var installDirectory = AppContext.BaseDirectory;
@@ -37,7 +38,9 @@ namespace NorthstarLauncher
         {
             var window = new MainWindow(message);
             MainWindow = window;
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
             window.Show();
+            window.Activate();
         }
     }
 }

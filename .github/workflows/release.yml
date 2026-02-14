@@ -48,6 +48,7 @@ jobs:
         run: >
           cmake -G "Visual Studio 18 2026" -A x64 -B build
           -DNS_BINARY_DIR:PATH="${{ env.NS_BINARY_OUTPUT }}"
+          -DNS_PUBLISH_LAUNCHER:BOOL=ON
           -DNS_VERSION_NUMERIC:STRING="$NS_VERSION_NUMERIC"
           -DNS_VERSION_STRING:STRING="$NS_VERSION_STRING"
           -DNS_ION_PATCH:STRING="$NS_ION_PATCH"

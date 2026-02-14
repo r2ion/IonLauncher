@@ -28,10 +28,10 @@ set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Nullable "enable")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_ImplicitUsings "enable")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_AllowUnsafeBlocks "true")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_ApplicationIcon "ns_icon.ico")
-set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_AssemblyTitle "Northstar Launcher")
+set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_AssemblyTitle "Northstar")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Company "Northstar Developers")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Description "Northstar Launcher")
-set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Product "Northstar Launcher")
+set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Product "Northstar")
 set_property(TARGET NorthstarLauncher PROPERTY VS_GLOBAL_Copyright "Copyright (C) 2021")
 
 set_target_properties(
@@ -67,3 +67,56 @@ set_source_files_properties(
 	PROPERTIES
 	VS_CSHARP_DependentUpon "MainWindow.xaml"
 )
+
+if(NS_PUBLISH_LAUNCHER)
+	set(_ns_launcher_publish_project "${CMAKE_CURRENT_BINARY_DIR}/NorthstarLauncher.csproj")
+
+	if(MSVC AND CMAKE_VS_MSBUILD_COMMAND)
+		set(_ns_launcher_publish_command
+			"${CMAKE_VS_MSBUILD_COMMAND}" "${_ns_launcher_publish_project}"
+			/t:Publish
+			/restore
+			/p:Configuration=$<CONFIG>
+			/p:TargetFramework=net10.0-windows
+			/p:RuntimeIdentifier=${NS_LAUNCHER_RUNTIME_IDENTIFIER}
+			/p:RuntimeIdentifiers=${NS_LAUNCHER_RUNTIME_IDENTIFIER}
+			/p:SelfContained=true
+			/p:PublishSingleFile=true
+			/p:EnableCompressionInSingleFile=true
+			/p:TrimUnusedDependencies=true
+			/p:IncludeNativeLibrariesForSelfExtract=true
+			/p:PublishDir=${NS_BINARY_DIR}/
+			/nologo
+			/verbosity:minimal
+		)
+	else()
+		set(_ns_launcher_publish_command
+			dotnet publish "${_ns_launcher_publish_project}"
+			--configuration "$<CONFIG>"
+			--framework net10.0-windows
+			--runtime "${NS_LAUNCHER_RUNTIME_IDENTIFIER}"
+			--self-contained true
+			--output "${NS_BINARY_DIR}"
+			/p:PublishSingleFile=true
+			/p:EnableCompressionInSingleFile=true
+			/p:TrimUnusedDependencies=true
+			/p:IncludeNativeLibrariesForSelfExtract=true
+			--nologo
+			--verbosity minimal
+		)
+	endif()
+
+	add_custom_target(
+		NorthstarLauncherPublish
+		ALL
+		COMMAND
+			${_ns_launcher_publish_command}
+		DEPENDS
+			NorthstarLauncher
+		WORKING_DIRECTORY
+			"${CMAKE_CURRENT_BINARY_DIR}"
+		COMMENT
+			"Publishing NorthstarLauncher as self-contained single-file executable"
+		VERBATIM
+	)
+endif()
