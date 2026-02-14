@@ -38,6 +38,7 @@ jobs:
           echo "NS_VERSION_NUMERIC=${VERSION_NUMERIC}" >> $GITHUB_ENV
           echo "NS_ION_PATCH=0" >> $GITHUB_ENV
       - name: Configure cmake
+        shell: bash
         run: >
           cmake -G "Visual Studio 18 2026" -A x64 -B build
           -DNS_BINARY_DIR:PATH="${{ env.NS_BINARY_OUTPUT }}"
