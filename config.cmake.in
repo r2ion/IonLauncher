@@ -1,3 +1,4 @@
+# make sure the slashes are windows style ("\\") if you want NS_GENERATE_VS_LAUNCH_CONFIG to work
 if(NOT DEFINED NS_BINARY_DIR)
     set(NS_BINARY_DIR "@NS_BINARY_DIR_DEFAULT@")
 endif()

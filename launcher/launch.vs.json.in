@@ -5,7 +5,7 @@
     {
       "type": "native",
       "project": "CMakeLists.txt",
-      "projectTarget": "NorthstarLauncher.exe (@NS_BINARY_DIR@/NorthstarLauncher.exe)",
+      "projectTarget": "NorthstarLauncher.exe (@NS_BINARY_DIR_VS_LAUNCH@\\NorthstarLauncher.exe)",
       "name": "Northstar",
       "debugType": "native"
     }
