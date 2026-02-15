@@ -1,0 +1,13 @@
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+      "type": "native",
+      "project": "CMakeLists.txt",
+      "projectTarget": "NorthstarLauncher.exe (@NS_BINARY_DIR_VS_LAUNCH@\\NorthstarLauncher.exe)",
+      "name": "Northstar",
+      "debugType": "native"
+    }
+  ]
+}

@@ -47,6 +47,7 @@ set(NS_BINARY_DIR_DEFAULT "${CMAKE_BINARY_DIR}/game")
 set(NS_PUBLISH_LAUNCHER_DEFAULT OFF)
 set(NS_LAUNCHER_RUNTIME_IDENTIFIER_DEFAULT "win-x64")
 set(NS_BUILD_LEGACY_CPP_LAUNCHER_DEFAULT OFF)
+set(NS_GENERATE_VS_LAUNCH_CONFIG_DEFAULT ON)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
     include("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
@@ -76,6 +77,11 @@ option(
     "Build legacy C++ launcher executable (NorthstarLauncherCXX)"
     ${NS_BUILD_LEGACY_CPP_LAUNCHER_DEFAULT}
     )
+option(
+	NS_GENERATE_VS_LAUNCH_CONFIG
+	"Generate launch.vs.json for Visual Studio debugging configuration"
+	${NS_GENERATE_VS_LAUNCH_CONFIG_DEFAULT}
+	)
 set(
     NS_LAUNCHER_RUNTIME_IDENTIFIER
     "${NS_LAUNCHER_RUNTIME_IDENTIFIER_DEFAULT}"
@@ -177,6 +183,14 @@ set(MZ_ZLIB_FLAVOR zlib-ng)
 set(MZ_INSTALL OFF)
 set(WITH_GTEST OFF)
 set(BUILD_TESTING OFF)
+set(XZ_TOOL_XZ OFF)
+set(XZ_TOOL_XZDEC OFF)
+set(XZ_TOOL_LZMADEC OFF)
+set(XZ_TOOL_LZMAINFO OFF)
+set(XZ_TOOL_SCRIPTS OFF)
+set(XZ_NLS OFF)
+set(XZ_DOXYGEN OFF)
+set(XZ_DOC OFF)
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
 CPMAddPackage("gh:gabime/spdlog@1.17.0")

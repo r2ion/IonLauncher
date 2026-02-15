@@ -68,6 +68,19 @@ set_source_files_properties(
 	VS_CSHARP_DependentUpon "MainWindow.xaml"
 )
 
+if(NS_GENERATE_VS_LAUNCH_CONFIG)
+	set(_ns_vs_launch_binary_dir "${NS_BINARY_DIR}")
+	string(REPLACE "/" "\\" _ns_vs_launch_binary_dir "${_ns_vs_launch_binary_dir}")
+	string(REGEX REPLACE "[/\\]+$" "" _ns_vs_launch_binary_dir "${_ns_vs_launch_binary_dir}")
+	string(REPLACE "\\" "\\\\" NS_BINARY_DIR_VS_LAUNCH "${_ns_vs_launch_binary_dir}")
+
+	configure_file(
+	    "${CMAKE_CURRENT_SOURCE_DIR}/launch.vs.json.in"
+	    "${PROJECT_SOURCE_DIR}/.vs/launch.vs.json"
+	    @ONLY
+	    )
+endif()
+
 if(NS_PUBLISH_LAUNCHER)
 	set(_ns_launcher_publish_project "${CMAKE_CURRENT_BINARY_DIR}/NorthstarLauncher.csproj")
 

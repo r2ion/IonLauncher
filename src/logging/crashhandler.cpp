@@ -59,14 +59,14 @@ LONG WINAPI ExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 
-	g_pCrashHandler->PlayCrashSound(CRASH_SOUND);
-
-	// Don't run if a debbuger is attached
+	// Don't run if a debugger is attached
 	if (IsDebuggerPresent())
 	{
 		g_pCrashHandler->Unlock();
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
+
+	g_pCrashHandler->PlayCrashSound(CRASH_SOUND);
 
 	// Prevent recursive calls
 	if (g_pCrashHandler->GetState())
