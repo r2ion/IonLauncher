@@ -78,6 +78,8 @@ jobs:
       - name: Create zip with binaries
         run: |
           cd ion-launcher
+          rm -f NorthstarLauncher.dll NorthstarLauncher.deps.json NorthstarLauncher.runtimeconfig.json
+          rm -rf win-x64
           zip --recurse-paths --quiet ../ion-launcher.zip *
       - name: Upload files to release
         uses: softprops/action-gh-release@v1
