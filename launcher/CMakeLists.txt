@@ -16,9 +16,21 @@ add_executable(
 	ns_icon.ico
 	AssemblyInfo.cs
 	Models/ValidationResult.cs
-	Services/LauncherInstallValidator.cs
 	Services/NativeMethods.cs
 	Services/GameLaunchService.cs
+	Images/bg.png
+	Images/logo.png
+	"Fonts/Font Awesome 7 Free-Solid-900.otf"
+	Fonts/Titanfall.ttf
+)
+
+set_source_files_properties(
+	Images/bg.png
+	Images/logo.png
+	"Fonts/Font Awesome 7 Free-Solid-900.otf"
+	Fonts/Titanfall.ttf
+	PROPERTIES
+	VS_TOOL_OVERRIDE "Resource"
 )
 
 set_property(TARGET NorthstarLauncher PROPERTY DOTNET_SDK "Microsoft.NET.Sdk")
