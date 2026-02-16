@@ -7,8 +7,6 @@
 
 DECLARE_MODULE(NetworkStringTablesHooks)
 
-static ConVar* Cvar_sv_compress_playlists = nullptr;
-
 static bool(__fastcall* s_NET_BufferToBufferCompress)(void* pDest, __int64* pDestLen, const void* pSrc, int srcLen) = nullptr;
 
 struct VSVC_PlaylistsLayout
@@ -36,7 +34,7 @@ DECLARE_HOOK(SVC_Playlists::WriteToBuffer, engine.dll + 0x22BBD0, [](auto& hook,
     int dataBytes = msgLayout->dataBytes;
     void* dataPtr = msgLayout->dataPtr;
     int uncompressedBytes = msgLayout->uncompressedBytes;
-
+	static ConVar* Cvar_sv_compress_playlists = g_pCVar->FindVar("sv_compressPlaylists");
     const bool canTryCompress =
         !hasCompressedData && dataPtr && dataBytes > 0 && s_NET_BufferToBufferCompress && Cvar_sv_compress_playlists->GetBool();
 
@@ -107,5 +105,5 @@ ON_DLL_LOAD_RELIESON("engine.dll", NetworkStringTables, (ConCommand), [](CModule
 {
     s_NET_BufferToBufferCompress = module.Offset(0x218F50).RCast<decltype(s_NET_BufferToBufferCompress)>();
 
-    DISPATCH_MODULE(NetworkStringTablesHooks)
+	DISPATCH_MODULE(NetworkStringTablesHooks)
 })
