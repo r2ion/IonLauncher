@@ -3,28 +3,178 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:NorthstarLauncher"
         mc:Ignorable="d"
         Title="Northstar" Height="900" Width="600"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None">
-    <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        ResizeMode="CanMinimize"
+        Background="#FF000000">
+	<shell:WindowChrome.WindowChrome>
+		<shell:WindowChrome CaptionHeight="43" ResizeBorderThickness="6" CornerRadius="25,25,10,10" GlassFrameThickness="-1" UseAeroCaptionButtons="False" />
+	</shell:WindowChrome.WindowChrome>
+	<Window.Resources>
+		<DropShadowEffect x:Key="MainShadow" Color="#CC000000" BlurRadius="16" ShadowDepth="2" Opacity="0.8" />
+		<Style x:Key="CloseButtonStyle" TargetType="Button">
+			<Setter Property="Width" Value="36" />
+			<Setter Property="Height" Value="28" />
+			<Setter Property="Background" Value="Transparent" />
+			<Setter Property="BorderBrush" Value="Transparent" />
+			<Setter Property="Foreground" Value="White" />
+			<Setter Property="FontFamily" Value="/Fonts/Titanfall.ttf#Titanfall" />
+			<Setter Property="HorizontalAlignment" Value="Right" />
+			<Setter Property="VerticalAlignment" Value="Top" />
+			<Setter Property="FontSize" Value="12" />
+			<Setter Property="Template">
+				<Setter.Value>
+					<ControlTemplate TargetType="Button">
+						<Border Background="{TemplateBinding Background}">
+							<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+						</Border>
+						<ControlTemplate.Triggers>
+							<Trigger Property="IsMouseOver" Value="True">
+								<Setter Property="Foreground" Value="White" />
+								<Setter Property="Background" Value="#FF920202" />
+							</Trigger>
+							<Trigger Property="IsPressed" Value="True">
+								<Setter Property="Foreground" Value="#FFAAAAAA" />
+							</Trigger>
+						</ControlTemplate.Triggers>
+					</ControlTemplate>
+				</Setter.Value>
+			</Setter>
+		</Style>
+		<Style x:Key="MinimizeButtonStyle" TargetType="Button">
+			<Setter Property="Width" Value="36" />
+			<Setter Property="Height" Value="28" />
+			<Setter Property="Background" Value="Transparent" />
+			<Setter Property="BorderBrush" Value="Transparent" />
+			<Setter Property="Foreground" Value="White" />
+			<Setter Property="FontFamily" Value="/Fonts/Titanfall.ttf#Titanfall" />
+			<Setter Property="FontWeight" Value="Bold" />
+			<Setter Property="HorizontalAlignment" Value="Right" />
+			<Setter Property="VerticalAlignment" Value="Top" />
+			<Setter Property="FontSize" Value="11" />
+			<Setter Property="Template">
+				<Setter.Value>
+					<ControlTemplate TargetType="Button">
+						<Border Background="{TemplateBinding Background}">
+							<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+						</Border>
+						<ControlTemplate.Triggers>
+							<Trigger Property="IsMouseOver" Value="True">
+							<Setter Property="Background" Value="#80191919" />
+							</Trigger>
+							<Trigger Property="IsPressed" Value="True">
+								<Setter Property="Background" Value="#EE0F0F0F" />
+							</Trigger>
+						</ControlTemplate.Triggers>
+					</ControlTemplate>
+				</Setter.Value>
+			</Setter>
+		</Style>
+	</Window.Resources>
+	<Border CornerRadius="25,25,10,10" Background="#FF000000" ClipToBounds="True">
+		<Grid>
+			<Grid.RowDefinitions>
+				<RowDefinition Height="Auto" />
+				<RowDefinition Height="*" />
+			</Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" FontSize="18" FontWeight="SemiBold" Text="Launcher" Margin="0,0,0,12" />
+			<Image Grid.RowSpan="2" Source="/Images/bg.png" Stretch="UniformToFill" />
 
-        <TextBox Grid.Row="1"
-                 Text="{Binding ErrorMessage, Mode=OneWay}"
-                 IsReadOnly="True"
-                 TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto"
-                 HorizontalScrollBarVisibility="Disabled"
-                 Margin="0,0,0,12" />
-
-        <Button Grid.Row="2" Content="Close" Width="110" HorizontalAlignment="Right" Click="OnCloseClicked" />
-    </Grid>
+			<Border Grid.Row="0" Height="43" VerticalAlignment="Top">
+				<DockPanel LastChildFill="False" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+					<Button Content="X" DockPanel.Dock="Right" VerticalAlignment="Top" HorizontalAlignment="Right"
+							Style="{StaticResource CloseButtonStyle}"
+							Click="OnCloseButtonClicked" Margin="0" />
+					<Button Content="&#x2014;" DockPanel.Dock="Right" VerticalAlignment="Top" HorizontalAlignment="Right"
+							Style="{StaticResource MinimizeButtonStyle}"
+							Click="OnMinimizeButtonClicked" Margin="0" />
+				</DockPanel>
+			</Border>
+			<Grid Grid.Row="1" Margin="16" Background="Transparent">
+				<Grid.RowDefinitions>
+					<RowDefinition Height="*" />
+					<RowDefinition Height="*" />
+					<RowDefinition Height="*" />
+				</Grid.RowDefinitions>
+				<StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+					<StackPanel.Effect>
+						<StaticResource ResourceKey="MainShadow" />
+					</StackPanel.Effect>
+					<Image Source="/Images/logo.png" Height="64" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,16,0" />
+					<TextBlock Text="Northstar" FontFamily="/Fonts/Titanfall.ttf#Titanfall" FontSize="56" Foreground="White" VerticalAlignment="Center" />
+				</StackPanel>
+				<StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Top">
+					<Button Width="280" Height="56" HorizontalAlignment="Center" Foreground="White" BorderThickness="0">
+						<Button.Style>
+							<Style TargetType="Button">
+								<Setter Property="Background" Value="#FF424780" />
+								<Setter Property="BorderThickness" Value="0" />
+								<Setter Property="Template">
+									<Setter.Value>
+										<ControlTemplate TargetType="Button">
+											<Border x:Name="InstallButtonBorder" Background="{TemplateBinding Background}" BorderThickness="0">
+												<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+											</Border>
+											<ControlTemplate.Triggers>
+												<Trigger Property="IsMouseOver" Value="True">
+													<Setter TargetName="InstallButtonBorder" Property="Background" Value="#FF343A6A" />
+												</Trigger>
+												<Trigger Property="IsPressed" Value="True">
+													<Setter TargetName="InstallButtonBorder" Property="Background" Value="#FF2A2F5A" />
+												</Trigger>
+											</ControlTemplate.Triggers>
+										</ControlTemplate>
+									</Setter.Value>
+								</Setter>
+							</Style>
+						</Button.Style>
+						<Button.Effect>
+							<StaticResource ResourceKey="MainShadow" />
+						</Button.Effect>
+						<StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+							<TextBlock Text="&#xF019;" FontFamily="pack://application:,,,/Fonts/Font Awesome 7 Free-Solid-900.otf#Font Awesome 7 Free Solid" FontSize="20" Margin="0,0,8,0" />
+							<TextBlock Text="Install" FontSize="20" FontFamily="/Fonts/Titanfall.ttf#Titanfall" />
+						</StackPanel>
+					</Button>
+					<Button Width="220" Height="38" Margin="0,12,0,0" HorizontalAlignment="Center" Foreground="White" BorderThickness="0">
+						<Button.Style>
+							<Style TargetType="Button">
+								<Setter Property="Background" Value="#FF3A3A3A" />
+								<Setter Property="BorderThickness" Value="0" />
+								<Setter Property="Template">
+									<Setter.Value>
+										<ControlTemplate TargetType="Button">
+											<Border x:Name="BrowseButtonBorder" Background="{TemplateBinding Background}" BorderThickness="0">
+												<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+											</Border>
+											<ControlTemplate.Triggers>
+										<Trigger Property="IsMouseOver" Value="True">
+											<Setter TargetName="BrowseButtonBorder" Property="Background" Value="#FF323232" />
+												</Trigger>
+												<Trigger Property="IsPressed" Value="True">
+											<Setter TargetName="BrowseButtonBorder" Property="Background" Value="#FF282828" />
+												</Trigger>
+											</ControlTemplate.Triggers>
+										</ControlTemplate>
+									</Setter.Value>
+								</Setter>
+							</Style>
+						</Button.Style>
+						<Button.Effect>
+							<StaticResource ResourceKey="MainShadow" />
+						</Button.Effect>
+						<StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+							<TextBlock Text="&#xF07B;" FontFamily="pack://application:,,,/Fonts/Font Awesome 7 Free-Solid-900.otf#Font Awesome 7 Free Solid" FontSize="16" Margin="0,0,8,0" />
+							<TextBlock Text="Browse" FontSize="16" FontFamily="/Fonts/Titanfall.ttf#Titanfall" />
+						</StackPanel>
+					</Button>
+					<TextBlock Text="Install location" Margin="0,12,0,0" Foreground="White" FontFamily="/Fonts/Titanfall.ttf#Titanfall" FontSize="14" HorizontalAlignment="Center" />
+					<TextBlock Text="C:\\Games\\Northstar" Margin="0,4,0,0" Foreground="White" FontFamily="Arial" FontSize="12" HorizontalAlignment="Center" />
+				</StackPanel>
+			</Grid>
+		</Grid>
+	</Border>
 </Window>
