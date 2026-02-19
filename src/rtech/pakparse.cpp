@@ -204,6 +204,16 @@ bool Pak_StreamToBufferDecode(PakDecompState* const decoder, const size_t inLen,
 	return Pak_ZStdStreamDecode(decoder, outFrame, inFrame);
 }
 
+const char* Pak_DecoderToString(const PakDecodeMode_e mode)
+{
+	switch (mode)
+	{
+	case PakDecodeMode_e::MODE_RTECH: return "RTech";
+	case PakDecodeMode_e::MODE_ZSTD: return "ZStd";
+	case PakDecodeMode_e::MODE_DISABLED: return "Disabled";
+	}
+}
+
 static bool Pak_ProcessPakFile(PakFile* const pak)
 {
 	PakFileStream* const fileStream = &pak->fileStream;
@@ -316,7 +326,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
                 if (didDecode)
                 {
-					//NS::log::rpak->info("{}: pak '{}' decoded successfully with decoder '{}'\n", __FUNCTION__, pak->GetName(), Pak_DecoderToString(streamDesc->compressionMode));
+					NS::log::rpak->info("{}: pak '{}' decoded successfully with decoder '{}'\n", __FUNCTION__, pak->pakFileName, Pak_DecoderToString(streamDesc->compressionMode));
                     pak->pakDecoder.zstreamContext = nullptr;
                 }
             }
