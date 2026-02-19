@@ -1,14 +1,39 @@
 #pragma once
 
 #define PAK_MAX_SEGMENTS 20
+#define PAK_READ_DATA_CHUNK_SIZE (1ull << 19)
+
+#define PAK_MAX_DATA_CHUNKS_PER_STREAM 32
+#define PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK (PAK_MAX_DATA_CHUNKS_PER_STREAM-1)
+
+#define PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS 8
+#define PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK (PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS-1)
+
+#define PAK_DECODE_IN_RING_BUFFER_SIZE (PAK_READ_DATA_CHUNK_SIZE * PAK_MAX_DATA_CHUNKS_PER_STREAM)
+#define PAK_DECODE_IN_RING_BUFFER_MASK (PAK_DECODE_IN_RING_BUFFER_SIZE-1)
+
+#define PAK_DECODE_OUT_RING_BUFFER_SIZE 0x400000
+#define PAK_DECODE_OUT_RING_BUFFER_MASK (PAK_DECODE_OUT_RING_BUFFER_SIZE-1)
+
+
+#define PAK_HEADER_FLAGS_RTECH_ENCODED (1<<8)
+#define PAK_HEADER_FLAGS_ZSTD_ENCODED (1<<15)
+
+enum PakDecodeMode_e
+{
+	MODE_DISABLED = -1,
+
+	// the default decoder
+	MODE_RTECH,
+	MODE_ZSTD
+};
 
 struct PakFileStream__Descriptor
 {
-	int64_t startPointerMaybe;
-	int64_t endPointerMaybe;
-	int64_t decompressedSize;
-	bool isCompressed;
-	int8_t gap_19[7];
+  int64_t dataOffset;
+  int64_t compressedSize;
+  int64_t decompressedSize;
+  PakDecodeMode_e compressionMode;
 };
 
 struct PakFileStream
@@ -24,7 +49,7 @@ struct PakFileStream
   bool finishedLoadingPatches;
   _BYTE gap_BE;
   _BYTE numLoadedFiles;
-  PakFileStream__Descriptor filesizeStruct[8];
+  PakFileStream__Descriptor descriptors[8];
   uint8_t *fileBuffer;
   int64_t bufferMask;
   int64_t bytesStreamed;
@@ -33,8 +58,8 @@ struct PakFileStream
 
 struct __declspec(align(8)) PakDecompState
 {
-	uint8_t* input_buf;
-	uint64_t out;
+	const uint8_t* input_buf;
+	uint8_t* out;
 	uint64_t mask;
 	uint64_t out_mask;
 	uint64_t file_len_total;
@@ -42,16 +67,47 @@ struct __declspec(align(8)) PakDecompState
 	uint64_t inv_mask_in;
 	uint64_t inv_mask_out;
 	uint32_t header_skip_bytes_bs;
-	uint32_t dword44;
+	uint32_t decodeMode; // unsued using it for decoder
 	uint64_t input_byte_pos;
 	uint64_t decompressed_position;
 	uint64_t len_needed;
-	uint64_t byte;
-	uint32_t byte_bit_offset;
+	uint64_t currentByte;
+	uint32_t currentBit;
 	uint32_t dword6C;
-	uint64_t qword70;
-	uint64_t stream_compressed_size;
-	uint64_t stream_decompressed_size;
+	union
+	{
+		uint64_t qword70;
+
+		// set when all chunks have been streamed in. for ZStd compressed
+		// paks, we might end up with less data than requested in which
+		// case we must just process what we got currently. ZStd has a
+		// different stream size requirement than the RTech decoder; it
+		// has a fixed 'recommended' to-stream input size (using the API
+		// `ZSTD_DStreamInSize`. in the RTech decoder, the recommended
+		// to-stream input for the next decode round appears baked into
+		// the frame header of the encoded block data in the RPak files.
+		// So for ZStd, we need to handle corner-case desyncs to avoid a
+		// dead-lock in the runtime.
+		bool allChunksStreamed;
+	};
+
+	union
+	{
+		size_t compressedStreamSize;
+
+		// compressedStreamSize isn't used on ZStd paks, instead, we need to
+		// store the frame header size
+		size_t frameHeaderSize;
+	};
+
+	union
+	{
+		size_t decompressedStreamSize;
+
+		// decompressedStreamSize isn't used on ZStd paks; use this space for
+		// the decoder
+		void* zstreamContext;
+	};
 };
 
 struct PakPatchCompressPair
@@ -145,6 +201,16 @@ struct PakHeader
 	uint32_t fileRelationCount;
 	uint32_t externalAssetCount;
 	uint32_t externalAssetSize;
+
+	inline PakDecodeMode_e GetCompressionMode() const
+	{
+		if (flags & PAK_HEADER_FLAGS_RTECH_ENCODED)
+			return PakDecodeMode_e::MODE_RTECH;
+		if (flags & PAK_HEADER_FLAGS_ZSTD_ENCODED)
+			return PakDecodeMode_e::MODE_ZSTD;
+
+		return PakDecodeMode_e::MODE_DISABLED;
+	}
 };
 
 struct PakFile
@@ -169,9 +235,9 @@ struct PakFile
 	int64_t maxCopySize;
 	int64_t headerSize;
 	// Start of PakMemory Data
-	uint64_t qword_2A0;
-	char* puint8_2A8;
-	char* qword_2B0;
+	uint64_t processedPatchedDataSize;
+	char* patchData;
+	char* patchDataPtr;
 	int32_t dword_2B8;
 	uint8_t gap_2BC[4];
 	int32_t dword_2C0;
@@ -190,7 +256,7 @@ struct PakFile
 	int* pdword_580;
 	int64_t* pageOffsets;
 	PakFilePointer headerFields;
-	int** pdword_5F8;
+	int** patchIndices;
 	int dword_600;
 	int32_t dword_604;
 	int64_t qword_608[16];
