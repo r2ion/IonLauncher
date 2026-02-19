@@ -2,22 +2,20 @@
 
 ZSTDEncoder_s::ZSTDEncoder_s()
 {
-	cctx.customMem = ZSTD_defaultCMem;
-	ZSTD_initCCtx(&cctx);
+	cctx = ZSTD_createCCtx();
 }
 
 ZSTDEncoder_s::~ZSTDEncoder_s()
 {
-	ZSTD_freeCCtxContent(&cctx);
+	ZSTD_freeCCtx(cctx);
 }
 
 ZSTDDecoder_s::ZSTDDecoder_s()
 {
-	dctx.customMem = ZSTD_defaultCMem;
-	ZSTD_initDCtx(&dctx);
+	dctx = ZSTD_createDCtx();
 }
 
 ZSTDDecoder_s::~ZSTDDecoder_s()
 {
-	ZSTD_freeDCtxContent(&dctx);
+	ZSTD_freeDCtx(dctx);
 }

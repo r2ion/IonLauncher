@@ -6,7 +6,7 @@ struct ZSTDEncoder_s
 	ZSTDEncoder_s();
 	~ZSTDEncoder_s();
 
-	ZSTD_CCtx cctx;
+	ZSTD_CCtx* cctx;
 };
 
 struct ZSTDDecoder_s
@@ -14,5 +14,5 @@ struct ZSTDDecoder_s
 	ZSTDDecoder_s();
 	~ZSTDDecoder_s();
 
-	ZSTD_DCtx dctx;
+	ZSTD_DCtx* dctx;
 };
