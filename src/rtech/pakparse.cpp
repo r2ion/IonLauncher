@@ -474,7 +474,7 @@ DECLARE_HOOK(Pak_ProcessPakFile_h, rtech_game.DLL + 0x8D10, [](auto& hook, PakFi
 });
 
 
-ON_DLL_LOAD_CLIENT("rtech_game.DLL", PakParse, [](CModule module)
+ON_DLL_LOAD("rtech_game.DLL", PakParse, [](CModule module)
 {
 	Pak_RTechDecoderInit = module.Offset( 0x4B80 ).RCast<size_t (*)(PakDecompState* const, const uint8_t* const, const uint64_t, const size_t, const size_t, const size_t)>();
 	Pak_RTechStreamDecode = module.Offset( 0x4C20 ).RCast<bool (*)(PakDecompState* const, const size_t, const size_t)>();
