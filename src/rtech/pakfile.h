@@ -2,7 +2,7 @@
 
 #define PAK_MAX_SEGMENTS 20
 
-struct struct_v16
+struct PakFileStream__Descriptor
 {
 	int64_t startPointerMaybe;
 	int64_t endPointerMaybe;
@@ -11,24 +11,25 @@ struct struct_v16
 	int8_t gap_19[7];
 };
 
-struct struct_v1
+struct PakFileStream
 {
-	uint64_t qword_0;
-	uint64_t compressedSize;
-	uint32_t fileHandle;
-	int fileReadJobs[32];
-	uint8_t charBuf_94[32];
-	uint32_t unsigned_int_B4;
-	uint32_t unsigned_int_B8;
-	uint8_t byte_BC;
-	uint8_t byte_BD;
-	uint8_t gap_BE;
-	uint8_t byte_BF;
-	struct_v16 filesizeStruct[8];
-	uint8_t* fileBuffer;
-	int64_t qword_1C8;
-	int64_t file_size;
+  int64_t readOffset;
+  int64_t compressedSize;
+  int32_t fileHandle;
+  int fileReadJobs[32];
+  _BYTE dataChunkStatuses[32];
+  unsigned int numDataChunksProcessed;
+  unsigned int numDataChunks;
+  _BYTE fileReadStatus;
+  bool finishedLoadingPatches;
+  _BYTE gap_BE;
+  _BYTE numLoadedFiles;
+  PakFileStream__Descriptor filesizeStruct[8];
+  uint8_t *fileBuffer;
+  int64_t bufferMask;
+  int64_t bytesStreamed;
 };
+
 
 struct __declspec(align(8)) PakDecompState
 {
@@ -156,7 +157,7 @@ struct PakFile
 	int dword_C;
 	int lastLoadedPatchIndex;
 	int dword_14;
-	struct_v1 v1;
+	PakFileStream fileStream;
 	int64_t qword_1F0;
 	char byte_1F8;
 	BYTE gap_1F9[4];
