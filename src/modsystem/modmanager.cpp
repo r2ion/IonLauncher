@@ -423,7 +423,10 @@ void ModManager::UnloadMods()
 	m_ModFiles.clear();
 	m_CompiledFiles.clear();
 	m_CompiledAssetFiles.clear();
-	fs::remove_all(GetCompiledAssetsPath());
+	{
+		std::error_code ec;
+		fs::remove_all(GetCompiledAssetsPath(), ec);
+	}
 
 	g_CustomAudioManager.ClearAudioOverrides();
 	if (g_pPakLoadManager != nullptr)
@@ -463,14 +466,14 @@ void ModManager::SearchFilesystemForMods()
 	bool warnedLegacyModsDir = false;
 
 	// get mod directories
-	std::filesystem::directory_iterator classicModsDir = fs::directory_iterator(GetModFolderPath());
-	std::filesystem::directory_iterator remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
-	std::filesystem::directory_iterator packagesModsDir = fs::directory_iterator(GetPackageFolderPath());
+	fs::path classicPath = GetModFolderPath();
+	fs::path remotePath = GetRemoteModFolderPath();
+	fs::path packagesPath = GetPackageFolderPath();
 
 	auto addModDir = [&](const fs::path& dirPath)
 	{
 		const std::string dirPathStr = dirPath.string();
-		const std::string legacyModsPath = GetModFolderPath().string();
+		const std::string legacyModsPath = classicPath.string();
 		if (!warnedLegacyModsDir && dirPathStr.rfind(legacyModsPath, 0) == 0)
 		{
 			spdlog::warn(
@@ -481,38 +484,43 @@ void ModManager::SearchFilesystemForMods()
 		modDirs.push_back(dirPath);
 	};
 
-	for (fs::directory_iterator dirIterator : {classicModsDir, remoteModsDir, packagesModsDir})
+	for (const fs::path& searchPath : {classicPath, remotePath, packagesPath})
 	{
-		for (fs::directory_entry dir : dirIterator)
+		std::error_code ec;
+		if (!fs::is_directory(searchPath, ec))
+			continue;
+
+		for (fs::directory_entry dir : fs::directory_iterator(searchPath, ec))
 		{
-			if (fs::exists(dir.path() / "mod.json"))
+			if (!ec && fs::exists(dir.path() / "mod.json"))
 				addModDir(dir.path());
 		}
 	}
 
-	// Reset directory iterator
-	remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
-	packagesModsDir = fs::directory_iterator(GetPackageFolderPath());
-
-	for (fs::directory_iterator dirIterator : {packagesModsDir, remoteModsDir})
+	for (const fs::path& p : {packagesPath, remotePath})
 	{
-		for (fs::directory_entry dir : dirIterator)
+		std::error_code ec;
+		if (!fs::is_directory(p, ec))
+			continue;
+
+		for (fs::directory_entry dir : fs::directory_iterator(p, ec))
 		{
-			fs::path modsDir = dir.path() / "mods"; // Check for mods folder in a package
+			if (ec)
+				break;
+
+			fs::path modsDir = dir.path() / "mods";
 
 			// Do not register package mods twice
 			if (std::find(modDirs.begin(), modDirs.end(), dir.path()) != modDirs.end())
-			{
 				continue;
-			}
 
-			if (fs::exists(modsDir) && fs::is_directory(modsDir))
+			if (!fs::is_directory(modsDir, ec))
+				continue;
+
+			for (fs::directory_entry subDir : fs::directory_iterator(modsDir, ec))
 			{
-				for (fs::directory_entry subDir : fs::directory_iterator(modsDir))
-				{
-					if (fs::exists(subDir.path() / "mod.json"))
-						addModDir(subDir.path());
-				}
+				if (!ec && fs::exists(subDir.path() / "mod.json"))
+					addModDir(subDir.path());
 			}
 		}
 	}
@@ -673,9 +681,16 @@ void ModManager::ExportModsConfigurationToFile()
 
 void ModManager::DiscoverMods()
 {
-	fs::create_directories(GetModFolderPath());
-	fs::create_directories(GetPackageFolderPath());
-	fs::create_directories(GetRemoteModFolderPath());
+	std::error_code ec;
+	fs::create_directories(GetModFolderPath(), ec);
+	if (ec)
+		spdlog::warn("Failed to create mods directory: {}", ec.message());
+	fs::create_directories(GetPackageFolderPath(), ec);
+	if (ec)
+		spdlog::warn("Failed to create packages directory: {}", ec.message());
+	fs::create_directories(GetRemoteModFolderPath(), ec);
+	if (ec)
+		spdlog::warn("Failed to create remote mods directory: {}", ec.message());
 
 	// File format checks
 	bool isUsingOldFormat = false;
@@ -903,7 +918,8 @@ void ModManager::DeleteRemoteMod(const char* modName, const char* version) {
 				splitPath = splitPath.substr(0, slashPos);
 
 			m_LoadedMods.erase(it);
-			fs::remove_all(GetRemoteModFolderPath() / splitPath);
+			std::error_code ec;
+			fs::remove_all(GetRemoteModFolderPath() / splitPath, ec);
 
 			break;
 		}

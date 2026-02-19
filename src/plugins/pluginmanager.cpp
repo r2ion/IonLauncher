@@ -81,11 +81,16 @@ bool PluginManager::LoadPlugins(bool reloaded)
 			pluginPath);
 	}
 
-	std::filesystem::directory_iterator packageModsDir = fs::directory_iterator(GetPackageFolderPath());
-	std::filesystem::directory_iterator remoteModsDir = fs::directory_iterator(GetRemoteModFolderPath());
-	for (fs::directory_iterator dirIterator : {packageModsDir, remoteModsDir})
+	std::vector<fs::path> pluginSearchDirs = {GetPackageFolderPath()};
+	if (fs::is_directory(GetRemoteModFolderPath()))
+		pluginSearchDirs.push_back(GetRemoteModFolderPath());
+
+	for (const fs::path& searchDir : pluginSearchDirs)
 	{
-		for (fs::directory_entry dir : dirIterator)
+		if (!fs::is_directory(searchDir))
+			continue;
+
+		for (fs::directory_entry dir : fs::directory_iterator(searchDir))
 		{
 			fs::path pluginsDir = dir.path() / "plugins";
 			if (!fs::exists(pluginsDir) || !fs::is_directory(pluginsDir))
