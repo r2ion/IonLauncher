@@ -4,8 +4,8 @@ add_executable(r2ds "main.cpp" "resources.rc")
 
 set(launcher_targets r2ds)
 if(NS_BUILD_LEGACY_CPP_LAUNCHER)
-    add_executable(NorthstarLauncherCXX WIN32 "main.cpp" "resources.rc")
-    list(APPEND launcher_targets NorthstarLauncherCXX)
+    add_executable(NorthstarLauncher WIN32 "main.cpp" "resources.rc")
+    list(APPEND launcher_targets NorthstarLauncher)
 endif()
 set(launcher_libs
     shlwapi.lib

@@ -46,7 +46,7 @@ add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 set(NS_BINARY_DIR_DEFAULT "${CMAKE_BINARY_DIR}/game")
 set(NS_PUBLISH_LAUNCHER_DEFAULT OFF)
 set(NS_LAUNCHER_RUNTIME_IDENTIFIER_DEFAULT "win-x64")
-set(NS_BUILD_LEGACY_CPP_LAUNCHER_DEFAULT OFF)
+set(NS_BUILD_LEGACY_CPP_LAUNCHER_DEFAULT ON) # temp for now, C# launcher isn't finished and kind of janky
 set(NS_GENERATE_VS_LAUNCH_CONFIG_DEFAULT ON)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.cmake")
@@ -229,7 +229,7 @@ CPMAddPackage(
 add_subdirectory(src)
 add_subdirectory(proxy)
 add_subdirectory(dedicated)
-add_subdirectory(launcher)
+# add_subdirectory(launcher)
 
 # Forces Minizip to not use functions that are not available in Win 7 libraries.
 if(WIN32)
