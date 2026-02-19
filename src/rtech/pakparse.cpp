@@ -1,7 +1,7 @@
 #include "pakfile.h"
 #include <util/zstdutils.h>
 
-DECLARE_MODULE(PakParseHooks)
+//DECLARE_MODULE(PakParseHooks)
 
 static ZSTDDecoder_s s_zstdPakDecoder;
 #define ALIGN_VALUE( val, alignment ) ( ( val + alignment - 1 ) & ~( alignment - 1 ) ) 
@@ -483,5 +483,5 @@ ON_DLL_LOAD("rtech_game.DLL", PakParse, [](CModule module)
 	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, __int64, int)>();
 	FS_CloseAsyncFile = module.Offset( 0x2100 ).RCast<void (*)(unsigned int)>();
 	FS_OpenAsyncFile = module.Offset( 0x1E20 ).RCast<int16_t (*)(const char*, size_t*)>();
-	DISPATCH_MODULE(PakParseHooks)
+	//DISPATCH_MODULE(PakParseHooks)
 })
