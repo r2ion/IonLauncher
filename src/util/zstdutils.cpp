@@ -12,6 +12,7 @@ ZSTDEncoder_s::~ZSTDEncoder_s()
 
 ZSTDDecoder_s::ZSTDDecoder_s()
 {
+	__debugbreak();
 	dctx = ZSTD_createDCtx();
 }
 
