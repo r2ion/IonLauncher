@@ -1,8 +1,6 @@
 #include "pakfile.h"
 #include <util/zstdutils.h>
 
-//DECLARE_MODULE(PakParseHooks)
-
 static ZSTDDecoder_s s_zstdPakDecoder;
 #define ALIGN_VALUE( val, alignment ) ( ( val + alignment - 1 ) & ~( alignment - 1 ) ) 
 
@@ -469,12 +467,21 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
     return pak->startOfGuidDescriptorsRelativeToFileStart == 0;
 };
 
-DECLARE_HOOK(Pak_ProcessPakFile_h, rtech_game.DLL + 0x8D10, [](auto& hook, PakFile* pak) -> bool {
+
+using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
+Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
+HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
+{
 	return Pak_ProcessPakFile(pak);
+}
+ON_DLL_LOAD("engine.dll", PakParse, [](CModule module)
+{
+	CModule rtechModule(GetModuleHandleA("rtech_game.dll"));
+	pPak_ProcessPakFile = rtechModule.Offset(0x8D10).RCast<Pak_ProcessFile_t>();
+	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
 });
 
-
-ON_DLL_LOAD("rtech_game.DLL", PakParse, [](CModule module)
+ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 {
 	Pak_RTechDecoderInit = module.Offset( 0x4B80 ).RCast<size_t (*)(PakDecompState* const, const uint8_t* const, const uint64_t, const size_t, const size_t, const size_t)>();
 	Pak_RTechStreamDecode = module.Offset( 0x4C20 ).RCast<bool (*)(PakDecompState* const, const size_t, const size_t)>();
@@ -483,5 +490,4 @@ ON_DLL_LOAD("rtech_game.DLL", PakParse, [](CModule module)
 	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, __int64, int)>();
 	FS_CloseAsyncFile = module.Offset( 0x2100 ).RCast<void (*)(unsigned int)>();
 	FS_OpenAsyncFile = module.Offset( 0x1E20 ).RCast<int16_t (*)(const char*, size_t*)>();
-	//DISPATCH_MODULE(PakParseHooks)
 })
