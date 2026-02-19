@@ -151,22 +151,24 @@ struct PakFile
 {
 	bool IsValid();
 
-	int dword_0;
+	int numProcessedPointers;
 	int assetsRead;
-	int readPagesMaybe;
-	int dword_C;
+	int processedPageCount;
+	int firstPageIdx;
 	int lastLoadedPatchIndex;
 	int dword_14;
 	PakFileStream fileStream;
-	int64_t qword_1F0;
-	char byte_1F8;
+	int64_t inputBytePos;
+	char processedStreamCount;
 	BYTE gap_1F9[4];
-	char byte_1FD;
-	int16_t word_1FE;
-	PakDecompState decomp_state;
-	int64_t decompressedBuffer;
-	int64_t qword_290;
-	int64_t qword_298;
+    char resetInBytePos;
+	bool updateBytePosPostProcess;
+	bool isCompressed;
+	PakDecompState pakDecoder;
+	uint8_t* decompressedBuffer;
+	int64_t maxCopySize;
+	int64_t headerSize;
+	// Start of PakMemory Data
 	uint64_t qword_2A0;
 	char* puint8_2A8;
 	char* qword_2B0;
