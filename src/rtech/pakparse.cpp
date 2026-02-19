@@ -469,7 +469,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
     return pak->startOfGuidDescriptorsRelativeToFileStart == 0;
 };
 
-DECLARE_HOOK(Pak_ProcessPakFile_h, retch_game.DLL + 0x8D10, [](auto& hook, PakFile* pak) -> bool {
+DECLARE_HOOK(Pak_ProcessPakFile_h, rtech_game.DLL + 0x8D10, [](auto& hook, PakFile* pak) -> bool {
 	return Pak_ProcessPakFile(pak);
 });
 
