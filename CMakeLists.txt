@@ -194,6 +194,7 @@ set(XZ_DOC OFF)
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
+CPMAddPackage("gh:facebook/zstd@1.5.7")
 
 set(RAPIDJSON_GIT_TAG "24b5e7a8b27f42fa16b96fc70aade9106cf7102f" CACHE STRING "rapidjson git tag/branch/commit to fetch")
 
@@ -223,12 +224,6 @@ CPMAddPackage(
   	NAME vtfedit-reloaded
   	GITHUB_REPOSITORY Sky-rym/VTFEdit-Reloaded
   	GIT_TAG 2.1.9
-)
-
-CPMAddPackage(
-  	NAME zstd
-  	GITHUB_REPOSITORY facebook/zstd
-  	GIT_TAG v1.5.7
 )
 
 # cmake-format: on
