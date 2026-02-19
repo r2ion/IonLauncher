@@ -80,7 +80,7 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 	// if we use the default RTech decoder, return from here as the stuff below
 	// is handled by the RTech decoder internally
 	if (decodeMode == 0)
-		return Pak_RTechDecoderInit(decoder, inputBuf, inputMask, dataSize, dataOffset, headerSize);
+		return Pak_RTechDecoderInit(decoder, inputBuf, 0xFFFFFFuLL, dataSize, dataOffset, headerSize);
 
 	// NOTE: on RTech encoded paks this data is parsed out of the frame header,
 	// but for ZStd encoded paks we are always limiting this to the ring buffer
@@ -295,15 +295,15 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                     fileStream->fileBuffer, pak->decompressedBuffer,
                     PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
                     streamDesc->compressedSize - (streamDesc->dataOffset - sizeof(PakHeader)),
-                    streamDesc->dataOffset - sizeof(PakHeader), sizeof(PakHeader), streamDesc->compressionMode);
+                    streamDesc->dataOffset - sizeof(PakHeader),
+					sizeof(PakHeader),
+					streamDesc->compressionMode);
 
-                //if (decompressedSize != streamDesc->decompressedSize)
-                //    Error(eDLL_T::RTECH, EXIT_FAILURE,
-                //        "Error reading pak file \"%s\" with decoder \"%s\" -- decompressed size %zu doesn't match expected value %zu\n",
-                //        pak->pakFileName,
-                //        Pak_DecoderToString(streamDesc->compressionMode),
-                //        decompressedSize,
-                //        pak->header.decompressedSize);
+                if (decompressedSize != streamDesc->decompressedSize)
+					NS::log::rpak->error("Error reading pak file \"{}\" with decoder \"{}\" -- decompressed size {} doesn't match expected value {}\n", pak->pakFileName,
+                        Pak_DecoderToString(streamDesc->compressionMode),
+                        decompressedSize,
+                        pak->header.decompressedSize);
             }
         }
 
@@ -472,7 +472,8 @@ using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
 Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
 {
-	return Pak_ProcessPakFile(pak);
+	return o_Pak_ProcessPakFile(pak);
+	//return Pak_ProcessPakFile(pak);
 }
 ON_DLL_LOAD("engine.dll", PakParse, [](CModule module)
 {
