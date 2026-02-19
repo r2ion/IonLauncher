@@ -224,6 +224,13 @@ CPMAddPackage(
   	GITHUB_REPOSITORY Sky-rym/VTFEdit-Reloaded
   	GIT_TAG 2.1.9
 )
+
+CPMAddPackage(
+  	NAME zstd
+  	GITHUB_REPOSITORY facebook/zstd
+  	GIT_TAG v1.5.7
+)
+
 # cmake-format: on
 
 add_subdirectory(src)

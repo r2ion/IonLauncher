@@ -1,4 +1,5 @@
 #pragma once
+#include <zstd.h>
 
 #define PAK_MAX_SEGMENTS 20
 #define PAK_READ_DATA_CHUNK_SIZE (1ull << 19)
@@ -26,6 +27,12 @@ enum PakDecodeMode_e
 	// the default decoder
 	MODE_RTECH,
 	MODE_ZSTD
+};
+
+struct PakRingBufferFrame_s
+{
+	size_t bufIndex;
+	size_t frameLen;
 };
 
 struct PakFileStream__Descriptor
@@ -62,15 +69,15 @@ struct __declspec(align(8)) PakDecompState
 	uint8_t* out;
 	uint64_t mask;
 	uint64_t out_mask;
-	uint64_t file_len_total;
+	uint64_t fileSize;
 	uint64_t decompressed_size;
 	uint64_t inv_mask_in;
 	uint64_t inv_mask_out;
-	uint32_t header_skip_bytes_bs;
+	uint32_t headerOffset;
 	uint32_t decodeMode; // unsued using it for decoder
 	uint64_t input_byte_pos;
-	uint64_t decompressed_position;
-	uint64_t len_needed;
+	uint64_t outBufBytePos;
+	uint64_t bufferSizeNeeded;
 	uint64_t currentByte;
 	uint32_t currentBit;
 	uint32_t dword6C;
@@ -106,7 +113,7 @@ struct __declspec(align(8)) PakDecompState
 
 		// decompressedStreamSize isn't used on ZStd paks; use this space for
 		// the decoder
-		void* zstreamContext;
+		ZSTD_DStream* zstreamContext;
 	};
 };
 

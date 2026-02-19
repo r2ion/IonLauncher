@@ -226,6 +226,8 @@ add_library(
     "util/version.h"
     "util/wininfo.cpp"
     "util/wininfo.h"
+	"util/zstdutils.cpp"
+	"util/zstdutils.h"
     "vscript/languages/squirrel_re/include/squirrel.h"
     "vscript/languages/squirrel_re/squirrel/sqarray.h"
     "vscript/languages/squirrel_re/squirrel/sqclosure.h"
