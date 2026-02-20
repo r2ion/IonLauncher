@@ -581,8 +581,6 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
         }
         if (pak->isCompressed)
         {
-            currentOutBytePos = pak->pakDecoder.outBufBytePos;
-
             if (currentOutBytePos != pak->pakDecoder.decompSize)
             {
                 if (streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD)
@@ -591,7 +589,6 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                 const bool didDecode = Pak_StreamToBufferDecode(&pak->pakDecoder, 
                     fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), streamDesc->compressionMode);
 
-                currentOutBytePos = pak->pakDecoder.outBufBytePos;
                 pak->inputBytePos = pak->pakDecoder.inBufBytePos;
 
                 if (didDecode)
@@ -600,6 +597,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                     pak->pakDecoder.zstreamContext = nullptr;
                 }
             }
+			currentOutBytePos = pak->pakDecoder.outBufBytePos;
         }
         else
         {
