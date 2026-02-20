@@ -257,6 +257,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
     }
 
     size_t currentOutBytePos = pak->processedPatchedDataSize;
+	bool loopCompletedFully = true;
 
     for (; pak->processedStreamCount != fileStream->numLoadedFiles; pak->processedStreamCount++)
     {
@@ -300,9 +301,12 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                         Pak_DecoderToString(streamDesc->compressionMode),
                         decompressedSize,
                         pak->header.decompressedSize);
+				if (streamDesc->compressionMode == PakDecodeMode_e::MODE_RTECH) {
+					pak->pakDecoder.outputMask = 0x3FFFFFLL;
+					pak->pakDecoder.outputBuf = pak->decompressedBuffer;
+				}
             }
         }
-
         if (pak->isCompressed)
         {
             currentOutBytePos = pak->pakDecoder.outBufBytePos;
@@ -330,12 +334,17 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
             currentOutBytePos = std::min(streamDesc->compressedSize, fileStream->bytesStreamed);
         }
 
-        if (pak->inputBytePos != streamDesc->compressedSize || pak->processedPatchedDataSize != currentOutBytePos)
-            break;
+        if (pak->inputBytePos != streamDesc->compressedSize || pak->processedPatchedDataSize != currentOutBytePos) {
+			loopCompletedFully = false;
+			break;
+		}
 
         pak->resetInBytePos = true;
         currentOutBytePos = pak->processedStreamCount;
     }
+
+	if (loopCompletedFully)
+		currentOutBytePos = pak->processedPatchedDataSize;
 
 	size_t numBytesToProcess = currentOutBytePos - pak->processedPatchedDataSize;
 
@@ -468,8 +477,8 @@ using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
 Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
 {
-	return o_Pak_ProcessPakFile(pak);
-	//return Pak_ProcessPakFile(pak);
+	//return o_Pak_ProcessPakFile(pak);
+	return Pak_ProcessPakFile(pak);
 }
 ON_DLL_LOAD("engine.dll", PakParse, [](CModule module)
 {
