@@ -65,21 +65,32 @@ struct PakFileStream
 
 struct __declspec(align(8)) PakDecompState
 {
-	const uint8_t* input_buf;
-	uint8_t* out;
-	uint64_t mask;
-	uint64_t out_mask;
-	uint64_t fileSize;
-	uint64_t decompressed_size;
-	uint64_t inv_mask_in;
-	uint64_t inv_mask_out;
+	const uint8_t* inputBuf;
+	uint8_t* outputBuf;
+
+	uint64_t inputMask;
+	uint64_t outputMask;
+
+	size_t fileSize;
+	size_t decompSize;
+
+	uint64_t inputInvMask;
+	uint64_t outputInvMask;
+
 	uint32_t headerOffset;
-	uint32_t decodeMode; // unsued using it for decoder
-	uint64_t input_byte_pos;
+
+	// this field was unused, it now contains the decoder mode
+	PakDecodeMode_e decodeMode;
+
+	uint64_t inBufBytePos;
 	uint64_t outBufBytePos;
-	uint64_t bufferSizeNeeded;
+
+	size_t bufferSizeNeeded;
+
+	// current byte and current bit of byte
 	uint64_t currentByte;
 	uint32_t currentBit;
+
 	uint32_t dword6C;
 	union
 	{

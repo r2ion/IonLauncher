@@ -39,25 +39,21 @@ static size_t Pak_ZStdDecoderInit(PakDecompState* const decoder, const uint8_t* 
 
 	// we need at least this many bytes of streamed data to process the frame
 	// header of the compressed block
-	decoder->bufferSizeNeeded = decoder->input_byte_pos + decoder->frameHeaderSize;
+	decoder->bufferSizeNeeded = decoder->inBufBytePos + decoder->frameHeaderSize;
 
 	// must include header size
-	decoder->decompressed_size = dctx->fParams.frameContentSize + headerSize;
-	return decoder->decompressed_size;
+	decoder->decompSize = dctx->fParams.frameContentSize + headerSize;
+	return decoder->decompSize;
 }
 
 size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const inputBuf, uint8_t* const outputBuf,
 	const uint64_t inputMask, const uint64_t outputMask, const size_t dataSize, const size_t dataOffset,
 	const size_t headerSize, const PakDecodeMode_e decodeMode)
 {
-	// buffer size must be power of two as we index into buffers using a bit
-	// mask rather than a modulo, the mask provided must be bufferSize-1
-	assert(IsPowerOfTwo(inputMask + 1));
-	assert(IsPowerOfTwo(outputMask + 1));
-
+	
 	// the absolute start address of the input and output buffers
-	decoder->input_buf = inputBuf;
-	decoder->out = outputBuf;
+	decoder->inputBuf = inputBuf;
+	decoder->outputBuf = outputBuf;
 
 	// the actual file size, which consists of dataOffset (anything up to the
 	// frame header, like the file header) and the actual encoded data itself
@@ -66,26 +62,26 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 
 	// buffer masks, which essentially gets used to index into the input and
 	// output buffers, similar to 'idx % bufSize', where bufSize = bufMask+1
-	decoder->inv_mask_in = inputMask;
-	decoder->inv_mask_out = outputMask;
+	decoder->inputMask = inputMask;
+	decoder->outputMask = outputMask;
 
 	// the current positions in the input and output buffers; if we deal with
 	// paks that are patched, the input buffer position during the init and
 	// decode call on subsequent patches may not be at the start of the buffer,
 	// they will end where the previous 'to patch' pak had finished streaming
 	// and decoding
-	decoder->input_byte_pos = dataOffset + headerSize;
+	decoder->inBufBytePos = dataOffset + headerSize;
 	decoder->outBufBytePos = headerSize;
 
 	// if we use the default RTech decoder, return from here as the stuff below
 	// is handled by the RTech decoder internally
-	if (decodeMode == 0)
-		return Pak_RTechDecoderInit(decoder, inputBuf, 0xFFFFFFuLL, dataSize, dataOffset, headerSize);
+	if (decodeMode == PakDecodeMode_e::MODE_RTECH)
+		return Pak_RTechDecoderInit(decoder, inputBuf, inputMask, dataSize, dataOffset, headerSize);
 
 	// NOTE: on RTech encoded paks this data is parsed out of the frame header,
 	// but for ZStd encoded paks we are always limiting this to the ring buffer
 	// size
-	decoder->out_mask = PAK_DECODE_OUT_RING_BUFFER_MASK;
+	decoder->outputInvMask = PAK_DECODE_OUT_RING_BUFFER_MASK;
 
 	// this points to the first byte of the frame header, takes dataOffset
 	// into account which is the offset in the ring buffer to the patched
@@ -102,12 +98,12 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 static bool Pak_HasEnoughDecodeBufferAvailable(PakDecompState* const decoder, const size_t outLen)
 {
 	// align to nearest multiple of buffer size
-	const uint64_t bufPosAligned = (decoder->outBufBytePos & ~decoder->out_mask);
-	const uint64_t threshold = decoder->out_mask + bufPosAligned + 1;
+	const uint64_t bufPosAligned = (decoder->outBufBytePos & ~decoder->outputInvMask);
+	const uint64_t threshold = decoder->outputInvMask + bufPosAligned + 1;
 
 	// make sure caller has copied all data out the ring buffer first before
 	// overwriting it with new decoded data
-	return (outLen >= threshold || outLen >= decoder->decompressed_size);
+	return (outLen >= threshold || outLen >= decoder->decompSize);
 }
 
 static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask, const size_t seekPos, const size_t dataLen)
@@ -117,7 +113,7 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 
 	// the total amount of bytes used and available in this frame
 	const size_t bytesUsed = ring.bufIndex & bufMask;
-	const size_t totalAvail = bufMask +1 - bytesUsed;
+	const size_t totalAvail = bufMask + 1 - bytesUsed;
 
 	// the last part of the data might be smaller than the remainder of the ring
 	// buffer; clamp it
@@ -128,12 +124,12 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBufferFrame_s& outFrame, const PakRingBufferFrame_s& inFrame)
 {
 	ZSTD_outBuffer outBuffer = {
-		&decoder->out[outFrame.bufIndex],
+		&decoder->outputBuf[outFrame.bufIndex],
 		outFrame.frameLen, NULL
 	};
 
 	ZSTD_inBuffer inBuffer = {
-		&decoder->input_buf[inFrame.bufIndex],
+		&decoder->inputBuf[inFrame.bufIndex],
 		inFrame.frameLen, NULL
 	};
 
@@ -155,7 +151,7 @@ static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBuf
 	// advance buffer io positions, required so the main parser could already
 	// start parsing the headers while the rest is getting decoded still
 	decoder->outBufBytePos += outBuffer.pos;
-	decoder->input_byte_pos += inBuffer.pos;
+	decoder->inBufBytePos += inBuffer.pos;
 
 	// NOTE: if inBuffer.pos < inBuffer.size, we made full use of the output
 	// buffer and couldn't decode any more data into it. the decoded data needs
@@ -163,7 +159,7 @@ static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBuf
 	// process the remainder of this frame. in these cases we do not update the
 	// bufferSizeNeeded objective below as we still have data left to process.
 	if (inBuffer.pos == inBuffer.size)
-		decoder->bufferSizeNeeded = decoder->input_byte_pos + ZSTD_DStreamInSize();
+		decoder->bufferSizeNeeded = decoder->inBufBytePos + ZSTD_DStreamInSize();
 
 	return ret == NULL;
 }
@@ -192,12 +188,12 @@ bool Pak_StreamToBufferDecode(PakDecompState* const decoder, const size_t inLen,
 	//// this position in code
 	assert(decoder->zstreamContext && decoder->inBufBytePos <= inLen);
 
-	const PakRingBufferFrame_s inFrame = Pak_DetermineRingBufferFrame(decoder->inv_mask_in, decoder->input_byte_pos, inLen);
+	const PakRingBufferFrame_s inFrame = Pak_DetermineRingBufferFrame(decoder->inputInvMask, decoder->inBufBytePos, inLen);
 	//// if the file size is smaller than the provided output length, clamp it.
 	//// this happens when the buffer is smaller than the default buffer size
 	//// defined by 'PAK_DECODE_OUT_RING_BUFFER_SIZE'. just like how the rtech
 	//// decoder clamps it internally, we should do it here to avoid an overflow.
-	const PakRingBufferFrame_s outFrame = Pak_DetermineRingBufferFrame(decoder->out_mask, decoder->outBufBytePos, std::min(decoder->decompressed_size, outLen));
+	const PakRingBufferFrame_s outFrame = Pak_DetermineRingBufferFrame(decoder->outputMask, decoder->outBufBytePos, std::min(decoder->decompSize, outLen));
 
 	return Pak_ZStdStreamDecode(decoder, outFrame, inFrame);
 }
@@ -232,7 +228,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
             const char* statusMsg = "(no reason)";
 
             const uint8_t currentStatus = CheckAsyncRequest(fileStream->fileReadJobs[currentDataChunkIndex], &bytesProcessed, &statusMsg);
-
+			NS::log::rpak->error("Status reading pak file \"{}\" -- {}\n", pak->pakFileName, statusMsg);
             if (currentStatus == 2)
                 NS::log::rpak->error("Error reading pak file \"{}\" -- {}\n", pak->pakFileName, statusMsg);
             else if (currentStatus == 0)
@@ -311,7 +307,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
         {
             currentOutBytePos = pak->pakDecoder.outBufBytePos;
 
-            if (currentOutBytePos != pak->pakDecoder.decompressed_size)
+            if (currentOutBytePos != pak->pakDecoder.decompSize)
             {
                 if (streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD)
                     pak->pakDecoder.allChunksStreamed = fileStream->numDataChunksProcessed == fileStream->numDataChunks;
@@ -320,7 +316,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                     fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), streamDesc->compressionMode);
 
                 currentOutBytePos = pak->pakDecoder.outBufBytePos;
-                pak->inputBytePos = pak->pakDecoder.input_byte_pos;
+                pak->inputBytePos = pak->pakDecoder.inBufBytePos;
 
                 if (didDecode)
                 {
@@ -442,8 +438,8 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
                     const int patchFileHandle = FS_OpenAsyncFile(pakPatchPath, &numBytesToProcess);
 
-                    //if (patchFileHandle == -1)
-                    //    Error(eDLL_T::RTECH, EXIT_FAILURE, "Couldn't open file \"%s\".\n", pakPatchPath);
+                    if (patchFileHandle == -1)
+                        NS::log::rpak->error("Couldn't open file \"{}\".\n", pakPatchPath);
 
                     //if (numBytesToProcess < pak->headerFields.patchCompressPairs[pak->lastLoadedPatchIndex].compressedSize)
                     //    Error(eDLL_T::RTECH, EXIT_FAILURE, "File \"%s\" appears truncated; read size: %zu < expected size: %zu.\n",
