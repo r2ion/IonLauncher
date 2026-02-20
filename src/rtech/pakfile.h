@@ -201,6 +201,7 @@ struct PakHeader
 {
 	char magic[4];
 	uint16_t version;
+	//int16_t flags;
 	uint8_t flags;
 	uint8_t IsCompressed;
 	uint64_t timeCreated;

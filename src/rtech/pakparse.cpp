@@ -299,9 +299,8 @@ bool __fastcall Pak_ProcessPakFile_8D10(PakFile *pak)
           fileStream->descriptors[fileIdx].compressedSize = totalDataChunkSizeProcessed + p_header->compressedSize;
           fileStream->descriptors[fileIdx].decompressedSize = p_header->decompressedSize;
           LOBYTE(fileStream->descriptors[fileIdx].compressionMode) = p_header->IsCompressed & 1;
-		  if (p_header->GetCompressionMode() == PakDecodeMode_e::MODE_ZSTD) {
-			  fileStream->descriptors[fileIdx].compressionMode = PakDecodeMode_e::MODE_ZSTD;
-		  }
+		  NS::log::rpak->info("Pak: {} Comp: {}", pak->pakFileName, Pak_DecoderToString(p_header->GetCompressionMode()));
+		  //LOBYTE(fileStream->descriptors[fileIdx].compressionMode) = p_header->GetCompressionMode();
         }
       }
       ++fileStream->numDataChunksProcessed;
