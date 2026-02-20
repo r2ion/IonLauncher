@@ -747,9 +747,9 @@ using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
 Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
 {
-	//return o_Pak_ProcessPakFile(pak);
+	return o_Pak_ProcessPakFile(pak);
 	//return Pak_ProcessPakFile_8D10(pak);
-	return Pak_ProcessPakFile(pak);
+	//return Pak_ProcessPakFile(pak);
 }
 ON_DLL_LOAD("engine.dll", PakParse, [](CModule module)
 {
