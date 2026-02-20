@@ -50,7 +50,9 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 	const uint64_t inputMask, const uint64_t outputMask, const size_t dataSize, const size_t dataOffset,
 	const size_t headerSize, const PakDecodeMode_e decodeMode)
 {
-	
+
+	if (decodeMode == PakDecodeMode_e::MODE_RTECH)
+		return Pak_RTechDecoderInit(decoder, inputBuf, inputMask, dataSize, dataOffset, headerSize);
 	// the absolute start address of the input and output buffers
 	decoder->inputBuf = inputBuf;
 	decoder->outputBuf = outputBuf;
@@ -75,8 +77,7 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 
 	// if we use the default RTech decoder, return from here as the stuff below
 	// is handled by the RTech decoder internally
-	if (decodeMode == PakDecodeMode_e::MODE_RTECH)
-		return Pak_RTechDecoderInit(decoder, inputBuf, inputMask, dataSize, dataOffset, headerSize);
+
 
 	// NOTE: on RTech encoded paks this data is parsed out of the frame header,
 	// but for ZStd encoded paks we are always limiting this to the ring buffer
@@ -749,8 +750,8 @@ Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
 {
 	//return o_Pak_ProcessPakFile(pak);
-	return Pak_ProcessPakFile_8D10(pak);
-	//return Pak_ProcessPakFile(pak);
+	//return Pak_ProcessPakFile_8D10(pak);
+	return Pak_ProcessPakFile(pak);
 }
 ON_DLL_LOAD("engine.dll", PakParse, [](CModule module)
 {
