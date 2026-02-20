@@ -52,9 +52,6 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 	const uint64_t inputMask, const uint64_t outputMask, const size_t dataSize, const size_t dataOffset,
 	const size_t headerSize, const PakDecodeMode_e decodeMode)
 {
-
-	if (decodeMode == PakDecodeMode_e::MODE_RTECH)
-		return Pak_RTechDecoderInit(decoder, inputBuf, 0xFFFFFFuLL, dataSize, dataOffset, headerSize);
 	// the absolute start address of the input and output buffers
 	decoder->inputBuf = inputBuf;
 	decoder->outputBuf = outputBuf;
@@ -147,7 +144,7 @@ static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBuf
 		const char* const decodeError = ZSTD_getErrorName(ret);
 		assert(0);
 
-		//Error(eDLL_T::RTECH, EXIT_FAILURE, "%s: decode error: %s\n", __FUNCTION__, decodeError);
+		RTechLog(4,"%s: decode error: %s\n", __FUNCTION__, decodeError);
 		return false;
 	}
 
@@ -181,14 +178,6 @@ bool Pak_StreamToBufferDecode(PakDecompState* const decoder, const size_t inLen,
 	if (!Pak_HasEnoughDecodeBufferAvailable(decoder, outLen))
 		return false;
 
-	if (decodeMode == PakDecodeMode_e::MODE_RTECH)
-		return Pak_RTechStreamDecode(decoder, inLen, outLen);
-
-	//// must have a decoder at this point
-	////
-	//// also, input seek pos may not exceed inLen as we can't read past
-	//// currently streamed data; this should've been checked before reaching
-	//// this position in code
 	assert(decoder->zstreamContext && decoder->inBufBytePos <= inLen);
 
 	const PakRingBufferFrame_s inFrame = Pak_DetermineRingBufferFrame(decoder->inputInvMask, decoder->inBufBytePos, inLen);
@@ -299,8 +288,9 @@ bool __fastcall Pak_ProcessPakFile_8D10(PakFile *pak)
           fileStream->descriptors[fileIdx].compressedSize = totalDataChunkSizeProcessed + p_header->compressedSize;
           fileStream->descriptors[fileIdx].decompressedSize = p_header->decompressedSize;
 		  NS::log::rpak->info("Pak: {} Comp: {}", pak->pakFileName, Pak_DecoderToString(p_header->GetCompressionMode()));
-          LOBYTE(fileStream->descriptors[fileIdx].compressionMode) = p_header->IsCompressed & 1;
-		  //fileStream->descriptors[fileIdx].compressionMode = p_header->GetCompressionMode();
+		  //fileStream->descriptors[fileIdx].compressionMode = (PakDecodeMode_e)(p_header->IsCompressed & 1);
+
+		  fileStream->descriptors[fileIdx].compressionMode = p_header->GetCompressionMode();
         }
       }
       ++fileStream->numDataChunksProcessed;
@@ -316,7 +306,7 @@ bool __fastcall Pak_ProcessPakFile_8D10(PakFile *pak)
       {
         pak->resetInBytePos = 0;
         pak->inputBytePos = fileStreamDescriptior->dataOffset;
-        if ( LOBYTE(fileStreamDescriptior->compressionMode) )
+		if(fileStreamDescriptior->compressionMode != MODE_DISABLED)
         {
           *(_WORD *)&pak->updateBytePosPostProcess = 256;
           pak->processedPatchedDataSize = 0x58LL;
@@ -334,34 +324,63 @@ LABEL_24:
             compressedSize = fileStream->bytesStreamed;
           goto LABEL_30;
         }
-        inited = Pak_RTechDecoderInit(
-                   &pak->pakDecoder,
-                   fileStream->fileBuffer,
-                   0xFFFFFFuLL,
-                   fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - 0x58LL),
-                   fileStreamDescriptior->dataOffset - 0x58LL,
-                   0x58uLL);
-        if ( inited != fileStreamDescriptior->decompressedSize )
+		if (fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD) {
+              pak->pakDecoder.zstreamContext = s_zstdPakDecoder.dctx;
+			  size_t dataOffset = fileStreamDescriptior->dataOffset - sizeof(PakHeader);
+			  const uint8_t* const frameHeaderData = &fileStream->fileBuffer[PAK_DECODE_IN_RING_BUFFER_MASK & (dataOffset + sizeof(PakHeader))];
+			  //inited = Pak_ZStdDecoderInit(&pak->pakDecoder, frameHeaderData, fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - sizeof(PakHeader)), sizeof(PakHeader));
+			inited = Pak_InitDecoder(&pak->pakDecoder,
+                    fileStream->fileBuffer, pak->decompressedBuffer,
+                    PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
+                    fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - sizeof(PakHeader)),
+                    fileStreamDescriptior->dataOffset - sizeof(PakHeader), sizeof(PakHeader), fileStreamDescriptior->compressionMode);
+		}
+		else {
+			inited = Pak_RTechDecoderInit(
+					   &pak->pakDecoder,
+					   fileStream->fileBuffer,
+					   0xFFFFFFuLL,
+					   fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - 0x58LL),
+					   fileStreamDescriptior->dataOffset - 0x58LL,
+					   0x58uLL);
+		}
+        if ( inited != fileStreamDescriptior->decompressedSize ) {
           RTechLog(
             4LL,
             "Error reading pak file \"%s\" -- decompressed size %u doesn't match expected value %u\n",
             pak->pakFileName,
             inited + 0x58,
             pak->header.decompressedSize);
-        decompressedBuffer = (uint8_t *)pak->decompressedBuffer;
-        pak->pakDecoder.outputMask = 0x3FFFFFLL;
-        pak->pakDecoder.outputBuf = decompressedBuffer;
+		 }
+			pak->pakDecoder.outputMask = 0x3FFFFFLL;
+			decompressedBuffer = (uint8_t *)pak->decompressedBuffer;
+			pak->pakDecoder.outputBuf = decompressedBuffer;
       }
       if ( !pak->isCompressed )
         goto LABEL_24;
       if ( pak->pakDecoder.outBufBytePos != pak->pakDecoder.decompSize )
       {
-        Pak_RTechStreamDecode(
+		  bool didDecode;
+		 if (fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD) {
+			pak->pakDecoder.allChunksStreamed = fileStream->numDataChunksProcessed == fileStream->numDataChunks;
+			pak->pakDecoder.outputMask = PAK_DECODE_OUT_RING_BUFFER_MASK;
+            didDecode = Pak_StreamToBufferDecode(&pak->pakDecoder, 
+            fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), fileStreamDescriptior->compressionMode);
+		 }
+		 else {
+       didDecode = Pak_RTechStreamDecode(
           &pak->pakDecoder,
           fileStream->bytesStreamed,
           pak->processedPatchedDataSize + 0x400000);
-        pak->inputBytePos = pak->pakDecoder.inBufBytePos;
       }
+		pak->inputBytePos = pak->pakDecoder.inBufBytePos;
+		if (didDecode)
+            {
+                NS::log::rpak->info("{}: pak '{}' decoded successfully\n", __FUNCTION__, pak->pakFileName);
+                pak->pakDecoder.zstreamContext = nullptr;
+            }
+		}
+
       compressedSize = pak->pakDecoder.outBufBytePos;
 LABEL_30:
       if ( pak->inputBytePos != fileStreamDescriptior->compressedSize || pak->processedPatchedDataSize != compressedSize )

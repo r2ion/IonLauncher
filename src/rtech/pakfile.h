@@ -41,6 +41,7 @@ struct PakFileStream__Descriptor
   int64_t compressedSize;
   int64_t decompressedSize;
   PakDecodeMode_e compressionMode;
+  //int32_t pad;
 };
 
 struct PakFileStream
