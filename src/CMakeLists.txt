@@ -148,6 +148,7 @@ add_library(
     "rtech/pakfile.h"
     "rtech/pakstate.cpp"
     "rtech/pakstate.h"
+	"rtech/pakdecode.h"
 	"rtech/pakparse.cpp"
     "rtech/paktools.cpp"
     "rtech/paktools.h"
