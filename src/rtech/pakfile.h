@@ -1,5 +1,6 @@
 #pragma once
 #include <zstd.h>
+#include "rstdlib.h"
 
 #define PAK_MAX_SEGMENTS 20
 #define PAK_READ_DATA_CHUNK_SIZE (1ull << 19)
@@ -264,18 +265,16 @@ struct PakFile
 	uint64_t processedPatchedDataSize;
 	char* patchData;
 	char* patchDataPtr;
-	int32_t dword_2B8;
-	uint8_t gap_2BC[4];
-	int32_t dword_2C0;
-	uint8_t gap_2C4[4];
-	uint8_t buf_2C8[64];
+	RBitRead bitBuf;
+	uint32_t patchDataOffset;
+	uint8_t patchCommands[64];
 	uint8_t buf_308[64];
 	uint8_t gap_348[512];
 	int64_t qword_548;
 	int64_t startOfGuidDescriptorsRelativeToFileStart;
 	char* qword_558;
 	int64_t qword_560;
-	bool(__fastcall* func_568)(void*, size_t*);
+	bool(__fastcall* patchFunc)(void*, size_t*);
 	int64_t qword_570;
 	int dword_578;
 	unsigned int jobId;

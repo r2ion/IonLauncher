@@ -762,7 +762,7 @@ LABEL_34:
       if ( !pak->qword_560 )
         sub_9570(pak);
     }
-    while ( pak->func_568(pak, (size_t *)&statusMsg) && pak->startOfGuidDescriptorsRelativeToFileStart + pak->qword_548 );
+    while ( pak->patchFunc(pak, (size_t *)&statusMsg) && pak->startOfGuidDescriptorsRelativeToFileStart + pak->qword_548 );
   }
   if ( pak->updateBytePosPostProcess )
     pak->inputBytePos = pak->processedPatchedDataSize;
