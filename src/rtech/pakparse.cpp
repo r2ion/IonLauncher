@@ -578,6 +578,7 @@ const char* Pak_DecoderToString(const PakDecodeMode_e mode)
 	case PakDecodeMode_e::MODE_ZSTD: return "ZStd";
 	case PakDecodeMode_e::MODE_DISABLED: return "Disabled";
 	}
+	return "Unknown";
 }
 
 
