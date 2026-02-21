@@ -503,15 +503,6 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 
 static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBufferFrame_s& outFrame, const PakRingBufferFrame_s& inFrame)
 {
-
-	spdlog::info("ZStdStreamDecode: inBufIndex: {:#x}, inFrameLen: {:#x}, outBufIndex: {:#x}, outFrameLen: {:#x}",
-        inFrame.bufIndex, inFrame.frameLen,
-        outFrame.bufIndex, outFrame.frameLen);
-
-	spdlog::info("inputBuf ptr: {:p}, outputBuf ptr: {:p}, same: {}",
-    (void*)decoder->inputBuf,
-    (void*)decoder->outputBuf,
-    decoder->inputBuf == decoder->outputBuf);
 	ZSTD_outBuffer outBuffer = {
 		&decoder->outputBuf[outFrame.bufIndex],
 		outFrame.frameLen, NULL
@@ -590,7 +581,7 @@ const char* Pak_DecoderToString(const PakDecodeMode_e mode)
 }
 
 
-bool __fastcall Pak_ProcessPakFile_8D10(PakFile *pak)
+bool __fastcall Pak_ProcessPakFile(PakFile *pak)
 {
   PakFileStream *fileStream; // rsi
   __int64 numDataChunks; // rax
@@ -744,7 +735,8 @@ LABEL_24:
 		pak->inputBytePos = pak->pakDecoder.inBufBytePos;
 		if (didDecode)
             {
-                //NS::log::rpak->info("{}: pak '{}' decoded successfully\n", __FUNCTION__, pak->pakFileName);
+				if(fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD)
+					NS::log::rpak->info("{}: pak '{}' decoded successfully with method {}", __FUNCTION__, pak->pakFileName, Pak_DecoderToString(p_header->GetCompressionMode()));
                 pak->pakDecoder.zstreamContext = nullptr;
             }
 		}
@@ -874,7 +866,7 @@ using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
 Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
 {
-	return Pak_ProcessPakFile_8D10(pak);
+	return Pak_ProcessPakFile(pak);
 }
 
 
