@@ -74,21 +74,18 @@ size_t Pak_InitDecoder(PakDecompState* const decoder, const uint8_t* const input
 	decoder->inBufBytePos = dataOffset + headerSize;
 	decoder->outBufBytePos = headerSize;
 
-	// if we use the default RTech decoder, return from here as the stuff below
-	// is handled by the RTech decoder internally
+	if(decodeMode == PakDecodeMode_e::MODE_RTECH)
+		return Pak_RTechDecoderInit(decoder, inputBuf,inputMask,dataSize,dataOffset,headerSize);
 
-
-	// NOTE: on RTech encoded paks this data is parsed out of the frame header,
-	// but for ZStd encoded paks we are always limiting this to the ring buffer
-	// size
 	decoder->outputInvMask = PAK_DECODE_OUT_RING_BUFFER_MASK;
+;
 
 	// this points to the first byte of the frame header, takes dataOffset
 	// into account which is the offset in the ring buffer to the patched
 	// data as we parse it contiguously after the base pak data, which
 	// might have ended somewhere in the middle of the ring buffer
 	const uint8_t* const frameHeaderData = &inputBuf[inputMask & (dataOffset + headerSize)];
-
+	
 	const size_t decodeSize = Pak_ZStdDecoderInit(decoder, frameHeaderData, dataSize, headerSize);
 	assert(decodeSize);
 
@@ -123,6 +120,11 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 
 static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBufferFrame_s& outFrame, const PakRingBufferFrame_s& inFrame)
 {
+
+	spdlog::info("ZStdStreamDecode: inBufIndex: {:#x}, inFrameLen: {:#x}, outBufIndex: {:#x}, outFrameLen: {:#x}",
+        inFrame.bufIndex, inFrame.frameLen,
+        outFrame.bufIndex, outFrame.frameLen);
+
 	ZSTD_outBuffer outBuffer = {
 		&decoder->outputBuf[outFrame.bufIndex],
 		outFrame.frameLen, NULL
@@ -180,11 +182,8 @@ bool Pak_StreamToBufferDecode(PakDecompState* const decoder, const size_t inLen,
 
 	assert(decoder->zstreamContext && decoder->inBufBytePos <= inLen);
 
-	const PakRingBufferFrame_s inFrame = Pak_DetermineRingBufferFrame(decoder->inputInvMask, decoder->inBufBytePos, inLen);
-	//// if the file size is smaller than the provided output length, clamp it.
-	//// this happens when the buffer is smaller than the default buffer size
-	//// defined by 'PAK_DECODE_OUT_RING_BUFFER_SIZE'. just like how the rtech
-	//// decoder clamps it internally, we should do it here to avoid an overflow.
+	const PakRingBufferFrame_s inFrame = Pak_DetermineRingBufferFrame(decoder->inputMask, decoder->inBufBytePos, inLen);
+	spdlog::info("Decomp Size: {}, outLen: {}",decoder->decompSize,outLen);
 	const PakRingBufferFrame_s outFrame = Pak_DetermineRingBufferFrame(decoder->outputMask, decoder->outBufBytePos, std::min(decoder->decompSize, outLen));
 
 	return Pak_ZStdStreamDecode(decoder, outFrame, inFrame);
@@ -288,8 +287,6 @@ bool __fastcall Pak_ProcessPakFile_8D10(PakFile *pak)
           fileStream->descriptors[fileIdx].compressedSize = totalDataChunkSizeProcessed + p_header->compressedSize;
           fileStream->descriptors[fileIdx].decompressedSize = p_header->decompressedSize;
 		  NS::log::rpak->info("Pak: {} Comp: {}", pak->pakFileName, Pak_DecoderToString(p_header->GetCompressionMode()));
-		  //fileStream->descriptors[fileIdx].compressionMode = (PakDecodeMode_e)(p_header->IsCompressed & 1);
-
 		  fileStream->descriptors[fileIdx].compressionMode = p_header->GetCompressionMode();
         }
       }
@@ -326,24 +323,14 @@ LABEL_24:
         }
 		if (fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD) {
               pak->pakDecoder.zstreamContext = s_zstdPakDecoder.dctx;
-			  size_t dataOffset = fileStreamDescriptior->dataOffset - sizeof(PakHeader);
-			  const uint8_t* const frameHeaderData = &fileStream->fileBuffer[PAK_DECODE_IN_RING_BUFFER_MASK & (dataOffset + sizeof(PakHeader))];
-			  //inited = Pak_ZStdDecoderInit(&pak->pakDecoder, frameHeaderData, fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - sizeof(PakHeader)), sizeof(PakHeader));
-			inited = Pak_InitDecoder(&pak->pakDecoder,
-                    fileStream->fileBuffer, pak->decompressedBuffer,
-                    PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
-                    fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - sizeof(PakHeader)),
-                    fileStreamDescriptior->dataOffset - sizeof(PakHeader), sizeof(PakHeader), fileStreamDescriptior->compressionMode);
 		}
-		else {
-			inited = Pak_RTechDecoderInit(
-					   &pak->pakDecoder,
-					   fileStream->fileBuffer,
-					   0xFFFFFFuLL,
-					   fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - 0x58LL),
-					   fileStreamDescriptior->dataOffset - 0x58LL,
-					   0x58uLL);
-		}
+		inited = Pak_InitDecoder(&pak->pakDecoder,
+            fileStream->fileBuffer, pak->decompressedBuffer,
+            PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
+            fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - sizeof(PakHeader)),
+            fileStreamDescriptior->dataOffset - sizeof(PakHeader),
+			sizeof(PakHeader),
+			fileStreamDescriptior->compressionMode);
         if ( inited != fileStreamDescriptior->decompressedSize ) {
           RTechLog(
             4LL,
@@ -353,8 +340,7 @@ LABEL_24:
             pak->header.decompressedSize);
 		 }
 			pak->pakDecoder.outputMask = 0x3FFFFFLL;
-			decompressedBuffer = (uint8_t *)pak->decompressedBuffer;
-			pak->pakDecoder.outputBuf = decompressedBuffer;
+			pak->pakDecoder.outputBuf = pak->decompressedBuffer;
       }
       if ( !pak->isCompressed )
         goto LABEL_24;
@@ -363,7 +349,11 @@ LABEL_24:
 		  bool didDecode;
 		 if (fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD) {
 			pak->pakDecoder.allChunksStreamed = fileStream->numDataChunksProcessed == fileStream->numDataChunks;
-			pak->pakDecoder.outputMask = PAK_DECODE_OUT_RING_BUFFER_MASK;
+			spdlog::info("pre-decode: bytesStreamed: {:#x}, outLen: {:#x}, outBufBytePos: {:#x}, bufferSizeNeeded: {:#x}",
+			fileStream->bytesStreamed,
+			pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE,
+			pak->pakDecoder.outBufBytePos,
+			pak->pakDecoder.bufferSizeNeeded);
             didDecode = Pak_StreamToBufferDecode(&pak->pakDecoder, 
             fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), fileStreamDescriptior->compressionMode);
 		 }
