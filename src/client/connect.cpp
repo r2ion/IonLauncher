@@ -679,10 +679,10 @@ void ConnectionManager::ConnectToDirectServer(const std::string& address)
 			bool isV6;
 
 			if (!ParseAddress(address, ip, port, isV6))
-			{
 				ip = address;
+
+			if (port <= 0)
 				port = PORT_SERVER;
-			}
 
 			std::string connectAddress = fmt::format("{}:{}", ip, port);
 
