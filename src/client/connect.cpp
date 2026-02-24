@@ -1,5 +1,6 @@
 #include "connect.h"
 #include "client/r2client.h"
+#include "common/proto_oob.h"
 #include "core/tier0.h"
 #include "tier0/vanilla.h"
 #include "engine/models.h"
@@ -109,12 +110,7 @@ void ConnectionManager::Connect(const std::string& address, ConnectionManager::e
 		ConnectToP2PServer(address);
 		break;
 	case eConnectionMode::Direct:
-		m_bConnecting = false;
-		g_pVanillaCompatibility->SetCompatabilityMode(VanillaCompatibility::CompatibilityMode::Northstar);
-		if (!m_bRetrying)
-			Cbuf_AddText(Cbuf_GetCurrentPlayer(), fmt::format("connect \"{}\"", address).c_str(), cmd_source_t::kCommandSrcCode);
-		else
-			Cbuf_AddText(Cbuf_GetCurrentPlayer(), "retry", cmd_source_t::kCommandSrcCode);
+		ConnectToDirectServer(address);
 		break;
 	default:
 		Interrupt("Unknown connection mode");
@@ -653,8 +649,6 @@ void ConnectionManager::ConnectToP2PServer(const std::string& address)
 
 			spdlog::info("P2P server address parsed as {}", formattedIP);
 
-			in_addr6 addr6;
-
 			CNetAdr addr = CNetAdr(formattedIP.c_str());
 
 			SendInfoRequestPacket(addr, true, false);
@@ -662,6 +656,43 @@ void ConnectionManager::ConnectToP2PServer(const std::string& address)
 			RETURN_IF_CANCELLED()
 
 			FinaliseJoiningServer(formattedIP);
+		});
+
+	authThread.detach();
+}
+
+void ConnectionManager::ConnectToDirectServer(const std::string& address)
+{
+	g_pVanillaCompatibility->SetCompatabilityMode(VanillaCompatibility::CompatibilityMode::Northstar);
+
+	std::thread authThread(
+		[&, address]()
+		{
+			AuthenticateToMasterServer();
+
+			RETURN_IF_CANCELLED()
+
+			spdlog::info("Authenticating with direct server at '{}' for uid {}", address, g_pLocalPlayerUserID);
+
+			std::string ip;
+			int port;
+			bool isV6;
+
+			if (!ParseAddress(address, ip, port, isV6))
+			{
+				ip = address;
+				port = PORT_SERVER;
+			}
+
+			std::string connectAddress = fmt::format("{}:{}", ip, port);
+
+			CNetAdr addr(connectAddress.c_str());
+
+			SendInfoRequestPacket(addr, true, false);
+
+			RETURN_IF_CANCELLED()
+
+			FinaliseJoiningServer(connectAddress);
 		});
 
 	authThread.detach();
@@ -942,9 +973,6 @@ DECLARE_HOOK(concommand_connect, engine.dll + 0x76720, [](auto& hook, const CCom
 		}
 
 		auto mode = g_pConnectionManager->DetermineModeFromAddress(address);
-
-		if (mode == ConnectionManager::eConnectionMode::Direct)
-			return hook.Original(args);
 
 		const char* mp_gamemode = g_pCVar->FindVar("mp_gamemode") ? g_pCVar->FindVar("mp_gamemode")->GetString() : "";
 		bool isSolo = (mp_gamemode && strcmp(mp_gamemode, "solo") == 0);

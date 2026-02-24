@@ -205,7 +205,7 @@ static bool ShouldFormatAsIPv4(const char* const pszAddress)
 		if (!*pszAddress)
 			return true;
 
-		return ContainsIPv6Chars(pszAddress);
+		return !ContainsIPv6Chars(pszAddress);
 	}
 
 	return ContainsIPv4Chars(pszAddress) && !ContainsIPv6Chars(pszAddress);
@@ -246,6 +246,15 @@ bool CNetAdr::SetFromString(const char* const pch, const bool bUseDNS)
 		{
 			pchColon[0] = '\0'; // Set the port.
 			SetPort(uint16_t(htons(uint16_t(atoi(&pchColon[1])))));
+		}
+	}
+	else
+	{
+		char* const firstColon = strchr(pszAddress, ':');
+		if (firstColon && firstColon == strrchr(pszAddress, ':'))
+		{
+			SetPort(uint16_t(htons(uint16_t(atoi(firstColon + 1)))));
+			*firstColon = '\0';
 		}
 	}
 

@@ -26,11 +26,11 @@ class ConnectionManager
 public:
 	enum class eConnectionMode : char
 	{
-		Direct = 0, // unauthenticated direct connect
+		Direct = 0, // direct connect
 		Matchmaking = 'V', // vanilla matchmaking
 		LocalServer = 'L', // listen server AuthWithOwnServer
 		RemoteServer = 'N', // server browser AuthWithServer
-		P2P = 'P', // connectionless self auth hack only for p2p
+		P2P = 'P', // eos p2p
 	};
 
 	enum class eModAcceptState
@@ -67,6 +67,7 @@ private:
 	void ConnectToRemoteServer(const std::string& id, const std::string& password);
 	void ConnectToVanillaMatchmakingServer(const std::string& address);
 	void ConnectToP2PServer(const std::string& address);
+	void ConnectToDirectServer(const std::string& address);
 	void SendInfoRequestPacket(const CNetAdr& addr, bool serverAuthUs, bool requestMods);
 	bool IsCancelled() { return !m_bConnecting; }
 
