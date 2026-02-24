@@ -1,5 +1,6 @@
 #include "connect.h"
 #include "client/r2client.h"
+#include "dedicated/dedicated.h"
 #include "common/proto_oob.h"
 #include "core/tier0.h"
 #include "tier0/vanilla.h"
@@ -895,9 +896,12 @@ DECLARE_HOOK(silentconnect, engine.dll + 0x76F00, [](auto& hook, __int64 a1) -> 
 // clang-format off
 DECLARE_HOOK(Host_Disconnect, engine.dll + 0x15ABE0, [](auto& hook, bool bShowMainMenu)
 {
-	g_pConnectionManager->Retrying(false);
-	g_pConnectionManager->Finalise();
-	g_pConnectionManager->ResetState();
+	if(!IsDedicatedServer())
+	{
+		g_pConnectionManager->Retrying(false);
+		g_pConnectionManager->Finalise();
+		g_pConnectionManager->ResetState();
+	}
 
 	hook.Original(bShowMainMenu);
 })
@@ -906,10 +910,12 @@ DECLARE_HOOK(Host_Disconnect, engine.dll + 0x15ABE0, [](auto& hook, bool bShowMa
 // clang-format off
 DECLARE_HOOK(concommand_disconnect, engine.dll + 0x15C080, [](auto& hook, __int64 args) -> int*
 {
-	g_pConnectionManager->Retrying(false);
-	g_pConnectionManager->Finalise();
-	g_pConnectionManager->ResetState();
-
+	if(!IsDedicatedServer())
+	{
+		g_pConnectionManager->Retrying(false);
+		g_pConnectionManager->Finalise();
+		g_pConnectionManager->ResetState();
+	}
 	return hook.Original(args);
 })
 // clang-format on
