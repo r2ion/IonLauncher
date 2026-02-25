@@ -737,7 +737,7 @@ LABEL_24:
 		if (didDecode)
             {
 				if(fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD)
-					NS::log::rpak->info("{}: pak '{}' decoded successfully with method {}", __FUNCTION__, pak->pakFileName, Pak_DecoderToString(p_header->GetCompressionMode()));
+					NS::log::rpak->info("{}: pak '{}' decoded successfully with method {}", __FUNCTION__, pak->pakFileName, Pak_DecoderToString(fileStreamDescriptior->compressionMode));
                 pak->pakDecoder.zstreamContext = nullptr;
             }
 		}
