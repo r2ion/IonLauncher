@@ -46,5 +46,5 @@ ON_DLL_LOAD_DEDI("materialsystem_dx11.dll", DedicatedServerMaterialSystem, [](CM
 
 	// CMaterialSystem::FindMaterial
 	// make the game always use the error material
-	module.Offset(0x5F0F1).Patch("E9 34 03 00");
+	// module.Offset(0x5F0F1).Patch("E9 34 03 00");
 })

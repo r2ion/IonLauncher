@@ -16,35 +16,23 @@ ADD_SQFUNC("void", NSRequestServerInfo, "string ip, int port, bool requestMods, 
 	g_bReceivedServerInfo = false;
 	g_bReceivedAuthNotify = false;
 
-	std::string address = fmt::format("[{}]:{}", ip, port);
-	netadr_t addr = CNetAdr();
-
+	netadr_t addr;
 
 	if (std::strchr(ip, ':') != nullptr)
-    {
-        // IPv6
-        in6_addr ipv6Addr{};
-        if (InetPtonA(AF_INET6, ip, &ipv6Addr) != 1)
-        {
-            spdlog::error("NSRequestServerInfo: invalid IPv6 address '{}'", ip);
-            return SQRESULT_NULL;
-        }
-
-        // assumes you have an overload/ctor like CNetAdr(const in6_addr&, uint16_t)
-        addr = CNetAdr();
-		addr.SetIP(&ipv6Addr);
-		addr.SetType(netadrtype_t::NA_IP);
-		addr.SetPort(static_cast<uint16_t>(port));
+	{
+		// IPv6
+		std::string formatted = fmt::format("[{}]:{}", ip, port);
+		addr = CNetAdr(formatted.c_str());
 
 		char dummyPackBuf[32];
 		bf_write dummyPack(dummyPackBuf, sizeof(dummyPackBuf));
 		dummyPack.WriteLong(CONNECTIONLESS_HEADER);
 		NET_SendPacket(nullptr, NS_CLIENT, &addr, dummyPack.GetData(), dummyPack.GetNumBytesWritten(), nullptr, false, 0, true);
-    }
+	}
 	else
 	{
-		std::string address = fmt::format("[::ffff:{}]:{}", ip, port);
-		addr = CNetAdr(address.c_str());
+		std::string formatted = fmt::format("[::ffff:{}]:{}", ip, port);
+		addr = CNetAdr(formatted.c_str());
 	}
 
 	g_bNextServerAllowingAuthUs = false;

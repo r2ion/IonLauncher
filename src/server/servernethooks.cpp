@@ -185,11 +185,11 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 	char uid[128];
 	char token[256];
 
-	if( protocolVersion >= CUSTOMSERVERINFO_VERSION)
+	if(protocolVersion >= CUSTOMSERVERINFO_VERSION)
 	{
 		authingIncomingClient = msg.ReadByte() != 0;
 
-		if( authingIncomingClient )
+		if(authingIncomingClient)
 		{
 			if(!msg.ReadString(uid, sizeof(uid)))
 				return false;

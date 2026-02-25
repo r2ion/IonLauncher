@@ -453,7 +453,7 @@ PakHandle, __fastcall, (const char* pPath, void* memoryAllocator, int flags))
 		// sp_<map> rpaks contain tutorial ghost data
 		// sucks to have to load the entire rpak for that but sp was never meant to be done on dedi
 		if (IsDedicatedServer() &&
-			(CommandLine()->CheckParm("-nopakdedi") || strncmp(&svOriginalPath[0], "common", 6) && strncmp(&svOriginalPath[0], "sp_", 3)))
+			(CommandLine()->CheckParm("-nopakdedi") || strncmp(&svOriginalPath[0], "common", 6) && strncmp(&svOriginalPath[0], "sp_", 3) && (strncmp(&svOriginalPath[0], "mp_", 3) || strstr(&svOriginalPath[0], "loadscreen"))))
 		{
 			NS::log::rpak->info("Not loading pak {} for dedicated server", svOriginalPath);
 			return PakHandle::INVALID;

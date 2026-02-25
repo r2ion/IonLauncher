@@ -200,6 +200,10 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, [](CMod
 	// nop call to ShowWindow
 	module.Offset(0x1CD146).NoOP(5);
 
+    // CEngineVGUI::ActivateGameUI
+    // Do not show game UI on disconnect cmd.
+    module.Offset(0x249D50).Patch("C3");
+
 	CDedicatedExports* dedicatedExports = new CDedicatedExports;
 	dedicatedExports->vtable = dedicatedExports;
 	dedicatedExports->Sys_Printf = Sys_Printf;
