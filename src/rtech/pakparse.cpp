@@ -2,6 +2,25 @@
 #include "pakdecode.h"
 #include <util/zstdutils.h>
 
+
+struct AsyncHandleStatus_s
+{
+	enum Status_e: uint8_t
+	{
+		// the file is still pending, or being read at this moment
+		FS_ASYNC_PENDING = 0,
+
+		// the file is ready to be used
+		FS_ASYNC_READY,
+
+		// there was an error while reading the file
+		FS_ASYNC_ERROR,
+
+		// async read operations were canceled
+		FS_ASYNC_CANCELLED
+	};
+};
+
 static ZSTDDecoder_s s_zstdPakDecoder;
 #define ALIGN_VALUE( val, alignment ) ( ( val + alignment - 1 ) & ~( alignment - 1 ) ) 
 
@@ -12,7 +31,7 @@ __int64 (*FS_ReadAsyncFile)(
         unsigned int handle,
         __int64 readOffset,
         unsigned __int64 readSize,
-        __int64 buffer,
+        uint8_t* buffer,
         int type);
 
 size_t (*vsnprintf_)(char *a1, size_t a2, const char *a3, ...);
@@ -582,287 +601,265 @@ const char* Pak_DecoderToString(const PakDecodeMode_e mode)
 }
 
 
-bool __fastcall Pak_ProcessPakFile(PakFile *pak)
+static bool Pak_ProcessPakFile(PakFile* const pak)
 {
-  PakFileStream *fileStream; // rsi
-  __int64 numDataChunks; // rax
-  unsigned __int64 readStart; // r15
-  __int64 currentDataChunkIndex; // rax
-  char dataChunkStatus; // di
-  int v7; // ecx
-  char v8; // al
-  __int64 bytesProcessed_1; // rdx
-  char numLoadedFiles; // al
-  PakHeader *p_header; // r8
-  unsigned __int64 totalDataChunkSizeProcessed; // r9
-  unsigned __int8 v13; // cl
-  unsigned __int64 v14; // r8
-  __int64 fileIdx; // rdx
-  PakFileStream__Descriptor *fileStreamDescriptior; // rdi
-  __int64 inited; // rax
-  uint8_t *decompressedBuffer; // rax
-  uint64_t compressedSize; // rcx
-  char v20; // al
-  __int64 qword_548; // rax
-  unsigned int numDataChunksProcessed; // ecx
-  __int64 numDataChunks_1; // rdx
-  __int64 v24; // rax
-  __int64 i; // r12
-  char fileReadStatus; // r14
-  __int64 v27; // rdx
-  unsigned __int64 v28; // rbp
-  unsigned __int64 v29; // r8
-  __int64 v30; // rdi
-  int AsyncFile; // eax
-  __int64 lastLoadedPatchIndex; // rcx
-  __int64 lastLoadedPatchIndex_cpy; // r14
-  char v34; // al
-  char* v35; // rdx
-  char* j; // rcx
-  int v37; // edi
-  __int64 v38; // r14
-  unsigned int numDataChunks_2; // eax
-  unsigned __int64 v40; // rdx
-  char v42[260]; // [rsp+30h] [rbp-138h] BYREF
-  char v43[12]; // [rsp+134h] [rbp-34h] BYREF
-  const char *statusMsg; // [rsp+170h] [rbp+8h] BYREF
-  size_t bytesProcessed; // [rsp+178h] [rbp+10h] BYREF
+    PakFileStream* const fileStream = &pak->fileStream;
 
-  fileStream = &pak->fileStream;
-  numDataChunks = pak->fileStream.numDataChunks;
-  if ( (_DWORD)numDataChunks )
-    readStart = numDataChunks << 19;
-  else
-    readStart = 0x58LL;
-  if ( pak->fileStream.numDataChunksProcessed != (_DWORD)numDataChunks )
-  {
-    do
+    // first request is always just the header.
+    size_t readStart = sizeof(PakHeader);
+
+    if (fileStream->numDataChunks > 0)
+        readStart = fileStream->numDataChunks * PAK_READ_DATA_CHUNK_SIZE;
+
+    for (; fileStream->numDataChunksProcessed != fileStream->numDataChunks; fileStream->numDataChunksProcessed++)
     {
-      currentDataChunkIndex = fileStream->numDataChunksProcessed & 0x1F;
-      dataChunkStatus = fileStream->dataChunkStatuses[currentDataChunkIndex];
-      if ( dataChunkStatus != 1 )
-      {
-        v7 = fileStream->fileReadJobs[currentDataChunkIndex];
-        statusMsg = "(no reason)";
-        v8 = CheckAsyncRequest(v7, &bytesProcessed, &statusMsg);
-        if ( !v8 )
-          break;
-        if ( v8 == 2 )
-          RTechLog(4LL, "Error reading pak file \"%s\" -- %s\n", pak->pakFileName, statusMsg);
-        bytesProcessed_1 = bytesProcessed;
-        fileStream->bytesStreamed += bytesProcessed;
-        if ( dataChunkStatus )
+        const int currentDataChunkIndex = fileStream->numDataChunksProcessed & PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK;
+        const uint8_t dataChunkStatus = fileStream->dataChunkStatuses[currentDataChunkIndex];
+
+        if (dataChunkStatus != 1)
         {
-          numLoadedFiles = fileStream->numLoadedFiles;
-          p_header = &pak->header;
-          totalDataChunkSizeProcessed = (unsigned __int64)fileStream->numDataChunksProcessed << 19;
-          v13 = numLoadedFiles & 7;
-          fileStream->numLoadedFiles = numLoadedFiles + 1;
-          if ( dataChunkStatus == 2 )
-          {
-            v14 = totalDataChunkSizeProcessed & fileStream->bufferMask;
-            fileStream->bytesStreamed = totalDataChunkSizeProcessed + bytesProcessed_1;
-            p_header = (PakHeader *)&fileStream->fileBuffer[v14];
-          }
-          fileIdx = v13;
-          fileStream->descriptors[v13].dataOffset = totalDataChunkSizeProcessed + 88;
-          fileStream->descriptors[fileIdx].compressedSize = totalDataChunkSizeProcessed + p_header->compressedSize;
-          fileStream->descriptors[fileIdx].decompressedSize = p_header->decompressedSize;
-		  fileStream->descriptors[fileIdx].compressionMode = p_header->GetCompressionMode();
+            size_t bytesProcessed = 0;
+            const char* statusMsg = "(no reason)";
+
+            const uint8_t currentStatus = CheckAsyncRequest(fileStream->fileReadJobs[currentDataChunkIndex], &bytesProcessed, &statusMsg);
+
+            if (currentStatus == AsyncHandleStatus_s::FS_ASYNC_ERROR)
+                RTechLog(4, "Error reading pak file \"%s\" -- %s\n", pak->pakFileName, statusMsg);
+            else if (currentStatus == AsyncHandleStatus_s::FS_ASYNC_PENDING)
+                break;
+
+            fileStream->bytesStreamed += bytesProcessed;
+            if (dataChunkStatus)
+            {
+                const PakHeader* pakHeader = &pak->header;
+                const uint64_t totalDataChunkSizeProcessed = fileStream->numDataChunksProcessed * PAK_READ_DATA_CHUNK_SIZE;
+
+                if (dataChunkStatus == 2)
+                {
+                    fileStream->bytesStreamed = bytesProcessed + totalDataChunkSizeProcessed;
+                    pakHeader = (PakHeader*)&fileStream->fileBuffer[totalDataChunkSizeProcessed & fileStream->bufferMask];
+                }
+
+                const uint8_t fileIndex = fileStream->numLoadedFiles++ & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK;
+
+                fileStream->descriptors[fileIndex].dataOffset = totalDataChunkSizeProcessed + sizeof(PakHeader);
+                fileStream->descriptors[fileIndex].compressedSize = totalDataChunkSizeProcessed + pakHeader->compressedSize;
+                fileStream->descriptors[fileIndex].decompressedSize = pakHeader->decompressedSize;
+                fileStream->descriptors[fileIndex].compressionMode = pakHeader->GetCompressionMode();
+            }
         }
-      }
-      ++fileStream->numDataChunksProcessed;
     }
-    while ( fileStream->numDataChunksProcessed != fileStream->numDataChunks );
-  }
-  if ( pak->processedStreamCount != fileStream->numLoadedFiles )
-  {
-    do
+
+    size_t currentOutBytePos = pak->processedPatchedDataSize;
+
+    for (; pak->processedStreamCount != fileStream->numLoadedFiles; pak->processedStreamCount++)
     {
-      fileStreamDescriptior = &fileStream->descriptors[pak->processedStreamCount & 7];
-      if ( pak->resetInBytePos )
-      {
-        pak->resetInBytePos = 0;
-        pak->inputBytePos = fileStreamDescriptior->dataOffset;
-		if(fileStreamDescriptior->compressionMode != MODE_DISABLED)
+        PakFileStream__Descriptor* const streamDesc = &fileStream->descriptors[pak->processedStreamCount & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK];
+
+        if (pak->resetInBytePos)
         {
-          *(_WORD *)&pak->updateBytePosPostProcess = 256;
-          pak->processedPatchedDataSize = 0x58LL;
+            pak->resetInBytePos = false;
+            pak->inputBytePos = streamDesc->dataOffset;
+
+            if (streamDesc->compressionMode != PakDecodeMode_e::MODE_DISABLED)
+            {
+                pak->updateBytePosPostProcess = false;
+                pak->isCompressed = true;
+
+                pak->processedPatchedDataSize = sizeof(PakHeader);
+            }
+            else
+            {
+                pak->updateBytePosPostProcess = true;
+                pak->isCompressed = false;
+
+                pak->processedPatchedDataSize = streamDesc->dataOffset;
+            }
+
+            if (pak->isCompressed)
+            {
+                if (streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD)
+                    pak->pakDecoder.zstreamContext = s_zstdPakDecoder.dctx;
+
+                const size_t decompressedSize = Pak_InitDecoder(&pak->pakDecoder,
+                    fileStream->fileBuffer, pak->decompressedBuffer,
+                    PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
+                    streamDesc->compressedSize - (streamDesc->dataOffset - sizeof(PakHeader)),
+                    streamDesc->dataOffset - sizeof(PakHeader), sizeof(PakHeader), streamDesc->compressionMode);
+
+                if (decompressedSize != streamDesc->decompressedSize)
+                    RTechLog(4,
+                        "Error reading pak file \"%s\" with decoder \"%s\" -- decompressed size %zu doesn't match expected value %zu\n",
+                        pak->pakFileName,
+                        Pak_DecoderToString(streamDesc->compressionMode),
+                        decompressedSize,
+                        pak->header.decompressedSize);
+            }
+        }
+
+        if (pak->isCompressed)
+        {
+            currentOutBytePos = pak->pakDecoder.outBufBytePos;
+
+            if (currentOutBytePos != pak->pakDecoder.decompSize)
+            {
+                if (streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD)
+                    pak->pakDecoder.allChunksStreamed = fileStream->numDataChunksProcessed == fileStream->numDataChunks;
+
+                const bool didDecode = Pak_StreamToBufferDecode(&pak->pakDecoder, 
+                    fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), streamDesc->compressionMode);
+
+                currentOutBytePos = pak->pakDecoder.outBufBytePos;
+                pak->inputBytePos = pak->pakDecoder.inBufBytePos;
+
+                if (didDecode)
+                {
+					NS::log::rpak->info("Pak: {}, decoded with method {}",pak->pakFileName,Pak_DecoderToString(streamDesc->compressionMode));
+                    pak->pakDecoder.zstreamContext = nullptr;
+                }
+            }
         }
         else
         {
-          *(_WORD *)&pak->updateBytePosPostProcess = 1;
-          pak->processedPatchedDataSize = fileStreamDescriptior->dataOffset;
+            currentOutBytePos = std::min(streamDesc->compressedSize, fileStream->bytesStreamed);
         }
-        if ( !pak->isCompressed )
-        {
-LABEL_24:
-          compressedSize = fileStreamDescriptior->compressedSize;
-          if ( fileStream->bytesStreamed < compressedSize )
-            compressedSize = fileStream->bytesStreamed;
-          goto LABEL_30;
-        }
-		if (fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD) {
-              pak->pakDecoder.zstreamContext = s_zstdPakDecoder.dctx;
-		}
-		inited = Pak_InitDecoder(&pak->pakDecoder,
-            fileStream->fileBuffer, pak->decompressedBuffer,
-            PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
-            fileStreamDescriptior->compressedSize - (fileStreamDescriptior->dataOffset - sizeof(PakHeader)),
-            fileStreamDescriptior->dataOffset - sizeof(PakHeader),
-			sizeof(PakHeader),
-			fileStreamDescriptior->compressionMode);
 
-		if ( inited != fileStreamDescriptior->decompressedSize ) {
-          RTechLog(
-            4LL,
-            "Error reading pak file \"%s\" -- decompressed size %u doesn't match expected value %u\n",
-            pak->pakFileName,
-            inited + 0x58,
-            pak->header.decompressedSize);
-		 }
+        if (pak->inputBytePos != streamDesc->compressedSize || pak->processedPatchedDataSize != currentOutBytePos)
+            break;
 
-      }
-      if ( !pak->isCompressed )
-        goto LABEL_24;
-      if ( pak->pakDecoder.outBufBytePos != pak->pakDecoder.decompSize )
-      {
-		 if (fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD) {
-			pak->pakDecoder.allChunksStreamed = fileStream->numDataChunksProcessed == fileStream->numDataChunks;
-		}
-		
-		 bool didDecode = Pak_StreamToBufferDecode(&pak->pakDecoder, 
-            fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), fileStreamDescriptior->compressionMode);
-		pak->inputBytePos = pak->pakDecoder.inBufBytePos;
-		if (didDecode)
-            {
-				if(fileStreamDescriptior->compressionMode == PakDecodeMode_e::MODE_ZSTD)
-					NS::log::rpak->info("{}: pak '{}' decoded successfully with method {}", __FUNCTION__, pak->pakFileName, Pak_DecoderToString(fileStreamDescriptior->compressionMode));
-                pak->pakDecoder.zstreamContext = nullptr;
-            }
-		}
-
-      compressedSize = pak->pakDecoder.outBufBytePos;
-LABEL_30:
-      if ( pak->inputBytePos != fileStreamDescriptior->compressedSize || pak->processedPatchedDataSize != compressedSize )
-        goto LABEL_34;
-      v20 = ++pak->processedStreamCount;
-      pak->resetInBytePos = 1;
+        pak->resetInBytePos = true;
+        currentOutBytePos = pak->processedPatchedDataSize;
     }
-    while ( v20 != fileStream->numLoadedFiles );
-  }
-  compressedSize = pak->processedPatchedDataSize;
-LABEL_34:
-  qword_548 = pak->qword_548;
-  statusMsg = (const char *)(compressedSize - pak->processedPatchedDataSize);
-  if ( pak->startOfGuidDescriptorsRelativeToFileStart + qword_548 )
-  {
-    do
+
+    size_t numBytesToProcess = currentOutBytePos - pak->processedPatchedDataSize;
+
+    while (pak->startOfGuidDescriptorsRelativeToFileStart  + pak->qword_548)
     {
-      if ( !pak->qword_560 )
-        sub_9570(pak);
+        // if there are no bytes left to process in this patch operation
+		if ( !pak->qword_560 ) {
+			sub_9570(pak);
+		}
+
+        if (!pak->patchFunc(pak, &numBytesToProcess))
+            break;
     }
-    while ( pak->patchFunc(pak, (size_t *)&statusMsg) && pak->startOfGuidDescriptorsRelativeToFileStart + pak->qword_548 );
-  }
-  if ( pak->updateBytePosPostProcess )
-    pak->inputBytePos = pak->processedPatchedDataSize;
-  if ( !fileStream->finishedLoadingPatches )
-  {
-    numDataChunksProcessed = fileStream->numDataChunksProcessed;
-    numDataChunks_1 = fileStream->numDataChunks;
-    if ( (unsigned int)(pak->inputBytePos >> 19) < numDataChunksProcessed )
-      numDataChunksProcessed = pak->inputBytePos >> 19;
-    v24 = (unsigned int)numDataChunks_1;
-    for ( i = numDataChunksProcessed + 32; numDataChunks_1 != i; v24 = numDataChunks_1 )
+
+    if (pak->updateBytePosPostProcess)
+        pak->inputBytePos = pak->processedPatchedDataSize;
+
+    if (!fileStream->finishedLoadingPatches)
     {
-      fileReadStatus = fileStream->fileReadStatus;
-      v27 = numDataChunks_1 & 0x1F;
-      v28 = (v24 + 1) << 19;
-      if ( fileReadStatus == 1 )
-      {
-        fileStream->fileReadJobs[v27] = -2;
-        fileStream->dataChunkStatuses[v27] = 1;
-        if ( (((_BYTE)v27 + 1) & 7) == 0 )
-          fileStream->fileReadStatus = 2;
-        ++fileStream->numDataChunks;
-        readStart = (v24 + 1) << 19;
-      }
-      else
-      {
-        v29 = fileStream->compressedSize;
-        if ( readStart >= v29 )
+        const size_t numDataChunksProcessed = std::min<size_t>(fileStream->numDataChunksProcessed, pak->inputBytePos >> 19);
+
+        while (fileStream->numDataChunks != numDataChunksProcessed + 32)
         {
-          if ( pak->lastLoadedPatchIndex >= (unsigned int)pak->header.patchIndex )
-          {
-            FS_CloseAsyncFile(fileStream->fileHandle);
-            fileStream->fileHandle = -1;
-            fileStream->readOffset = 0LL;
-            fileStream->finishedLoadingPatches = 1;
-            return pak->startOfGuidDescriptorsRelativeToFileStart == 0LL;
-          }
-          if ( !pak->dword_14 )
-            return pak->startOfGuidDescriptorsRelativeToFileStart == 0LL;
-          sprintf(v42, "r2\\paks\\Win64\\%s", pak->pakFileName);
-          lastLoadedPatchIndex = (unsigned int)pak->lastLoadedPatchIndex;
-          lastLoadedPatchIndex_cpy = lastLoadedPatchIndex;
-          pak->lastLoadedPatchIndex = lastLoadedPatchIndex + 1;
-          if ( pak->headerFields.patchFileIndexes[lastLoadedPatchIndex] )
-          {
-            v34 = v42[0];
-            v35 = 0LL;
-            for ( j = v42; v34; ++j )
+            const int8_t requestIdx = fileStream->numDataChunks & PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK;
+            const size_t readOffsetEnd = (fileStream->numDataChunks + 1ull) * PAK_READ_DATA_CHUNK_SIZE;
+
+            if (fileStream->fileReadStatus == 1)
             {
-              if ( v34 == '.' )
-              {
-                v35 = j;
-              }
-              else if ( v34 == '\\' || v34 == '/' )
-              {
-                v35 = 0LL;
-              }
-              v34 = j[1];
+                fileStream->fileReadJobs[requestIdx] = -2;
+                fileStream->dataChunkStatuses[requestIdx] = 1;
+
+                if (((requestIdx + 1) & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK) == 0)
+                    fileStream->fileReadStatus = 2;
+
+                ++fileStream->numDataChunks;
+                readStart = readOffsetEnd;
             }
-            if ( v35 )
-              j = v35;
-            vsnprintf_(j, v43 - j, "(%02u).rpak",pak->headerFields.patchFileIndexes[lastLoadedPatchIndex]);
-          }
-          v37 = FS_OpenAsyncFile(v42, (size_t *)&statusMsg);
-          if ( v37 == -1 )
-            RTechLog(4LL, "Couldn't open file \"%s\".\n", v42);
-          v38 = lastLoadedPatchIndex_cpy;
-          if ( (unsigned __int64)statusMsg < pak->headerFields.patchCompressPairs[v38].compressedSize )
-            RTechLog(4LL, "File \"%s\" appears truncated.\n", v42);
-          FS_CloseAsyncFile(fileStream->fileHandle);
-          numDataChunks_2 = fileStream->numDataChunks;
-          fileStream->fileHandle = v37;
-          v40 = (unsigned __int64)((numDataChunks_2 + 7) & 0xFFFFFFF8) << 19;
-          fileStream->readOffset = v40;
-          fileStream->fileReadStatus = (numDataChunks_2 == ((numDataChunks_2 + 7) & 0xFFFFFFF8)) + 1;
-          fileStream->compressedSize = v40 + pak->headerFields.patchCompressPairs[v38].compressedSize;
-        }
-        else
-        {
-          v30 = (unsigned int)v27;
-          if ( v28 < v29 )
-            v29 = (v24 + 1) << 19;
-          AsyncFile = FS_ReadAsyncFile(
+            else
+            {
+                if (readStart < fileStream->compressedSize)
+                {
+                    const size_t lenToRead = std::min<size_t>(fileStream->compressedSize, readOffsetEnd);
+
+                    const size_t readOffset = readStart - fileStream->readOffset;
+                    const size_t readSize = lenToRead - readStart;
+
+                    fileStream->fileReadJobs[requestIdx] = FS_ReadAsyncFile(
                         fileStream->fileHandle,
-                        readStart - fileStream->readOffset,
-                        v29 - readStart,
-                        (__int64)&fileStream->fileBuffer[readStart & fileStream->bufferMask],
-                        2);
-          readStart = v28;
-          fileStream->fileReadJobs[v30] = AsyncFile;
-          fileStream->dataChunkStatuses[v30] = fileReadStatus;
-          ++fileStream->numDataChunks;
-          fileStream->fileReadStatus = 0;
+                        readOffset,
+                        readSize,
+                        &fileStream->fileBuffer[readStart & fileStream->bufferMask],
+                       2);
+
+                    fileStream->dataChunkStatuses[requestIdx] = fileStream->fileReadStatus;
+                    fileStream->fileReadStatus = 0;
+
+                    ++fileStream->numDataChunks;
+                    readStart = readOffsetEnd;
+                }
+                else
+                {
+                    if (pak->lastLoadedPatchIndex >= pak->header.patchIndex)
+                    {
+                        FS_CloseAsyncFile(fileStream->fileHandle);
+                        fileStream->fileHandle = -1;
+                        fileStream->readOffset = 0;
+                        fileStream->finishedLoadingPatches = true;
+
+                        return pak->startOfGuidDescriptorsRelativeToFileStart == 0;
+                    }
+
+                    if (!pak->dword_14)
+                        return pak->startOfGuidDescriptorsRelativeToFileStart == 0;
+
+                    char pakPatchPath[MAX_PATH] = {};
+                    sprintf(pakPatchPath, "r2\\paks\\Win64\\%s", pak->pakFileName);
+
+                    // get path of next patch rpak to load
+                    if (pak->headerFields.patchFileIndexes[pak->lastLoadedPatchIndex])
+                    {
+                        char* pExtension = nullptr;
+
+                        char* it = pakPatchPath;
+                        while (*it)
+                        {
+                            if (*it == '.')
+                                pExtension = it;
+                            else if (*it == '\\' || *it == '/')
+                                pExtension = nullptr;
+
+                            ++it;
+                        }
+
+                        if (pExtension)
+                            it = pExtension;
+
+                        // replace extension '.rpak' with '(xx).rpak'
+                        snprintf(it, &pakPatchPath[sizeof(pakPatchPath)] - it,
+                            "(%02u).rpak", pak->headerFields.patchFileIndexes[pak->lastLoadedPatchIndex]);
+                    }
+
+                    const int patchFileHandle = FS_OpenAsyncFile(pakPatchPath, &numBytesToProcess);
+
+                    if (patchFileHandle == -1)
+                        RTechLog(4, "Couldn't open file \"%s\".\n", pakPatchPath);
+
+                    if (numBytesToProcess < pak->headerFields.patchCompressPairs[pak->lastLoadedPatchIndex].compressedSize)
+                        RTechLog(4, "File \"%s\" appears truncated\n",pakPatchPath);
+
+                    FS_CloseAsyncFile(fileStream->fileHandle);
+
+                    fileStream->fileHandle = patchFileHandle;
+
+                    const size_t readOffset = ALIGN_VALUE(fileStream->numDataChunks, 8ull) * PAK_READ_DATA_CHUNK_SIZE;
+                    fileStream->fileReadStatus = (fileStream->numDataChunks == ALIGN_VALUE(fileStream->numDataChunks, 8ull)) + 1;
+
+                    fileStream->readOffset = readOffset;
+                    fileStream->compressedSize = readOffset + pak->headerFields.patchCompressPairs[pak->lastLoadedPatchIndex].compressedSize;
+
+                    pak->lastLoadedPatchIndex++;
+                }
+            }
         }
-      }
-      numDataChunks_1 = fileStream->numDataChunks;
     }
-  }
-  return pak->startOfGuidDescriptorsRelativeToFileStart == 0LL;
+
+    return pak->startOfGuidDescriptorsRelativeToFileStart== 0;
 }
+
+
+
 using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
 Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
@@ -877,7 +874,7 @@ ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
 	CheckAsyncRequest = module.Offset( 0x1AF0 ).RCast<int64_t (*)(int64_t, size_t*, const char**)>();
 	sub_9570 = module.Offset( 0x9570 ).RCast<void (*)(PakFile*)>();
-	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, __int64, int)>();
+	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, uint8_t*, int)>();
 	FS_CloseAsyncFile = module.Offset( 0x2100 ).RCast<void (*)(unsigned int)>();
 	FS_OpenAsyncFile = module.Offset( 0x1E20 ).RCast<int16_t (*)(const char*, size_t*)>();
 	RTechLog = module.Offset( 0x10AB0 ).RCast<void (*)(int64_t, const char*, ...)>();
