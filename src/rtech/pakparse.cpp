@@ -733,7 +733,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
     size_t numBytesToProcess = currentOutBytePos - pak->processedPatchedDataSize;
 
-    while (pak->startOfGuidDescriptorsRelativeToFileStart  + pak->qword_548)
+    while (pak->patchSrcSize  + pak->qword_548)
     {
         // if there are no bytes left to process in this patch operation
 		if ( !pak->numPatchBytesToProcess ) {
@@ -798,11 +798,11 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                         fileStream->readOffset = 0;
                         fileStream->finishedLoadingPatches = true;
 
-                        return pak->startOfGuidDescriptorsRelativeToFileStart == 0;
+                        return pak->patchSrcSize == 0;
                     }
 
                     if (!pak->dword_14)
-                        return pak->startOfGuidDescriptorsRelativeToFileStart == 0;
+                        return pak->patchSrcSize == 0;
 
                     char pakPatchPath[MAX_PATH] = {};
                     sprintf(pakPatchPath, "r2\\paks\\Win64\\%s", pak->pakFileName);
@@ -855,7 +855,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
         }
     }
 
-    return pak->startOfGuidDescriptorsRelativeToFileStart== 0;
+    return pak->patchSrcSize== 0;
 }
 
 

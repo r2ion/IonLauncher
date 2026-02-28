@@ -271,7 +271,7 @@ struct PakFile
 	uint8_t buf_308[64];
 	uint8_t gap_348[512];
 	int64_t qword_548;
-	int64_t startOfGuidDescriptorsRelativeToFileStart;
+	int64_t patchSrcSize;
 	char* patchDstPtr;
 	int64_t numPatchBytesToProcess;
 	bool(__fastcall* patchFunc)(void*, size_t*);
