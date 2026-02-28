@@ -736,7 +736,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
     while (pak->startOfGuidDescriptorsRelativeToFileStart  + pak->qword_548)
     {
         // if there are no bytes left to process in this patch operation
-		if ( !pak->qword_560 ) {
+		if ( !pak->numPatchBytesToProcess ) {
 			sub_9570(pak);
 		}
 

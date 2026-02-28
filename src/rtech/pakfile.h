@@ -272,11 +272,11 @@ struct PakFile
 	uint8_t gap_348[512];
 	int64_t qword_548;
 	int64_t startOfGuidDescriptorsRelativeToFileStart;
-	char* qword_558;
-	int64_t qword_560;
+	char* patchDstPtr;
+	int64_t numPatchBytesToProcess;
 	bool(__fastcall* patchFunc)(void*, size_t*);
-	int64_t qword_570;
-	int dword_578;
+	int64_t fileSize;
+	int pakId;
 	unsigned int jobId;
 	int* pdword_580;
 	int64_t* pageOffsets;
