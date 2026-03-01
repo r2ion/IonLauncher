@@ -1,6 +1,7 @@
 #include "pakfile.h"
 #include "pakdecode.h"
 #include "pakpatch.h"
+#include "pakstate.h"
 #include <util/zstdutils.h>
 
 #include <filesystem>
@@ -746,7 +747,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 		if(pak->isCompressed && streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD ) {
 			if (inputPosMismatch || patchedSizeMismatch)
 			{
-			
+
 				if (inputPosMismatch)
 				{
 					NS::log::rpak->warn(
@@ -938,17 +939,25 @@ HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak
 	uint64_t rva = (uint64_t)_ReturnAddress() - rtechBaseAddr;
 	//NS::log::rpak->info("Base Addr: {:X}", rva);
 	if((uint64_t)_ReturnAddress() == rtechBaseAddr + 0xA618) {
-		NS::log::rpak->info("Pak_ProcessPakFile called for {}",pak->pakFileName);
 		pak->patchFunc = g_pakPatchApi[0];
 	}
 	return Pak_ProcessPakFile(pak);
 }
 
+using Pak_ProcessAssets_t = void(__fastcall*)(PakLoadedInfo_s* pak);
+Pak_ProcessAssets_t pPak_ProcessAssets = nullptr;
+HOOK(v_Pak_ProcessAssets, o_Pak_ProcessAssets, void, __fastcall, (PakLoadedInfo_s* pak))
+{
+	//NS::log::rpak->info("Processing assets for pak: {}", pak->pakFile->pakFileName);
+	return o_Pak_ProcessAssets(pak);
+}
 
 ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 {
 	pPak_ProcessPakFile = module.Offset(0x8D10).RCast<Pak_ProcessFile_t>();
+	pPak_ProcessAssets = module.Offset(0x9C60).RCast<Pak_ProcessAssets_t>();
 	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
+	v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
 	CheckAsyncRequest = module.Offset( 0x1AF0 ).RCast<int64_t (*)(int64_t, size_t*, const char**)>();
 	sub_9570 = module.Offset( 0x9570 ).RCast<void (*)(PakFile*)>();
 	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, uint8_t*, int)>();
