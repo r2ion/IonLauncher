@@ -1,5 +1,6 @@
 #include "pakfile.h"
 #include "pakdecode.h"
+#include "pakpatch.h"
 #include <util/zstdutils.h>
 
 
@@ -21,8 +22,16 @@ struct AsyncHandleStatus_s
 	};
 };
 
+static uint64_t rtechBaseAddr;
+
 static ZSTDDecoder_s s_zstdPakDecoder;
 #define ALIGN_VALUE( val, alignment ) ( ( val + alignment - 1 ) & ~( alignment - 1 ) ) 
+
+#define CMD_INVALID -1
+
+// only patch cmds 4,5,6 use this array to determine their data size
+static const int s_patchCmdToBytesToProcess[] = { CMD_INVALID, CMD_INVALID, CMD_INVALID, CMD_INVALID, 3, 7, 6, 0 };
+#undef CMD_INVALID
 
 int64_t (*CheckAsyncRequest)(int64_t requestHandle, size_t* bytesProcessed, const char** statusMsg);
 void (*RTechLog)(__int64 a1, const char *a2, ...);
@@ -737,7 +746,37 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
     {
         // if there are no bytes left to process in this patch operation
 		if ( !pak->numPatchBytesToProcess ) {
-			sub_9570(pak);
+			RBitRead& bitbuf = pak->bitBuf;
+            bitbuf.ConsumeData(pak->patchData, bitbuf.BitsAvailable());
+
+            // advance patch data buffer by the number of bytes that have just been fetched
+            pak->patchData = &pak->patchData[bitbuf.BitsAvailable() >> 3];
+
+            // store the number of bits remaining to complete the data read
+            bitbuf.m_bitsAvailable = bitbuf.BitsAvailable() & 7; // number of bits above a whole byte
+
+            const __int8 cmd = pak->patchCommands[bitbuf.ReadBits(6)];
+
+            bitbuf.DiscardBits(pak->buf_308[bitbuf.ReadBits(6)]);
+
+            // get the next patch function to execute
+            pak->patchFunc = g_pakPatchApi[cmd];
+
+            if (cmd <= 3u)
+            {
+                const uint8_t bitExponent = pak->PATCH_unk2[bitbuf.ReadBits(8)]; // number of stored bits for the data size
+
+                bitbuf.DiscardBits(pak->PATCH_unk3[bitbuf.ReadBits(8)]);
+
+                pak->numPatchBytesToProcess = (1ull << bitExponent) + bitbuf.ReadBits(bitExponent);
+
+                bitbuf.DiscardBits(bitExponent);
+            }
+            else
+            {
+                pak->numPatchBytesToProcess = s_patchCmdToBytesToProcess[cmd];
+            }
+
 		}
 
         if (!pak->patchFunc(pak, &numBytesToProcess))
@@ -864,6 +903,13 @@ using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
 Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
 HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
 {
+	//check the reutrn address of this to see if we are in pakSetup
+	uint64_t rva = (uint64_t)_ReturnAddress() - rtechBaseAddr;
+	//NS::log::rpak->info("Base Addr: {:X}", rva);
+	if((uint64_t)_ReturnAddress() == rtechBaseAddr + 0xA618) {
+		NS::log::rpak->info("Pak_ProcessPakFile called for {}",pak->pakFileName);
+		pak->patchFunc = g_pakPatchApi[0];
+	}
 	return Pak_ProcessPakFile(pak);
 }
 
@@ -881,4 +927,5 @@ ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 	vsnprintf_ = module.Offset( 0x31C0 ).RCast<size_t (*)(char*, size_t, const char*,...)>();
 	// allow use of zstd flags
 	module.Offset(0x0A30C).Patch({0xB8,0x00,0x81});
+	rtechBaseAddr = module.Offset(0);
 })

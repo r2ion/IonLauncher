@@ -146,6 +146,8 @@ add_library(
     "plugins/pluginmanager.cpp"
     "rtech/pakfile.cpp"
     "rtech/pakfile.h"
+	"rtech/pakpatch.cpp"
+	"rtech/pakpatch.h"
     "rtech/pakstate.cpp"
     "rtech/pakstate.h"
 	"rtech/pakdecode.h"
@@ -289,7 +291,7 @@ add_library(
     "vgui/vgui.cpp"
     "dllmain.cpp"
     "Northstar.def"
-    )
+     )
 
 target_include_directories(
     NorthstarDLL

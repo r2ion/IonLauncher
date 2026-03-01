@@ -21,6 +21,8 @@
 #define PAK_HEADER_FLAGS_RTECH_ENCODED (1<<8)
 #define PAK_HEADER_FLAGS_ZSTD_ENCODED (1<<15)
 
+struct PakFile;
+
 enum PakDecodeMode_e
 {
 	MODE_DISABLED = -1,
@@ -240,6 +242,35 @@ struct PakHeader
 	}
 };
 
+
+struct PakPatchFuncs_s
+{
+	typedef bool (*PatchFunc_t)(PakFile* const pak, size_t* const numAvailableBytes);
+
+	enum PatchCommands_e
+	{
+		PATCH_CMD0,
+		PATCH_CMD1,
+		PATCH_CMD2,
+		PATCH_CMD3,
+		PATCH_CMD4,
+		PATCH_CMD5, // Same as cmd4.
+		PATCH_CMD6,
+
+		// !!! NOT A CMD !!!
+		PATCH_CMD_COUNT
+	};
+
+	inline PatchFunc_t operator[](ssize_t i) const
+	{
+		return patchFuncs[i];
+	}
+
+	PatchFunc_t patchFuncs[PATCH_CMD_COUNT];
+
+};
+
+
 struct PakFile
 {
 	bool IsValid();
@@ -269,12 +300,13 @@ struct PakFile
 	uint32_t patchDataOffset;
 	uint8_t patchCommands[64];
 	uint8_t buf_308[64];
-	uint8_t gap_348[512];
+	uint8_t PATCH_unk2[256];
+	uint8_t PATCH_unk3[256];
 	int64_t qword_548;
 	int64_t patchSrcSize;
 	char* patchDstPtr;
 	int64_t numPatchBytesToProcess;
-	bool(__fastcall* patchFunc)(void*, size_t*);
+	PakPatchFuncs_s::PatchFunc_t patchFunc;
 	int64_t fileSize;
 	int pakId;
 	unsigned int jobId;
@@ -288,3 +320,4 @@ struct PakFile
 	const char* pakFileName;
 	PakHeader header;
 };
+
