@@ -10,7 +10,7 @@ static bool PATCH_CMD_0(PakFile* const pak, size_t* const numAvailableBytes)
 {
   size_t numPatchBytesToProcess; // r8
   size_t v3; // rdi
-  size_t qword_548; // rcx
+  size_t numBytesToSkip; // rcx
   size_t v6; // rax
   uint64_t processedPatchedDataSize; // rdx
   char *patchDstPtr; // rcx
@@ -23,25 +23,25 @@ static bool PATCH_CMD_0(PakFile* const pak, size_t* const numAvailableBytes)
 
   numPatchBytesToProcess = pak->numPatchBytesToProcess;
   v3 = *numAvailableBytes;
-  qword_548 = pak->qword_548;
+  numBytesToSkip = pak->numBytesToSkip;
   v6 = *numAvailableBytes;
   if ( numPatchBytesToProcess < *numAvailableBytes )
     v6 = numPatchBytesToProcess;
-  if ( qword_548 )
+  if ( numBytesToSkip )
   {
-    if ( v6 <= qword_548 )
+    if ( v6 <= numBytesToSkip )
     {
       pak->processedPatchedDataSize += v6;
-      pak->qword_548 = qword_548 - v6;
+      pak->numBytesToSkip = numBytesToSkip - v6;
       pak->numPatchBytesToProcess = numPatchBytesToProcess - v6;
       *numAvailableBytes = v3 - v6;
       return pak->numPatchBytesToProcess == 0LL;
     }
-    pak->processedPatchedDataSize += qword_548;
-    v6 -= qword_548;
-    pak->qword_548 = 0LL;
-    v3 -= qword_548;
-    pak->numPatchBytesToProcess = numPatchBytesToProcess - qword_548;
+    pak->processedPatchedDataSize += numBytesToSkip;
+    v6 -= numBytesToSkip;
+    pak->numBytesToSkip = 0LL;
+    v3 -= numBytesToSkip;
+    pak->numPatchBytesToProcess = numPatchBytesToProcess - numBytesToSkip;
   }
   processedPatchedDataSize = pak->processedPatchedDataSize;
   patchDstPtr = pak->patchDstPtr;
@@ -100,7 +100,7 @@ static bool PATCH_CMD_2(PakFile* const pak, size_t* const pNumBytesAvailable)
     NOTE_UNUSED(pNumBytesAvailable);
 
     size_t numBytesToProcess = pak->numPatchBytesToProcess;
-    const size_t v3 = pak->qword_548;
+    const size_t v3 = pak->numBytesToSkip;
 
     if (v3)
     {
@@ -108,12 +108,12 @@ static bool PATCH_CMD_2(PakFile* const pak, size_t* const pNumBytesAvailable)
         {
             pak->numPatchBytesToProcess = 0ull;
             pak->patchDataPtr += numBytesToProcess;
-            pak->qword_548 = v3 - numBytesToProcess;
+            pak->numBytesToSkip = v3 - numBytesToProcess;
 
             return true;
         }
 
-        pak->qword_548 = 0i64;
+        pak->numBytesToSkip = 0i64;
         numBytesToProcess -= v3;
         pak->patchDataPtr += v3;
         pak->numPatchBytesToProcess = numBytesToProcess;

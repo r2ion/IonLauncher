@@ -302,7 +302,7 @@ struct PakFile
 	uint8_t buf_308[64];
 	uint8_t PATCH_unk2[256];
 	uint8_t PATCH_unk3[256];
-	int64_t qword_548;
+	int64_t numBytesToSkip;
 	int64_t patchSrcSize;
 	char* patchDstPtr;
 	int64_t numPatchBytesToProcess;

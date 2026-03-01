@@ -3,7 +3,8 @@
 #include "pakpatch.h"
 #include <util/zstdutils.h>
 
-
+#include <filesystem>
+#include <fstream>
 struct AsyncHandleStatus_s
 {
 	enum Status_e: uint8_t
@@ -531,6 +532,13 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 
 static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBufferFrame_s& outFrame, const PakRingBufferFrame_s& inFrame)
 {
+
+	if (decoder->outputBuf == decoder->inputBuf)
+	{
+		RTechLog(4,"%s: decode error: %s\n", __FUNCTION__, "same input and output buffer");
+		return false;
+	}
+
 	ZSTD_outBuffer outBuffer = {
 		&decoder->outputBuf[outFrame.bufIndex],
 		outFrame.frameLen, NULL
@@ -723,16 +731,37 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
                 if (didDecode)
                 {
-					NS::log::rpak->info("Pak: {}, decoded with method {}",pak->pakFileName,Pak_DecoderToString(streamDesc->compressionMode));
-                    pak->pakDecoder.zstreamContext = nullptr;
-                }
-            }
+                    NS::log::rpak->info("Pak: {}, decoded with method {}", pak->pakFileName, Pak_DecoderToString(streamDesc->compressionMode));
+					NS::log::rpak->info("currentOutBytePos: {}, inputBytePos: {}", currentOutBytePos,pak->inputBytePos);
+					pak->pakDecoder.zstreamContext = nullptr;
+				}
+			}
         }
         else
         {
             currentOutBytePos = std::min(streamDesc->compressedSize, fileStream->bytesStreamed);
         }
+		const bool inputPosMismatch = (pak->inputBytePos != streamDesc->compressedSize);
+        const bool patchedSizeMismatch = (pak->processedPatchedDataSize != currentOutBytePos);
+		if(pak->isCompressed && streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD ) {
+			if (inputPosMismatch || patchedSizeMismatch)
+			{
+			
+				if (inputPosMismatch)
+				{
+					NS::log::rpak->warn(
+						"Pak: {} input mismatch only -> inputBytePos={} != compressedSize={}",
+						"", pak->inputBytePos, streamDesc->compressedSize);
+				}
 
+				if (patchedSizeMismatch)
+				{
+					NS::log::rpak->warn(
+						"Pak: {} patched-size mismatch only -> processedPatchedDataSize={} != currentOutBytePos={}",
+						"", pak->processedPatchedDataSize, currentOutBytePos);
+				}
+			}
+		}
         if (pak->inputBytePos != streamDesc->compressedSize || pak->processedPatchedDataSize != currentOutBytePos)
             break;
 
@@ -742,7 +771,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
     size_t numBytesToProcess = currentOutBytePos - pak->processedPatchedDataSize;
 
-    while (pak->patchSrcSize  + pak->qword_548)
+    while (pak->patchSrcSize  + pak->numBytesToSkip)
     {
         // if there are no bytes left to process in this patch operation
 		if ( !pak->numPatchBytesToProcess ) {
@@ -893,6 +922,8 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
             }
         }
     }
+
+
 
     return pak->patchSrcSize== 0;
 }
