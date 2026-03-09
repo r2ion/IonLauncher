@@ -398,12 +398,12 @@ int RunLauncher(int argc, char* argv[])
 	if (dedicated && !nostubs)
 	{
 		std::cout << "[*] Loading stubs" << std::endl;
-		HMODULE gssao, gtxaa, d3d11,dxgi;
+		HMODULE gssao, gtxaa, d3d11;
 		if (!(gssao = GetModuleHandleA("GFSDK_SSAO.win64.dll")) && !(gtxaa = GetModuleHandleA("GFSDK_TXAA.win64.dll")) &&
-			!(d3d11 = GetModuleHandleA("d3d11.dll")) && !(dxgi = GetModuleHandleA("dxgi.dll")))
+			!(d3d11 = GetModuleHandleA("d3d11.dll")))
 		{
 			if (!(gssao = LoadDediStub("GFSDK_SSAO.win64.dll")) || !(gtxaa = LoadDediStub("GFSDK_TXAA.win64.dll")) ||
-				!(d3d11 = LoadDediStub("d3d11.dll")) || !(dxgi = LoadDediStub("dxgi.dll")))
+				!(d3d11 = LoadDediStub("d3d11.dll")))
 			{
 				if ((!gssao || FreeLibrary(gssao)) && (!gtxaa || FreeLibrary(gtxaa)) && (!d3d11 || FreeLibrary(d3d11)))
 				{
