@@ -136,6 +136,7 @@ static size_t Pak_RTechDecoderInit(PakDecompState* const decoder, const uint8_t*
 	return decoder->decompSize;
 }
 
+
 static bool Pak_RTechStreamDecode(PakDecompState* const decoder, const size_t inLen, const size_t outLen)
 {
 	bool result; // al
@@ -956,8 +957,8 @@ ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 {
 	pPak_ProcessPakFile = module.Offset(0x8D10).RCast<Pak_ProcessFile_t>();
 	pPak_ProcessAssets = module.Offset(0x9C60).RCast<Pak_ProcessAssets_t>();
-	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
-	v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
+	//v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
+	//v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
 	CheckAsyncRequest = module.Offset( 0x1AF0 ).RCast<int64_t (*)(int64_t, size_t*, const char**)>();
 	sub_9570 = module.Offset( 0x9570 ).RCast<void (*)(PakFile*)>();
 	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, uint8_t*, int)>();
@@ -966,6 +967,6 @@ ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 	RTechLog = module.Offset( 0x10AB0 ).RCast<void (*)(int64_t, const char*, ...)>();
 	vsnprintf_ = module.Offset( 0x31C0 ).RCast<size_t (*)(char*, size_t, const char*,...)>();
 	// allow use of zstd flags
-	module.Offset(0x0A30C).Patch({0xB8,0x00,0x81});
+	//module.Offset(0x0A30C).Patch({0xB8,0x00,0x81});
 	rtechBaseAddr = module.Offset(0);
 })
