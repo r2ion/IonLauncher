@@ -10,6 +10,7 @@
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
 #include "util/version.h"
+#include "util/utils.h"
 
 #include <DbgHelp.h>
 #include <Mmsystem.h>
@@ -28,6 +29,7 @@
 typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 
 #pragma comment(lib, "dbghelp.lib")
+#pragma comment(lib, "delayimp")
 
 #define CRASHHANDLER_MAX_FRAMES 32
 #define CRASHHANDLER_GETMODULEHANDLE_FAIL "<unknown module>"
@@ -1397,6 +1399,14 @@ void CCrashHandler::OpenCrashComment(std::string filepath)
 GPUInfo_s CCrashHandler::GetBestGpuInfoDxgi()
 {
 	GPUInfo_s info;
+	auto cmd = GetCommandLineA();
+	bool isDedi = strstr(cmd, "-dedicated"); // well, this one has to be a real argument
+
+	if(GetCurrentProcessExeName() == L"r2ds.exe")
+		isDedi = true;
+
+	if(isDedi)
+		return info; // Don't attempt to get GPU info on dedicated servers, as they may not have a GPU or the necessary drivers installed
 
 	Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
 	if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) || !factory)

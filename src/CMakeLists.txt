@@ -341,7 +341,7 @@ target_compile_definitions(
 set_target_properties(
     NorthstarDLL
     PROPERTIES OUTPUT_NAME Northstar
-               LINK_FLAGS "/MANIFEST:NO /DEBUG"
+               LINK_FLAGS "/MANIFEST:NO /DEBUG /DELAYLOAD:dxgi.dll"
                RUNTIME_OUTPUT_DIRECTORY "${NS_BINARY_DIR}"
                RUNTIME_OUTPUT_DIRECTORY_DEBUG "${NS_BINARY_DIR}"
                RUNTIME_OUTPUT_DIRECTORY_RELEASE "${NS_BINARY_DIR}"
