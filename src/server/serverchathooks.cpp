@@ -162,7 +162,7 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerChatHooks, ServerSquirrel, [](CModule m
 	DISPATCH_MODULE(ServerChatHooks)
 	pCServerGameDLL_OnReceivedSayTextMessage_Original =
 		HookSys::GetOriginalFunction<CServerGameDLL_OnReceivedSayTextMessage_Original>(
-			HookSys::FindHook("CServerGameDLL_OnReceivedSayTextMessage"));
+			HookSys::FindHook("CServerGameDLL::OnReceivedSayTextMessage"));
 
 	CRecipientFilter__Construct = module.Offset(0x1E9440).RCast<void(__fastcall*)(CRecipientFilter*)>();
 	CRecipientFilter__Destruct = module.Offset(0x1E9700).RCast<void(__fastcall*)(CRecipientFilter*)>();
