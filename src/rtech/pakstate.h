@@ -21,6 +21,8 @@
 
 #define PAK_MAX_DISPATCH_LOAD_JOBS 4
 
+typedef uint8_t JobTypeID_t;
+
 // these are still wrong i think
 enum PakStatus_e : int
 {
@@ -141,15 +143,8 @@ struct PakGlobalState_s
 	int loadedPakHandles[PAK_MAX_LOADED_PAKS]; //0x0120
 
 	// these fields might be related to loading, int16s increment but haven't checked what they actually are
-	int16_t N00009286; //0x0920
-	int16_t N0000A1B5; //0x0923
 
-	int32_t N0000A1AD; //0x0924
-	int32_t N00009287; //0x0928
-
-	int16_t N0000A1B0; //0x092C
-	int16_t N0000A1BC; //0x092F
-
+	JobTypeID_t assetBindJobTypes[PAK_MAX_TRACKED_TYPES];
 	int unusedSlots[PAK_MAX_DISPATCH_LOAD_JOBS]; //0x0930
 
 	int32_t N0000928A; //0x0940

@@ -218,6 +218,31 @@ void PakLoadManager::OnPakUnloading(PakHandle handle)
 	}
 }
 
+static uint32 Pak_GetPatchIndexForPak(const char* const pakName)
+{
+    int totalPatchCount = Pak_GetGlobals()->numPatchedPaks;
+
+    if (!totalPatchCount)
+        return 0;
+
+    int iterator = 0;
+
+    while (iterator < totalPatchCount)
+    {
+        const int index = (totalPatchCount + iterator) >> 1;
+        const int compareResult = stricmp(pakName, Pak_GetGlobals()->patchedPakNames[index]);
+
+        if (compareResult < 0)
+            totalPatchCount = index;
+        else if (compareResult > 0)
+            iterator = index + 1;
+        else
+            return Pak_GetGlobals()->patchNumbers[index];
+    }
+
+    return 0; // Found nothing.
+}
+
 // Whether the vanilla game has this rpak
 static bool VanillaHasPak(const char* pakName)
 {

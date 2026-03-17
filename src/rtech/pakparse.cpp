@@ -37,7 +37,6 @@ static const int s_patchCmdToBytesToProcess[] = { CMD_INVALID, CMD_INVALID, CMD_
 
 int64_t (*CheckAsyncRequest)(int64_t requestHandle, size_t* bytesProcessed, const char** statusMsg);
 void (*RTechLog)(__int64 a1, const char *a2, ...);
-void(*sub_9570)(PakFile* pak);
 __int64 (*FS_ReadAsyncFile)(
         unsigned int handle,
         __int64 readOffset,
@@ -49,6 +48,13 @@ size_t (*vsnprintf_)(char *a1, size_t a2, const char *a3, ...);
 
 void (*FS_CloseAsyncFile)(unsigned int handle);
 int16_t (*FS_OpenAsyncFile)(const char*, size_t*);
+
+int (*Pak_TrackAsset)(PakFile* const a1, PakAssetEntry* a2);
+
+void (*JTGuts_AddJob)(JobTypeID_t, uint32_t, void*, void*);
+void (*JT_EndJobGroup)(uint32_t);
+void (*Pak_ProcessAssetRelationsAndResolveDependencies)(PakFile* pak_arg, PakAssetEntry* asset_arg, uint32_t a3, uint32_t a4);
+
 
 static size_t Pak_ZStdDecoderInit(PakDecompState* const decoder, const uint8_t* frameHeader,
 	const size_t dataSize, const size_t headerSize)
@@ -734,7 +740,6 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
                 if (didDecode)
                 {
                     NS::log::rpak->info("Pak: {}, decoded with method {}", pak->pakFileName, Pak_DecoderToString(streamDesc->compressionMode));
-					NS::log::rpak->info("currentOutBytePos: {}, inputBytePos: {}", currentOutBytePos,pak->inputBytePos);
 					pak->pakDecoder.zstreamContext = nullptr;
 				}
 			}
@@ -743,27 +748,7 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
         {
             currentOutBytePos = std::min(streamDesc->compressedSize, fileStream->bytesStreamed);
         }
-		const bool inputPosMismatch = (pak->inputBytePos != streamDesc->compressedSize);
-        const bool patchedSizeMismatch = (pak->processedPatchedDataSize != currentOutBytePos);
-		if(pak->isCompressed && streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD ) {
-			if (inputPosMismatch || patchedSizeMismatch)
-			{
-
-				if (inputPosMismatch)
-				{
-					NS::log::rpak->warn(
-						"Pak: {} input mismatch only -> inputBytePos={} != compressedSize={}",
-						"", pak->inputBytePos, streamDesc->compressedSize);
-				}
-
-				if (patchedSizeMismatch)
-				{
-					NS::log::rpak->warn(
-						"Pak: {} patched-size mismatch only -> processedPatchedDataSize={} != currentOutBytePos={}",
-						"", pak->processedPatchedDataSize, currentOutBytePos);
-				}
-			}
-		}
+		
         if (pak->inputBytePos != streamDesc->compressedSize || pak->processedPatchedDataSize != currentOutBytePos)
             break;
 
@@ -938,35 +923,141 @@ HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak
 {
 	//check the reutrn address of this to see if we are in pakSetup
 	uint64_t rva = (uint64_t)_ReturnAddress() - rtechBaseAddr;
-	//NS::log::rpak->info("Base Addr: {:X}", rva);
 	if((uint64_t)_ReturnAddress() == rtechBaseAddr + 0xA618) {
 		pak->patchFunc = g_pakPatchApi[0];
 	}
+	//if((uint64_t)_ReturnAddress() == rtechBaseAddr + 0x9CBC) {
+	//	pak->patchFunc = g_pakPatchApi[0];
+	//}
 	return Pak_ProcessPakFile(pak);
+}
+
+static uint32_t Pak_ProcessRemainingPagePointers(PakFile* const pak)
+{
+	  uint32_t i; // r9d
+  PakDescriptor *descriptors; // rax
+  __int64 index; // r10
+  PakDescriptor *v5; // rdx
+  int curCount; // ecx
+  uint8_t **pageOffsets; // r8
+  uint8_t **v8; // rdx
+  __int64 assetsRead; // rsi
+  PakAssetEntry *asset; // rdi
+  __int64 v11; // r14
+  __int64 assetBind; // rbp
+    uint32_t processedPointers = 0;
+
+    for (processedPointers = pak->numProcessedPointers; processedPointers < pak->header.descriptorCount; ++processedPointers)
+    {
+		PakDescriptor* const curPage = &pak->headerFields.descriptors[processedPointers];
+        int curCount = curPage->index - pak->firstPageIdx;
+
+        if (curCount < 0)
+            curCount += pak->header.pageCount;
+
+        if (curCount >= pak->processedPageCount)
+            break;
+
+        PakDescriptor* ptr = reinterpret_cast<PakDescriptor*>(pak->GetPointerForPageOffset(curPage));
+        ptr = reinterpret_cast<PakDescriptor*>(&pak->memPageBuffers[ptr->index][ptr->offset]);
+    }
+
+    return processedPointers;
+}
+
+static void Pak_RunAssetLoadingJobs(PakFile* const pak) {
+	pak->numProcessedPointers = Pak_ProcessRemainingPagePointers(pak);
+
+	const uint32_t numAssets = pak->assetsRead;
+
+    if (numAssets == pak->header.assetEntryCount)
+        return;
+
+	PakAssetEntry* pakAsset = &pak->headerFields.assetEntrys[numAssets];
+	if (pakAsset->highestPageNum > pak->processedPageCount) {
+		return;
+	}
+
+	for (uint32_t currentAsset = numAssets; Pak_GetGlobals()->numAssetLoadJobs <= 0xC8u;) {
+		pak->loadedAssetIndices[currentAsset] = Pak_TrackAsset(pak,pakAsset);
+
+		_InterlockedIncrement16(&Pak_GetGlobals()->numAssetLoadJobs);
+
+		const uint8_t assetBind = pakAsset->HashTableIndexForAssetType();
+		if (Pak_GetGlobals()->assetBindings[assetBind].loadAssetFunc)
+        {
+            const JobTypeID_t jobTypeId = ((uint64_t)Pak_GetGlobals() + assetBind + 0x395F50);
+
+            // have to cast it to a bigger size to send it as param to JTGuts_AddJob().
+            const int64_t pakId = pak->pakId;
+
+            JTGuts_AddJob(jobTypeId, pak->jobId, (void*)pakId, (void*)(uint64_t)currentAsset);
+        }
+        else
+		{
+			 if (_InterlockedExchangeAdd16(&pakAsset->numRemainingDependencies, -1) == 1)
+				Pak_ProcessAssetRelationsAndResolveDependencies(pak, pakAsset, currentAsset, assetBind);
+            _InterlockedDecrement16(&Pak_GetGlobals()->numAssetLoadJobs);
+        }
+		currentAsset = ++pak->assetsRead;
+
+        if (currentAsset == pak->header.assetEntryCount)
+        {
+            JT_EndJobGroup(pak->jobId);
+            return;
+        }
+
+        pakAsset = &pak->headerFields.assetEntrys[currentAsset];
+
+        if (pakAsset->highestPageNum > pak->processedPageCount)
+            return;
+	}
+
+}
+
+
+//9AD0
+using Pak_RunAssetLoadingJobs_t = void(__fastcall*)(PakFile* pak);
+Pak_RunAssetLoadingJobs_t pPak_RunAssetLoadingJobs = nullptr;
+HOOK(v_Pak_RunAssetLoadingJobs, o_Pak_RunAssetLoadingJobs, void, __fastcall, (PakFile* pakFile))
+{
+	NS::log::rpak->info("RunAssetLoadingJobs for pak {}",pakFile->pakFileName);
+	//Pak_RunAssetLoadingJobs(pakFile);
+	o_Pak_RunAssetLoadingJobs(pakFile);
 }
 
 using Pak_ProcessAssets_t = void(__fastcall*)(PakLoadedInfo_s* pak);
 Pak_ProcessAssets_t pPak_ProcessAssets = nullptr;
 HOOK(v_Pak_ProcessAssets, o_Pak_ProcessAssets, void, __fastcall, (PakLoadedInfo_s* pak))
 {
-	//NS::log::rpak->info("Processing assets for pak: {}", pak->pakFile->pakFileName);
+	NS::log::rpak->info("Processing assets for pak: {}", pak->pakFile->pakFileName);
 	return o_Pak_ProcessAssets(pak);
 }
+
+ON_DLL_LOAD("tier0.dll", RetchT0,[](CModule module)
+{
+	JTGuts_AddJob = module.Offset(0x6240).RCast<void (*)(JobTypeID_t, uint32_t, void*, void*)>();
+	JT_EndJobGroup = module.Offset(0x7710).RCast<void (*)(uint32_t)>();
+})
 
 ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 {
 	pPak_ProcessPakFile = module.Offset(0x8D10).RCast<Pak_ProcessFile_t>();
 	pPak_ProcessAssets = module.Offset(0x9C60).RCast<Pak_ProcessAssets_t>();
-	//v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
+	pPak_RunAssetLoadingJobs = module.Offset(0x9AD0).RCast<Pak_RunAssetLoadingJobs_t>();
+	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
 	//v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
+	v_Pak_RunAssetLoadingJobs.Dispatch(reinterpret_cast<LPVOID*>(pPak_RunAssetLoadingJobs));
 	CheckAsyncRequest = module.Offset( 0x1AF0 ).RCast<int64_t (*)(int64_t, size_t*, const char**)>();
-	sub_9570 = module.Offset( 0x9570 ).RCast<void (*)(PakFile*)>();
 	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, uint8_t*, int)>();
 	FS_CloseAsyncFile = module.Offset( 0x2100 ).RCast<void (*)(unsigned int)>();
 	FS_OpenAsyncFile = module.Offset( 0x1E20 ).RCast<int16_t (*)(const char*, size_t*)>();
 	RTechLog = module.Offset( 0x10AB0 ).RCast<void (*)(int64_t, const char*, ...)>();
 	vsnprintf_ = module.Offset( 0x31C0 ).RCast<size_t (*)(char*, size_t, const char*,...)>();
+	Pak_TrackAsset = module.Offset( 0xB2B0 ).RCast<int (*)(PakFile*, PakAssetEntry*)>();
 	// allow use of zstd flags
-	//module.Offset(0x0A30C).Patch({0xB8,0x00,0x81});
+	module.Offset(0x0A30C).Patch({0xB8,0x00,0x81});
 	rtechBaseAddr = module.Offset(0);
+	Pak_ProcessAssetRelationsAndResolveDependencies = module.Offset(0xA890).RCast<void (*)(PakFile*, PakAssetEntry*, uint32_t, uint32_t)>();
+	
 })

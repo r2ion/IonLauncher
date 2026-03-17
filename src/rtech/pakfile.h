@@ -17,7 +17,6 @@
 #define PAK_DECODE_OUT_RING_BUFFER_SIZE 0x400000
 #define PAK_DECODE_OUT_RING_BUFFER_MASK (PAK_DECODE_OUT_RING_BUFFER_SIZE-1)
 
-
 #define PAK_HEADER_FLAGS_RTECH_ENCODED (1<<8)
 #define PAK_HEADER_FLAGS_ZSTD_ENCODED (1<<15)
 
@@ -172,7 +171,7 @@ struct PakAssetEntry
 	PakPtr rawData;
 	int64_t starpakOffset;
 	uint16_t highestPageNum;
-	int16_t unknown2;
+	int16_t numRemainingDependencies;
 	uint32_t relationsStartIndex;
 	uint32_t usesStartIndex;
 	uint32_t relationsCount;
@@ -180,7 +179,12 @@ struct PakAssetEntry
 	uint16_t unknown;
 	uint32_t subHeaderSize;
 	uint32_t version;
-	char magic[4];
+	uint32_t magic;
+
+	FORCEINLINE uint8_t HashTableIndexForAssetType() const
+	{
+		return (((0xFF0B020B * magic) >> 24) & 0xF);
+	}
 };
 
 
@@ -265,7 +269,24 @@ struct PakPatchFuncs_s
 struct PakFile
 {
 	bool IsValid();
+	inline uint16_t GetPageCount() const
+	{
+		return header.pageCount;
+	}
+	inline bool IsPageOffsetValid(uint32_t index, uint32_t offset) const
+	{
+		// validate page index
+		if (index == UINT32_MAX || index > GetPageCount())
+			return false;
 
+		return true;
+	}
+	
+	inline void* GetPointerForPageOffset(const PakDescriptor* ptr) const
+	{
+		assert(IsPageOffsetValid(ptr->index, ptr->offset));
+		return memPageBuffers[ptr->index] + ptr->offset;
+	}
 	int numProcessedPointers;
 	int assetsRead;
 	int processedPageCount;
@@ -301,8 +322,8 @@ struct PakFile
 	int64_t fileSize;
 	int pakId;
 	unsigned int jobId;
-	int* pdword_580;
-	int64_t* pageOffsets;
+	int* loadedAssetIndices;
+	uint8_t** memPageBuffers;
 	PakFilePointer headerFields;
 	int** patchIndices;
 	int dword_600;
