@@ -1021,7 +1021,6 @@ using Pak_RunAssetLoadingJobs_t = void(__fastcall*)(PakFile* pak);
 Pak_RunAssetLoadingJobs_t pPak_RunAssetLoadingJobs = nullptr;
 HOOK(v_Pak_RunAssetLoadingJobs, o_Pak_RunAssetLoadingJobs, void, __fastcall, (PakFile* pakFile))
 {
-	NS::log::rpak->info("RunAssetLoadingJobs for pak {}",pakFile->pakFileName);
 	//Pak_RunAssetLoadingJobs(pakFile);
 	o_Pak_RunAssetLoadingJobs(pakFile);
 }
@@ -1030,7 +1029,6 @@ using Pak_ProcessAssets_t = void(__fastcall*)(PakLoadedInfo_s* pak);
 Pak_ProcessAssets_t pPak_ProcessAssets = nullptr;
 HOOK(v_Pak_ProcessAssets, o_Pak_ProcessAssets, void, __fastcall, (PakLoadedInfo_s* pak))
 {
-	NS::log::rpak->info("Processing assets for pak: {}", pak->pakFile->pakFileName);
 	return o_Pak_ProcessAssets(pak);
 }
 
@@ -1046,7 +1044,7 @@ ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 	pPak_ProcessAssets = module.Offset(0x9C60).RCast<Pak_ProcessAssets_t>();
 	pPak_RunAssetLoadingJobs = module.Offset(0x9AD0).RCast<Pak_RunAssetLoadingJobs_t>();
 	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
-	//v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
+	v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
 	v_Pak_RunAssetLoadingJobs.Dispatch(reinterpret_cast<LPVOID*>(pPak_RunAssetLoadingJobs));
 	CheckAsyncRequest = module.Offset( 0x1AF0 ).RCast<int64_t (*)(int64_t, size_t*, const char**)>();
 	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, uint8_t*, int)>();

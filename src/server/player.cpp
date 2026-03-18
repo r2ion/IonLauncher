@@ -7,10 +7,9 @@ DECLARE_MODULE(PlayerHooks)
 uint64_t* GlobalEntList = nullptr;
 
 const char* (*GetWeaponName)(int index);
-
 DECLARE_HOOK(PrimaryAttack, server.dll + 0x69F7C0, [](auto& hook, __int64 a1) -> void {
-	uint32_t owner_index = *(_DWORD *)(a1 + 0xEB8);
-	void* player = GlobalEntList[6 * (unsigned __int16)owner_index + 1];
+	int owner_index = *(_DWORD *)(a1 + 0xEB8);
+	void* player = (void*)GlobalEntList[6 * (unsigned __int16)owner_index + 1];
 	int weapon_index = *(_DWORD *)(a1 + 0x12D8);
 	auto weapon_name = GetWeaponName(weapon_index);
 	int shotsFired = 1;
