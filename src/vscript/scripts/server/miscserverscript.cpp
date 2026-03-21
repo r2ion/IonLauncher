@@ -2,6 +2,7 @@
 #include "masterserver/masterserver.h"
 #include "server/auth/serverauthentication.h"
 #include "dedicated/dedicated.h"
+#include "dedicated/dedicatedlogtoclient.h"
 #include "client/r2client.h"
 #include "server/r2server.h"
 #include "engine/client.h"
@@ -103,4 +104,22 @@ ADD_SQFUNC(
 
 	g_pSquirrel[context]->pushbool(sqvm, true);
 	return SQRESULT_NOTNULL;
+}
+
+
+ADD_SQFUNC("void", NSSendClientPrint, "entity player, string msg", "Sends a message to the player's console", ScriptContext::SERVER)
+{
+	const CPlayer* pPlayer = g_pSquirrel[context]->template getentity<CPlayer>(sqvm, 1);
+	const char* msg = g_pSquirrel[context]->getstring(sqvm, 2);
+
+	if (!pPlayer)
+	{
+		spdlog::warn("NSSendClientPrint(): got null player");
+		return SQRESULT_NULL;
+	}
+
+	CClient* pClient = &g_pClientArray[pPlayer->m_nPlayerIndex - 1];
+	CGameClient__ClientPrintf(pClient, "%s", msg);
+
+	return SQRESULT_NULL;
 }
