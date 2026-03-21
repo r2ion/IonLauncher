@@ -42,15 +42,6 @@ DECLARE_HOOK(CServerGameDLL::OnReceivedSayTextMessage, server.dll + 0x1595C0, []
 {
 	RemoveAsciiControlSequences(const_cast<char*>(text), true);
 
-	// MiniHook doesn't allow calling the base function outside of anywhere but the hook function.
-	// To allow bypassing the hook, isSkippingHook can be set.
-	if (bShouldCallSayTextHook)
-	{
-		bShouldCallSayTextHook = false;
-		hook.Original(self, senderPlayerId, text, isTeam);
-		return;
-	}
-
 	// check chat ratelimits
 	if (!g_pServerLimits->CheckChatLimits(&g_pClientArray[senderPlayerId - 1]))
 		return;
@@ -64,10 +55,11 @@ DECLARE_HOOK(CServerGameDLL::OnReceivedSayTextMessage, server.dll + 0x1595C0, []
 
 void ChatSendMessage(unsigned int playerIndex, const char* text, bool isTeam)
 {
-	if (!pCServerGameDLL_OnReceivedSayTextMessage_Original)
+	if (!pCServerGameDLL_OnReceivedSayTextMessage_Original) {
+		spdlog::error("ChatSendMessage called before original function pointer was set!");
 		return;
+	}
 
-	bShouldCallSayTextHook = true;
 	pCServerGameDLL_OnReceivedSayTextMessage_Original(
 		g_pServerGameDLL,
 		// Ensure the first bit isn't set, since this indicates a custom message
