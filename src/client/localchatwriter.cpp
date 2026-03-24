@@ -454,7 +454,8 @@ ON_DLL_LOAD_CLIENT("client.dll", LocalChatWriter, [](CModule module)
 	gChatFadeLength = module.Offset(0x11BAB78).RCast<CGameFloatVar**>();
 	gChatFadeSustain = module.Offset(0x11BAC08).RCast<CGameFloatVar**>();
 	CHudChat::allHuds = module.Offset(0x11BA9E8).RCast<CHudChat**>();
-
+	//Patch chat history to be much larger
+	module.Offset(0x022DE35).Patch({0xBA, 0xFF, 0xFF, 0xFF ,0xFF});
 	ConvertANSIToUnicode = module.Offset(0x7339A0).RCast<ConvertANSIToUnicodeType>();
 
 	Cvar_ns_write_raw_chat_to_console = new ConVar("ns_write_raw_chat_to_console", "0", FCVAR_NONE, "Write raw chat message output to the console. 1 = enabled, 0 = disabled.");
