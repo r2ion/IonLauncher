@@ -154,6 +154,26 @@ bool ConnectionManager::ParseAddress(const std::string& address, std::string& ip
 	if (s.empty())
 		return false;
 
+	auto parsePort = [&](const std::string& portStr)
+	{
+		if (portStr.empty())
+			return;
+
+		try
+		{
+			size_t consumed = 0;
+			const int parsed = std::stoi(portStr, &consumed);
+			if (consumed == portStr.size() && parsed >= 1 && parsed <= 65535)
+				port = parsed;
+			else
+				port = -1;
+		}
+		catch (...)
+		{
+			port = -1;
+		}
+	};
+
 	// [v6] or [v6]:port
 	if (s.front() == '[')
 	{
@@ -164,46 +184,21 @@ bool ConnectionManager::ParseAddress(const std::string& address, std::string& ip
 		ip = s.substr(1, close - 1);
 
 		if (close + 1 < s.size() && s[close + 1] == ':')
-		{
-			const std::string portStr = s.substr(close + 2);
-			if (!portStr.empty())
-			{
-				try
-				{
-					port = std::stoi(portStr);
-				}
-				catch (...)
-				{
-					port = -1;
-				}
-			}
-		}
+			parsePort(s.substr(close + 2));
 	}
 	else
 	{
-		// host:port (single ':') OR bare v6 / v4
+		// host:port (single ':') OR bare v6 / v4 / domain
 		const auto firstColon = s.find(':');
 		const auto lastColon = s.rfind(':');
 
 		if (firstColon != std::string::npos && firstColon == lastColon)
 		{
 			ip = s.substr(0, firstColon);
-			const std::string portStr = s.substr(firstColon + 1);
-			if (!portStr.empty())
-			{
-				try
-				{
-					port = std::stoi(portStr);
-				}
-				catch (...)
-				{
-					port = -1;
-				}
-			}
+			parsePort(s.substr(firstColon + 1));
 		}
 		else
 		{
-			// bare IP (v4 or v6, or v4-mapped)
 			ip = s;
 		}
 	}
@@ -219,11 +214,11 @@ bool ConnectionManager::ParseAddress(const std::string& address, std::string& ip
 		{
 			std::string rest = ip.substr(prefix.size());
 			if (!(rest.find('.') != std::string::npos && rest.find(':') == std::string::npos))
-				isV6 = true; // some other IPv6, or non‑standard form
+				isV6 = true;
 		}
 		else
 		{
-			isV6 = true; // normal IPv6
+			isV6 = true;
 		}
 	}
 
@@ -687,7 +682,12 @@ void ConnectionManager::ConnectToDirectServer(const std::string& address)
 
 			std::string connectAddress = fmt::format("{}:{}", ip, port);
 
-			CNetAdr addr(connectAddress.c_str());
+			CNetAdr addr;
+			if (!addr.SetFromString(connectAddress.c_str(), true))
+			{
+				Interrupt(fmt::format("Failed to resolve server address '{}'", connectAddress));
+				return;
+			}
 
 			SendInfoRequestPacket(addr, true, false);
 
