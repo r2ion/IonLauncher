@@ -291,7 +291,7 @@ add_library(
     "vgui/vgui.cpp"
     "dllmain.cpp"
     "Northstar.def"
-     )
+      "rtech/rui.cpp")
 
 target_include_directories(
     NorthstarDLL
