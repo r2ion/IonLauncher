@@ -36,17 +36,10 @@ static_assert(offsetof(struct_a4, endTime) == 0x44);
 
 typedef uint32_t assetHandle;
 
-__m128 xmmword_D3C20 = { 25.866, 25.866f, 40.000f, 40.000f };
-__m128 xmmword_D3C40 = { 128.000f, 128.000f, 40.000f, 40.f };
-__m128 xmmword_D3C50 = { 200.000f, 200.000f,40.000f,40.000f };
-__m128 xmmword_D4A00 = { 1920.000f, 1920.000f, 1080.000f, 1080.000f };
-__m128 xmmword_D40E0 = { 2.000f, 2.000f, 84.000f, 84.000f };
-__m128 xmmword_D3CE0 = { 48.000f,48.000f,48.000f,48.000f };
-__m128 enemyColor = { 1.000f, 0.188f, 0.014f, 1.f };
-__m128 friendlyColor = { 0.095f, 0.309f, 0.708f, 1.f };
-__m128 xmmword_D3240 = {0.305f,0.956f,0.578f,1.f};
+
+static __m128 xmmword_D3240 = {0.305f,0.956f,0.578f,1.f};
 __m128 xmmword_D2BD0;
-__m128 ammpedColor_D2850 = {0.965f, 0.525f, 0.157f, 1.f };
+static __m128 ammpedColor_D2850 = {0.965f, 0.525f, 0.157f, 1.f };
 
 using gamestate_info_ffa_t = void (__fastcall*)(RuiFunctions_t*, RuiGlobals*, RuiInstance*, struct_a4*);
 gamestate_info_ffa_t pGamestateInfoFFA = nullptr;
@@ -54,13 +47,26 @@ gamestate_info_ffa_t pGamestateInfoFFA = nullptr;
 
 void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, struct_a4* a4)
 {
+
+	static __m128 xmmword_D3C20 = { 25.866, 25.866f, 40.000f, 40.000f };
+	static __m128 xmmword_D3C40 = { 128.000f, 128.000f, 40.000f, 40.f };
+	static __m128 xmmword_D3C50 = { 200.000f, 200.000f,40.000f,40.000f };
+	static __m128 xmmword_D4A00 = { 1920.000f, 1920.000f, 1080.000f, 1080.000f };
+	static __m128 xmmword_D40E0 = { 2.000f, 2.000f, 84.000f, 84.000f };
+	static __m128 xmmword_D3CE0 = { 48.000f,48.000f,48.000f,48.000f };
+	static __m128 enemyColor = { 1.000f, 0.188f, 0.014f, 1.f };
+	static __m128 friendlyColor = { 0.095f, 0.309f, 0.708f, 1.f };
+
+
     float endTime = a4->endTime;
 	uint64_t globals = (uint64_t)a2;
     float timeLeft = endTime - a2->currentTime;
-
-	if (strcmp(a4->statusText,"") == 0) {
-		a4->statusText = "#PL_ffa";
+	char* buffer = (char*)alloca(2048);
+	strcpy(buffer, a4->statusText);
+	if (strcmp(buffer,"") == 0) {
+		strcpy(buffer, "#PL_ffa");
 	}
+
 
     if (timeLeft < 0.0f || endTime == -1.0e30f)
     {
@@ -130,11 +136,12 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
         __m128i maxTeamScore = _mm_cvtsi32_si128(a4->maxTeamScore);
         a4->otherPlayerCardAssetHandle = enemyPlayerCardImageAssetHandle_2;
         float maxTeamScore_1 = _mm_cvtepi32_ps(maxTeamScore).m128_f32[0];
-        if (maxTeamScore_1 == 0.0f)
+        if (maxTeamScore_1 == 0.0f) {
             return (a1->SetErrorWithReason)(
                 a3,
                 "content\\r2\\ui\\hud\\gamemode_ffa.rui (83,46): divide by zero.\n"
             );
+		}
 
         float leftTeamScore_1 = a4->leftTeamScore;
         a4->leftTeamScoreDiff = leftTeamScore_1 / maxTeamScore_1;
@@ -160,7 +167,8 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
     a4->rightTeamScoreString = v31;
     a4->whiteAssetHandle = a1->LoadAsset(a3, "white");
     const char* factionImage = a4->factionImage;
-    a4->gameModeName    = a1->localize(a3, a4->statusText);
+    //a4->gameModeName    = a1->localize(a3, a4->statusText);
+	a4->gameModeName    = a1->localize(a3, buffer);
     a4->factionImageHandle = a1->LoadAsset(a3, factionImage);
 
     __m128* transformSizes = a1->GetTransformSize(a3);
@@ -299,10 +307,10 @@ void __fastcall crosshair_plus(RuiFunctions_t *a1, RuiGlobals *a2, RuiInstance *
 	const float Vx_left2  = 0.5f - (kThicknessVL * 0.5f);
 	const float Vx_right2 = 0.5f + (kThicknessVR * 0.5f);
 
-	const float Vtop_near = 0.5f - kGapV;           
-	const float Vtop_far  = Vtop_near - kLengthV;  
-	const float Vbot_near = 0.5f + kGapV;          
-	const float Vbot_far  = Vbot_near + kLengthV;   
+	const float Vtop_near = 0.5f - kGapV;
+	const float Vtop_far  = Vtop_near - kLengthV;
+	const float Vbot_near = 0.5f + kGapV;
+	const float Vbot_far  = Vbot_near + kLengthV;
 
 	const float Hleft_far   = 0.5f - kGapH - kLengthH;
 	const float Hleft_near  = 0.5f - kGapH;
@@ -338,12 +346,14 @@ void __fastcall crosshair_plus(RuiFunctions_t *a1, RuiGlobals *a2, RuiInstance *
     a1->executeTransform(a3, 162);
 }
 
+using gamestate_info_ffa_t = void(__fastcall*)(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, struct_a4* a4);
+gamestate_info_ffa_t pGamestate_info_ffa = nullptr;
 
-
-DECLARE_HOOK(hk_gamestate_info_ffa, ui(11).dll + 0x3E8E0, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, struct_a4* a4)
+HOOK(v_hk_gamestate_info_ffa, o_hk_gamestate_info_ffa, void, __fastcall, (RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, struct_a4* a4))
 {
-	return gamestate_info_ffa(a1, a2, a3, a4);
-})
+	gamestate_info_ffa(a1, a2, a3, a4);
+}
+
 
 DECLARE_HOOK(hk_crosshair_plus, ui(11).dll + 0x1D560, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, crosshair_plus_struct* a4)
 {
@@ -356,6 +366,10 @@ DECLARE_HOOK(hk_crosshair_plus, ui(11).dll + 0x1D560, [](auto& hook, RuiFunction
 
 ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 {
+
+	pGamestate_info_ffa = module.Offset(0x3E8E0).RCast<gamestate_info_ffa_t>();
+	v_hk_gamestate_info_ffa.Dispatch(reinterpret_cast<void*>(pGamestate_info_ffa));
+
 	xmmword_D2BD0.m128_u64[0] = 0xFFFFFFFFFFFFFFFFULL;
 	xmmword_D2BD0.m128_u64[1] = 0xFFFFFFFFULL;
 	Cvar_ion_use_custom_crosshair = new ConVar("ion_use_custom_crosshair", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Use custom crosshairs. 1 = enabled, 0 = disabled.");
