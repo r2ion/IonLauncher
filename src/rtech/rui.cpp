@@ -148,9 +148,6 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
         topColor    = friendlyColor;
         bottomColor = enemyColor;
 
-		//bottomColor = RainbowColor(a2->currentTime, 0.5f, 0.0f);
-		//topColor = RainbowColor(a2->currentTime, 0.5f, 0.0f);
-
         float v20 = a4->rightTeamScore / maxTeamScore_1;
         *(__m128*)a4->topColor    = topColor;
         *(__m128*)a4->bottomColor = bottomColor;
@@ -167,7 +164,6 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
     a4->rightTeamScoreString = v31;
     a4->whiteAssetHandle = a1->LoadAsset(a3, "white");
     const char* factionImage = a4->factionImage;
-    //a4->gameModeName    = a1->localize(a3, a4->statusText);
 	a4->gameModeName    = a1->localize(a3, buffer);
     a4->factionImageHandle = a1->LoadAsset(a3, factionImage);
 
