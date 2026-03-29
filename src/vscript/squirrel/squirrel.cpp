@@ -413,6 +413,22 @@ template <ScriptContext context> bool __fastcall CSquirrelVM_initHook(CSquirrelV
 			std::string path = std::string("scripts/vscripts/") + mod.initScript;
 			if (g_pSquirrel[context]->compilefile(vm, path.c_str(), name.c_str(), 0))
 				g_pSquirrel[context]->compilefile(vm, path.c_str(), name.c_str(), 1);
+
+			if (mod.initScriptCallBack.has_value())
+			{
+				// g_pSquirrel[context]->Call can't be used here ...
+				SQObject functionobj {};
+				SQRESULT result = g_pSquirrel[context]->sq_getfunction(vm->sqvm, mod.initScriptCallBack.value().c_str(), &functionobj, 0);
+				if (result != SQRESULT_NOTNULL) // This func returns 0 on success for some reason
+				{
+					spdlog::error("InitScript was unable to find function with name '{}'. Is it global?", mod.initScriptCallBack.value());
+					continue;
+				}
+
+				g_pSquirrel[context]->pushobject(vm->sqvm, &functionobj); // Push the function object
+				g_pSquirrel[context]->pushroottable(vm->sqvm);
+				g_pSquirrel[context]->_call(vm->sqvm, 0);
+			}
 		}
 	}
 	return ret;

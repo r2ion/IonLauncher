@@ -176,7 +176,7 @@ typedef SQObject* (*sq_createscriptinstanceType)(void* ent);
 typedef char** (*sq_GetEntityConstantType)();
 typedef SQObject* (*sq_createclienthudelementinstanceType)(vgui::Panel* pParent, vgui::Panel* pHudElement);
 
-typedef int (*sq_getfunctionType)(HSQUIRRELVM sqvm, const char* name, SQObject* returnObj, const char* signature);
+typedef SQRESULT (*sq_getfunctionType)(HSQUIRRELVM sqvm, const char* name, SQObject* returnObj, const char* signature);
 
 // structs
 typedef SQRESULT (*sq_pushnewstructinstanceType)(HSQUIRRELVM sqvm, int fieldCount);

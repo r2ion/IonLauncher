@@ -215,7 +215,7 @@ public:
 
 	inline Vector3 getvector(HSQUIRRELVM sqvm, const SQInteger stackpos) { return *(Vector3*)__sq_getvector(sqvm, stackpos); }
 
-	inline int sq_getfunction(HSQUIRRELVM sqvm, const char* name, SQObject* returnObj, const char* signature)
+	inline SQRESULT sq_getfunction(HSQUIRRELVM sqvm, const char* name, SQObject* returnObj, const char* signature)
 	{
 		return __sq_getfunction(sqvm, name, returnObj, signature);
 	}

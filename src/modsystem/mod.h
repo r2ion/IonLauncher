@@ -117,7 +117,7 @@ public:
 	std::vector<std::string> LocalisationFiles;
 	// custom script init.nut
 	std::string initScript;
-
+	std::optional<std::string> initScriptCallBack;
 	// other files:
 
 	std::vector<ModVPKEntry> Vpks;
