@@ -467,15 +467,15 @@ struct gamestate_info_ps_struct
 DECLARE_HOOK(gamestate_info_ps, ui(11).dll + 0x46280, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, gamestate_info_ps_struct* a4)
 {
 	//func(a1,a2,a3,(targetinfo_pilot_struct*)a4);
-	auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
-	a4->leftColor.x = color.m128_f32[0];
-	a4->leftColor.y = color.m128_f32[1];
-	a4->leftColor.z = color.m128_f32[2];
+	//auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+	//a4->leftColor.x = color.m128_f32[0];
+	//a4->leftColor.y = color.m128_f32[1];
+	//a4->leftColor.z = color.m128_f32[2];
 
-	color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
-	a4->rightColor.x = color.m128_f32[0];
-	a4->rightColor.y = color.m128_f32[1];
-	a4->rightColor.z = color.m128_f32[2];
+	//color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+	//a4->rightColor.x = color.m128_f32[0];
+	//a4->rightColor.y = color.m128_f32[1];
+	//a4->rightColor.z = color.m128_f32[2];
 	hook.Original(a1, a2, a3, a4);
 });
 
