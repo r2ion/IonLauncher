@@ -497,6 +497,11 @@ ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 
 	xmmword_D2BD0.m128_u64[0] = 0xFFFFFFFFFFFFFFFFULL;
 	xmmword_D2BD0.m128_u64[1] = 0xFFFFFFFFULL;
+	DISPATCH_MODULE(RuiHooks);
+})
+
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, [](CModule module)
+{
 	Cvar_ion_use_custom_crosshair = new ConVar("ion_use_custom_crosshair", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Use custom crosshairs. 1 = enabled, 0 = disabled.");
 	Cvar_ion_crosshair_gap_v       = new ConVar("ion_crosshair_gap_v",        "0.0074074", FCVAR_ARCHIVE_PLAYERPROFILE, "Vertical arm gap from center.");
 	Cvar_ion_crosshair_length_v    = new ConVar("ion_crosshair_length_v",      "0.01200",   FCVAR_ARCHIVE_PLAYERPROFILE, "Vertical arm segment length.");
@@ -505,5 +510,4 @@ ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 	Cvar_ion_crosshair_thickness_r = new ConVar("ion_crosshair_thickness_r",   "0.00833",   FCVAR_ARCHIVE_PLAYERPROFILE, "Vertical arm thickness right of center.");
 	Cvar_ion_crosshair_gap_h       = new ConVar("ion_crosshair_gap_h",         "0.00417",   FCVAR_ARCHIVE_PLAYERPROFILE, "Horizontal arm gap from center.");
 	Cvar_ion_crosshair_length_h    = new ConVar("ion_crosshair_length_h",       "0.00700",   FCVAR_ARCHIVE_PLAYERPROFILE, "Horizontal arm segment length.");
-	DISPATCH_MODULE(RuiHooks);
-})
+});
