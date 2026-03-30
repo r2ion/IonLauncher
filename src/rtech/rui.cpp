@@ -44,6 +44,40 @@ static __m128 ammpedColor_D2850 = {0.965f, 0.525f, 0.157f, 1.f };
 using gamestate_info_ffa_t = void (__fastcall*)(RuiFunctions_t*, RuiGlobals*, RuiInstance*, struct_a4*);
 gamestate_info_ffa_t pGamestateInfoFFA = nullptr;
 
+static inline __m128 MakeColor(float r, float g, float b, float a)
+{
+    return _mm_set_ps(a, b, g, r);
+}
+
+// Full-saturation HSV->RGB, hue driven by time
+// speed    - how fast the hue cycles (full cycle per second at 1.0)
+// hueOffset - phase offset in [0,1] to shift the hue
+static __m128 RainbowColor(float time, float speed = 0.5f, float hueOffset = 0.0f, float alpha = 1.0f)
+{
+    float hue = fmodf(time * speed + hueOffset, 1.0f);
+    if (hue < 0.0f) hue += 1.0f;
+
+    float h = hue * 6.0f;
+    int   i = (int)h;
+    float f = h - (float)i;
+    // saturation = 1, value = 1
+    float q = 1.0f - f;  // falling edge
+    float t = f;          // rising edge
+
+    float r, g, b;
+    switch (i % 6)
+    {
+        case 0: r = 1.f; g = t;   b = 0.f; break;
+        case 1: r = q;   g = 1.f; b = 0.f; break;
+        case 2: r = 0.f; g = 1.f; b = t;   break;
+        case 3: r = 0.f; g = q;   b = 1.f; break;
+        case 4: r = t;   g = 0.f; b = 1.f; break;
+        case 5: r = 1.f; g = 0.f; b = q;   break;
+        default: r = g = b = 0.0f;          break;
+    }
+
+    return MakeColor(r, g, b, alpha);
+}
 
 void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, struct_a4* a4)
 {
@@ -229,14 +263,14 @@ struct crosshair_plus_struct
 };
 
 
-ConVar* Cvar_ion_use_custom_crosshair;
-ConVar* Cvar_ion_crosshair_gap_v;
-ConVar* Cvar_ion_crosshair_length_v;
-ConVar* Cvar_ion_crosshair_inset_v;
-ConVar* Cvar_ion_crosshair_thickness_l;
-ConVar* Cvar_ion_crosshair_thickness_r;
-ConVar* Cvar_ion_crosshair_gap_h;
-ConVar* Cvar_ion_crosshair_length_h;
+static ConVar* Cvar_ion_use_custom_crosshair;
+static ConVar* Cvar_ion_crosshair_gap_v;
+static ConVar* Cvar_ion_crosshair_length_v;
+static ConVar* Cvar_ion_crosshair_inset_v;
+static ConVar* Cvar_ion_crosshair_thickness_l;
+static ConVar* Cvar_ion_crosshair_thickness_r;
+static ConVar* Cvar_ion_crosshair_gap_h;
+static ConVar* Cvar_ion_crosshair_length_h;
 
 void __fastcall crosshair_plus(RuiFunctions_t *a1, RuiGlobals *a2, RuiInstance *a3, crosshair_plus_struct *a4)
 {
@@ -342,6 +376,8 @@ void __fastcall crosshair_plus(RuiFunctions_t *a1, RuiGlobals *a2, RuiInstance *
     a1->executeTransform(a3, 162);
 }
 
+
+
 using gamestate_info_ffa_t = void(__fastcall*)(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, struct_a4* a4);
 gamestate_info_ffa_t pGamestate_info_ffa = nullptr;
 
@@ -349,6 +385,99 @@ HOOK(v_hk_gamestate_info_ffa, o_hk_gamestate_info_ffa, void, __fastcall, (RuiFun
 {
 	gamestate_info_ffa(a1, a2, a3, a4);
 }
+
+struct gamestate_info_struct
+{
+  float xPos;
+  float yPos;
+  float zPos;
+  float leftTextPos;
+  float rightTextPos;
+  float statusYPos;
+  float timerSize;
+  float shadowAmmount;
+  float textFillAmmountMaybe;
+  float unk;
+  float leftColor[3];
+  float rightColor[3];
+  float textSize;
+  int64_t unk2;
+  float gameTime;
+  const char *statusText;
+  float leftTeamScore;
+  float rightTeamScore;
+  _DWORD maxTeamScore;
+  int maxTeamPlayers;
+  _BYTE gap68[8];
+};
+
+
+DECLARE_HOOK(gamestate_info, ui(11).dll + 0x33AE0, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, gamestate_info_struct* a4)
+{
+	//auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+	//a4->leftColor[0] = color.m128_f32[0];
+	//a4->leftColor[1] = color.m128_f32[1];
+	//a4->leftColor[2] = color.m128_f32[2];
+
+	//color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+	//a4->rightColor[0] = color.m128_f32[0];
+	//a4->rightColor[1] = color.m128_f32[1];
+	//a4->rightColor[2] = color.m128_f32[2];
+		
+	hook.Original(a1, a2, a3, a4);
+});
+
+struct gamestate_info_ps_struct
+{
+
+	float xpos; //0x0000
+	float yPos; //0x0004
+	float zPos; //0x0008
+	float leftTextPos; //0x000C
+	float rightTextPos; //0x0010
+	float timerScale; //0x0014
+	float shadowAmmount; //0x0018
+	float textFill; //0x001C
+	float unk1; //0x0020
+	Vector3 leftColor; //0x0024
+	Vector3 rightColor; //0x0030
+	float textSize; //0x003C
+	int64_t unk2; //0x0040
+	int64_t unk3; //0x0048
+	float gameEndTime;
+	float leftTeamScore;
+	float rightTeamScore;
+	_DWORD maxTeamScore;
+	int maxTeamPlayers;
+	const char *factionImage;
+	_BYTE gap70[60];
+	_DWORD factionImageHandle;
+	_QWORD formattedTimeString;
+	_DWORD leftScoreBarAsset;
+	_DWORD fillLeftAsset;
+	float floatC0;
+	_DWORD barRightAsset;
+	_DWORD rightFillAsset;
+	float floatCC;
+	_QWORD leftTeamScoreText;
+	_QWORD rightTeamScoreText;
+};
+
+
+DECLARE_HOOK(gamestate_info_ps, ui(11).dll + 0x46280, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, gamestate_info_ps_struct* a4)
+{
+	//func(a1,a2,a3,(targetinfo_pilot_struct*)a4);
+	auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+	a4->leftColor.x = color.m128_f32[0];
+	a4->leftColor.y = color.m128_f32[1];
+	a4->leftColor.z = color.m128_f32[2];
+
+	color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+	a4->rightColor.x = color.m128_f32[0];
+	a4->rightColor.y = color.m128_f32[1];
+	a4->rightColor.z = color.m128_f32[2];
+	hook.Original(a1, a2, a3, a4);
+});
 
 
 DECLARE_HOOK(hk_crosshair_plus, ui(11).dll + 0x1D560, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, crosshair_plus_struct* a4)
