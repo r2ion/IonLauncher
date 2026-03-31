@@ -41,6 +41,11 @@ static __m128 xmmword_D3240 = {0.305f,0.956f,0.578f,1.f};
 __m128 xmmword_D2BD0;
 static __m128 ammpedColor_D2850 = {0.965f, 0.525f, 0.157f, 1.f };
 
+static __m128 xmmword_D3130 = {1.f, 0.216f, 0.051f, 1.f};
+static __m128 xmmword_D3120 = {1.f, 0.065f, 0.051f, 1.f};
+static __m128 xmmword_D32F0 = {0.242f, 0.831f, 1.f, 1.f};
+
+
 using gamestate_info_ffa_t = void (__fastcall*)(RuiFunctions_t*, RuiGlobals*, RuiInstance*, struct_a4*);
 gamestate_info_ffa_t pGamestateInfoFFA = nullptr;
 
@@ -487,6 +492,108 @@ DECLARE_HOOK(hk_crosshair_plus, ui(11).dll + 0x1D560, [](auto& hook, RuiFunction
 	}
 	hook.Original(a1, a2, a3, a4);
 })
+
+struct  kraber_ammo_counter_struct
+{
+  _BYTE gap0[40];
+  int ammo;
+  _DWORD clipSize;
+  _BYTE gap30[4];
+  float float34;
+  float float38;
+  float colorScale;
+  __m128 color;
+  __m128 color2;
+  float float60;
+  _DWORD dword64;
+  float clipSizeTransform;
+  _DWORD dword6C;
+  float float70;
+  _DWORD dword74;
+  float float78;
+  float float7C;
+  _DWORD dword80;
+};
+
+DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0 , [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, kraber_ammo_counter_struct* a4)
+{
+	int clipSize; // eax
+  float v8; // xmm2_4
+  __m128 currentTime_low; // xmm6
+  __m128 v10; // xmm1
+  float v11; // xmm7_4
+  __m128 v12; // xmm0
+  __m128 v13; // xmm5
+  float v14; // xmm6_4
+  __m128 v15; // xmm4
+  __m128 v16; // xmm1
+  float v17; // xmm0_4
+  __m128 v18; // xmm1
+  float v19; // xmm8_4
+  assetHandle v20; // eax
+  float v21; // xmm0_4
+  __m128 v22; // xmm0
+
+  clipSize = a4->clipSize;
+  v8 = a4->ammo / fmaxf(clipSize, 1.0);
+  a4->float70 = v8;
+  if ( v8 > 0.33000001 )
+  {
+    a4->colorScale = 1.0;
+    v11 = 0.0;
+    if ( v8 < 0.60000002 )
+    {
+      v12 = xmmword_D3130;
+      a4->colorScale = 3.0;
+    }
+    else
+    {
+      v12 = xmmword_D32F0;
+    }
+    a4->color = v12;
+  }
+  else
+  {
+    a4->colorScale = 4.0;
+    a4->color = xmmword_D3120;
+    currentTime_low.m128_f32[0] = a2->currentTime * 2.0;
+    v10 = _mm_cvtepi32_ps(_mm_cvttps_epi32(currentTime_low));
+    v11 = 1.0
+        - fminf(
+            2.0
+          - (fmaxf(
+               0.0,
+               1.0
+             - ((1.0
+               - (currentTime_low.m128_f32[0]
+                - (_mm_cvtepi32_ps(_mm_castps_si128(_mm_cmplt_ps(currentTime_low, v10))).m128_f32[0] + v10.m128_f32[0])))
+              * 4.0))
+           * 2.0),
+            1.0);
+  }
+  v13.m128_f32[0] = a2->currentTime;;
+  a4->clipSizeTransform = (clipSize - 0.015625);
+  v15 = v13;
+  v15.m128_f32[0] = v13.m128_f32[0] * 200.0;
+  a4->float78 = v13.m128_f32[0] * 10.0;
+  v16 = _mm_cvtepi32_ps(_mm_cvttps_epi32(v15));
+  v17 = _mm_cvtepi32_ps(_mm_castps_si128(_mm_cmplt_ps(v15, v16))).m128_f32[0] + v16.m128_f32[0];
+  v18 = _mm_set1_ps(1.0f);
+  v19 = fmaxf(0.0, 1.0 - ((1.0 - ((v13.m128_f32[0] * 200.0) - v17)) * 0.2));
+  a4->dword64 = a1->LoadAsset(a3, "models/weapons/attachments/50cal_bullet_C_Black");
+  a4->dword6C = a1->LoadAsset(a3, "models/weapons/attachments/50cal_bullet_C");;
+  a4->float38 = a4->colorScale * 0.25;;
+  a4->dword74 = a1->LoadAsset(a3, "models/weapons/attachments/hemlok_panel_bleed");
+  v22 = _mm_set_ss(a4->float78);
+  a4->float7C = v22.m128_f32[0] + 1.0;
+  *v22.m128_u64 = (a1->unknown_12)(a3);
+  v18.m128_f32[0] = v22.m128_f32[0] * 0.15000001;
+  v22.m128_f32[0] = v19;
+  a4->color2 = _mm_mul_ps(_mm_mul_ps(_mm_shuffle_ps(v22, v22, 0), a4->color2), _mm_shuffle_ps(v18, v18, 0));
+  a4->dword80 = a1->LoadAsset(a3, "models/weapons/attachments/whiteMult");
+  a4->float60 = ((v11 * 0.5) * a4->colorScale) * a4->float34;;
+  return (a1->executeTransform)(a3, 82LL);
+});
 
 
 ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
