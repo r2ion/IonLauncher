@@ -493,6 +493,31 @@ DECLARE_HOOK(hk_crosshair_plus, ui(11).dll + 0x1D560, [](auto& hook, RuiFunction
 	hook.Original(a1, a2, a3, a4);
 })
 
+struct __declspec(align(8)) mastiff_ammo_counter_struct
+{
+  _BYTE gap0[56];
+  int ammo;
+  int clipSize;
+  _BYTE gap40[4];
+  float float44;
+  float float48;
+  float float4C;
+  __m128 m12850;
+  __m128 m12860;
+  float float70;
+  _DWORD dword74;
+  float dword78;
+  _DWORD dword7C;
+  float float80;
+  float float84;
+  _DWORD dword88;
+  float float8C;
+  float float90;
+  _DWORD dword94;
+};
+
+
+
 struct  kraber_ammo_counter_struct
 {
   _BYTE gap0[40];
@@ -517,7 +542,7 @@ struct  kraber_ammo_counter_struct
 
 DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0 , [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, kraber_ammo_counter_struct* a4)
 {
-	int clipSize; // eax
+  int clipSize; // eax
   float v8; // xmm2_4
   __m128 currentTime_low; // xmm6
   __m128 v10; // xmm1
@@ -593,6 +618,89 @@ DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0 , [](auto& hook, RuiFunct
   a4->color2 = _mm_mul_ps(_mm_mul_ps(_mm_shuffle_ps(v22, v22, 0), a4->color2), _mm_shuffle_ps(v18, v18, 0));
   a4->dword80 = a1->LoadAsset(a3, "models/weapons/attachments/whiteMult");
   a4->float60 = ((v11 * 0.5) * a4->colorScale) * a4->float34;
+  return (a1->executeTransform)(a3, 82LL);
+});
+
+DECLARE_HOOK(mastiff_ammo_counter, ui(11).dll + 0x5D710, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, mastiff_ammo_counter_struct* a4)
+{
+	float v8; // xmm0_4
+  float v9; // xmm2_4
+  __m128 currentTime_low; // xmm6
+  __m128 v11; // xmm1
+  float v12; // xmm7_4
+  __m128 v13; // xmm0
+  bool extended; // zf
+  float v16; // xmm6_4
+  __m128 v17; // xmm4
+  __m128 v18; // xmm1
+  float v19; // xmm0_4
+  __m128 v20; // xmm1
+  float v21; // xmm8_4
+  assetHandle v22; // eax
+  float v23; // xmm0_4
+  __m128 v24; // xmm0
+
+  a4->float80 = a4->ammo / fmaxf(a4->clipSize, 1.0);
+  v8 = a1->unknown_12(a3);
+  v9 = a4->float80;
+  a4->float84 = v8;
+  if ( v9 > 0.33000001 )
+  {
+    a4->float4C = 1.0;
+    v12 = 0.0;
+    if ( v9 < 0.60000002 )
+    {
+      v13 = xmmword_D3130;
+      a4->float4C = 3.0;
+    }
+    else
+    {
+      v13 = xmmword_D32F0;
+    }
+    a4->m12850 = v13;
+  }
+  else
+  {
+    a4->float4C = 4.0;
+    a4->m12850 = xmmword_D3120;
+    currentTime_low.m128_f32[0] = a2->currentTime * 2.0;
+    v11 = _mm_cvtepi32_ps(_mm_cvttps_epi32(currentTime_low));
+    v12 = 1.0
+        - fminf(
+            2.0
+          - (fmaxf(
+               0.0,
+               1.0
+             - ((1.0
+               - (currentTime_low.m128_f32[0]
+                - (_mm_cvtepi32_ps(_mm_castps_si128(_mm_cmplt_ps(currentTime_low, v11))).m128_f32[0] + v11.m128_f32[0])))
+              * 4.0))
+           * 2.0),
+            1.0);
+  }
+  extended = a4->clipSize == 6;
+  v16 = a4->float44;
+  a4->dword78 = (a4->clipSize - 0.015625);
+  v17.m128_f32[0] = a2->currentTime * 200.0;
+  a4->float8C = a2->currentTime * 10.0;
+  v18 = _mm_cvtepi32_ps(_mm_cvttps_epi32(v17));
+  v19 = _mm_cvtepi32_ps(_mm_castps_si128(_mm_cmplt_ps(v17, v18))).m128_f32[0] + v18.m128_f32[0];
+  v20 = _mm_set1_ps(1.0f);
+  v21 = fmaxf(0.0, 1.0 - ((1.0 - ((a2->currentTime * 200.0) - v19)) * 0.2));
+  a4->dword74 = a1->LoadAsset(a3, "models/weapons/attachments/Shotgun_Shell_C");
+  v22 = a1->LoadAsset(a3, "rui/noise_uniform");
+  v23 = a4->float4C * 0.25;
+  a4->dword7C = v22;
+  a4->float48 = v23;
+  a4->dword88 = a1->LoadAsset(a3, "models/weapons/attachments/hemlok_panel_bleed");
+  v24 = _mm_set1_ps(a4->float8C);
+  a4->float90 = v24.m128_f32[0] + 1.0;
+  *v24.m128_u64 = (a1->unknown_12)(a3);
+  v20.m128_f32[0] = v24.m128_f32[0] * 0.15000001;
+  v24.m128_f32[0] = v21;
+  a4->m12860 = _mm_mul_ps(_mm_mul_ps(_mm_shuffle_ps(v24, v24, 0), a4->m12850), _mm_shuffle_ps(v20, v20, 0));
+  a4->dword94 = a1->LoadAsset(a3, "models/weapons/attachments/whiteMult");
+  a4->float70 = ((v12 * 0.5) * a4->float4C) * v16;
   return (a1->executeTransform)(a3, 82LL);
 });
 
