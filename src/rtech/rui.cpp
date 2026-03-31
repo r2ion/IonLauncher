@@ -581,8 +581,9 @@ DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0 , [](auto& hook, RuiFunct
   v18 = _mm_set1_ps(1.0f);
   v19 = fmaxf(0.0, 1.0 - ((1.0 - ((v13.m128_f32[0] * 200.0) - v17)) * 0.2));
   a4->dword64 = a1->LoadAsset(a3, "models/weapons/attachments/50cal_bullet_C_Black");
+  
   a4->dword6C = a1->LoadAsset(a3, "models/weapons/attachments/50cal_bullet_C");;
-  a4->float38 = a4->colorScale * 0.25;;
+  a4->float38 = a4->colorScale * 0.25;
   a4->dword74 = a1->LoadAsset(a3, "models/weapons/attachments/hemlok_panel_bleed");
   v22 = _mm_set_ss(a4->float78);
   a4->float7C = v22.m128_f32[0] + 1.0;
@@ -591,7 +592,7 @@ DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0 , [](auto& hook, RuiFunct
   v22.m128_f32[0] = v19;
   a4->color2 = _mm_mul_ps(_mm_mul_ps(_mm_shuffle_ps(v22, v22, 0), a4->color2), _mm_shuffle_ps(v18, v18, 0));
   a4->dword80 = a1->LoadAsset(a3, "models/weapons/attachments/whiteMult");
-  a4->float60 = ((v11 * 0.5) * a4->colorScale) * a4->float34;;
+  a4->float60 = ((v11 * 0.5) * a4->colorScale) * a4->float34;
   return (a1->executeTransform)(a3, 82LL);
 });
 
