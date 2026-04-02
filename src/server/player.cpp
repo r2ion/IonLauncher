@@ -4,15 +4,14 @@ CPlayer*(__fastcall* UTIL_PlayerByIndex)(int playerIndex);
 
 DECLARE_MODULE(PlayerHooks)
 
-uint64_t* GlobalEntList = nullptr;
-
 const char* (*GetWeaponName)(int index);
-
+void* (*GetWeaponOwner)(uint64_t weapon_entity);
 DECLARE_HOOK(PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, __int64 a1, int a2) -> bool {
-	int owner_index = *(_DWORD *)(a1 + 0xEB8);
-	void* player = (void*)GlobalEntList[6 * (unsigned __int16)owner_index + 1];
-	int weapon_index = *(_DWORD *)(a1 + 0x12D8);
-	auto weapon_name = GetWeaponName(weapon_index);
+	void* player = GetWeaponOwner(a1);
+	if(!player)
+		return hook.Original(a1,a2);
+	int weapon_name_index = *(_DWORD *)(a1 + 0x12D8);
+	auto weapon_name = GetWeaponName(weapon_name_index);
 	int shotsFired = 1;
 	auto player_inst = g_pSquirrel[ScriptContext::SERVER]->__sq_createscriptinstance((void*)player);
 	auto weapon_inst = g_pSquirrel[ScriptContext::SERVER]->__sq_createscriptinstance((void*)a1);
@@ -24,7 +23,7 @@ ON_DLL_LOAD("server.dll", CPlayer, [](CModule module)
 {
 	DISPATCH_MODULE(PlayerHooks);
 	GetWeaponName = module.Offset(0x691300).RCast<const char* (*)(int)>();
-	GlobalEntList = *module.Offset(0xB6AB58).RCast<uint64_t**>();
+	GetWeaponOwner = module.Offset(0xA6A20).RCast<void* (*)(uint64_t)>();
 	UTIL_PlayerByIndex = module.Offset(0x26AA10).RCast<CPlayer*(__fastcall*)(int)>();
 })
 
