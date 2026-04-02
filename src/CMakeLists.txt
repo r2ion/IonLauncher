@@ -15,6 +15,8 @@ add_library(
     "client/clientauthhooks.cpp"
     "client/clientnethooks.cpp"
     "client/clientruihooks.cpp"
+	"client/cliententitylist.h"
+	"client/cliententitylist.cpp"
     "client/clientvideooverrides.cpp"
     "client/connect.cpp"
     "client/connect.h"
@@ -159,6 +161,7 @@ add_library(
     "rtech/pakfilesystem.cpp"
     "rtech/pakfilesystem.h"
     "rtech/rstdlib.h"
+	"rtech/rui.cpp"
     "server/auth/bansystem.cpp"
     "server/auth/bansystem.h"
     "server/auth/serverauthentication.cpp"
@@ -293,7 +296,7 @@ add_library(
     "vgui/vgui.cpp"
     "dllmain.cpp"
     "Northstar.def"
-      "rtech/rui.cpp")
+      )
 
 target_include_directories(
     NorthstarDLL

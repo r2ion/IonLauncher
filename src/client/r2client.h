@@ -11,10 +11,15 @@ extern char* g_pLocalPlayerOriginToken;
 typedef void (__fastcall* CClientState__SendStringCmd_t)(const char*);
 extern CClientState__SendStringCmd_t CClientState__SendStringCmd;
 
+typedef bool (*CPlayer__IsMantling_t)(void* thisptr);
+extern CPlayer__IsMantling_t CPlayer__IsMantling;
 class CClientState;
 
 typedef CClientState* (*GetBaseLocalClientType)();
 extern GetBaseLocalClientType GetBaseLocalClient;
+
+typedef int (*GetLocalPlayerIndexType)();
+extern GetLocalPlayerIndexType GetLocalPlayerIndex;
 
 class CUtlMemoryPool
 {

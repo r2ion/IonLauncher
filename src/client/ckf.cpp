@@ -1,6 +1,6 @@
 #include "ckf.h"
-
-
+#include "r2client.h"
+#include "cliententitylist.h"
 std::vector<int> crouchCodes;
 std::vector<int> jumpCodes;
 
@@ -15,7 +15,7 @@ KeyInfo_t* v_KeyInfoArray = nullptr;
 DECLARE_MODULE(CKFHooks)
 ConVar* Cvar_ckf_enabled = nullptr;
 ConVar* Cvar_ckf_logging = nullptr;
-
+bool IsMantling;
 void FindBinds()
 {
 	auto hook = HookSys::FindHook("CInputSystem__PostEvent");
@@ -56,63 +56,72 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 		return;
 	struct timespec ts;
 	timespec_get(&ts, TIME_UTC);
+
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
 	if (nType == IE_ButtonPressed)
 	{
-	if (std::find(jumpCodes.begin(), jumpCodes.end(), data1) != jumpCodes.end() && !jumpHolder.waitingToSend)
-		{
-			jumpHitTime = real;
-			long sinceCrouch = real - crouchHolder.timestamp;
-			if (crouchHolder.waitingToSend && sinceCrouch <= CROUCHKICK_FIX_BUFFER_MICROSECONDS)
+		if (std::find(jumpCodes.begin(), jumpCodes.end(), data1) != jumpCodes.end() && !jumpHolder.waitingToSend)
 			{
-				crouchHolder.Release();
-				if (Cvar_ckf_logging->GetBool())
-					spdlog::info("crouchkick: {}ms CROUCH IS EARLY", sinceCrouch / 1000.0f);
-				jumpSentTime = real;
+				if (IsMantling)
+				{
+					return;
+				}
+				jumpHitTime = real;
+				long sinceCrouch = real - crouchHolder.timestamp;
+				if (crouchHolder.waitingToSend && sinceCrouch <= CROUCHKICK_FIX_BUFFER_MICROSECONDS)
+				{
+					crouchHolder.Release();
+					if (Cvar_ckf_logging->GetBool())
+						spdlog::info("crouchkick: {}ms CROUCH IS EARLY", sinceCrouch / 1000.0f);
+					jumpSentTime = real;
+				}
+				else
+				{
+					jumpHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
+					jumpHolder.timestamp = real;
+					return;
+				}
 			}
-			else
+			else if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end() && !crouchHolder.waitingToSend)
 			{
-				jumpHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
-				jumpHolder.timestamp = real;
-				return;
-			}
-		}
-		else if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end() && !crouchHolder.waitingToSend)
-		{
-			crouchHitTime = real;
-			long sinceJump = real - jumpHolder.timestamp;
-			if (jumpHolder.waitingToSend && sinceJump < CROUCHKICK_FIX_BUFFER_MICROSECONDS)
-			{
-				jumpHolder.Release();
-				if (Cvar_ckf_logging->GetBool())
-					spdlog::info("crouchkick: {}ms JUMP IS EARLY", sinceJump / 1000.0f);
-				jumpSentTime = real;
-			}
-			else
-			{
-				crouchHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
-				crouchHolder.timestamp = real;
-				return;
-			}
-		}
-	}
-	else if (nType == IE_ButtonReleased)
-	{
-		if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end())
-		{
-			if (crouchHolder.waitingToSend)
-			{
-				crouchHolder.Release();
-			}
-		}
-		if (std::find(jumpCodes.begin(), jumpCodes.end(), data1) != jumpCodes.end())
-		{
-			if (jumpHolder.waitingToSend)
-			{
-				jumpHolder.Release();
+				if (IsMantling)
+				{
+					return;
+				}
+				crouchHitTime = real;
+				long sinceJump = real - jumpHolder.timestamp;
+				if (jumpHolder.waitingToSend && sinceJump < CROUCHKICK_FIX_BUFFER_MICROSECONDS)
+				{
+					jumpHolder.Release();
+					if (Cvar_ckf_logging->GetBool())
+						spdlog::info("crouchkick: {}ms JUMP IS EARLY", sinceJump / 1000.0f);
+					jumpSentTime = real;
+				}
+				else
+				{
+					crouchHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
+					crouchHolder.timestamp = real;
+					return;
+				}
 			}
 		}
-	}
+		else if (nType == IE_ButtonReleased)
+		{
+			if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end())
+			{
+				if (crouchHolder.waitingToSend)
+				{
+					crouchHolder.Release();
+				}
+			}
+			if (std::find(jumpCodes.begin(), jumpCodes.end(), data1) != jumpCodes.end())
+			{
+				if (jumpHolder.waitingToSend)
+				{
+					jumpHolder.Release();
+				}
+			}
+		}
 }
 
 
@@ -124,7 +133,16 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 	struct timespec ts;
 	timespec_get(&ts, TIME_UTC);
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
-
+	int playerIndex = GetLocalPlayerIndex();
+	if (playerIndex != 0)
+	{
+		if (!g_pClientEntityList)
+			return;
+		auto ent = (g_pClientEntityList->GetClientEntity(playerIndex));
+		if (!ent)
+			return;
+		IsMantling = CPlayer__IsMantling(ent);
+	}
 	if (jumpHolder.waitingToSend)
 	{
 		long sinceJump = real - jumpHolder.timestamp;
