@@ -1,6 +1,6 @@
 #include "core/convar/convar.h"
 #include "vscript/squirrel/squirrel.h"
-
+#include "client/ckf.h"
 DECLARE_MODULE(ScriptInputEventsHooks)
 
 #define CInputSystem__PostEvent_SQFunc "CInputSystem__ProcessPostEvent"
@@ -22,6 +22,7 @@ DECLARE_HOOK(CInputSystem__PostEvent, inputsystem.dll + 0x7EC0, ([](auto& hook, 
 	hook.Original(self, nType, nTick, nData, nData2, nData3);
 	CALL_INPUTSYS_SQ_FUNC(CLIENT);
 	CALL_INPUTSYS_SQ_FUNC(UI);
+	CFKPostEvent(self, static_cast<InputEventType_t>(nType), nTick, nData, nData2, nData3);
 }))
 
 ON_DLL_LOAD_RELIESON("inputsystem.dll", FastCallbacks, ConVar, [](CModule module)

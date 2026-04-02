@@ -45,6 +45,17 @@ static __m128 xmmword_D3130 = {1.f, 0.216f, 0.051f, 1.f};
 static __m128 xmmword_D3120 = {1.f, 0.065f, 0.051f, 1.f};
 static __m128 xmmword_D32F0 = {0.242f, 0.831f, 1.f, 1.f};
 
+static __m128 xmmword_D3790 = {
+	8.f,
+	8.f,
+	8.f,
+	8.f,
+};
+
+static __m128 xmmword_D3360 = {12.000f,1.f,1.f,1.f};
+static __m128 xmmword_D3340 = {5.f,1.f,1.f,1.f};
+static __m128 xmmword_D2DE0 = {6.f,0.0f,0.f,0.5f};
+static __m128 xmmword_D2FD0 = {3.f,0.f,0.f,1.f};
 
 using gamestate_info_ffa_t = void (__fastcall*)(RuiFunctions_t*, RuiGlobals*, RuiInstance*, struct_a4*);
 gamestate_info_ffa_t pGamestateInfoFFA = nullptr;
@@ -276,7 +287,7 @@ static ConVar* Cvar_ion_crosshair_thickness_l;
 static ConVar* Cvar_ion_crosshair_thickness_r;
 static ConVar* Cvar_ion_crosshair_gap_h;
 static ConVar* Cvar_ion_crosshair_length_h;
-
+static ConVar* Cvar_ion_chroma_gameinfo;
 void __fastcall crosshair_plus(RuiFunctions_t *a1, RuiGlobals *a2, RuiInstance *a3, crosshair_plus_struct *a4)
 {
     if (a2->dword_B0)
@@ -419,22 +430,23 @@ struct gamestate_info_struct
 
 DECLARE_HOOK(gamestate_info, ui(11).dll + 0x33AE0, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, gamestate_info_struct* a4)
 {
-	//auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
-	//a4->leftColor[0] = color.m128_f32[0];
-	//a4->leftColor[1] = color.m128_f32[1];
-	//a4->leftColor[2] = color.m128_f32[2];
+	if (Cvar_ion_chroma_gameinfo->GetBool())
+	{
+		 auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+		 a4->leftColor[0] = color.m128_f32[0];
+		 a4->leftColor[1] = color.m128_f32[1];
+		 a4->leftColor[2] = color.m128_f32[2];
 
-	//color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
-	//a4->rightColor[0] = color.m128_f32[0];
-	//a4->rightColor[1] = color.m128_f32[1];
-	//a4->rightColor[2] = color.m128_f32[2];
-		
+		 color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+		 a4->rightColor[0] = color.m128_f32[0];
+		 a4->rightColor[1] = color.m128_f32[1];
+		 a4->rightColor[2] = color.m128_f32[2];
+	}
 	hook.Original(a1, a2, a3, a4);
 });
 
 struct gamestate_info_ps_struct
 {
-
 	float xpos; //0x0000
 	float yPos; //0x0004
 	float zPos; //0x0008
@@ -471,16 +483,18 @@ struct gamestate_info_ps_struct
 
 DECLARE_HOOK(gamestate_info_ps, ui(11).dll + 0x46280, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, gamestate_info_ps_struct* a4)
 {
-	//func(a1,a2,a3,(targetinfo_pilot_struct*)a4);
-	//auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
-	//a4->leftColor.x = color.m128_f32[0];
-	//a4->leftColor.y = color.m128_f32[1];
-	//a4->leftColor.z = color.m128_f32[2];
+	if (Cvar_ion_chroma_gameinfo->GetBool())
+	{
+		auto color = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+		a4->leftColor.x = color.m128_f32[0];
+		a4->leftColor.y = color.m128_f32[1];
+		a4->leftColor.z = color.m128_f32[2];
 
-	//color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
-	//a4->rightColor.x = color.m128_f32[0];
-	//a4->rightColor.y = color.m128_f32[1];
-	//a4->rightColor.z = color.m128_f32[2];
+		color = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+		a4->rightColor.x = color.m128_f32[0];
+		a4->rightColor.y = color.m128_f32[1];
+		a4->rightColor.z = color.m128_f32[2];
+	}
 	hook.Original(a1, a2, a3, a4);
 });
 
@@ -704,6 +718,89 @@ DECLARE_HOOK(mastiff_ammo_counter, ui(11).dll + 0x5D710, [](auto& hook, RuiFunct
   return (a1->executeTransform)(a3, 82LL);
 });
 
+struct __declspec(align(8)) hcog_lower_struct
+{
+  _BYTE gap0[76];
+  float vis;
+  unsigned int ammo;
+  _DWORD clipSize;
+  _QWORD qword58;
+  _DWORD dword60;
+  _DWORD dword64;
+  const char* qword68;
+  __m128 m12870;
+  __m128 m12880;
+  __m128 m12890;
+  __m128 m128A0;
+  __m128 m128B0;
+  _DWORD dwordC0;
+  _DWORD dwordC4;
+  _DWORD dwordC8;
+  _DWORD dwordCC;
+  _DWORD dwordD0;
+  float floatD4;
+};
+
+
+void __fastcall hcog_lowerF(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, hcog_lower_struct* a4)
+{
+  const char *v7; // rax
+  __m128i v8; // xmm0
+  float v9; // xmm2_4
+  __m128 v10; // xmm7
+  __m128 vis_low; // xmm6
+  __m128 v12; // xmm0
+  __m128 v13; // xmm6
+  __m128 v14; // xmm0
+  __m128 *v15; // rbx
+
+  v7 = a1->printf(a3, "%i", a4->ammo);
+  v8 = _mm_cvtsi32_si128(a4->clipSize);
+  a4->qword68 = v7;
+  a4->floatD4 = a4->ammo / fmaxf(_mm_cvtepi32_ps(v8).m128_f32[0], 1.0);
+  *v8.m128i_i32 = a1->unknown_12(a3);
+  v9 = a4->floatD4;
+  a4->dwordC4 = v8.m128i_i32[0];
+  if ( v9 > 0.33000001 )
+  {
+    if ( v9 < 0.60000002 )
+      v10 = xmmword_D3130;
+    else
+      v10 = xmmword_D32F0;
+  }
+  else
+  {
+    v10 = xmmword_D3120;
+  }
+  vis_low = _mm_set_ps1(a4->vis);
+  v12 = _mm_mul_ps(xmmword_D3790, v10);
+  a4->qword58 = v12.m128_i64[0];
+  a4->dword60 = _mm_shuffle_epi32(_mm_castps_si128(v12), 170).m128i_u32[0];
+  //a4->dword64 = a1->LoadAsset(a3, "models/weapons/attachments/hcog_reticle_front_col");
+  v13 = _mm_shuffle_ps(vis_low, vis_low, 0);
+  a4->dwordC0 = a1->LoadAsset(a3, "rui/noise_multires");
+  a4->m12870 = _mm_mul_ps(xmmword_D3360, v13);
+  //a4->dwordC8 = a1->LoadAsset(a3, "models/weapons/attachments/hcog_reticle_front_col_trans");
+  a4->dwordC8 = a1->LoadAsset(a3, "models/weapons/attachments/holo_reflex_reticle_small_col");
+
+  a4->m12880 = _mm_mul_ps(xmmword_D3340, v13);
+  //a4->dwordCC = a1->LoadAsset(a3, "models/weapons/attachments/hcog_reticle_rear_col");
+  v14 = _mm_mul_ps(xmmword_D2DE0, v13);
+  a4->m12890 = v14;
+  a4->m128A0 = _mm_mul_ps(xmmword_D2FD0, v13);
+  a4->dwordD0 = a1->LoadAsset(a3, "models/weapons/attachments/ammo_counter_meter_col");
+  a4->m128B0 = _mm_mul_ps(v13, v10);
+  v15 = a1->GetTransformSize(a3);
+  v15[8] = (a1->GetTextSize)(a3, 0LL);
+  a1->executeTransform(a3, 114);
+}
+
+
+DECLARE_HOOK(hcog_lower, ui(11).dll + 0x0529B0, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, hcog_lower_struct* a4) {
+	//hcog_lowerF(a1, a2, a3, a4);
+	hook.Original(a1, a2, a3, a4);
+});
+
 
 ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 {
@@ -726,4 +823,6 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, [](CModule mo
 	Cvar_ion_crosshair_thickness_r = new ConVar("ion_crosshair_thickness_r",   "0.00833",   FCVAR_ARCHIVE_PLAYERPROFILE, "Vertical arm thickness right of center.");
 	Cvar_ion_crosshair_gap_h       = new ConVar("ion_crosshair_gap_h",         "0.00417",   FCVAR_ARCHIVE_PLAYERPROFILE, "Horizontal arm gap from center.");
 	Cvar_ion_crosshair_length_h    = new ConVar("ion_crosshair_length_h",       "0.00700",   FCVAR_ARCHIVE_PLAYERPROFILE, "Horizontal arm segment length.");
-});
+	Cvar_ion_chroma_gameinfo =
+			new ConVar("ion_chroma_gameinfo", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Rainbow colors for game info. 1 = enabled, 0 = disabled.");
+	});

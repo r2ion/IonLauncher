@@ -5,6 +5,7 @@
 #include "shared/misccommands.h"
 #include "util/printcommands.h"
 #include "util/printmaps.h"
+#include "client/ckf.h"
 #include "eos/eos_network.h"
 
 DECLARE_MODULE(HostHooks)
@@ -17,6 +18,7 @@ DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 	// need to initialise these after host_init since they do stuff to preexisting concommands/convars without being client/server specific
 	InitialiseCommandPrint();
 	InitialiseMapsPrint();
+	FindBinds();
 	// client/server autoexecs on necessary platforms
 	// dedi needs autoexec_ns_server on boot, while non-dedi will run it on on listen server start
 	if (bDedicated)

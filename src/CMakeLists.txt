@@ -31,6 +31,8 @@ add_library(
     "client/origin.cpp"
     "client/r2client.cpp"
     "client/r2client.h"
+	"client/ckf.h"
+	"client/ckf.cpp"
     "client/rejectconnectionfixes.cpp"
     "client/room.h"
     "client/room.cpp"
