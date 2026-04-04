@@ -57,8 +57,22 @@ static __m128 xmmword_D3340 = {5.f,1.f,1.f,1.f};
 static __m128 xmmword_D2DE0 = {6.f,0.0f,0.f,0.5f};
 static __m128 xmmword_D2FD0 = {3.f,0.f,0.f,1.f};
 
+static __m128 enemyColor = {1.000f, 0.188f, 0.014f, 1.f};
+static __m128 friendlyColor = {0.095f, 0.309f, 0.708f, 1.f};
+
 using gamestate_info_ffa_t = void (__fastcall*)(RuiFunctions_t*, RuiGlobals*, RuiInstance*, struct_a4*);
 gamestate_info_ffa_t pGamestateInfoFFA = nullptr;
+
+
+static ConVar* Cvar_ion_use_custom_crosshair;
+static ConVar* Cvar_ion_crosshair_gap_v;
+static ConVar* Cvar_ion_crosshair_length_v;
+static ConVar* Cvar_ion_crosshair_inset_v;
+static ConVar* Cvar_ion_crosshair_thickness_l;
+static ConVar* Cvar_ion_crosshair_thickness_r;
+static ConVar* Cvar_ion_crosshair_gap_h;
+static ConVar* Cvar_ion_crosshair_length_h;
+static ConVar* Cvar_ion_chroma_gameinfo;
 
 static inline __m128 MakeColor(float r, float g, float b, float a)
 {
@@ -104,8 +118,7 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
 	static __m128 xmmword_D4A00 = { 1920.000f, 1920.000f, 1080.000f, 1080.000f };
 	static __m128 xmmword_D40E0 = { 2.000f, 2.000f, 84.000f, 84.000f };
 	static __m128 xmmword_D3CE0 = { 48.000f,48.000f,48.000f,48.000f };
-	static __m128 enemyColor = { 1.000f, 0.188f, 0.014f, 1.f };
-	static __m128 friendlyColor = { 0.095f, 0.309f, 0.708f, 1.f };
+
 
 
     float endTime = a4->endTime;
@@ -165,9 +178,11 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
         a4->leftTeamScoreDiff = rightTeamScore / v28;
         topColor    = enemyColor;
         bottomColor = friendlyColor;
-
-		//topColor = RainbowColor(a2->currentTime, 0.5f, 0.0f);
-		//bottomColor = RainbowColor(a2->currentTime, 0.5f, 0.0f);
+		if (Cvar_ion_chroma_gameinfo->GetBool())
+		{
+			topColor = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+			bottomColor = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+		}
 
         float v30 = a4->leftTeamScore / v28;
         *(__m128*)a4->topColor    = topColor;
@@ -197,7 +212,11 @@ void __fastcall gamestate_info_ffa(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstan
         a4->leftTeamScoreDiff = leftTeamScore_1 / maxTeamScore_1;
         topColor    = friendlyColor;
         bottomColor = enemyColor;
-
+		if (Cvar_ion_chroma_gameinfo->GetBool())
+		{
+			bottomColor = RainbowColor(a2->currentTime, 0.5f, 0.0f, 1.0f);
+			topColor = RainbowColor(a2->currentTime, 0.5f, 0.5f, 1.0f);
+		}
         float v20 = a4->rightTeamScore / maxTeamScore_1;
         *(__m128*)a4->topColor    = topColor;
         *(__m128*)a4->bottomColor = bottomColor;
@@ -279,15 +298,6 @@ struct crosshair_plus_struct
 };
 
 
-static ConVar* Cvar_ion_use_custom_crosshair;
-static ConVar* Cvar_ion_crosshair_gap_v;
-static ConVar* Cvar_ion_crosshair_length_v;
-static ConVar* Cvar_ion_crosshair_inset_v;
-static ConVar* Cvar_ion_crosshair_thickness_l;
-static ConVar* Cvar_ion_crosshair_thickness_r;
-static ConVar* Cvar_ion_crosshair_gap_h;
-static ConVar* Cvar_ion_crosshair_length_h;
-static ConVar* Cvar_ion_chroma_gameinfo;
 void __fastcall crosshair_plus(RuiFunctions_t *a1, RuiGlobals *a2, RuiInstance *a3, crosshair_plus_struct *a4)
 {
     if (a2->dword_B0)
@@ -442,6 +452,16 @@ DECLARE_HOOK(gamestate_info, ui(11).dll + 0x33AE0, [](auto& hook, RuiFunctions_t
 		 a4->rightColor[1] = color.m128_f32[1];
 		 a4->rightColor[2] = color.m128_f32[2];
 	}
+	else
+	{
+		a4->leftColor[0] = friendlyColor.m128_f32[0];
+		a4->leftColor[1] = friendlyColor.m128_f32[1];
+		a4->leftColor[2] = friendlyColor.m128_f32[2];
+
+		a4->rightColor[0] = enemyColor.m128_f32[0];
+		a4->rightColor[1] = enemyColor.m128_f32[1];
+		a4->rightColor[2] = enemyColor.m128_f32[2];
+	}
 	hook.Original(a1, a2, a3, a4);
 });
 
@@ -494,6 +514,16 @@ DECLARE_HOOK(gamestate_info_ps, ui(11).dll + 0x46280, [](auto& hook, RuiFunction
 		a4->rightColor.x = color.m128_f32[0];
 		a4->rightColor.y = color.m128_f32[1];
 		a4->rightColor.z = color.m128_f32[2];
+	}
+	else
+	{
+		a4->leftColor.x = friendlyColor.m128_f32[0];
+		a4->leftColor.y = friendlyColor.m128_f32[1];
+		a4->leftColor.z = friendlyColor.m128_f32[2];
+
+		a4->rightColor.x = enemyColor.m128_f32[0];
+		a4->rightColor.y = enemyColor.m128_f32[1];
+		a4->rightColor.z = enemyColor.m128_f32[2];
 	}
 	hook.Original(a1, a2, a3, a4);
 });
