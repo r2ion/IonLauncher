@@ -73,6 +73,7 @@ static ConVar* Cvar_ion_crosshair_thickness_r;
 static ConVar* Cvar_ion_crosshair_gap_h;
 static ConVar* Cvar_ion_crosshair_length_h;
 static ConVar* Cvar_ion_chroma_gameinfo;
+static ConVar* Cvar_ion_speedometer_always_show;
 
 static inline __m128 MakeColor(float r, float g, float b, float a)
 {
@@ -832,9 +833,23 @@ DECLARE_HOOK(hcog_lower, ui(11).dll + 0x0529B0, [](auto& hook, RuiFunctions_t* a
 });
 
 
+DECLARE_HOOK(pilot_speedometer, ui(11).dll + 0x6AA50, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, hcog_lower_struct* a4)
+{
+	static CMemory module = GetModuleHandleA("ui(11).dll");
+	if (Cvar_ion_speedometer_always_show->GetBool())
+	{
+		module.Offset(0x6AB7F).Patch({0x90, 0x90});
+	}
+	else
+	{
+		module.Offset(0x6AB7F).Patch({0x72,0x2C});
+	}
+	hook.Original(a1, a2, a3, a4);
+});
+
+
 ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 {
-
 	pGamestate_info_ffa = module.Offset(0x3E8E0).RCast<gamestate_info_ffa_t>();
 	v_hk_gamestate_info_ffa.Dispatch(reinterpret_cast<void*>(pGamestate_info_ffa));
 
@@ -855,4 +870,9 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, [](CModule mo
 	Cvar_ion_crosshair_length_h    = new ConVar("ion_crosshair_length_h",       "0.00700",   FCVAR_ARCHIVE_PLAYERPROFILE, "Horizontal arm segment length.");
 	Cvar_ion_chroma_gameinfo =
 			new ConVar("ion_chroma_gameinfo", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Rainbow colors for game info. 1 = enabled, 0 = disabled.");
+
+	Cvar_ion_speedometer_always_show =
+		new ConVar("ion_speedometer_always_show", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Always show speedometer. 1 = enabled, 0 = disabled.");
+
 	});
+
