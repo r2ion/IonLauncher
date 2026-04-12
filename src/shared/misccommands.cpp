@@ -385,6 +385,7 @@ void FixupCvarFlags()
 
 		{"r_drawviewmodel", FCVAR_CHEAT},
 
+
 		// reparse commands
 		{"aisettings_reparse", FCVAR_DEVELOPMENTONLY},
 		{"aisettings_reparse_client", FCVAR_DEVELOPMENTONLY},

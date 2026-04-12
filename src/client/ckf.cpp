@@ -51,6 +51,8 @@ void FindBinds()
 	}
 }
 
+uint64_t lastCrouchKickTime = 0;
+
 void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
 	if (!Cvar_ckf_enabled->GetBool())
 		return;
@@ -79,6 +81,7 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 				{
 					jumpHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
 					jumpHolder.timestamp = real;
+					
 					return;
 				}
 			}
@@ -124,6 +127,8 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 		}
 }
 
+float wallrunAngle;
+Vector3 lastFrameVelocity;
 
 DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 {
@@ -141,9 +146,10 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 		auto ent = (g_pClientEntityList->GetClientEntity(playerIndex));
 		if (!ent)
 			return;
+
 		IsMantling = CPlayer__IsMantling(ent);
 	}
-	if (jumpHolder.waitingToSend)
+	if (jumpHolder.waitingToSend && !IsMantling)
 	{
 		long sinceJump = real - jumpHolder.timestamp;
 
@@ -163,7 +169,7 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 		}
 	}
 
-	if (crouchHolder.waitingToSend)
+	if (crouchHolder.waitingToSend && !IsMantling)
 	{
 		long sinceCrouch = real - crouchHolder.timestamp;
 		if (sinceCrouch > CROUCHKICK_FIX_BUFFER_MICROSECONDS)
@@ -183,10 +189,34 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 	}
 });
 
+ADD_SQFUNC("void", StartWallrun, "", "", ScriptContext::CLIENT)
+{
+	struct timespec ts;
+	timespec_get(&ts, TIME_UTC);
+	wallrunStartedTime = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
+	return SQRESULT_NOTNULL;
+}
+
+ADD_SQFUNC("integer", GetWallkickTiming, "", "", ScriptContext::CLIENT)
+{
+	g_pSquirrel[ScriptContext::CLIENT]->pushinteger(sqvm, jumpSentTime - wallrunStartedTime);
+	return SQRESULT_NOTNULL;
+}
+
+ADD_SQFUNC("vector", GetWallNormalVector, "entity", "", ScriptContext::CLIENT) {
+	auto ent = g_pSquirrel[ScriptContext::CLIENT]->getentity<uintptr_t>(sqvm, 1);
+	Vector3 wallNormalVector = *(Vector3*)(((uintptr_t)ent + 0x2BA0));
+
+	g_pSquirrel[ScriptContext::CLIENT]->pushvector(sqvm, wallNormalVector);
+	return SQRESULT_NOTNULL;
+
+}
+
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 {
 	v_KeyInfoArray = module.Offset(0x1396C5C0).RCast<KeyInfo_t*>();
 	DISPATCH_MODULE(CKFHooks);
+
 	Cvar_ckf_enabled = new ConVar("ckf_enabled", "1", FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL, "Enable crouch kick fix. 1 = enabled, 0 = disabled.");
 	Cvar_ckf_logging = new ConVar(
 			"ckf_logging",

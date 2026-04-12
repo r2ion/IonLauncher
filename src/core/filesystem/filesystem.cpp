@@ -54,10 +54,10 @@ static void __fastcall h_AddSearchPath(IFileSystem* fileSystem, const char* pPat
 	o_pAddSearchPath(fileSystem, pPath, pathID, addType);
 
 	// make sure current mod paths are at head
-	if (!strcmp(pathID, "GAME") && sCurrentModPath.compare(pPath) && addType == PATH_ADD_TO_HEAD)
+	if (sCurrentModPath.compare(pPath) && addType == PATH_ADD_TO_HEAD)
 	{
-		o_pAddSearchPath(fileSystem, sCurrentModPath.c_str(), "GAME", PATH_ADD_TO_HEAD);
-		o_pAddSearchPath(fileSystem, GetCompiledAssetsPath().string().c_str(), "GAME", PATH_ADD_TO_HEAD);
+		o_pAddSearchPath(fileSystem, sCurrentModPath.c_str(), pathID, PATH_ADD_TO_HEAD);
+		o_pAddSearchPath(fileSystem, GetCompiledAssetsPath().string().c_str(), pathID, PATH_ADD_TO_HEAD);
 	}
 }
 
@@ -86,7 +86,7 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 	// idk how efficient the lexically normal check is
 	// can't just set all /s in path to \, since some paths aren't in writeable memory
 	std::string normalisedPath = g_pModManager->NormaliseModFilePath(fs::path(pPath));
-
+	
 	if (iFileSourceType & FileSourceType_Compiled)
 	{
 		// only compile assets if we would accept a compiled asset in the first place
@@ -103,8 +103,13 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 	if (iFileSourceType & FileSourceType_ModOverride)
 	{
 		auto file = g_pModManager->m_ModFiles.find(normalisedPath);
+		
 		if (file != g_pModManager->m_ModFiles.end())
 		{
+			if (pPathID && strcmp(pPathID, "PLATFORM") == 0)
+			{
+				spdlog::info("Shader: {} requested with PLATFORM pathid, skipping mod override checks", pPath);
+			}
 			SetNewModSearchPaths(file->second.m_pOwningMod,pPathID);
 			return true;
 		}
@@ -117,7 +122,7 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 static bool(__fastcall* o_pReadFromCache)(IFileSystem* filesystem, char* pPath, void* result) = nullptr;
 static bool __fastcall h_ReadFromCache(IFileSystem* filesystem, char* pPath, void* result)
 {
-	if (TryReplaceFile(pPath, true))
+	if (TryReplaceFile(pPath, true, "GAME"))
 		return false;
 
 	return o_pReadFromCache(filesystem, pPath, result);
