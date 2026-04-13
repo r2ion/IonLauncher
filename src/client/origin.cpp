@@ -227,6 +227,44 @@ void ConCommand_ns_send_friend_request(const CCommand& args)
 }
 
 
+DECLARE_HOOK(
+	CheckIfOriginIsInstalled,
+	engine.dll + 0xa1850,
+	[](auto& hook, void* a1) -> bool
+{
+		if (!strstr(GetCommandLineA(), "-noOriginStartup"))
+			return hook.Original(a1);
+
+		if (hook.Original(a1))
+		{
+			NS::log::NORTHSTAR->warn(
+				"Origin is NOT installed according to OriginSDK's check (HKLM\\SOFTWARE\\Wow6432Node\\Origin\\ClientPath is "
+				"missing/empty).");
+			NS::log::NORTHSTAR->warn(
+				"We are bypassing this check in case LSX server is remotely ran (such as in Linux in another WINE prefix), but note that "
+				"things will fail if Origin is actually not running.");
+		}
+
+		return true;
+});
+
+DECLARE_HOOK(
+	TryToStartOrigin,
+	engine.dll + 0xa19b0,
+	[](auto& hook, void* a1) -> uint64_t
+	{
+		if (!strstr(GetCommandLineA(), "-noOriginStartup"))
+			return hook.Original(a1);
+
+		if (hook.Original(a1) != 0)
+		{
+			NS::log::NORTHSTAR->warn(
+				"Origin process has failed to start. We are ignoring this and let it fail on LSX connection attempt, because LSX might "
+				"still be up regardless, even if this failed.");
+		}
+		return 0;
+	});
+
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule module)
 {
 	DISPATCH_MODULE(OriginHooks)
