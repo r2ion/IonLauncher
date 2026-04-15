@@ -64,10 +64,10 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 	{
 		if (std::find(jumpCodes.begin(), jumpCodes.end(), data1) != jumpCodes.end() && !jumpHolder.waitingToSend)
 			{
-				if (IsMantling)
-				{
-					return;
-				}
+				//if (IsMantling)
+				//{
+				//	return;
+				//}
 				jumpHitTime = real;
 				long sinceCrouch = real - crouchHolder.timestamp;
 				if (crouchHolder.waitingToSend && sinceCrouch <= CROUCHKICK_FIX_BUFFER_MICROSECONDS)
@@ -87,10 +87,10 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 			}
 			else if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end() && !crouchHolder.waitingToSend)
 			{
-				if (IsMantling)
-				{
-					return;
-				}
+				//if (IsMantling)
+				//{
+				//	return;
+				//}
 				crouchHitTime = real;
 				long sinceJump = real - jumpHolder.timestamp;
 				if (jumpHolder.waitingToSend && sinceJump < CROUCHKICK_FIX_BUFFER_MICROSECONDS)
@@ -139,17 +139,17 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 	timespec_get(&ts, TIME_UTC);
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
 	int playerIndex = GetLocalPlayerIndex();
-	if (playerIndex != 0)
-	{
-		if (!g_pClientEntityList)
-			return;
-		auto ent = (g_pClientEntityList->GetClientEntity(playerIndex));
-		if (!ent)
-			return;
+	//if (playerIndex != 0)
+	//{
+	//	if (!g_pClientEntityList)
+	//		return;
+	//	auto ent = (g_pClientEntityList->GetClientEntity(playerIndex));
+	//	if (!ent)
+	//		return;
 
-		IsMantling = CPlayer__IsMantling(ent);
-	}
-	if (jumpHolder.waitingToSend && !IsMantling)
+	//	IsMantling = CPlayer__IsMantling(ent);
+	//}
+	if (jumpHolder.waitingToSend)
 	{
 		long sinceJump = real - jumpHolder.timestamp;
 
@@ -169,7 +169,7 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 		}
 	}
 
-	if (crouchHolder.waitingToSend && !IsMantling)
+	if (crouchHolder.waitingToSend)
 	{
 		long sinceCrouch = real - crouchHolder.timestamp;
 		if (sinceCrouch > CROUCHKICK_FIX_BUFFER_MICROSECONDS)
