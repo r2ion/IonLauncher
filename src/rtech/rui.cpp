@@ -74,8 +74,8 @@ static ConVar* Cvar_ion_crosshair_gap_h;
 static ConVar* Cvar_ion_crosshair_length_h;
 static ConVar* Cvar_ion_chroma_gameinfo;
 static ConVar* Cvar_ion_speedometer_always_show;
-static ConVar* Cvar_guantlet_timer_max_speed_metric;
-static ConVar* Cvar_guantlet_timer_max_speed_imperial;
+static ConVar* Cvar_gauntlet_timer_max_speed_metric;
+static ConVar* Cvar_gauntlet_timer_max_speed_imperial;
 static inline __m128 MakeColor(float r, float g, float b, float a)
 {
     return _mm_set_ps(a, b, g, r);
@@ -865,8 +865,8 @@ float* max_speed_imperial;
 float* max_speed_metric;
 DECLARE_HOOK(gauntlet_hud, ui(11).dll + 0x4E030, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, void* a4)
 {
-	float gauntletMaxSpeedMetric = Cvar_guantlet_timer_max_speed_metric->GetFloat();
-	float gauntletMaxSpeedImperial = Cvar_guantlet_timer_max_speed_imperial->GetFloat();
+	float gauntletMaxSpeedMetric = Cvar_gauntlet_timer_max_speed_metric->GetFloat();
+	float gauntletMaxSpeedImperial = Cvar_gauntlet_timer_max_speed_imperial->GetFloat();
 	WriteToReadOnly((void*)max_speed_metric, &gauntletMaxSpeedMetric, sizeof(float));
 	WriteToReadOnly((void*)max_speed_imperial, &gauntletMaxSpeedImperial, sizeof(float));
 	
@@ -903,14 +903,14 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, [](CModule mo
 		new ConVar("ion_speedometer_always_show", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Always show speedometer. 1 = enabled, 0 = disabled.");
 
 
-	Cvar_guantlet_timer_max_speed_metric = new ConVar(
-			"guantlet_timer_max_speed_metric",
+	Cvar_gauntlet_timer_max_speed_metric = new ConVar(
+			"gauntlet_timer_max_speed_metric",
 			"50.505",
 			FCVAR_ARCHIVE_PLAYERPROFILE,
 			"Max speed in gauntlet timer (metric).");
 
-	Cvar_guantlet_timer_max_speed_imperial = new ConVar(
-			"guantlet_timer_max_speed_imperial",
+	Cvar_gauntlet_timer_max_speed_imperial = new ConVar(
+			"gauntlet_timer_max_speed_imperial",
 			"31.1",
 			FCVAR_ARCHIVE_PLAYERPROFILE, "Max speed in gauntlet timer (imperial).");
 	});
