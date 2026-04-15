@@ -74,7 +74,8 @@ static ConVar* Cvar_ion_crosshair_gap_h;
 static ConVar* Cvar_ion_crosshair_length_h;
 static ConVar* Cvar_ion_chroma_gameinfo;
 static ConVar* Cvar_ion_speedometer_always_show;
-
+static ConVar* Cvar_guantlet_timer_max_speed_metric;
+static ConVar* Cvar_guantlet_timer_max_speed_imperial;
 static inline __m128 MakeColor(float r, float g, float b, float a)
 {
     return _mm_set_ps(a, b, g, r);
@@ -847,6 +848,30 @@ DECLARE_HOOK(pilot_speedometer, ui(11).dll + 0x6AA50, [](auto& hook, RuiFunction
 	hook.Original(a1, a2, a3, a4);
 });
 
+bool WriteToReadOnly(void* addr, const void* data, size_t size)
+{
+	DWORD oldProtect;
+
+	if (!VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &oldProtect))
+		return false;
+
+	memcpy(addr, data, size);
+
+	VirtualProtect(addr, size, oldProtect, &oldProtect);
+	return true;
+}
+
+float* max_speed_imperial;
+float* max_speed_metric;
+DECLARE_HOOK(gauntlet_hud, ui(11).dll + 0x4E030, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, void* a4)
+{
+	float gauntletMaxSpeedMetric = Cvar_guantlet_timer_max_speed_metric->GetFloat();
+	float gauntletMaxSpeedImperial = Cvar_guantlet_timer_max_speed_imperial->GetFloat();
+	WriteToReadOnly((void*)max_speed_metric, &gauntletMaxSpeedMetric, sizeof(float));
+	WriteToReadOnly((void*)max_speed_imperial, &gauntletMaxSpeedImperial, sizeof(float));
+	
+	hook.Original(a1, a2, a3, a4);
+});
 
 ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 {
@@ -855,6 +880,9 @@ ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 
 	xmmword_D2BD0.m128_u64[0] = 0xFFFFFFFFFFFFFFFFULL;
 	xmmword_D2BD0.m128_u64[1] = 0xFFFFFFFFULL;
+	max_speed_imperial = module.Offset(0xD1AD8).RCast<float*>();
+	max_speed_metric = module.Offset(0xD1B1C).RCast<float*>();
+
 	DISPATCH_MODULE(RuiHooks);
 })
 
@@ -874,5 +902,16 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientAuthHooks, ConVar, [](CModule mo
 	Cvar_ion_speedometer_always_show =
 		new ConVar("ion_speedometer_always_show", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Always show speedometer. 1 = enabled, 0 = disabled.");
 
+
+	Cvar_guantlet_timer_max_speed_metric = new ConVar(
+			"guantlet_timer_max_speed_metric",
+			"50.505",
+			FCVAR_ARCHIVE_PLAYERPROFILE,
+			"Max speed in gauntlet timer (metric).");
+
+	Cvar_guantlet_timer_max_speed_imperial = new ConVar(
+			"guantlet_timer_max_speed_imperial",
+			"31.1",
+			FCVAR_ARCHIVE_PLAYERPROFILE, "Max speed in gauntlet timer (imperial).");
 	});
 
