@@ -25,7 +25,8 @@ DECLARE_HOOK(CInputSystem__PostEvent, inputsystem.dll + 0x7EC0, ([](auto& hook, 
 	CALL_INPUTSYS_SQ_FUNC(UI);
 }))
 
-ON_DLL_LOAD_RELIESON("inputsystem.dll", FastCallbacks, ConVar, [](CModule module)
+ON_DLL_LOAD_CLIENT("inputsystem.dll", FastCallbacks,[](CModule module)
 {
 	DISPATCH_MODULE(ScriptInputEventsHooks);
+	v_CInputSystem__PostEvent = HookSys::GetOriginalFunction<CInputSystem__PostEvent>(HookSys::FindHook("CInputSystem__PostEvent"));
 })

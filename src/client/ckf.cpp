@@ -17,8 +17,6 @@ ConVar* Cvar_ckf_enabled = nullptr;
 ConVar* Cvar_ckf_logging = nullptr;
 void FindBinds()
 {
-	auto hook = HookSys::FindHook("CInputSystem__PostEvent");
-	v_CInputSystem__PostEvent = HookSys::GetOriginalFunction<CInputSystem__PostEvent>(hook);
 	crouchCodes.clear();
 	jumpCodes.clear();
 
@@ -57,7 +55,7 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 		return;
 	struct timespec ts;
 	timespec_get(&ts, TIME_UTC);
-
+	EnsureCKFOriginals();
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
 	if (nType == IE_ButtonPressed)
 	{
@@ -187,13 +185,15 @@ ADD_SQFUNC("vector", GetWallNormalVector, "entity", "", ScriptContext::CLIENT) {
 
 	g_pSquirrel[ScriptContext::CLIENT]->pushvector(sqvm, wallNormalVector);
 	return SQRESULT_NOTNULL;
-
 }
+
+ON_DLL_LOAD_CLIENT("engine.dll", CKFHooksEngine, [](CModule module) {
+	DISPATCH_MODULE(CKFHooks);
+});
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 {
 	v_KeyInfoArray = module.Offset(0x1396C5C0).RCast<KeyInfo_t*>();
-	DISPATCH_MODULE(CKFHooks);
 
 	Cvar_ckf_enabled = new ConVar("ckf_enabled", "1", FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL, "Enable crouch kick fix. 1 = enabled, 0 = disabled.");
 	Cvar_ckf_logging = new ConVar(
@@ -201,6 +201,18 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 			"0",
 			FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL,
 			"Enable crouch kick fix logging. 1 = enabled, 0 = disabled.");
-	})
+})
 
-
+ON_DLL_LOAD(
+	"inputsystem.dll",
+	CKFInputSystem,
+	[](CModule module)
+	{
+	v_CInputSystem__PostEvent = module.Offset(0x7EC0).RCast<decltype(v_CInputSystem__PostEvent)>();
+		auto hook = HookSys::FindHook("CInputSystem__PostEvent");
+		if (!hook)
+		{
+			spdlog::error("Failed to find hook for CInputSystem__PostEvent");
+		}
+		v_CInputSystem__PostEvent = HookSys::GetOriginalFunction<CInputSystem__PostEvent>(hook);
+})

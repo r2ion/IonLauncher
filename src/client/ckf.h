@@ -45,11 +45,6 @@ struct InputHolder
 	}
 	void Release()
 	{
-		if (!v_CInputSystem__PostEvent)
-		{
-			spdlog::error("Failed to get original func");
-			return;
-		}
 		v_CInputSystem__PostEvent(thisObject, nType, nTick, data1, data2, data3);
 		waitingToSend = false;
 	}
@@ -58,3 +53,10 @@ struct InputHolder
 void FindBinds();
 
 void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3);
+
+static void EnsureCKFOriginals() {
+	if (!v_CInputSystem__PostEvent)
+	{
+		v_CInputSystem__PostEvent = HookSys::GetOriginalFunction<CInputSystem__PostEvent>(HookSys::FindHook("CInputSystem__PostEvent"));
+	}
+}
