@@ -19,7 +19,7 @@ cmake_policy(
 project(
     Northstar
     C
-	CSharp
+	#CSharp
     CXX
     ASM_MASM
     )
