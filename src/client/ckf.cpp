@@ -74,13 +74,11 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 				{
 					jumpHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
 					jumpHolder.timestamp = real;
-					
 					return;
 				}
 			}
 			else if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end() && !crouchHolder.waitingToSend)
 			{
-			
 				crouchHitTime = real;
 				long sinceJump = real - jumpHolder.timestamp;
 				if (jumpHolder.waitingToSend && sinceJump < CROUCHKICK_FIX_BUFFER_MICROSECONDS)
