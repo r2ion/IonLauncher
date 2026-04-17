@@ -1,5 +1,5 @@
 find_package(minhook REQUIRED)
-find_package(VTFLib REQUIRED)
+#find_package(VTFLib REQUIRED)
 
 set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
 set(EOS_DLL "${EOS_SDK_PATH}/Bin/EOSSDK-Win64-Shipping.dll")
