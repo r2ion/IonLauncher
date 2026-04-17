@@ -15,7 +15,7 @@ OriginSubscribePresenceType OriginSubscribePresence;
 OriginQueryOffersType OriginQueryOffers;
 OriginRequestFriendSyncType OriginRequestFriendSync;
 std::string* tmpTok = nullptr;
-
+//0xA0010000
 std::unordered_map<__int64, std::string> g_IDPartySubMap;
 
 void OriginAuthcodeStrcpyCallback(__int64 a1, __int64* a2)
@@ -226,10 +226,22 @@ void ConCommand_ns_send_friend_request(const CCommand& args)
 	}
 }
 
+void ConCommand_ns_print_origin_code(const CCommand& args)
+{
+	const char* codeStr = args.Arg(1);
+	if (!codeStr || codeStr[0] == '\0')
+	{
+		spdlog::error("No code provided to print.");
+		return;
+	}
+	uint64_t code = std::stoull(codeStr);
+	auto reason = OriginGetErrorDescription(code);
+	spdlog::info("Origin error code: {}. Reason: {}", code, reason);
+}
 
 DECLARE_HOOK(
 	CheckIfOriginIsInstalled,
-	engine.dll + 0xa1850,
+	OriginSDK.dll + 0xa1850,
 	[](auto& hook, void* a1) -> bool
 {
 		if (!strstr(GetCommandLineA(), "-noOriginStartup"))
@@ -250,7 +262,7 @@ DECLARE_HOOK(
 
 DECLARE_HOOK(
 	TryToStartOrigin,
-	engine.dll + 0xa19b0,
+	OriginSDK.dll + 0xa19b0,
 	[](auto& hook, void* a1) -> uint64_t
 	{
 		if (!strstr(GetCommandLineA(), "-noOriginStartup"))
@@ -267,10 +279,10 @@ DECLARE_HOOK(
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule module)
 {
-	DISPATCH_MODULE(OriginHooks)
-
 	RegisterConCommand("ns_fetchpres", ConCommand_ns_fetch_presence, "Fetch presence for uid", FCVAR_CLIENTDLL);
 	RegisterConCommand("ns_send_friend_request", ConCommand_ns_send_friend_request, "Send friend request to uid", FCVAR_CLIENTDLL);
+	RegisterConCommand(
+		"ns_print_origin_code", ConCommand_ns_print_origin_code, "Print origin error code description for code", FCVAR_CLIENTDLL);
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
 		"string",
 		"GetUID",
@@ -324,4 +336,5 @@ ON_DLL_LOAD("OriginSDK.dll", OriginSDK, [](CModule module)
 	OriginQueryPresenceSync = module.GetExportedFunction("OriginQueryPresenceSync").RCast<OriginQueryPresenceSyncType>();
 	OriginQueryOffers = module.GetExportedFunction("OriginQueryOffers").RCast<OriginQueryOffersType>();
 	OriginRequestFriendSync = module.GetExportedFunction("OriginRequestFriendSync").RCast<OriginRequestFriendSyncType>();
-})
+	DISPATCH_MODULE(OriginHooks)
+	})
