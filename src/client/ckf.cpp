@@ -50,9 +50,9 @@ void FindBinds()
 
 uint64_t lastCrouchKickTime = 0;
 
-void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
+bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
 	if (!Cvar_ckf_enabled->GetBool())
-		return;
+		return false;
 	struct timespec ts;
 	timespec_get(&ts, TIME_UTC);
 	EnsureCKFOriginals();
@@ -74,7 +74,7 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 				{
 					jumpHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
 					jumpHolder.timestamp = real;
-					return;
+					return true;
 				}
 			}
 			else if (std::find(crouchCodes.begin(), crouchCodes.end(), data1) != crouchCodes.end() && !crouchHolder.waitingToSend)
@@ -92,7 +92,7 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 				{
 					crouchHolder.Hold(thisObject, nType, nTick, data1, data2, data3);
 					crouchHolder.timestamp = real;
-					return;
+					return true;
 				}
 			}
 		}
@@ -113,6 +113,7 @@ void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 				}
 			}
 		}
+	return false;
 }
 
 DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)

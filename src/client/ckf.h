@@ -52,7 +52,7 @@ struct InputHolder
 
 void FindBinds();
 
-void CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3);
+bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3);
 
 static void EnsureCKFOriginals() {
 	if (!v_CInputSystem__PostEvent)
