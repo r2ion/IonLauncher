@@ -18,7 +18,6 @@ DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 	// need to initialise these after host_init since they do stuff to preexisting concommands/convars without being client/server specific
 	InitialiseCommandPrint();
 	InitialiseMapsPrint();
-	FindBinds();
 	// client/server autoexecs on necessary platforms
 	// dedi needs autoexec_ns_server on boot, while non-dedi will run it on on listen server start
 	if (bDedicated)
@@ -28,6 +27,7 @@ DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 		eos::Initialize();
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_client", cmd_source_t::kCommandSrcCode);
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_listenserver", cmd_source_t::kCommandSrcCode);
+		FindBinds();
 	}
 })
 
