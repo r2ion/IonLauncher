@@ -14,6 +14,9 @@ OriginRequestFriendType OriginRequestFriend;
 OriginSubscribePresenceType OriginSubscribePresence;
 OriginQueryOffersType OriginQueryOffers;
 OriginRequestFriendSyncType OriginRequestFriendSync;
+OriginQueryUserIdSyncType OriginQueryUserIdSync;
+OriginDestroyHandleType OriginDestroyHandle;
+Tier0_GetOriginVersionStringType Tier0_GetOriginVersionString;
 std::string* tmpTok = nullptr;
 //0xA0010000
 std::unordered_map<__int64, std::string> g_IDPartySubMap;
@@ -239,6 +242,33 @@ void ConCommand_ns_print_origin_code(const CCommand& args)
 	spdlog::info("Origin error code: {}. Reason: {}", code, reason);
 }
 
+void ConCommand_ns_query_userid(const CCommand& args)
+{
+	if (args.ArgC() < 2)
+		return;
+
+	const char* userName = args.Arg(1);
+	void* sdkContext = Tier0_GetOriginVersionString();
+	void* outRequest = nullptr;
+
+	auto ret = OriginQueryUserIdSync(userName, sdkContext, 2000, &outRequest);
+
+	if (ret != 0)
+	{
+		OriginDestroyHandle(outRequest);
+		const char* reason = OriginGetErrorDescription(ret);
+		spdlog::error("OriginQueryUserIdSync failed with error code {}: {}", ret, reason);
+		return;
+	}
+
+	uintptr_t outRequestAddr = reinterpret_cast<uintptr_t>(outRequest);
+	auto pData = *reinterpret_cast<uint8_t**>(outRequestAddr + 0xB8);
+	uint64_t userId = *reinterpret_cast<uint64_t*>(pData + 0x40);
+	OriginDestroyHandle(outRequest);
+
+	spdlog::info("UserID: {}", userId);
+}
+
 DECLARE_HOOK(
 	CheckIfOriginIsInstalled,
 	OriginSDK.dll + 0xa1850,
@@ -281,6 +311,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule m
 {
 	RegisterConCommand("ns_fetchpres", ConCommand_ns_fetch_presence, "Fetch presence for uid", FCVAR_CLIENTDLL);
 	RegisterConCommand("ns_send_friend_request", ConCommand_ns_send_friend_request, "Send friend request to uid", FCVAR_CLIENTDLL);
+	RegisterConCommand("ns_query_userid", ConCommand_ns_query_userid, "Query user ID from username", FCVAR_CLIENTDLL);
 	RegisterConCommand(
 		"ns_print_origin_code", ConCommand_ns_print_origin_code, "Print origin error code description for code", FCVAR_CLIENTDLL);
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
@@ -336,5 +367,12 @@ ON_DLL_LOAD("OriginSDK.dll", OriginSDK, [](CModule module)
 	OriginQueryPresenceSync = module.GetExportedFunction("OriginQueryPresenceSync").RCast<OriginQueryPresenceSyncType>();
 	OriginQueryOffers = module.GetExportedFunction("OriginQueryOffers").RCast<OriginQueryOffersType>();
 	OriginRequestFriendSync = module.GetExportedFunction("OriginRequestFriendSync").RCast<OriginRequestFriendSyncType>();
+	OriginQueryUserIdSync = module.GetExportedFunction("OriginQueryUserIdSync").RCast<OriginQueryUserIdSyncType>();
+	OriginDestroyHandle = module.GetExportedFunction("OriginDestroyHandle").RCast<OriginDestroyHandleType>();
 	DISPATCH_MODULE(OriginHooks)
 	})
+
+ON_DLL_LOAD("tier0.dll", Tier0, [](CModule module)
+{
+	Tier0_GetOriginVersionString = module.GetExportedFunction("Tier0_GetOriginVersionString").RCast<Tier0_GetOriginVersionStringType>();
+})

@@ -45,3 +45,7 @@ extern OriginRequestFriendType OriginRequestFriend;
 std::string* GetNewOriginToken(int timeoutSeconds);
 
 extern std::unordered_map<__int64, std::string> g_IDPartySubMap;
+
+typedef int (*OriginQueryUserIdSyncType)(const char* userName, const void* originContext, __int64 timeoutMs, void* outRequest);
+typedef int (*OriginDestroyHandleType)(void* handle);
+typedef void* (*Tier0_GetOriginVersionStringType)();
