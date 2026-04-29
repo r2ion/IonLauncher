@@ -283,6 +283,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule m
 	RegisterConCommand("ns_send_friend_request", ConCommand_ns_send_friend_request, "Send friend request to uid", FCVAR_CLIENTDLL);
 	RegisterConCommand(
 		"ns_print_origin_code", ConCommand_ns_print_origin_code, "Print origin error code description for code", FCVAR_CLIENTDLL);
+	DISPATCH_MODULE(OriginHooks)
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
 		"string",
 		"GetUID",
