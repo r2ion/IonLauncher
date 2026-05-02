@@ -309,11 +309,13 @@ DECLARE_HOOK(
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule module)
 {
+	DISPATCH_MODULE(OriginHooks)
 	RegisterConCommand("ns_fetchpres", ConCommand_ns_fetch_presence, "Fetch presence for uid", FCVAR_CLIENTDLL);
 	RegisterConCommand("ns_send_friend_request", ConCommand_ns_send_friend_request, "Send friend request to uid", FCVAR_CLIENTDLL);
 	RegisterConCommand("ns_query_userid", ConCommand_ns_query_userid, "Query user ID from username", FCVAR_CLIENTDLL);
 	RegisterConCommand(
 		"ns_print_origin_code", ConCommand_ns_print_origin_code, "Print origin error code description for code", FCVAR_CLIENTDLL);
+	DISPATCH_MODULE(OriginHooks)
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
 		"string",
 		"GetUID",
