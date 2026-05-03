@@ -833,6 +833,29 @@ DECLARE_HOOK(hcog_lower, ui(11).dll + 0x0529B0, [](auto& hook, RuiFunctions_t* a
 	hook.Original(a1, a2, a3, a4);
 });
 
+struct p2011_green_sights_struct
+{
+	float color[4];
+	float vis;
+	_DWORD dword14;
+	_DWORD dword18;
+	_DWORD dword1C;
+	__m128 m12820;
+	__m128 m12830;
+};
+
+//
+//DECLARE_HOOK(
+//	p2011_green_sights,
+//	ui(11).dll + 0x69ED0,
+//	[](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, p2011_green_sights_struct* a4)
+//	{
+//		//a4->color[0] = 1.f;
+//		//a4->color[1] = 1.f;
+//		//a4->color[2] = 0.f;
+//		//a4->color[3] = 1.f;
+//		hook.Original(a1, a2, a3, a4);
+//});
 
 DECLARE_HOOK(pilot_speedometer, ui(11).dll + 0x6AA50, [](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, hcog_lower_struct* a4)
 {
@@ -872,6 +895,15 @@ DECLARE_HOOK(gauntlet_hud, ui(11).dll + 0x4E030, [](auto& hook, RuiFunctions_t* 
 	
 	hook.Original(a1, a2, a3, a4);
 });
+
+DECLARE_HOOK(
+	SetErrorWithReason,
+	engine.dll + 0xF80D0,
+	[](auto& hook, void* a1, const char* a2)
+	{
+	NS::log::RUI->warn("{}", a2);
+	hook.Original(a1, a2);
+	});
 
 ON_DLL_LOAD("ui(11).dll", RuiStuff, [](CModule module)
 {

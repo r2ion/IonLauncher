@@ -126,6 +126,7 @@ namespace NS::log
 
 	std::shared_ptr<spdlog::logger> fs;
 	std::shared_ptr<spdlog::logger> rpak;
+	std::shared_ptr<spdlog::logger> RUI;
 	std::shared_ptr<spdlog::logger> echo;
 
 	std::shared_ptr<spdlog::logger> NORTHSTAR;
@@ -335,6 +336,7 @@ void LogSys_InitialiseLogging()
 	NS::log::NATIVE_SV = CreateLogger("NATIVE SV", NS::Colors::NATIVE_SV);
 	NS::log::NATIVE_EN = CreateLogger("NATIVE EN", NS::Colors::NATIVE_ENGINE);
 	NS::log::EOS = CreateLogger(" EOS P2P ", NS::Colors::EOS);
+	NS::log::RUI = CreateLogger("  RUI  ", NS::Colors::RUI);
 
 	NS::log::fs = CreateLogger("FILESYSTM", NS::Colors::FILESYSTEM);
 	NS::log::rpak = CreateLogger("RPAK_FSYS", NS::Colors::RPAK);

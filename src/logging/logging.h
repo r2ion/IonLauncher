@@ -54,6 +54,7 @@ namespace NS::log
 
 	// p2p
 	extern LoggerPtr EOS;
+	extern LoggerPtr RUI;
 
 	void FlushLoggers();
 

@@ -16,6 +16,7 @@ namespace NS::Colors
 	Color PLUGINSYS		(244, 60 , 14);
 	Color PLUGIN		(244, 106, 14);
 	Color EOS			(255, 50 ,200);
+	Color RUI			(255, 100, 50 );
 
 	Color TRACE		(0  , 255, 255);
 	Color DEBUG		(0  , 255, 255);

@@ -141,6 +141,7 @@ namespace NS::Colors
 	extern Color PLUGINSYS;
 	extern Color PLUGIN;
 	extern Color EOS;
+	extern Color RUI;
 
 	extern Color TRACE;
 	extern Color DEBUG;
