@@ -892,7 +892,6 @@ DECLARE_HOOK(gauntlet_hud, ui(11).dll + 0x4E030, [](auto& hook, RuiFunctions_t* 
 	float gauntletMaxSpeedImperial = Cvar_gauntlet_timer_max_speed_imperial->GetFloat();
 	WriteToReadOnly((void*)max_speed_metric, &gauntletMaxSpeedMetric, sizeof(float));
 	WriteToReadOnly((void*)max_speed_imperial, &gauntletMaxSpeedImperial, sizeof(float));
-	
 	hook.Original(a1, a2, a3, a4);
 });
 
@@ -901,7 +900,7 @@ DECLARE_HOOK(
 	engine.dll + 0xF80D0,
 	[](auto& hook, void* a1, const char* a2)
 	{
-	NS::log::RUI->warn("{}", a2);
+	NS::log::RUI->info("{}", a2);
 	hook.Original(a1, a2);
 	});
 
