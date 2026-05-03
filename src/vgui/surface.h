@@ -251,7 +251,7 @@ public:
 	virtual void DrawSetTextPos(int x, int y) = 0;
 	virtual void DrawGetTextPos(int& x, int& y) = 0;
 	virtual void DrawPrintText(const wchar_t* text, int textLen, FontDrawType_t drawType = FONT_DRAW_DEFAULT) = 0;
-	virtual void unk();
+	virtual void DrawRuiSubtitle(const char* ruiName, const wchar_t* text, int length) = 0;
 	virtual void DrawUnicodeChar(wchar_t wch, FontDrawType_t drawType = FONT_DRAW_DEFAULT) = 0;
 	virtual void DrawUnicodeCharScaled(wchar_t wch, float scale, FontDrawType_t drawType = FONT_DRAW_DEFAULT) = 0; // dg: r1 add
 
