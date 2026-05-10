@@ -3,11 +3,10 @@
 class IClientEntityList
 {
 public:
-	virtual ~IClientEntityList();
-	virtual int GetClientEntityFromHandle(int hEnt);
-	virtual CBaseEntity* GetClientEntity(int entnum);
-	virtual CBaseEntity* GetClientEntityFromHandle(int* handle);
+	
+	M_VMETHOD(CBaseEntity*, GetClientEntity, 3, (int hEnt), (this, hEnt))
 };
+
 
 extern IClientEntityList* g_pClientEntityList;
 
