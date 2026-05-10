@@ -104,7 +104,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 		std::lock_guard<std::mutex> lock(NSCustomDXBufferMutex);
 
-		memcpy(pData, &NSCustomBuffersPerMaterial[*(uint64_t*)internal_logic_material], sizeof(Ns_Constant_Buffer));
+		memcpy(pData, &NSCustomBuffersPerMaterial[internal_logic_material->guid], sizeof(Ns_Constant_Buffer));
 
 		(*DeviceContext)->Unmap(resource, 0);
 		(*DeviceContext)->PSSetConstantBuffers(4, 1, &resource);
