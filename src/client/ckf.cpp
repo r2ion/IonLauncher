@@ -49,7 +49,19 @@ void FindBinds()
 }
 
 uint64_t lastCrouchKickTime = 0;
+static bool isMenuOpen;
+DECLARE_HOOK(OpenMenu, client.dll + 0x3B3EE0, ([](auto& hook, void* sqvm)
+{
+	isMenuOpen = true;
+	hook.Original(sqvm);
+}));
 
+
+DECLARE_HOOK(CloseMenu, client.dll + 0x3B3C30, ([](auto& hook, void* sqvm)
+{
+	isMenuOpen = false;
+	hook.Original(sqvm);
+}));
 bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
 	if (!Cvar_ckf_enabled->GetBool())
 		return false;
@@ -57,6 +69,9 @@ bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 	timespec_get(&ts, TIME_UTC);
 	EnsureCKFOriginals();
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
+	if (isMenuOpen) {
+		return false;
+	}
 	if (nType == IE_ButtonPressed)
 	{
 		if (std::find(jumpCodes.begin(), jumpCodes.end(), data1) != jumpCodes.end() && !jumpHolder.waitingToSend)
@@ -124,6 +139,9 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 	struct timespec ts;
 	timespec_get(&ts, TIME_UTC);
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
+	if (isMenuOpen) {
+		return;
+	}
 	if (jumpHolder.waitingToSend)
 	{
 		long sinceJump = real - jumpHolder.timestamp;
@@ -187,6 +205,10 @@ ADD_SQFUNC("vector", GetWallNormalVector, "entity", "", ScriptContext::CLIENT) {
 }
 
 ON_DLL_LOAD_CLIENT("engine.dll", CKFHooksEngine, [](CModule module) {
+	DISPATCH_MODULE(CKFHooks);
+});
+
+ON_DLL_LOAD_CLIENT("client.dll", CKFHooksClient, [](CModule module) {
 	DISPATCH_MODULE(CKFHooks);
 });
 
