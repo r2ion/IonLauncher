@@ -19,10 +19,12 @@ DECLARE_MODULE(ScriptInputEventsHooks)
 DECLARE_HOOK(CInputSystem__PostEvent, inputsystem.dll + 0x7EC0, ([](auto& hook, void* self, int nType, int nTick, int nData, int nData2, int nData3)
 // clang-format on
 {
-	if(!CFKPostEvent(self, static_cast<InputEventType_t>(nType), nTick, nData, nData2, nData3))
+	if (!CFKPostEvent(self, static_cast<InputEventType_t>(nType), nTick, nData, nData2, nData3))
+	{
 		hook.Original(self, nType, nTick, nData, nData2, nData3);
-	CALL_INPUTSYS_SQ_FUNC(CLIENT);
-	CALL_INPUTSYS_SQ_FUNC(UI);
+		CALL_INPUTSYS_SQ_FUNC(CLIENT);
+		CALL_INPUTSYS_SQ_FUNC(UI);
+	}
 }))
 
 ON_DLL_LOAD_CLIENT("inputsystem.dll", FastCallbacks,[](CModule module)
