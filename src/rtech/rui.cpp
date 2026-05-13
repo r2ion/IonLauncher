@@ -658,7 +658,7 @@ DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0 , [](auto& hook, RuiFunct
   a4->dword74 = a1->LoadAsset(a3, "models/weapons/attachments/hemlok_panel_bleed");
   v22 = _mm_set_ss(a4->float78);
   a4->float7C = v22.m128_f32[0] + 1.0;
-  *v22.m128_u64 = (a1->unknown_12)(a3);
+  *v22.m128_u64 = (a1->randomFloat)(a3);
   v18.m128_f32[0] = v22.m128_f32[0] * 0.15000001;
   v22.m128_f32[0] = v19;
   a4->color2 = _mm_mul_ps(_mm_mul_ps(_mm_shuffle_ps(v22, v22, 0), a4->color2), _mm_shuffle_ps(v18, v18, 0));
@@ -687,7 +687,7 @@ DECLARE_HOOK(mastiff_ammo_counter, ui(11).dll + 0x5D710, [](auto& hook, RuiFunct
   __m128 v24; // xmm0
 
   a4->float80 = a4->ammo / fmaxf(a4->clipSize, 1.0);
-  v8 = a1->unknown_12(a3);
+  v8 = a1->randomFloat(a3);
   v9 = a4->float80;
   a4->float84 = v8;
   if ( v9 > 0.33000001 )
@@ -741,7 +741,7 @@ DECLARE_HOOK(mastiff_ammo_counter, ui(11).dll + 0x5D710, [](auto& hook, RuiFunct
   a4->dword88 = a1->LoadAsset(a3, "models/weapons/attachments/hemlok_panel_bleed");
   v24 = _mm_set1_ps(a4->float8C);
   a4->float90 = v24.m128_f32[0] + 1.0;
-  *v24.m128_u64 = (a1->unknown_12)(a3);
+  *v24.m128_u64 = (a1->randomFloat)(a3);
   v20.m128_f32[0] = v24.m128_f32[0] * 0.15000001;
   v24.m128_f32[0] = v21;
   a4->m12860 = _mm_mul_ps(_mm_mul_ps(_mm_shuffle_ps(v24, v24, 0), a4->m12850), _mm_shuffle_ps(v20, v20, 0));
@@ -790,7 +790,7 @@ void __fastcall hcog_lowerF(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3,
   v8 = _mm_cvtsi32_si128(a4->clipSize);
   a4->qword68 = v7;
   a4->floatD4 = a4->ammo / fmaxf(_mm_cvtepi32_ps(v8).m128_f32[0], 1.0);
-  *v8.m128i_i32 = a1->unknown_12(a3);
+  *v8.m128i_i32 = a1->randomFloat(a3);
   v9 = a4->floatD4;
   a4->dwordC4 = v8.m128i_i32[0];
   if ( v9 > 0.33000001 )
@@ -894,6 +894,52 @@ DECLARE_HOOK(gauntlet_hud, ui(11).dll + 0x4E030, [](auto& hook, RuiFunctions_t* 
 	WriteToReadOnly((void*)max_speed_imperial, &gauntletMaxSpeedImperial, sizeof(float));
 	hook.Original(a1, a2, a3, a4);
 });
+
+struct pro_screen_panel_s
+{
+	_BYTE gap0[56];
+	unsigned int proValue;
+	_DWORD proOwnedByPlayer;
+	float red;
+	float green;
+	float blue;
+	float alpha;
+	_DWORD baseAsset;
+	const char* qword58;
+};
+//
+//void ProScreen(RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, pro_screen_panel_s* a4) {
+//	const char* v7; // rax
+//	bool proNotOwnedByPlayer; // zf
+//	float half_or_zero; // xmm0
+//	float v10; // xmm6_4
+//	__m128* v11; // rbx
+//
+//	v7 = a1->printf(a3, "%i", a4->proValue);
+//	proNotOwnedByPlayer = a4->proOwnedByPlayer == 0;
+//	a4->qword58 = v7;
+//	if (proNotOwnedByPlayer)
+//		half_or_zero = 0;
+//	else
+//		half_or_zero = 0.5f;
+//	a4->green = half_or_zero;
+//	v10 = ((a1->randomFloat)(a3) *0.25) + 0.75;
+//	a4->baseAsset = a1->LoadAsset(a3, "white");
+//	a4->red = v10 * 0.015;
+//	a4->alpha = v10 * 0.64999998;
+//	a4->blue = v10 * 0.44999999;
+//	a4->green = 5.f;
+//	v11 = a1->GetTransformSize(a3);
+//	v11[3] = (a1->GetTextSize)(a3, 42LL);
+//	v11[4] = (a1->GetTextSize)(a3, 60LL);
+//	a1->executeTransform(a3, 22);
+//}
+
+//DECLARE_HOOK(
+//	pro_screen_panel_,
+//	ui(11).dll + 0x720E0,
+//	[](auto& hook, RuiFunctions_t* a1, RuiGlobals* a2, RuiInstance* a3, pro_screen_panel_s* a4) { ProScreen(a1, a2, a3, a4);
+//	});
 
 DECLARE_HOOK(
 	SetErrorWithReason,
