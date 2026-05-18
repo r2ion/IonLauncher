@@ -160,6 +160,7 @@ add_library(
     "rtech/paktools.h"
     "rtech/pakfilesystem.cpp"
     "rtech/pakfilesystem.h"
+	"rtech/imageatlas.cpp"
     "rtech/rstdlib.h"
 	"rtech/rui.cpp"
     "server/auth/bansystem.cpp"
