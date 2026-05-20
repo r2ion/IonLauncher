@@ -864,12 +864,6 @@ void __fastcall sub_F9B80_rebuild(
 			batch);
 	};
 
-	auto storeTriangle = [&](__m128 quad0, __m128 quad1)
-	{
-		_mm_storeu_ps(&tri.vert[0][0], quad0);
-		_mm_storeu_ps(&tri.vert[1][0], quad1);
-	};
-
 	auto setTriangleFromUv = [&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, bool forceCorrection)
 	{
 		const __m128 row0 = transform[0];
@@ -901,7 +895,8 @@ void __fastcall sub_F9B80_rebuild(
 			}
 		}
 
-		storeTriangle(quad0, quad1);
+		_mm_storeu_ps(&tri.vert[0][0], quad0);
+		_mm_storeu_ps(&tri.vert[1][0], quad1);
 	};
 
 	auto drawPiece =
