@@ -27,7 +27,7 @@ struct ruiDrawTriangle
 {
 	_DWORD size;
 	_DWORD size_;
-	_DWORD vert[2][4];
+	float vert[2][4];
 };
 struct assetLoader
 {
@@ -422,8 +422,9 @@ typedef unsigned int (*sub_FC0C0Type)(struct_v3* a1, uiImageAtlas* a2);
 typedef uint64_t (*getFontGlyphIndexType)(rpakFont* a1, int c);
 typedef uint64_t (*getUnicodeCharacter_GPTType)(char** a1);
 typedef char* (*sub_F98F0Type)(ruiDataStruct* a1, __int64 a2, char** a3, __int64 a4, const char* a5);
-typedef void (*sub_FFAE0Type)(__m128* a1, const __m128i* a2, __int64 a3);
+typedef void (*sub_FFAE0Type)(__m128* a1, const __m128i* a2, __m128* a3);
 typedef void (*sub_FEF30Type)(globals*, ruiDataStruct*, __m128*, __m128, __m128*);
+typedef void (*sub_FEF30_2Type)(globals*, ruiDataStruct*, __m128*, const __m128*, __m128*);
 typedef _DWORD* (*sub_F3BB0Type)(struct_a1_2* a1, __int64 a2, _BYTE* a3);
 typedef unsigned int* (*sub_F3E30Type)(struct_a1_2* a1, __int64 a2);
 typedef int64_t (*sub_F9B80Type)(
@@ -492,8 +493,9 @@ uint64_t (*getUnicodeCharacter_GPT)(char** a1);
 char* (*sub_F98F0)(ruiDataStruct* a1, __int64 a2, char** a3, __int64 a4, const char* a5);
 // void (*sub_F9B80)(__int64 a1, __int64 a2, _QWORD *a3, __m128 *a4, const __m128i *a5, int a6, __int64 a7, __m128i *a8, __m128 *a9, __m128
 // *a10, __m128 *a11);
-void (*sub_FFAE0)(__m128* a1, const __m128i* a2, __int64 a3);
+void (*sub_FFAE0)(__m128* a1, const __m128i* a2, __m128* a3);
 void (*sub_FEF30)(globals*, ruiDataStruct*, __m128*, __m128, __m128*);
+void (*sub_FEF30_2)(globals*, ruiDataStruct*, __m128*, const __m128*, __m128*);
 _DWORD* (*sub_F3BB0)(struct_a1_2* a1, __int64 a2, _BYTE* a3);
 unsigned int* (*sub_F3E30)(struct_a1_2* a1, __int64 a2);
 
@@ -513,7 +515,7 @@ int64_t (*sub_F9B80)(
 __m128* stru_5F4740;
 
 __m128 xmmword_5F3DD0;
-__m128 xmmword_5F3E20;
+__m128 xmmword_5F3E20 = {};
 __m128 xmmword_5F3E50;
 __m128 xmmword_5F3E70;
 __m128 xmmword_5F3E80;
@@ -1527,28 +1529,8 @@ DECLARE_HOOK(
 	//return renderText(a1, a2, a3, a4);
 	return hook.Original(a1, a2, a3, a4);
 	});
+static const __m128* xmmword_5F4740;
 
-static const __m128 xmmword_5F4740[16] = {
-	_mm_setr_ps(0.0f, 0.0f, 0.0f, 0.0f), // [0]  0x00 - 0x0F
-	_mm_setr_ps(-1.0f, 0.0f, 0.0f, 0.0f), // [1]  0x10 - 0x1F
-	_mm_setr_ps(0.0f, 0.0f, 1.0f, 0.0f), // [2]  0x20 - 0x2F
-	_mm_setr_ps(-1.0f, 0.0f, 1.0f, 0.0f), // [3]  0x30 - 0x3F
-
-	_mm_setr_ps(0.0f, -1.0f, 0.0f, 0.0f), // [4]  0x40 - 0x4F
-	_mm_setr_ps(-1.0f, -1.0f, 0.0f, 0.0f), // [5]  0x50 - 0x5F
-	_mm_setr_ps(0.0f, -1.0f, 1.0f, 0.0f), // [6]  0x60 - 0x6F
-	_mm_setr_ps(-1.0f, -1.0f, 1.0f, 0.0f), // [7]  0x70 - 0x7F
-
-	_mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f), // [8]  0x80 - 0x8F
-	_mm_setr_ps(-1.0f, 0.0f, 0.0f, 1.0f), // [9]  0x90 - 0x9F
-	_mm_setr_ps(0.0f, 0.0f, 1.0f, 1.0f), // [10] 0xA0 - 0xAF
-	_mm_setr_ps(-1.0f, 0.0f, 1.0f, 1.0f), // [11] 0xB0 - 0xBF
-
-	_mm_setr_ps(0.0f, -1.0f, 0.0f, 1.0f), // [12] 0xC0 - 0xCF
-	_mm_setr_ps(-1.0f, -1.0f, 0.0f, 1.0f), // [13] 0xD0 - 0xDF
-	_mm_setr_ps(0.0f, -1.0f, 1.0f, 1.0f), // [14] 0xE0 - 0xEF
-	_mm_setr_ps(-1.0f, -1.0f, 1.0f, 1.0f), // [15] 0xF0 - 0xFF
-};
 
 DECLARE_HOOK(sub_FB960, engine.dll + 0xFB960, [](auto& hook,uiImageAtlas * a1, __int64 a2, __int64 a3)
 {
@@ -1599,687 +1581,6 @@ typedef uint32_t(__fastcall* ruiDrawInfoFunc)(ruiDrawInfoDataWeapon*, ruiBaseUvS
 // External callees
 ruiDrawInfoFunc* ruiDrawInfo_5f4560;
 
-// Shuffle-immediate helpers (just to make intent clearer)
-namespace shuf
-{
-	constexpr int X = 0x00; // _0_0_0_0_
-	constexpr int Y = 0x55; // _1_1_1_1_
-	constexpr int Z = 0xAA; // _2_2_2_2_
-	constexpr int W = 0xFF; // _3_3_3_3_
-	constexpr int SWAP_HALVES = 0x4E; // _1_0_3_2_  (78)
-	constexpr int XYXY = 0x44;
-	constexpr int ZWZW = 0xEE; // 238
-	constexpr int YXWZ = 0xB1;
-} // namespace shuf
-
-//------------------------------------------------------------------
-// Emit one transformed quad through the draw-info virtual dispatch.
-// Returns the same value the dispatch returned (0 = abort caller).
-//------------------------------------------------------------------
-static std::uint32_t EmitQuad(
-	globals* g,
-	ruiDataStruct* ds,
-	struct_v3* drawState,
-	ruiBaseUvStruct* baseUv,
-	__m128* a5, // verts/transform
-	__m128i* edgeClipEntry, // &&xmmword_5F4740[v24 & mask] or null
-	int a6,
-	__m128 corners, // (v62 shuffled) horizontal lerp factor
-	__m128 corners2, // (v63 shuffled) vertical   lerp factor
-	__m128* scratch, // a3a (5 vectors)
-	ruiDrawTriangle& tri,
-	ruiBaseUvStruct& outUv,
-	std::uint64_t assetIndex,
-	__m128& yDir,
-	__m128& base,
-	__m128& xDir,
-	bool clearBase2 = true)
-{
-	__m128i v = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-	__m128 top = _mm_add_ps(
-		_mm_add_ps(
-			_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v, shuf::Z)), corners),
-			_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v, shuf::X)), corners2)),
-		_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), shuf::X)));
-
-	__m128 bot = _mm_add_ps(
-		_mm_add_ps(
-			_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v, shuf::W)), corners),
-			_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v, shuf::Y)), corners2)),
-		_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), shuf::Y)));
-
-	// Optional edge-clip pass.
-	if (edgeClipEntry)
-	{
-		__m128 mask = _mm_cmpneq_ps(*(__m128*)edgeClipEntry, _mm_setzero_ps());
-		if (_mm_movemask_ps(mask))
-		{
-			__m128 topRef = top, botRef = bot;
-			// sub_FEF30 expects writeable storage for top; bot kept locally.
-			sub_FEF30(g, ds, scratch, *(__m128*)edgeClipEntry, &topRef);
-			top = topRef;
-			// bot is not modified by sub_FEF30 in original (uses v176 as scratch);
-			// we keep our local bot.
-			(void)botRef;
-		}
-	}
-
-	__m128i loQuad = _mm_castps_si128(_mm_unpacklo_ps(top, bot));
-	__m128i hiQuad = _mm_castps_si128(_mm_unpackhi_ps(top, bot));
-
-	if (a6 == 2)
-	{
-		loQuad = _mm_shuffle_epi32(loQuad, shuf::SWAP_HALVES);
-		hiQuad = _mm_shuffle_epi32(hiQuad, shuf::SWAP_HALVES);
-	}
-
-	*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = loQuad;
-	*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = hiQuad;
-
-	*reinterpret_cast<std::uint64_t*>(&outUv.assetIndex) = assetIndex;
-	outUv.yDir = yDir;
-	outUv.base = base;
-	outUv.xDir = xDir;
-	if (clearBase2)
-		std::memset(&outUv.base2, 0, 48);
-
-	auto* di = ds->pvoid_38;
-	return ruiDrawInfo_5f4560[di->type](di, &outUv, &tri, drawState);
-}
-
-//------------------------------------------------------------------
-// Blend two __m128 with the given AND/ANDNOT mask (mask?lhs:rhs).
-//------------------------------------------------------------------
-static inline __m128 SelectByMask(__m128 mask, __m128 ifTrue, __m128 ifFalse)
-{
-	return _mm_or_ps(_mm_andnot_ps(mask, ifFalse), _mm_and_ps(mask, ifTrue));
-}
-//	uiImageAtlas* atlas = &rpakUIMGAtlases[*reinterpret_cast<std::uint8_t*>(nameHash + 6)];
-
-//==================================================================
-// sub_F9B80 — 9-slice UI image draw with per-edge clipping.
-//==================================================================
-std::int64_t __fastcall DrawUiImage9Slice(
-	globals* a1,
-	ruiDataStruct* a2,
-	struct_v3* a3,
-	ruiBaseUvStruct* a4,
-	__m128* a5,
-	int a6,
-	std::int64_t nameHash,
-	__m128i* a8,
-	__m128* a9,
-	__m128* a10,
-	__m128* a11)
-{
-	std::uint64_t unsigned_int_8 = a3->unsigned_int_8;
-	unknownRuiListElement* ruiInstance = a3->ruiInstance;
-	std::uint64_t v17 = unsigned_int_8;
-	uiImageAtlas* imageAtlasArrayElem = &rpakUIMGAtlases[*reinterpret_cast<std::uint8_t*>(nameHash + 6)];
-	uiImageAtlas* uiImageAtlas_10 = ruiInstance[unsigned_int_8].uiImageAtlas_10;
-
-	if (uiImageAtlas_10 != imageAtlasArrayElem)
-	{
-		int indexBufferSize;
-		if (!uiImageAtlas_10 || (indexBufferSize = a3->indexBufferSize, ruiInstance[v17].dword_4 == indexBufferSize))
-		{
-			ruiInstance[v17].uiImageAtlas_10 = imageAtlasArrayElem;
-		}
-		else
-		{
-			ruiInstance[v17].dword_4 = indexBufferSize;
-			if (++a3->unsigned_int_8 == a3->dword_C)
-				return 0;
-			ruiInstance[v17 + 1].dword_4 = a3->indexBufferSize;
-			int dword_0 = ruiInstance[v17].dword_0;
-			ruiInstance[v17 + 1].uiFontAtlas_8 = nullptr;
-			ruiInstance[v17 + 1].dword_0 = dword_0;
-			ruiInstance[v17 + 1].uiImageAtlas_10 = imageAtlasArrayElem;
-		}
-	}
-
-	int flags = a4->flags;
-	ruiDrawTriangle tri;
-	tri.size = 4;
-	tri.size_ = 4;
-
-	std::int16_t v24 = (~flags >> 8) & 0xF;
-	__m128 a3a[5];
-	if (v24)
-		sub_FFAE0(a5, reinterpret_cast<const __m128i*>(&a2->header->elementWidth), reinterpret_cast<std::int64_t>(a3a));
-
-	std::uint16_t v25 = *reinterpret_cast<std::uint16_t*>(nameHash + 4);
-
-	ruiBaseUvStruct v178;
-	__m128 v175, v176, v179;
-	int v181;
-	char nameHasha;
-
-	if (v25 < imageAtlasArrayElem->textureOffsetsCount)
-	{
-		const double* v35 =
-			reinterpret_cast<const double*>(reinterpret_cast<char*>(imageAtlasArrayElem->pointer_20) + 32 * static_cast<std::int16_t>(v25));
-
-		__m128 v36 = _mm_rcp_ps(*a11);
-		__m128 v37 = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(v36, *a11));
-		__m128 v38 = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&a2->canvasWidth)));
-		__m128 v39 = _mm_xor_ps(*reinterpret_cast<const __m128*>(v35), xmmword_5F3E70);
-		__m128 v40 = _mm_and_ps(*reinterpret_cast<const __m128*>(v35), xmmword_12A14650);
-		__m128 v41 = _mm_add_ps(_mm_castsi128_ps(_mm_shuffle_epi32(*reinterpret_cast<const __m128i*>(v35), 238)), v39);
-		__m128 v42 = _mm_sub_ps(xmmword_5F3E90, v41);
-		__m128 v43 = _mm_add_ps(_mm_mul_ps(_mm_add_ps(_mm_mul_ps(v37, v37), v37), v36), v36);
-		__m128 v44 = _mm_mul_ps(
-			_mm_mul_ps(_mm_unpacklo_ps(v38, v38), _mm_castsi128_ps(_mm_shuffle_epi32(*reinterpret_cast<__m128i*>(a5), 216))), v43);
-		__m128 v45 = _mm_mul_ps(v44, v44);
-		__m128 v46 = _mm_max_ps(
-			_mm_mul_ps(
-				_mm_sqrt_ps(_mm_add_ps(_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(v45), 78)), v45)),
-				_mm_castpd_ps(_mm_loaddup_pd(v35 + 2))),
-			_mm_castpd_ps(_mm_loaddup_pd(v35 + 3)));
-		__m128 v47 = _mm_sub_ps(v46, v41);
-		__m128 v48 = _mm_rcp_ps(v47);
-		__m128 v49 = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(v48, v47));
-		__m128 v50 = _mm_movelh_ps(v46, xmmword_5F3E90);
-		__m128 v51 = _mm_mul_ps(v50, a4->yDir);
-		__m128 v52 = _mm_mul_ps(v50, a4->xDir);
-		*reinterpret_cast<__m128*>(&v178.vert[1][2]) = _mm_add_ps(_mm_sub_ps(xmmword_5F3E90, v50), v51);
-		__m128 v53 = _mm_add_ps(_mm_mul_ps(_mm_add_ps(_mm_mul_ps(v49, v49), v49), v48), v48);
-		__m128 v54 = _mm_movelh_ps(_mm_mul_ps(_mm_mul_ps(v42, v46), v53), xmmword_5F3E90);
-		__m128 v55 = _mm_mul_ps(v54, a4->base);
-		__m128 v56 = _mm_mul_ps(
-			_mm_sub_ps(_mm_add_ps(_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(v53), 238)), v39), xmmword_5F4600), *a10),
-			v43);
-		__m128 v57 = _mm_mul_ps(v50, a4->base);
-		__m128 v58 = _mm_mul_ps(v54, a4->xDir);
-		__m128 v59 = _mm_sub_ps(v40, _mm_mul_ps(_mm_mul_ps(v40, v42), v53));
-		__m128 v60 = _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(v56), 216));
-		__m128 v61 = _mm_castsi128_ps(_mm_shuffle_epi32(*a8, 216));
-		__m128i v62 = _mm_castps_si128(_mm_unpackhi_ps(v61, v60));
-		__m128i v63 = _mm_castps_si128(_mm_unpacklo_ps(v61, v60));
-		__m128 v64 = _mm_add_ps(v59, _mm_mul_ps(v54, a4->yDir));
-		char v65 = (char)_mm_movemask_ps(_mm_cmple_ps(*a9, _mm_xor_ps(v56, xmmword_5F3E20)));
-		nameHasha = v65;
-		v181 =
-			_mm_movemask_ps(_mm_cmple_ps(*a9, _mm_xor_ps(_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(v56), 78)), xmmword_5F3E20)));
-
-		if ((v65 & 3) == 0)
-		{
-			__m128i si128 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v67 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 20));
-			__m128 v68 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 80));
-			__m128 v69 = xmmword_5F4740[v24 & 5];
-			__m128 v70 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(si128, 170)), v67),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(si128, 0)), v68)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v70;
-			__m128 v71 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(si128, 255)), v67),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(si128, 85)), v68)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v72 = _mm_cmpneq_ps(v69, _mm_setzero_ps());
-			v176 = v71;
-			if (_mm_movemask_ps(v72))
-			{
-				sub_FEF30(a1, a2, a3a, v69, &v175);
-				v71 = v176;
-				v70 = v175;
-			}
-			__m128 v73 = v70;
-			__m128i v74 = _mm_castps_si128(_mm_unpackhi_ps(v70, v71));
-			__m128i v75 = _mm_castps_si128(_mm_unpacklo_ps(v73, v71));
-			if (a6 == 2)
-			{
-				v75 = _mm_shuffle_epi32(v75, 0x4E);
-				v74 = _mm_shuffle_epi32(v74, 0x4E);
-			}
-			std::uint64_t v76 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* pvoid_38 = a2->pvoid_38;
-			v178.yDir = v51;
-			v178.base = v57;
-			v178.xDir = v52;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v76;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v75;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v74;
-			std::memset(&v178.base2, 0, 48);
-			float lo[4], hi[4];
-			_mm_storeu_ps(lo, _mm_castsi128_ps(*reinterpret_cast<__m128i*>(&tri.vert[0][0])));
-			_mm_storeu_ps(hi, _mm_castsi128_ps(*reinterpret_cast<__m128i*>(&tri.vert[1][0])));
-			//spdlog::info("quad0 lo: {} {} {} {}", lo[0], lo[1], lo[2], lo[3]);
-			//spdlog::info("quad0 hi: {} {} {} {}", hi[0], hi[1], hi[2], hi[3]);
-			//spdlog::info("clipLo={} clipHi={}", (int)(unsigned char)v65, v181);
-			if (!ruiDrawInfo_5f4560[pvoid_38->type](pvoid_38, &v178, &tri, a3))
-				return 0;
-			v65 = nameHasha;
-		}
-
-		*reinterpret_cast<int*>(&v178.vert[0][3]) = v181 & 5;
-		if ((*reinterpret_cast<int*>(&v178.vert[0][3]) | (v65 & 2)) != 0)
-			goto LABEL_76;
-
-		{
-			__m128i v78 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v79 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 20));
-			__m128 v80 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 245));
-			__m128 v81 = xmmword_5F4740[v24 & 4];
-			__m128 v82 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v78, 170)), v79),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v78, 0)), v80)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v82;
-			__m128 v83 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v78, 255)), v79),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v78, 85)), v80)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v84 = _mm_cmpneq_ps(_mm_setzero_ps(), v81);
-			v176 = v83;
-			if (_mm_movemask_ps(v84))
-			{
-				sub_FEF30(a1, a2, a3a, v81, &v82);
-				v83 = v176;
-				v82 = v175;
-			}
-			__m128 v85 = v82;
-			__m128i v86 = _mm_castps_si128(_mm_unpackhi_ps(v82, v83));
-			__m128i v87 = _mm_castps_si128(_mm_unpacklo_ps(v85, v83));
-			if (a6 == 2)
-			{
-				v87 = _mm_shuffle_epi32(v87, 78);
-				v86 = _mm_shuffle_epi32(v86, 78);
-			}
-			std::uint64_t v88 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v89 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v87;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v86;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v88;
-			std::memset(&v178.base2, 0, 48);
-			v178.yDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v51), _mm_and_ps(v64, xmmword_12A146D0));
-			v178.base = _mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v57), _mm_and_ps(v55, xmmword_12A146D0));
-			v178.xDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v52), _mm_and_ps(v58, xmmword_12A146D0));
-			if (!ruiDrawInfo_5f4560[v89->type](v89, &v178, &tri, a3))
-				return 0;
-		}
-
-	LABEL_76:
-	{
-		char v90 = nameHasha;
-		if ((nameHasha & 6) == 0)
-		{
-			__m128i v91 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v92 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 20));
-			__m128 v93 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 175));
-			__m128 v94 = xmmword_5F4740[v24 & 6];
-			__m128 v95 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v91, 170)), v92),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v91, 0)), v93)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v95;
-			__m128 v96 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v91, 255)), v92),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v91, 85)), v93)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v97 = _mm_cmpneq_ps(v94, _mm_setzero_ps());
-			v176 = v96;
-			if (_mm_movemask_ps(v97))
-			{
-				sub_FEF30(a1, a2, a3a, v94, &v175);
-				v96 = v176;
-				v95 = v175;
-			}
-			__m128 v98 = v95;
-			__m128i v99 = _mm_castps_si128(_mm_unpackhi_ps(v95, v96));
-			__m128i v100 = _mm_castps_si128(_mm_unpacklo_ps(v98, v96));
-			if (a6 == 2)
-			{
-				v100 = _mm_shuffle_epi32(v100, 0x4E);
-				v99 = _mm_shuffle_epi32(v99, 0x4E);
-			}
-			std::uint64_t v101 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v102 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v100;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v99;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v101;
-			v178.base = v57;
-			v178.xDir = v52;
-			std::memset(&v178.base2, 0, 48);
-			v178.yDir =
-				_mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v51), _mm_and_ps(*reinterpret_cast<__m128*>(&v178.vert[1][2]), xmmword_12A146D0));
-			if (!ruiDrawInfo_5f4560[v102->type](v102, &v178, &tri, a3))
-				return 0;
-			v90 = nameHasha;
-		}
-
-		*reinterpret_cast<int*>(&v178.vert[0][2]) = v181 & 0xA;
-		if ((*reinterpret_cast<int*>(&v178.vert[0][2]) | (v90 & 1)) != 0)
-			goto LABEL_77;
-
-		{
-			__m128i v103 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v104 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 125));
-			__m128 v105 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 80));
-			__m128 v106 = (xmmword_5F4740[v24 & 1]);
-			v175 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v103, 0xAA)), v104),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v103, 0x00)), v105)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0x00)));
-			v176 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v103, 0xFF)), v104),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v103, 0x55)), v105)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0x55)));
-			__m128 v109 = _mm_cmpneq_ps(v106, _mm_setzero_ps());
-			if (_mm_movemask_ps(v109))
-				sub_FEF30(a1, a2, a3a, v106, &v175);
-			__m128i quad2 = _mm_castps_si128(_mm_unpackhi_ps(v175, v176));
-			__m128i quad1 = _mm_castps_si128(_mm_unpacklo_ps(v175, v176));
-			if (a6 == 2)
-			{
-				quad1 = _mm_shuffle_epi32(quad1, 0x4E);
-				quad2 = _mm_shuffle_epi32(quad2, 0x4E);
-			}
-			std::uint64_t v113 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v114 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = quad1;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = quad2;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v113;
-			std::memset(&v178.base2, 0, 48);
-			v178.yDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146A0, v51), _mm_and_ps(v64, xmmword_12A146A0));
-			v178.base = _mm_or_ps(_mm_andnot_ps(xmmword_12A146A0, v57), _mm_and_ps(v55, xmmword_12A146A0));
-			v178.xDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146A0, v52), _mm_and_ps(v58, xmmword_12A146A0));
-			if (!ruiDrawInfo_5f4560[v114->type](v114, &v178, &tri, a3))
-				return 0;
-		}
-
-	LABEL_77:
-		if (v181)
-			goto LABEL_78;
-
-		{
-			__m128i v115 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v116 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 125));
-			__m128 v117 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 245));
-			__m128 v118 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v115, 170)), v116),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v115, 0)), v117)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			__m128 v119 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v115, 255)), v116),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v115, 85)), v117)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128i v120 = _mm_castps_si128(_mm_unpacklo_ps(v118, v119));
-			__m128i v121 = _mm_castps_si128(_mm_unpackhi_ps(v118, v119));
-			if (a6 == 2)
-			{
-				v120 = _mm_shuffle_epi32(v120, 78);
-				v121 = _mm_shuffle_epi32(v121, 78);
-			}
-			std::uint64_t v122 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v123 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v120;
-			v178.yDir = v64;
-			v178.base = v55;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v122;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v121;
-			std::memset(&v178.base2, 0, 0x30);
-			v178.xDir = v58;
-			if (!ruiDrawInfo_5f4560[v123->type](v123, &v178, &tri, a3))
-				return 0;
-		}
-
-	LABEL_78:
-		if ((*reinterpret_cast<int*>(&v178.vert[0][2]) | (nameHasha & 4)) != 0)
-			goto LABEL_52;
-
-		{
-			__m128i v124 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v125 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 125));
-			__m128 v126 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 175));
-			__m128 v127 = xmmword_5F4740[v24 & 2];
-			__m128 v128 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v124, 170)), v125),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v124, 0)), v126)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v128;
-			__m128 v129 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v124, 255)), v125),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v124, 85)), v126)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v130 = _mm_cmpneq_ps(_mm_setzero_ps(), v127);
-			v176 = v129;
-			if (_mm_movemask_ps(v130))
-			{
-				sub_FEF30(a1, a2, a3a, (v127), &v175);
-				v129 = v176;
-				v128 = v175;
-			}
-			__m128 v131 = v128;
-			__m128i v132 = _mm_castps_si128(_mm_unpackhi_ps(v128, v129));
-			__m128i v133 = _mm_castps_si128(_mm_unpacklo_ps(v131, v129));
-			if (a6 == 2)
-			{
-				v133 = _mm_shuffle_epi32(v133, 0x4E);
-				v132 = _mm_shuffle_epi32(v132, 0x4E);
-			}
-			std::uint64_t v134 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v135 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v133;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v132;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v134;
-			std::memset(&v178.base2, 0, 0x30);
-			v178.yDir =
-				_mm_or_ps(_mm_andnot_ps(xmmword_12A146A0, *reinterpret_cast<__m128*>(&v178.vert[1][2])), _mm_and_ps(v64, xmmword_12A146A0));
-			v178.base = _mm_or_ps(_mm_andnot_ps(xmmword_12A146A0, v57), _mm_and_ps(v55, xmmword_12A146A0));
-			v178.xDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146A0, v52), _mm_and_ps(v58, xmmword_12A146A0));
-			if (!ruiDrawInfo_5f4560[v135->type](v135, &v178, &tri, a3))
-				return 0;
-		}
-
-	LABEL_52:
-		char v136 = nameHasha;
-		__m128 v150;
-
-		if ((nameHasha & 9) != 0)
-		{
-			v150 = *reinterpret_cast<__m128*>(&v178.vert[1][2]);
-		}
-		else
-		{
-			__m128i v137 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v138 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 235));
-			__m128 v139 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 80));
-			__m128 v140 = (xmmword_5F4740[v24 & 9]);
-			__m128 v141 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v137, 170)), v138),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v137, 0)), v139)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v141;
-			__m128 v142 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v137, 255)), v138),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v137, 85)), v139)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v143 = _mm_cmpneq_ps(v140, _mm_setzero_ps());
-			v176 = v142;
-			if (_mm_movemask_ps(v143))
-			{
-				sub_FEF30(a1, a2, a3a, (v140), &v175);
-				v142 = v176;
-				v141 = v175;
-			}
-			__m128 v144 = v141;
-			__m128i v145 = _mm_castps_si128(_mm_unpackhi_ps(v141, v142));
-			__m128i v146 = _mm_castps_si128(_mm_unpacklo_ps(v144, v142));
-			if (a6 == 2)
-			{
-				v146 = _mm_shuffle_epi32(v146, 78);
-				v145 = _mm_shuffle_epi32(v145, 78);
-			}
-			std::uint64_t v147 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v148 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v146;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v145;
-			v178.base = v57;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v147;
-			__m128 v149 = _mm_andnot_ps(xmmword_12A146A0, v51);
-			v150 = *reinterpret_cast<__m128*>(&v178.vert[1][2]);
-			v178.xDir = v52;
-			std::memset(&v178.base2, 0, 48);
-			v178.yDir = _mm_or_ps(v149, _mm_and_ps(*reinterpret_cast<__m128*>(&v178.vert[1][2]), xmmword_12A146A0));
-			if (!ruiDrawInfo_5f4560[v148->type](v148, &v178, &tri, a3))
-				return 0;
-			v136 = nameHasha;
-		}
-
-		if ((*reinterpret_cast<int*>(&v178.vert[0][3]) | (v136 & 8)) != 0)
-			goto LABEL_79;
-
-		{
-			__m128i v151 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v152 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 235));
-			__m128 v153 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 245));
-			__m128 v154 = (xmmword_5F4740[v24 & 8]);
-			__m128 v155 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v151, 170)), v152),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v151, 0)), v153)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v155;
-			__m128 v156 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v151, 255)), v152),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v151, 85)), v153)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v157 = _mm_cmpneq_ps(v154, _mm_setzero_ps());
-			v176 = v156;
-			if (_mm_movemask_ps(v157))
-			{
-				sub_FEF30(a1, a2, a3a, (v154), &v175);
-				v156 = v176;
-				v155 = v175;
-			}
-			__m128 v158 = v155;
-			__m128i v159 = _mm_castps_si128(_mm_unpackhi_ps(v155, v156));
-			__m128i v160 = _mm_castps_si128(_mm_unpacklo_ps(v158, v156));
-			if (a6 == 2)
-			{
-				v160 = _mm_shuffle_epi32(v160, 0x4E);
-				v159 = _mm_shuffle_epi32(v159, 0x4E);
-			}
-			std::uint64_t v161 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v162 = a2->pvoid_38;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v160;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v159;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v161;
-			std::memset(&v178.base2, 0, 48);
-			v178.yDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v150), _mm_and_ps(v64, xmmword_12A146D0));
-			v178.base = _mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v57), _mm_and_ps(v55, xmmword_12A146D0));
-			v178.xDir = _mm_or_ps(_mm_andnot_ps(xmmword_12A146D0, v52), _mm_and_ps(v58, xmmword_12A146D0));
-			if (!ruiDrawInfo_5f4560[v162->type](v162, &v178, &tri, a3))
-				return 0;
-		}
-
-	LABEL_79:
-		if ((nameHasha & 0xC) != 0)
-			return 1;
-
-		{
-			__m128i v163 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-			__m128 v164 = _mm_castsi128_ps(_mm_shuffle_epi32(v62, 235));
-			__m128 v165 = _mm_castsi128_ps(_mm_shuffle_epi32(v63, 175));
-			__m128 v166 = (xmmword_5F4740[v24 & 0xA]);
-			__m128 v167 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v163, 170)), v164),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v163, 0)), v165)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-			v175 = v167;
-			__m128 v168 = _mm_add_ps(
-				_mm_add_ps(
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v163, 255)), v164),
-					_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v163, 85)), v165)),
-				_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 85)));
-			__m128 v169 = _mm_cmpneq_ps(_mm_setzero_ps(), v166);
-			v176 = v168;
-			if (_mm_movemask_ps(v169))
-			{
-				sub_FEF30(a1, a2, a3a, v166, &v175);
-				v168 = v176;
-				v167 = v175;
-			}
-			__m128 v170 = v167;
-			__m128i v171 = _mm_castps_si128(_mm_unpackhi_ps(v167, v168));
-			__m128i v172 = _mm_castps_si128(_mm_unpacklo_ps(v170, v168));
-			if (a6 == 2)
-			{
-				v172 = _mm_shuffle_epi32(v172, 78);
-				v171 = _mm_shuffle_epi32(v171, 78);
-			}
-			std::uint64_t v173 = *reinterpret_cast<std::uint64_t*>(&a4->assetIndex);
-			ruiDrawInfoDataWeapon* v174 = a2->pvoid_38;
-			v178.yDir = v150;
-			v178.base = v57;
-			v178.xDir = v52;
-			*reinterpret_cast<std::uint64_t*>(&v178.assetIndex) = v173;
-			*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v172;
-			*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v171;
-			std::memset(&v178.base2, 0, 48);
-			if (ruiDrawInfo_5f4560[v174->type](v174, &v178, &tri, a3))
-				return 1;
-		}
-	}
-		return 0;
-	}
-
-	// -------- Simple (un-sliced) path --------
-	{
-		__m128i v26 = _mm_load_si128(reinterpret_cast<const __m128i*>(a5));
-		__m128 v27 = _mm_castsi128_ps(_mm_shuffle_epi32(*a8, 125));
-		__m128 v28 = _mm_castsi128_ps(_mm_shuffle_epi32(*a8, 160));
-		__m128 v29 = _mm_add_ps(
-			_mm_add_ps(
-				_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v26, 170)), v27),
-				_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v26, 0)), v28)),
-			_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0)));
-		*reinterpret_cast<__m128*>(&v178.vert[1][2]) = v29;
-		__m128 v30 = _mm_add_ps(
-			_mm_add_ps(
-				_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v26, 255)), v27),
-				_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v26, 85)), v28)),
-			_mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(a5[1]), 0x55)));
-		v179 = v30;
-		if (v24)
-		{
-			sub_FEF30(a1, a2, a3a, xmmword_5F4740[v24], reinterpret_cast<__m128*>(&v178.vert[1][2]));
-			v30 = v179;
-			v29 = *reinterpret_cast<__m128*>(&v178.vert[1][2]);
-		}
-		__m128 v31 = v29;
-		__m128i v32 = _mm_castps_si128(_mm_unpackhi_ps(v29, v30));
-		__m128i v33 = _mm_castps_si128(_mm_unpacklo_ps(v31, v30));
-		if (a6 == 2)
-		{
-			v33 = _mm_shuffle_epi32(v33, 0x4E);
-			v32 = _mm_shuffle_epi32(v32, 0x4E);
-		}
-		ruiDrawInfoDataWeapon* v34 = a2->pvoid_38;
-		*reinterpret_cast<__m128i*>(&tri.vert[0][0]) = v33;
-		*reinterpret_cast<__m128i*>(&tri.vert[1][0]) = v32;
-		return ruiDrawInfo_5f4560[v34->type](v34, a4, &tri, a3);
-	}
-}
-
 #define RUI_SHUFFLE_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(value), imm))
 
 #define RUI_SHUFFLE_I32_AS_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32((value), imm))
@@ -2297,12 +1598,11 @@ void __fastcall sub_F9B80_rebuild(
 	__m128* uvBias,
 	__m128* viewportScale)
 {
-	auto* nameHashWords = reinterpret_cast<const uint16_t*>(nameHash);
-
 	const __int64 instanceIndex = batch->unsigned_int_8;
 	unknownRuiListElement* instances = batch->ruiInstance;
-	auto* imageAtlas = reinterpret_cast<uiImageAtlas*>(0x12A26140 + 72LL * nameHashWords[6]);
-
+	const uint8_t atlasIndex = *reinterpret_cast<const uint8_t*>(nameHash + 6);
+	uiImageAtlas* imageAtlas = &rpakUIMGAtlases[atlasIndex];
+	
 	if (instances[instanceIndex].uiImageAtlas_10 != imageAtlas)
 	{
 		uiImageAtlas* currentAtlas = instances[instanceIndex].uiImageAtlas_10;
@@ -2334,21 +1634,25 @@ void __fastcall sub_F9B80_rebuild(
 
 	const __int16 correctionMask = (~baseUv->flags >> 8) & 0xF;
 	if (correctionMask)
-		sub_FFAE0(transform, (const __m128i*)& ruiData->header->elementWidth, (uint64_t)correctionData);
+		sub_FFAE0(transform, (const __m128i*)& ruiData->header->elementWidth, correctionData);
 
-	const uint16_t textureOffsetIndex = nameHashWords[4];
+	const uint16_t textureOffsetIndex = *reinterpret_cast<const uint16_t*>(nameHash + 4);
 	const __m128 zero = _mm_setzero_ps();
 
 	auto submitDraw = [&]() -> int
 	{
 		auto* drawInfo = ruiData->pvoid_38;
-		return ruiDrawInfo_5f4560[drawInfo->type](drawInfo, &drawUv, &tri, batch);
+		return ruiDrawInfo_5f4560[drawInfo->type](
+			drawInfo,
+			&drawUv,
+			&tri,
+			batch);
 	};
 
 	auto storeTriangle = [&](__m128 quad0, __m128 quad1)
 	{
-		*reinterpret_cast<__m128*>(&tri.vert[0][0]) = quad0;
-		*reinterpret_cast<__m128*>(&tri.vert[1][0]) = quad1;
+		_mm_storeu_ps(&tri.vert[0][0], quad0);
+		_mm_storeu_ps(&tri.vert[1][0], quad1);
 	};
 
 	auto setTriangleFromUv = [&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, bool forceCorrection)
@@ -2363,7 +1667,7 @@ void __fastcall sub_F9B80_rebuild(
 			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(row0, 255), u), _mm_mul_ps(RUI_SHUFFLE_PS(row0, 85), v)), RUI_SHUFFLE_PS(row1, 85));
 
 		if (correction && (forceCorrection || _mm_movemask_ps(_mm_cmpneq_ps(*correction, zero))))
-			sub_FEF30(globals, ruiData, correctionData, *(__m128*)correction, projected);
+			sub_FEF30_2(globals, ruiData, correctionData, correction, projected);
 
 		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
 		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
@@ -2377,8 +1681,8 @@ void __fastcall sub_F9B80_rebuild(
 			}
 			else
 			{
-				quad0 = RUI_SHUFFLE_PS(quad0, _MM_SHUFFLE(1,0,3,2));
-				quad1 = RUI_SHUFFLE_PS(quad1, _MM_SHUFFLE(1,0,3,2));
+				quad0 = RUI_SHUFFLE_PS(quad0, _MM_SHUFFLE(1, 0, 3, 2));
+				quad1 = RUI_SHUFFLE_PS(quad1, _MM_SHUFFLE(1, 0, 3, 2));
 			}
 		}
 
@@ -2395,24 +1699,49 @@ void __fastcall sub_F9B80_rebuild(
 		drawUv.xDir = xDir;
 		*reinterpret_cast<__int64*>(&drawUv.assetIndex) = *reinterpret_cast<const __int64*>(&baseUv->assetIndex);
 		memset(&drawUv.base2, 0, 48);
-
 		return submitDraw();
 	};
 
 	if (textureOffsetIndex >= imageAtlas->textureOffsetsCount)
 	{
+		//const __m128 transformRow0 = _mm_castsi128_ps(_mm_load_si128(reinterpret_cast<const __m128i*>(transform)));
+		__m128 transformRow0 = transform[0];
 		const __m128 u = RUI_SHUFFLE_I32_AS_PS(*atlasUv, 125);
 		const __m128 v = RUI_SHUFFLE_I32_AS_PS(*atlasUv, 160);
-		const __m128* correction = correctionMask ? &xmmword_5F4740[correctionMask] : nullptr;
 
-		setTriangleFromUv(u, v, correction, false, correctionMask != 0);
+		__m128 projected[2];
+		projected[0] = _mm_add_ps(
+			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 170), u),
+					   _mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 0), v)),
+			RUI_SHUFFLE_PS(transform[1], 0));
+		projected[1] = _mm_add_ps(
+			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 255), u), _mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 85), v)),
+			RUI_SHUFFLE_PS(transform[1], 85));
+
+		if (correctionMask) {
+			sub_FEF30(globals, ruiData, correctionData, xmmword_5F4740[correctionMask], projected);
+		}
+		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
+		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
+
+		if (orientation == 2)
+		{
+			quad0 = RUI_SHUFFLE_PS(quad0, _MM_SHUFFLE(1, 0, 3, 2));
+			quad1 = RUI_SHUFFLE_PS(quad1, _MM_SHUFFLE(1, 0, 3, 2));
+		}
+		_mm_storeu_ps(&tri.vert[0][0], quad0);
+		_mm_storeu_ps(&tri.vert[1][0], quad1);
 
 		auto* drawInfo = ruiData->pvoid_38;
-		ruiDrawInfo_5f4560[drawInfo->type](drawInfo, baseUv, &tri, batch);
+		ruiDrawInfo_5f4560[drawInfo->type](
+			drawInfo,
+			baseUv,
+			&tri,
+			batch);
 		return;
 	}
 	const double* atlasRecord = reinterpret_cast<const double*>(reinterpret_cast<char*>(imageAtlas->pointer_20) + 32 * textureOffsetIndex);
-	const __m128 atlasRect = *reinterpret_cast<const __m128*>(atlasRecord);
+	const __m128 atlasRect = _mm_loadu_ps(reinterpret_cast<const float*>(atlasRecord));
 
 	const __m128 reciprocalScale = _mm_rcp_ps(*viewportScale);
 	const __m128 reciprocalScaleError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(reciprocalScale, *viewportScale));
@@ -2465,8 +1794,8 @@ void __fastcall sub_F9B80_rebuild(
 	const __m128 uvHigh = _mm_unpackhi_ps(atlasUvBase, atlasStepShuffled);
 	const __m128 uvLow = _mm_unpacklo_ps(atlasUvBase, atlasStepShuffled);
 
-	const int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, xmmword_5F3E20)));
-	const int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), xmmword_5F3E20)));
+	int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, xmmword_5F3E20)));
+	int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), xmmword_5F3E20)));
 
 	auto blendByMask = [](__m128 keep, __m128 replace, __m128 mask)
 	{ return _mm_or_ps(_mm_andnot_ps(mask, keep), _mm_and_ps(replace, mask)); };
@@ -2495,16 +1824,20 @@ void __fastcall sub_F9B80_rebuild(
 											   blendByMask(outerXDir, innerXDir, xmmword_12A146D0),
 											   blendByMask(outerYDir, innerYDir, xmmword_12A146D0)))
 	{
-		if ((clipMaskX & 6) == 0 && !drawPiece(
-										RUI_SHUFFLE_PS(uvHigh, 20),
-										RUI_SHUFFLE_PS(uvLow, 175),
-										&xmmword_5F4740[correctionMask & 6],
-										false,
-										outerBase,
-										outerXDir,
-										blendByMask(outerYDir, edgeYDir, xmmword_12A146D0)))
+		// Original LABEL_29 case: if ((nameHasha & 6) == 0) draw this piece.
+		if ((clipMaskX & 6) == 0)
 		{
-			return;
+			if (!drawPiece(
+					RUI_SHUFFLE_PS(uvHigh, 20),
+					RUI_SHUFFLE_PS(uvLow, 175),
+					&xmmword_5F4740[correctionMask & 6],
+					false,
+					outerBase,
+					outerXDir,
+					blendByMask(outerYDir, edgeYDir, xmmword_12A146D0)))
+			{
+				return;
+			}
 		}
 
 		if ((clipMaskY_A | (clipMaskX & 1)) || drawPiece(
@@ -2567,8 +1900,6 @@ void __fastcall sub_F9B80_rebuild(
 	}
 }
 
-#undef RUI_SHUFFLE_PS
-#undef RUI_SHUFFLE_I32_AS_PS
 
 
 DECLARE_HOOK(sub_F9B80, engine.dll + 0xF9B80, [](auto& hook,globals* g,
@@ -2601,7 +1932,10 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	DISPATCH_MODULE(AtlasTest);
 	ruiDrawInfo_5f4560 = module.Offset(0x5F4560).RCast<ruiDrawInfoFunc*>();
 	xmmword_5F3DD0 = *module.Offset(0x5F3DD0).RCast<__m128*>();
+	// weird one
 	xmmword_5F3E20 = *module.Offset(0x5F3E20).RCast<__m128*>();
+	//const __m128 signMask = _mm_castsi128_ps(_mm_set1_epi32(0x80000000u));
+	//xmmword_5F3E20 = signMask;
 	xmmword_5F3E50 = *module.Offset(0x5F3E50).RCast<__m128*>();
 	xmmword_5F3E70 = *module.Offset(0x5F3E70).RCast<__m128*>();
 	xmmword_5F3E80 = *module.Offset(0x5F3E80).RCast<__m128*>();
@@ -2640,8 +1974,9 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	sub_F9B80 = module.Offset(0xF9B80).RCast<sub_F9B80Type>();
 	sub_FFAE0 = module.Offset(0xFFAE0).RCast<sub_FFAE0Type>();
 	sub_FEF30 = module.Offset(0xFEF30).RCast<sub_FEF30Type>();
+	sub_FEF30_2 = module.Offset(0xFEF30).RCast<sub_FEF30_2Type>();
 	sub_F3BB0 = module.Offset(0xF3BB0).RCast<sub_F3BB0Type>();
 	sub_F3E30 = module.Offset(0xF3E30).RCast<sub_F3E30Type>();
-	//xmmword_5F4740 = module.Offset(0x5F4740).RCast<__m128i*>();
+	xmmword_5F4740 = module.Offset(0x5F4740).RCast<__m128*>();
 	fontIndices = module.Offset(0x12A4E650).RCast<BYTE*>();
 });
