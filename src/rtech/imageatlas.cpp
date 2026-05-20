@@ -89,8 +89,8 @@ struct uiImageAtlas
 {
 	float widthRatio;
 	float heightRatio;
-	uint16_t width;
-	uint16_t height;
+	uint16_t width; 
+	uint16_t height; 
 	uint16_t TextureCount;
 	uint16_t textureOffsetsCount;
 	void* textureOffsets;
@@ -102,8 +102,15 @@ struct uiImageAtlas
 	unsigned int bufferStructIndex;
 	_DWORD dword_44;
 };
-
-
+static_assert(offsetof(uiImageAtlas, widthRatio) == 0);
+static_assert(offsetof(uiImageAtlas, heightRatio) == 4);
+static_assert(offsetof(uiImageAtlas, width) == 8);
+static_assert(offsetof(uiImageAtlas, height) == 0xa);
+static_assert(offsetof(uiImageAtlas, TextureCount) == 0xc);
+static_assert(offsetof(uiImageAtlas, textureOffsetsCount) == 0xe);
+static_assert(offsetof(uiImageAtlas, textureOffsets) == 0x10);
+static_assert(offsetof(uiImageAtlas, pointer_20) == 0x20);
+static_assert(offsetof(uiImageAtlas, textureHashes) == 0x28);
 struct unknown2
 {
 	float float_0;
@@ -136,7 +143,7 @@ struct struct_v1
 	uint32_t dword_28C8;
 	uint32_t dword_28CC;
 	_BYTE gap_28D0[1280];
-	__m128 m128_2DD0[1];
+	__m128 transformSizes[1];
 	_BYTE gap_2DE0[3232];
 	testStruct m128_3A80[3];
 };
@@ -192,7 +199,7 @@ struct globals
 };
 
 
-struct unknown8dataStruct
+struct styleDescriptorsStruct
 {
 	uint16_t type;
 	uint16_t color_red;
@@ -267,7 +274,7 @@ struct ruiHeader
 	uint16_t unk_A4;
 	uint16_t unknown9Count;
 	uint16_t argClusterCount;
-	unknown8dataStruct* unknown8data;
+	styleDescriptorsStruct* styleDescriptors;
 	uint8_t* unknown9data;
 	ruiUnknown10* unknown_10;
 	void(__fastcall* dllFunc)(void* a1, void*, void*, char*);
@@ -385,7 +392,7 @@ struct struct_v3
 	uint16_t vertexBufferElementCount;
 	_DWORD vertexBufferSize;
 	_QWORD qword_28;
-	_DWORD unk_StartIndex;
+	_DWORD styleDescriptorIndex;
 	_DWORD dword_34;
 	_QWORD indexBuffer;
 	_DWORD indexBufferSize;
@@ -441,7 +448,7 @@ typedef int64_t (*sub_F9B80Type)(
 
 typedef __int64 (*funcs5F4560Type)(__m128* a1, __m128* a2, ruiDrawTriangle* a3, struct_v3* a4);
 
-// uiImageAtlas rpakUIMGAtlases[50];
+ //uiImageAtlas rpakUIMGAtlases[50];
 uiImageAtlas* rpakUIMGAtlases;
 
 /*
@@ -480,7 +487,14 @@ short* word_12A2E50C;
 uint8_t* byte_12A2E50E;
 uint8_t* byte_12A2E50F;
 uiFontAtlas* uiFontAtlases;
-char* unk_12A2E508;
+struct assetIndexData
+{
+  _DWORD nameHash;
+  uint16_t assetIndex;
+  uint8_t atlasIndex;
+  _BYTE flags;
+};
+assetIndexData* unk_12A2E508;
 
 __m128* xmmword_12A4E830;
 funcs5F4560Type* funcs_5F4560;
@@ -534,203 +548,7 @@ __m128 xmmword_12A146B0;
 __m128 xmmword_12A146D0;
 
 BYTE* fontIndices;
-void __fastcall renderJobElipse(__int64 a1, ruiDataStruct* a2, unknown9dataStruct_2* a3, struct_v3* a4)
-{
-	__int16 v6; // r9
-	unknown8dataStruct* v7; // rdx
-	__int64 v8; // r14
-	testStruct* v9; // r11
-	__m128 v10; // xmm2
-	int v11; // ebx
-	__m128 v12; // xmm6
-	__m128i v13; // xmm1
-	__m128 v14; // xmm7
-	__int64 v15; // rcx
-	__int64 v16; // rax
-	__int64 v17; // rsi
-	__int16 v18; // r15
-	__int16 v19; // r12
-	__int16 v20; // cx
-	__int16 v21; // r15
-	__m128 v22; // xmm10
-	__m128 v23; // xmm11
-	__m128 v24; // xmm12
-	__m128 v25; // xmm13
-	__m128 v26; // xmm15
-	__m128 v27; // xmm14
-	__m128* v28; // rax
-	float v29; // xmm9_4
-	__m128 v34; // xmm4
-	__m128 v35; // xmm3
-	__int64 v36; // rcx
-	__m128 v37; // xmm0
-	__m128 v38; // xmm4
-	__m128 v39; // xmm1
-	__m128 v40; // xmm3
-	__m128 v41; // xmm5
-	__m128i v42; // xmm4
-	__m128 v43; // xmm0
-	__m128 v44; // xmm3
-	__m128 v45; // xmm6
-	__m128 v46; // xmm3
-	__m128 v47; // xmm2
-	__m128 v48; // xmm0
-	__m128 v49; // xmm6
-	__m128 v50; // xmm3
-	__m128 v51; // xmm4
-	__m128i v52; // xmm2
-	__m128 v53; // xmm6
-	__m128 v54; // xmm1
-	__m128i v55; // xmm0
-	__m128i v56; // xmm6
-	__m128* v57; // rcx
-	float v58; // [rsp+20h] [rbp-198h]
-	__m128 v59; // [rsp+30h] [rbp-188h]
-	__m128 v60; // [rsp+40h] [rbp-178h]
-	ruiDrawTriangle v61; // [rsp+50h] [rbp-168h] BYREF
-	__m128 v64[6]; // [rsp+80h] [rbp-138h] BYREF
-	__int16 v65; // [rsp+E0h] [rbp-D8h]
-	__int16 v66; // [rsp+E2h] [rbp-D6h]
-	__int16 v67; // [rsp+E4h] [rbp-D4h]
-	__int16 v68; // [rsp+E6h] [rbp-D2h]
-	float v69; // [rsp+1C8h] [rbp+10h]
-	float v70; // [rsp+1D0h] [rbp+18h]
 
-	v6 = a3->uint8_18;
-	v7 = &a2->header->unknown8data[a3->uint8_18];
-	if (*(float*)&a2->dataValues[v7->color_alpha] > 0.0)
-	{
-		v8 = a3->transformIndex;
-		v9 = &a2->v1->m128_3A80[v8];
-		v10 = _mm_sub_ps(
-			_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_0, 255)), _mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_0, 0))),
-			_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_0, 170)), _mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_0, 85))));
-		if (!_mm_movemask_ps(_mm_cmpeq_ps(v10, _mm_setzero_ps())))
-		{
-			v11 = _mm_movemask_ps(v10) & 2;
-			v12 = _mm_div_ps(_mm_xor_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_0, 39)), (__m128)xmmword_5F3E50), v10);
-			v13 = _mm_castps_si128(
-				_mm_mul_ps(_mm_xor_ps(v12, (__m128)xmmword_5F3DD0), _mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_10, 216))));
-			v14 = _mm_add_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v13, 78)), _mm_castsi128_ps(v13));
-			v15 = *(int*)&a2->dataValues[a3->uint16_4];
-			if ((_DWORD)v15 != -1)
-			{
-				v66 = -1;
-				v16 = a3->uint16_6;
-				v17 = v15;
-				v18 = *(unsigned __int8*)byte_12A2E50F[8 * v15];
-				v19 = *(_WORD*) word_12A2E50C[8 * v15];
-				v20 = a4->unk_StartIndex;
-				v21 = a3->word_16 | v18;
-				v65 = v19;
-				v68 = v21;
-				v67 = v6 + v20;
-				v22 = _mm_load_ps((float*)&a2->dataValues[v16]);
-				v23 = _mm_load_ps((float*)&a2->dataValues[a3->uint16_8]);
-				v24 = _mm_load_ps((float*)&a2->dataValues[a3->uint16_A]);
-				v25 = _mm_load_ps((float*)&a2->dataValues[a3->uint16_C]);
-				v69 = *(float*)&a2->dataValues[a3->uint16_E];
-				v70 = *(float*)&a2->dataValues[a3->uint16_10];
-				v26 = _mm_load_ps((float*)&a2->dataValues[a3->uint16_12]);
-				v27 = _mm_load_ps((float*)&a2->dataValues[a3->uint16_14]);
-				v58 = *(float*)&a2->dataValues[v7->stretchXOffset];
-				v28 = &a2->v1->m128_2DD0[v8];
-				v29 = v28->m128_f32[0];
-				if (fminf(v28->m128_f32[0], v28->m128_f32[2]) > 0.0)
-				{
-					if ((unsigned int)sub_FC0C0(a4, &rpakUIMGAtlases[(unsigned __int8)byte_12A2E50E[8 * v17]]))
-					{
-						v34 = _mm_unpacklo_ps(v26, v27);
-						v35 = _mm_setzero_ps();
-						v36 = *(_QWORD*)rpakUIMGAtlases[(unsigned __int8)byte_12A2E50E[8 * v17]].textureOffsets +
-							  32i64 * v19; // arg2 of function above
-						v37 = _mm_unpacklo_ps(_mm_load_ps(&v69), _mm_load_ps(&v70));
-						v38 = _mm_movelh_ps(v34, v34);
-						v27.m128_f32[0] = (float)(v27.m128_f32[0] - v70) * v58;
-						v59 = _mm_movelh_ps(v37, v37);
-						v60 = _mm_max_ps(_mm_sub_ps(v38, v59), (__m128)xmmword_5F3F30);
-						v39 = (__m128)xmmword_12A4E830[((__int64)v21 >> 4) & 3];
-						v35.m128_f32[0] =
-							(float)((float)(v28->m128_f32[2] * v58) * (float)(v26.m128_f32[0] - v69)) / v29; // v33 = v28.m128_f32[2]
-						v40 = _mm_unpacklo_ps(v35, v27);
-						v41 = _mm_div_ps(
-							_mm_add_ps(
-								_mm_sub_ps(*(__m128*)v36, _mm_xor_ps(_mm_and_ps(_mm_min_ps(v59, v38), v39), (__m128)xmmword_5F3E20)),
-								_mm_movelh_ps(v40, v40)),
-							_mm_or_ps(
-								_mm_and_ps(_mm_andnot_ps((__m128)xmmword_5F3DD0, v60), v39), _mm_andnot_ps(v39, (__m128)xmmword_5F3E90)));
-						if (!_mm_movemask_ps(_mm_cmplt_ps(v41, (__m128)xmmword_5F3F60)))
-						{
-							v42 = _mm_castps_si128(_mm_xor_ps(
-								_mm_min_ps(
-									_mm_movelh_ps(_mm_xor_ps(_mm_unpacklo_ps(v22, v23), (__m128)xmmword_5F3DD0), _mm_unpacklo_ps(v24, v25)),
-									v41),
-								(__m128)xmmword_5F3E20));
-							if (!_mm_movemask_ps(_mm_cmple_ps(
-									_mm_castsi128_ps(_mm_shuffle_epi32(v42, 238)), _mm_castsi128_ps(_mm_shuffle_epi32(v42, 68)))))
-							{
-								v43 = _mm_castpd_ps(_mm_loaddup_pd((const double*)(v36 + 24)));
-								v44 = v12;
-								v45 = _mm_mul_ps(v12, (__m128)xmmword_5F3E80);
-								v46 = _mm_mul_ps(_mm_mul_ps(v44, v60), v43);
-								v64[5] = _mm_setzero_ps();
-								v64[3] = _mm_setzero_ps();
-								v64[4] = _mm_setzero_ps();
-								v61.size = 4;
-								v47 = _mm_add_ps(
-									_mm_mul_ps(_mm_add_ps(_mm_mul_ps(v14, v60), v59), v43),
-									_mm_castsi128_ps(_mm_loadl_epi64((const __m128i*)(v36 + 16))));
-								v61.size_ = 4;
-								v48 = _mm_movelh_ps(v46, v45);
-								v49 = _mm_movehl_ps(v45, v46);
-								v50 = _mm_castsi128_ps(_mm_shuffle_epi32(v42, 125));
-								v51 = _mm_castsi128_ps(_mm_shuffle_epi32(v42, 160));
-								v64[0] = v48;
-								v64[1] = v49;
-								v64[2] = _mm_movelh_ps(v47, _mm_sub_ps(_mm_mul_ps(v14, (__m128)xmmword_5F3E80), (__m128)xmmword_5F3E90));
-								v52 = _mm_load_si128(&v9->m128_0); // v32 = v9
-								v53 = _mm_add_ps(
-									_mm_add_ps(
-										_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v52, 170)), v50),
-										_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v52, 0)), v51)),
-									_mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_10, 0)));
-								v54 = _mm_add_ps(
-									_mm_add_ps(
-										_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v52, 255)), v50),
-										_mm_mul_ps(_mm_castsi128_ps(_mm_shuffle_epi32(v52, 85)), v51)),
-									_mm_castsi128_ps(_mm_shuffle_epi32(v9->m128_10, 85)));
-								v55 = _mm_castps_si128(_mm_unpacklo_ps(v53, v54));
-								v56 = _mm_castps_si128(_mm_unpackhi_ps(v53, v54));
-								if (v11 == 2)
-								{
-									v55 = _mm_shuffle_epi32(v55, 78);
-									v56 = _mm_shuffle_epi32(v56, 78);
-								}
-								v57 = (__m128*)a2->pvoid_38;
-								*(__m128i*)&v61.vert[0][0] = v55;
-								*(__m128i*)&v61.vert[2][0] = v56;
-								funcs_5F4560[v57->m128_u32[0]](v57, v64, &v61, a4);
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-
-
-
-
-DECLARE_HOOK(
-	ruiUnknown9Func_2,
-	engine.dll + 0xF7A80,
-	[](auto& hook, __int64 a1, ruiDataStruct* a2, unknown9dataStruct_2* a3, struct_v3* a4)
-	{
-		//renderJobElipse(a1, a2, a3, a4);
-		hook.Original(a1, a2, a3, a4);
-	});
 
 //DECLARE_HOOK(ruiUnknown9Func_2, engine.dll + 0xF7A80, [] (auto& hook, __int64 a1, ruiDataStruct* a2, unknown9dataStruct_2* a3, struct_v3* a4)
 
@@ -1128,6 +946,180 @@ DECLARE_HOOK(sub_F9B80, engine.dll + 0xF9B80, [](auto& hook,globals* g,
 		return sub_F9B80_rebuild(g, ds, drawState, baseUv, a5, a6, nameHash, a8, a9, a10, a11);
 	});
 
+
+
+
+void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
+	globals** globals,
+	ruiDataStruct* ruiData,
+	unknown9dataStruct_2* assetElement,
+	struct_v3* batch)
+{
+	(void)globals;
+
+	const int styleDescriptorOffset = assetElement->uint8_18;
+	styleDescriptorsStruct* styleOffsets = &ruiData->header->styleDescriptors[styleDescriptorOffset];
+
+	auto dataFloat = [&](int offset) -> float
+	{
+		return *reinterpret_cast<const float*>(&ruiData->dataValues[offset]);
+	};
+
+	auto dataInt = [&](int offset) -> int
+	{
+		return *reinterpret_cast<const int*>(&ruiData->dataValues[offset]);
+	};
+
+	auto dataScalar = [&](int offset) -> __m128
+	{
+		return _mm_set_ss(dataFloat(offset));
+	};
+
+	if (dataFloat(styleOffsets->color_alpha) <= 0.0f)
+		return;
+
+	const __int64 transformIndex = assetElement->transformIndex;
+	testStruct* transform = &ruiData->v1->m128_3A80[transformIndex];
+	__m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
+	__m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
+	const __m128 determinant = _mm_sub_ps(
+		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 255), RUI_SHUFFLE_PS(transformRow0, 0)),
+		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 170), RUI_SHUFFLE_PS(transformRow0, 85)));
+	if (_mm_movemask_ps(_mm_cmpeq_ps(determinant, _mm_setzero_ps())) != 0)
+		return;
+
+	const int orientationMask = _mm_movemask_ps(determinant) & 2;
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, xmmword_5F3DD0), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
+
+	const int assetDescriptorIndex = dataInt(assetElement->uint16_4);
+	if (assetDescriptorIndex == -1)
+		return;
+
+	ruiBaseUvStruct uv;
+	uv.assetIndex2 = -1;
+	assetIndexData* assetDescriptor = &unk_12A2E508[8LL * assetDescriptorIndex];
+	const uint16_t assetIndex = assetDescriptor->assetIndex;
+	const uint8_t atlasIndex = assetDescriptor->atlasIndex;
+	const uint8_t assetFlags = assetDescriptor->flags;
+	spdlog::info("Asset descriptor index: {}, asset index: {}, atlas index: {}, asset flags: {}", assetDescriptorIndex, assetIndex, atlasIndex, assetFlags);
+
+	const __int16 combinedFlags = assetElement->word_16 | assetFlags;
+	uv.assetIndex = assetIndex;
+	uv.flags = combinedFlags;
+	uv.styleDescriptorIndex = static_cast<__int16>(styleDescriptorOffset + batch->styleDescriptorIndex);
+
+	const __m128 ellipseU0 = dataScalar(assetElement->uint16_6);
+	const __m128 ellipseV0 = dataScalar(assetElement->uint16_8);
+	const __m128 ellipseU1 = dataScalar(assetElement->uint16_A);
+	const __m128 ellipseV1 = dataScalar(assetElement->uint16_C);
+	const float insetX = dataFloat(assetElement->uint16_E);
+	const float insetY = dataFloat(assetElement->uint16_10);
+	const __m128 ellipseWidth = dataScalar(assetElement->uint16_12);
+	const __m128 ellipseHeight = dataScalar(assetElement->uint16_14);
+	const float stretchX = dataFloat(styleOffsets->stretchXOffset);
+
+	const __m128 transformSize = ruiData->v1->transformSizes[transformIndex];
+	const float transformWidth = transformSize.m128_f32[0];
+	const float transformHeight = transformSize.m128_f32[2];
+	if ((transformWidth < transformHeight ? transformWidth : transformHeight) <= 0.0f)
+		return;
+
+	uiImageAtlas* imageAtlas = &rpakUIMGAtlases[atlasIndex];
+	if (!sub_FC0C0(batch, imageAtlas))
+		return;
+	
+	const uint8_t* atlasRecordBase = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets);
+	const uint8_t* atlasRecord = atlasRecordBase + 32ULL * assetIndex;
+
+	const __m128 ellipseMax = _mm_movelh_ps(_mm_unpacklo_ps(ellipseWidth, ellipseHeight), _mm_unpacklo_ps(ellipseWidth, ellipseHeight));
+	const __m128 ellipseMin = _mm_movelh_ps(_mm_unpacklo_ps(_mm_set_ss(insetX), _mm_set_ss(insetY)), _mm_unpacklo_ps(_mm_set_ss(insetX), _mm_set_ss(insetY)));
+	const __m128 ellipseExtent = _mm_max_ps(_mm_sub_ps(ellipseMax, ellipseMin), xmmword_5F3F30);
+
+	
+	const __m128 axisMask = xmmword_12A4E830[16 * ((static_cast<__int64>(combinedFlags) >> 4) & 3)];
+	const float scaledX = ((transformHeight * stretchX) * (ellipseWidth.m128_f32[0] - insetX)) / transformWidth;
+	const float scaledY = (ellipseHeight.m128_f32[0] - insetY) * stretchX;
+	const __m128 scaledOffset = _mm_movelh_ps(_mm_unpacklo_ps(_mm_set_ss(scaledX), _mm_set_ss(scaledY)), _mm_unpacklo_ps(_mm_set_ss(scaledX), _mm_set_ss(scaledY)));
+
+	const __m128 atlasRect = _mm_loadu_ps(reinterpret_cast<const float*>(atlasRecord));
+	const __m128 normalizedRect = _mm_div_ps(
+		_mm_add_ps(
+			_mm_sub_ps(atlasRect, _mm_xor_ps(_mm_and_ps(_mm_min_ps(ellipseMin, ellipseMax), axisMask), xmmword_5F3E20)),
+			scaledOffset),
+		_mm_or_ps(
+			_mm_and_ps(_mm_andnot_ps(xmmword_5F3DD0, ellipseExtent), axisMask),
+			_mm_andnot_ps(axisMask, xmmword_5F3E90)));
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedRect, xmmword_5F3F60)) != 0)
+		return;
+
+	const __m128 clampedUv = _mm_xor_ps(
+		_mm_min_ps(
+			_mm_movelh_ps(
+				_mm_xor_ps(_mm_unpacklo_ps(ellipseU0, ellipseV0), xmmword_5F3DD0),
+				_mm_unpacklo_ps(ellipseU1, ellipseV1)),
+			normalizedRect),
+		xmmword_5F3E20);
+	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_PS(clampedUv, 238), RUI_SHUFFLE_PS(clampedUv, 68))) != 0)
+		return;
+
+	ruiDrawTriangle tri;
+	memset(&uv.base2, 0, 48);
+	tri.size = 4;
+	tri.size_ = 4;
+
+	const __m128 atlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(atlasRecord + 24)));
+	const __m128 halfBasis = _mm_mul_ps(inverseBasis, xmmword_5F3E80);
+	const __m128 scaledBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, ellipseExtent), atlasScale);
+	const __m128 atlasBase = _mm_add_ps(
+		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(originSum, ellipseExtent), ellipseMin), atlasScale),
+		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(atlasRecord + 16))));
+
+	uv.base = _mm_movelh_ps(scaledBasis, halfBasis);
+	uv.xDir = _mm_movehl_ps(halfBasis, scaledBasis);
+	uv.yDir = _mm_movelh_ps(atlasBase, _mm_sub_ps(_mm_mul_ps(originSum, xmmword_5F3E80), xmmword_5F3E90));
+
+	const __m128 u = RUI_SHUFFLE_PS(clampedUv, 125);
+	const __m128 v = RUI_SHUFFLE_PS(clampedUv, 160);
+	const __m128i transformRows0 = _mm_load_si128(reinterpret_cast<const __m128i*>(&transform->m128_0));
+	const __m128 projectedX = _mm_add_ps(
+		_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 170), u), _mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 0), v)),
+		RUI_SHUFFLE_PS(transformRow1, 0));
+	const __m128 projectedY = _mm_add_ps(
+		_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 255), u), _mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 85), v)),
+		RUI_SHUFFLE_PS(transformRow1, 85));
+
+	__m128 quad0 = _mm_unpacklo_ps(projectedX, projectedY);
+	__m128 quad1 = _mm_unpackhi_ps(projectedX, projectedY);
+	if (orientationMask == 2)
+	{
+		quad0 = RUI_SHUFFLE_PS(quad0, 78);
+		quad1 = RUI_SHUFFLE_PS(quad1, 78);
+	}
+
+	_mm_storeu_ps(&tri.vert[0][0], quad0);
+	_mm_storeu_ps(&tri.vert[1][0], quad1);
+
+	ruiDrawInfoDataWeapon* drawInfo = ruiData->pvoid_38;
+	ruiDrawInfo_5f4560[drawInfo->type](
+		drawInfo,
+		&uv,
+		&tri,
+		batch);
+}
+
+
+
+DECLARE_HOOK(
+	ruiUnknown9Func_2,
+	engine.dll + 0xF7A80,
+	[](auto& hook, globals** a1, ruiDataStruct* a2, unknown9dataStruct_2* a3, struct_v3* a4)
+	{
+		//ruiRenderAssetElipse_F7A80_rebuild(a1, a2, a3, a4);
+		hook.Original(a1, a2, a3, a4);
+	});
+
 ON_DLL_LOAD("rtech_game.DLL", AtlasRpak, [](CModule module)
 {
 	DISPATCH_MODULE(AtlasTest);
@@ -1169,7 +1161,7 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	byte_12A2E50E = module.Offset(0x12A2E50E).RCast<uint8_t*>();
 	byte_12A2E50F = module.Offset(0x12A2E50F).RCast<uint8_t*>();
 	uiFontAtlases = module.Offset(0x12A26080).RCast<uiFontAtlas*>(); // font atlas lol
-	unk_12A2E508 = module.Offset(0x12A2E508).RCast<char*>();
+	unk_12A2E508 = module.Offset(0x12A2E508).RCast<assetIndexData*>();
 
 	xmmword_12A4E830 = module.Offset(0x12A4E830).RCast<__m128*>();
 	funcs_5F4560 = module.Offset(0x5F4560).RCast<funcs5F4560Type*>();
