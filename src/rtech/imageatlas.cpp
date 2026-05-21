@@ -237,6 +237,40 @@ struct ruiUnknown10
 	float* data;
 };
 
+struct Float2Offsets
+{
+	uint16_t x;
+	uint16_t y;
+};
+
+struct Float4Offsets
+{
+	uint16_t x;
+	uint16_t y;
+	uint16_t z;
+	uint16_t w;
+};
+
+struct AssetRenderOffsets
+{
+  uint16_t type;
+  uint16_t transformIndex;
+  uint16_t assetIndex_0;
+  uint16_t assetIndex_1;
+  Float2Offsets mins;
+  Float2Offsets maxs;
+  Float2Offsets texMins;
+  Float2Offsets texMaxs;
+  Float2Offsets maskCenter;
+  uint16_t maskRotation;
+  Float2Offsets maskTranslate;
+  Float2Offsets maskSize;
+  uint16_t flags;
+  uint8_t styleIndex;
+  char pad_29;
+};
+
+
 struct unknown9dataStruct_2
 {
 	uint16_t type;
@@ -546,6 +580,20 @@ __m128 xmmword_12A14650;
 __m128 xmmword_12A146A0;
 __m128 xmmword_12A146B0;
 __m128 xmmword_12A146D0;
+
+__m128 xmmword_5CB2A0;
+__m128 xmmword_5F34E0;
+__m128 xmmword_5F34B0;
+__m128 xmmword_5F3510;
+__m128 xmmword_5F3490;
+__m128 xmmword_5F3500;
+__m128 xmmword_5F34A0;
+__m128 xmmword_5F3470;
+__m128 xmmword_5F34F0;
+__m128 xmmword_5F3460;
+__m128 xmmword_5F3E00;
+__m128 xmmword_5F34C0;
+__m128 xmmword_5F45D0;
 
 BYTE* fontIndices;
 
@@ -1110,6 +1158,220 @@ void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
 }
 
 
+void __fastcall ruiRenderAsset_F72F0_rebuild(
+	globals** globals,
+	ruiDataStruct* ruiData,
+	AssetRenderOffsets* assetElement,
+	struct_v3* batch)
+{
+	const __int16 styleIndex = assetElement->styleIndex;
+	styleDescriptorsStruct* styleOffsets = &ruiData->header->styleDescriptors[styleIndex];
+
+	auto dataFloat = [&](int offset) -> float
+	{
+		return *reinterpret_cast<const float*>(&ruiData->dataValues[offset]);
+	};
+
+	auto dataInt = [&](int offset) -> int
+	{
+		return *reinterpret_cast<const int*>(&ruiData->dataValues[offset]);
+	};
+
+	auto dataScalar = [&](int offset) -> __m128
+	{
+		return _mm_set_ss(dataFloat(offset));
+	};
+
+	if (dataFloat(styleOffsets->color_alpha) <= 0.0f)
+		return;
+
+	testStruct* transform = &ruiData->v1->m128_3A80[assetElement->transformIndex];
+	const __m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
+	const __m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
+	const __m128 determinant = _mm_sub_ps(
+		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(3, 3, 3, 3)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(0, 0, 0, 0))),
+		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(2, 2, 2, 2)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(1, 1, 1, 1))));
+	if (_mm_movemask_ps(_mm_cmpeq_ps(_mm_setzero_ps(), determinant)) != 0)
+		return;
+
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
+	const int orientation = _mm_movemask_ps(determinant) & 2;
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, xmmword_5F3DD0), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
+
+	const int primaryAssetDescriptorIndex = dataInt(assetElement->assetIndex_0);
+	if (primaryAssetDescriptorIndex == -1)
+		return;
+
+	const auto* primaryAsset = &unk_12A2E508[primaryAssetDescriptorIndex];
+	const __int64 primaryNameHash = reinterpret_cast<__int64>(primaryAsset);
+	const uint8_t atlasIndex = primaryAsset->atlasIndex;
+	const __int16 assetIndex = primaryAsset->assetIndex;
+	__int16 secondaryAssetIndex = -1;
+	__int16 flags = assetElement->flags | static_cast<uint8_t>(primaryAsset->flags);
+
+	const int secondaryAssetDescriptorIndex = dataInt(assetElement->assetIndex_1);
+	if (secondaryAssetDescriptorIndex != -1)
+	{
+		const auto* secondaryAsset = &unk_12A2E508[secondaryAssetDescriptorIndex];
+		if (atlasIndex != secondaryAsset->atlasIndex)
+			return;
+
+		secondaryAssetIndex = secondaryAsset->assetIndex;
+		flags |= static_cast<__int16>(4 * static_cast<uint8_t>(secondaryAsset->flags));
+	}
+
+	uiImageAtlas* imageAtlas = reinterpret_cast<uiImageAtlas*>(
+		reinterpret_cast<uint8_t*>(rpakUIMGAtlases) + 72ULL * atlasIndex);
+	const uint8_t* textureOffsets = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets);
+	const uint8_t* primaryTextureRecord = textureOffsets + 32ULL * static_cast<uint16_t>(assetIndex);
+
+	const __m128 mins = _mm_unpacklo_ps(dataScalar(assetElement->mins.x), dataScalar(assetElement->mins.y));
+	const __m128 maxs = _mm_unpacklo_ps(dataScalar(assetElement->maxs.x), dataScalar(assetElement->maxs.y));
+	const __m128 texMinsLo = _mm_unpacklo_ps(dataScalar(assetElement->texMins.x), dataScalar(assetElement->texMins.y));
+	__m128 texMins = _mm_movelh_ps(texMinsLo, texMinsLo);
+	const __m128 texMaxsLo = _mm_unpacklo_ps(dataScalar(assetElement->texMaxs.x), dataScalar(assetElement->texMaxs.y));
+	__m128 texMaxs = _mm_movelh_ps(texMaxsLo, texMaxsLo);
+	__m128 geometryBounds = _mm_movelh_ps(_mm_xor_ps(xmmword_5F3DD0, mins), maxs);
+	__m128 textureExtent = _mm_sub_ps(texMaxs, texMins);
+
+	const __m128 axisMask = xmmword_12A4E830[((static_cast<__int64>(flags) >> 4) & 3)];
+	const __m128 primaryTextureOffset = _mm_loadu_ps(reinterpret_cast<const float*>(primaryTextureRecord));
+	const __m128 normalizedTextureOffset = _mm_div_ps(
+		_mm_sub_ps(primaryTextureOffset, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), xmmword_5F3E20)),
+		_mm_or_ps(
+			_mm_and_ps(_mm_andnot_ps(xmmword_5F3DD0, textureExtent), axisMask),
+			_mm_andnot_ps(axisMask, xmmword_5F3E90)));
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureOffset, xmmword_5F3F60)) != 0)
+		return;
+
+	__m128i atlasUv = _mm_castps_si128(_mm_xor_ps(_mm_min_ps(geometryBounds, normalizedTextureOffset), xmmword_5F3E20));
+	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_I32_AS_PS(atlasUv, 238), RUI_SHUFFLE_I32_AS_PS(atlasUv, 68))) != 0)
+		return;
+
+	ruiBaseUvStruct baseUv;
+	baseUv.assetIndex = assetIndex;
+	baseUv.assetIndex2 = secondaryAssetIndex;
+	baseUv.flags = flags;
+	baseUv.styleDescriptorIndex = static_cast<__int16>(styleIndex + batch->styleDescriptorIndex);
+
+	const __m128 texturePosition = _mm_add_ps(_mm_mul_ps(originSum, textureExtent), texMins);
+	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(primaryTextureRecord + 24)));
+	const __m128 basisExtent = _mm_mul_ps(inverseBasis, textureExtent);
+	const __m128 primaryBase = _mm_add_ps(
+		_mm_mul_ps(textureScale, texturePosition),
+		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(primaryTextureRecord + 16))));
+	const __m128 primaryBasis = _mm_mul_ps(textureScale, basisExtent);
+
+	__m128 maskBase = _mm_setzero_ps();
+	__m128 maskBasis = _mm_setzero_ps();
+	if (secondaryAssetIndex == -1)
+	{
+		const __m128 minXy = RUI_SHUFFLE_PS(mins, 68);
+		const __m128 spanXy = _mm_max_ps(xmmword_5F3F30, _mm_sub_ps(RUI_SHUFFLE_PS(maxs, 68), minXy));
+		const __m128 spanReciprocal = _mm_rcp_ps(spanXy);
+		const __m128 spanError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(spanReciprocal, spanXy));
+		const __m128 refinedSpanReciprocal = _mm_add_ps(
+			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(spanError, spanError), spanError), spanReciprocal),
+			spanReciprocal);
+
+		maskBasis = _mm_mul_ps(inverseBasis, refinedSpanReciprocal);
+		maskBase = _mm_mul_ps(_mm_sub_ps(originSum, minXy), refinedSpanReciprocal);
+	}
+	else
+	{
+		const uint8_t* secondaryTextureRecord = textureOffsets + 32ULL * static_cast<uint16_t>(secondaryAssetIndex);
+		const __m128 maskRotation = dataScalar(assetElement->maskRotation);
+		const __m128 maskCenter = _mm_unpacklo_ps(dataScalar(assetElement->maskCenter.x), dataScalar(assetElement->maskCenter.y));
+		const __m128 maskSize = _mm_unpacklo_ps(dataScalar(assetElement->maskSize.x), dataScalar(assetElement->maskSize.y));
+		const __m128 maskTranslate = _mm_unpacklo_ps(dataScalar(assetElement->maskTranslate.x), dataScalar(assetElement->maskTranslate.y));
+
+		const __m128 rotationTurns = _mm_mul_ps(
+			_mm_add_ps(_mm_xor_ps(RUI_SHUFFLE_PS(maskRotation, 0), xmmword_5F3E00), xmmword_5F45D0),
+			xmmword_5F34C0);
+		const __m128i rotationQuadrant = _mm_cvtps_epi32(rotationTurns);
+		const __m128 quadrantIsEven = _mm_castsi128_ps(_mm_cmpeq_epi32(
+			_mm_and_si128(_mm_castps_si128(xmmword_5F3460), rotationQuadrant),
+			_mm_setzero_si128()));
+		const __m128 rotationFraction = _mm_sub_ps(rotationTurns, _mm_cvtepi32_ps(rotationQuadrant));
+		const __m128 fractionSq = _mm_mul_ps(rotationFraction, rotationFraction);
+
+		const __m128 cosApprox = _mm_sub_ps(
+			xmmword_5F3E90,
+			_mm_sub_ps(
+				fractionSq,
+				_mm_mul_ps(
+					_mm_add_ps(
+						_mm_mul_ps(
+							_mm_add_ps(
+								_mm_mul_ps(
+									_mm_add_ps(_mm_mul_ps(xmmword_5F3470, fractionSq), xmmword_5F34F0),
+									fractionSq),
+								xmmword_5F34A0),
+							fractionSq),
+						xmmword_5F3500),
+					fractionSq)));
+		const __m128 sinApprox = _mm_add_ps(
+			_mm_mul_ps(
+				_mm_add_ps(
+					_mm_mul_ps(
+						_mm_add_ps(
+							_mm_mul_ps(
+								_mm_add_ps(_mm_mul_ps(xmmword_5F34E0, fractionSq), xmmword_5F3490),
+								fractionSq),
+							xmmword_5F3510),
+						fractionSq),
+					xmmword_5F34B0),
+				rotationFraction),
+			rotationFraction);
+		const __m128 quadrantSign = _mm_castsi128_ps(_mm_slli_epi32(
+			_mm_and_si128(_mm_castps_si128(xmmword_5CB2A0), rotationQuadrant),
+			0x1E));
+		const __m128 rotationBasis = _mm_mul_ps(
+			_mm_xor_ps(_mm_or_ps(_mm_andnot_ps(quadrantIsEven, cosApprox), _mm_and_ps(sinApprox, quadrantIsEven)), quadrantSign),
+			_mm_movelh_ps(maskSize, maskSize));
+
+		const __m128 maskTextureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(secondaryTextureRecord + 24)));
+		const __m128 maskTextureCenter = _mm_add_ps(_mm_mul_ps(_mm_movelh_ps(maskCenter, maskCenter), textureExtent), texMins);
+		const __m128 rotatedPosition = _mm_mul_ps(RUI_SHUFFLE_PS(_mm_sub_ps(texturePosition, maskTextureCenter), 216), rotationBasis);
+		const __m128 maskTexturePosition = _mm_mul_ps(
+			_mm_add_ps(_mm_add_ps(maskTranslate, maskTextureCenter), _mm_add_ps(RUI_SHUFFLE_PS(rotatedPosition, 78), rotatedPosition)),
+			maskTextureScale);
+		maskBasis = _mm_mul_ps(
+			_mm_add_ps(
+				_mm_mul_ps(RUI_SHUFFLE_PS(rotationBasis, 78), RUI_SHUFFLE_PS(basisExtent, 165)),
+				_mm_mul_ps(RUI_SHUFFLE_PS(basisExtent, 240), rotationBasis)),
+			maskTextureScale);
+		maskBase = _mm_add_ps(maskTexturePosition, _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(secondaryTextureRecord + 16))));
+	}
+
+	const __m128 zero = _mm_setzero_ps();
+	baseUv.base = _mm_movelh_ps(primaryBasis, maskBasis);
+	baseUv.yDir2 = zero;
+	baseUv.yDir = _mm_movelh_ps(primaryBase, maskBase);
+	baseUv.xDir = _mm_movehl_ps(maskBasis, primaryBasis);
+	baseUv.base2 = zero;
+	baseUv.xDir2 = zero;
+
+	sub_F9B80_rebuild(
+		*globals,
+		ruiData,
+		batch,
+		&baseUv,
+		reinterpret_cast<__m128*>(transform),
+		orientation,
+		primaryNameHash,
+		&atlasUv,
+		&geometryBounds,
+		&texMins,
+		&textureExtent);
+};
+
+DECLARE_HOOK(renderAsset_F72F0, engine.dll + 0xF72F0, [](auto& hook, globals** a1, ruiDataStruct* a2, AssetRenderOffsets* a3, struct_v3* a4)
+	{
+		ruiRenderAsset_F72F0_rebuild(a1, a2, a3, a4);
+		//hook.Original(a1, a2, a3, a4);
+	});
 
 DECLARE_HOOK(
 	ruiUnknown9Func_2,
@@ -1149,6 +1411,20 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	xmmword_5F3F60 = *module.Offset(0x5F3F60).RCast<__m128*>();
 	xmmword_5F4600 = *module.Offset(0x5F4600).RCast<__m128*>();
 	xmmword_5F4610 = *module.Offset(0x5F4610).RCast<__m128*>();
+
+	xmmword_5CB2A0 = *module.Offset(0x5CB2A0).RCast<__m128*>();
+	xmmword_5F34E0 = *module.Offset(0x5F34E0).RCast<__m128*>();
+	xmmword_5F34B0 = *module.Offset(0x5F34B0).RCast<__m128*>();
+	xmmword_5F3510 = *module.Offset(0x5F3510).RCast<__m128*>();
+	xmmword_5F3490 = *module.Offset(0x5F3490).RCast<__m128*>();
+	xmmword_5F3500 = *module.Offset(0x5F3500).RCast<__m128*>();
+	xmmword_5F34A0 = *module.Offset(0x5F34A0).RCast<__m128*>();
+	xmmword_5F3470 = *module.Offset(0x5F3470).RCast<__m128*>();
+	xmmword_5F34F0 = *module.Offset(0x5F34F0).RCast<__m128*>();
+	xmmword_5F3460 = *module.Offset(0x5F3460).RCast<__m128*>();
+	xmmword_5F3E00 = *module.Offset(0x5F3E00).RCast<__m128*>();
+	xmmword_5F34C0 = *module.Offset(0x5F34C0).RCast<__m128*>();
+	xmmword_5F45D0 = *module.Offset(0x5F45D0).RCast<__m128*>();
 
 	xmmword_12A14650 = *module.Offset(0x12A14650).RCast<__m128*>();
 	xmmword_12A146A0 = *module.Offset(0x12A146A0).RCast<__m128*>();
