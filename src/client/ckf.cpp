@@ -84,7 +84,7 @@ bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 					if (Cvar_ckf_logging->GetBool())
 						spdlog::info("crouchkick: {}ms CROUCH IS EARLY", sinceCrouch / 1000.0f);
 						// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; time=delta between inputs (microseconds)
-						g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, false, sinceCrouch);
+						g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, false,true, sinceCrouch);
 					jumpSentTime = real;
 				}
 				else
@@ -103,8 +103,8 @@ bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 					jumpHolder.Release();
 					if (Cvar_ckf_logging->GetBool())
 						spdlog::info("crouchkick: {}ms JUMP IS EARLY", sinceJump / 1000.0f);
-					// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; time=delta between inputs (microseconds)
-					g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, sinceJump);
+					// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
+					g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, true,sinceJump);
 					jumpSentTime = real;
 				}
 				else
@@ -160,8 +160,8 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 			{
 				if (Cvar_ckf_logging->GetBool())
 					spdlog::info("not crouchkick: {}ms CROUCH IS EARLY", e / 1000.0f);
-				// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; time=delta between inputs (microseconds)
-				g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, false, e);
+				// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
+				g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, false,false, e);
 			}
 
 			jumptime = jumpHolder.timestamp;
@@ -181,8 +181,8 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 			{
 				if (Cvar_ckf_logging->GetBool())
 					spdlog::info("not crouchkick: {}ms JUMP IS EARLY", e / 1000.0f);
-				// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; time=delta between inputs (microseconds)
-				g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, e);
+				// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
+				g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, false, e);
 			}
 
 			crouchtime = crouchHolder.timestamp;
