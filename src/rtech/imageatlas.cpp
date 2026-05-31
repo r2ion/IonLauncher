@@ -501,8 +501,8 @@ typedef int64_t (*sub_F9B80Type)(
 	__m128* a9,
 	 __m128 *a10, __m128 *a11);
 
-typedef __int64 (*sub_F2C40Type)(char** a1);
-sub_F2C40Type sub_F2C40;
+typedef __int64 (*readUnicodeCharacter_F2C40Type)(char** a1);
+readUnicodeCharacter_F2C40Type readUnicodeCharacter_F2C40;
 typedef __int64 (*funcs5F4560Type)(__m128* a1, __m128* a2, ruiDrawTriangle* a3, struct_v3* a4);
 
  //uiImageAtlas rpakUIMGAtlases[50];
@@ -1684,7 +1684,7 @@ void __fastcall renderText_F5840_rebuild(
 			{
 				for (;;)
 				{
-					codepoint = sub_F2C40(&activeCursor);
+					codepoint = readUnicodeCharacter_F2C40(&activeCursor);
 					++parsedCount;
 					styleEscapeCount = parsedCount;
 					if (codepoint == '%')
@@ -2015,7 +2015,7 @@ void __fastcall renderText_F5840_rebuild(
 				const uint8_t* unicodeAsset = *reinterpret_cast<const uint8_t**>(assetIndexData_12A4E510) + 8LL * static_cast<uint16_t>(codepoint);
 				const __int16 unicodeTextureIndex = *reinterpret_cast<const __int16*>(unicodeAsset + 4);
 				const uint8_t unicodeAtlasIndex = unicodeAsset[6];
-				uiImageAtlas* unicodeAtlas = reinterpret_cast<uiImageAtlas*>(reinterpret_cast<uint8_t*>(rpakUIMGAtlases) + 72ULL * unicodeAtlasIndex);
+				uiImageAtlas* unicodeAtlas = &rpakUIMGAtlases[ unicodeAtlasIndex];
 				const uint8_t* unicodeDimensions = reinterpret_cast<const uint8_t*>(unicodeAtlas->textureDimensions) + 4LL * static_cast<uint16_t>(unicodeTextureIndex);
 				const float unicodeWidth = static_cast<float>(*reinterpret_cast<const uint16_t*>(unicodeDimensions));
 
@@ -2030,7 +2030,7 @@ void __fastcall renderText_F5840_rebuild(
 					else
 					{
 						const float* unicodeOffset = reinterpret_cast<const float*>(
-							reinterpret_cast<const uint8_t*>(unicodeAtlas->textureOffsets) + 32LL * static_cast<uint16_t>(unicodeTextureIndex));
+							reinterpret_cast<const uint8_t*>(unicodeAtlas->pointer_20) + 32LL * static_cast<uint16_t>(unicodeTextureIndex));
 						const float scaledWidth = refinedTransformSizeReciprocal.m128_f32[0] * unicodeWidth;
 						currentAdvance += scaledWidth * unicodeOffset[0];
 						carryAdvance = scaledWidth * unicodeOffset[2];
@@ -2120,7 +2120,7 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	xmmword_12A4E830 = module.Offset(0x12A4E830).RCast<__m128*>();
 	funcs_5F4560 = module.Offset(0x5F4560).RCast<funcs5F4560Type*>();
 	sub_FC0C0 = module.Offset(0xFC0C0).RCast<sub_FC0C0Type>();
-	sub_F2C40 = module.Offset(0xF2C40).RCast<sub_F2C40Type>();
+	readUnicodeCharacter_F2C40 = module.Offset(0xF2C40).RCast<readUnicodeCharacter_F2C40Type>();
 	rpakFontPointers = module.Offset(0x12A4E550).RCast<rpakFont**>();
 
 	getFontGlyphIndex = module.Offset(0xFAE80).RCast<getFontGlyphIndexType>();
