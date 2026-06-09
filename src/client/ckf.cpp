@@ -224,7 +224,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 {
 	v_KeyInfoArray = module.Offset(0x1396C5C0).RCast<KeyInfo_t*>();
 
-	Cvar_ckf_enabled = new ConVar("ckf_enabled", "1", FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL, "Enable crouch kick fix. 1 = enabled, 0 = disabled.");
+	Cvar_ckf_enabled = new ConVar("ckf_enabled", "0", FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL, "Enable crouch kick fix. 1 = enabled, 0 = disabled.");
 	Cvar_ckf_logging = new ConVar(
 			"ckf_logging",
 			"0",
