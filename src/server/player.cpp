@@ -7,6 +7,10 @@ DECLARE_MODULE(PlayerHooks)
 const char* (*GetWeaponName)(int index);
 void* (*GetWeaponOwner)(uint64_t weapon_entity);
 DECLARE_HOOK(PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, __int64 a1, int a2) -> bool {
+	if(!a1) {
+		spdlog::info("PrimaryAttack called with null weapon entity");
+		return hook.Original(a1,a2);
+	}
 	void* player = GetWeaponOwner(a1);
 	if(!player)
 		return hook.Original(a1,a2);
