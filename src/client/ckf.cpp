@@ -50,9 +50,16 @@ void FindBinds()
 
 uint64_t lastCrouchKickTime = 0;
 static bool isMenuOpen;
+static void CancelHeldInputs()
+{
+	jumpHolder.waitingToSend = false;
+	crouchHolder.waitingToSend = false;
+}
+
 DECLARE_HOOK(OpenMenu, client.dll + 0x3B3EE0, ([](auto& hook, void* sqvm)
 {
 	isMenuOpen = true;
+	CancelHeldInputs();
 	hook.Original(sqvm);
 }));
 
@@ -70,6 +77,7 @@ bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 	EnsureCKFOriginals();
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
 	if (isMenuOpen) {
+		CancelHeldInputs();
 		return false;
 	}
 	if (nType == IE_ButtonPressed)
