@@ -413,6 +413,9 @@ template <ScriptContext context> bool __fastcall CSquirrelVM_initHook(CSquirrelV
 			std::string path = std::string("scripts/vscripts/") + mod.initScript;
 			if (g_pSquirrel[context]->compilefile(vm, path.c_str(), name.c_str(), 0))
 				g_pSquirrel[context]->compilefile(vm, path.c_str(), name.c_str(), 1);
+			else {
+				spdlog::error("InitScript {} failed to compile for mod {}", mod.initScript, mod.Name);
+			}
 
 			if (mod.initScriptCallBack.has_value())
 			{
