@@ -56,17 +56,41 @@ static void CancelHeldInputs()
 	crouchHolder.waitingToSend = false;
 }
 
-DECLARE_HOOK(OpenMenu, client.dll + 0x3B3EE0, ([](auto& hook, void* sqvm)
+__int64 (*sub_52FD70)();
+__int64 (*sub_114F0)(__int64, SQObject*, __int64);
+__int64 qword_23E6A98;
+
+const char* GetHudName(SQObject* obj)
 {
-	isMenuOpen = true;
-	CancelHeldInputs();
+	__int64 v3 = sub_52FD70();
+	__int64 v4 = sub_114F0(qword_23E6A98, obj, v3);
+	const char* v5 = (const char*)(*(__int64(__fastcall**)(_QWORD))(**(_QWORD**)(v4 + 40) + 168LL))(*(_QWORD*)(v4 + 40));
+	return v5;
+}
+
+DECLARE_HOOK(OpenMenu, client.dll + 0x3B3EE0, ([](auto& hook, SQVM* sqvm)
+{
+	SQObject obj;
+	g_pSquirrel[ScriptContext::CLIENT]->__sq_getobject(sqvm,1, &obj);
+	auto name = GetHudName(&obj);
+	if(strcmp(name,"menu_BurnCardMenu") == 0)
+	{
+		CancelHeldInputs();
+		isMenuOpen = true;
+	}
 	hook.Original(sqvm);
 }));
 
 
-DECLARE_HOOK(CloseMenu, client.dll + 0x3B3C30, ([](auto& hook, void* sqvm)
+DECLARE_HOOK(CloseMenu, client.dll + 0x3B3C30, ([](auto& hook, SQVM* sqvm)
 {
-	isMenuOpen = false;
+	SQObject obj;
+	g_pSquirrel[ScriptContext::CLIENT]->__sq_getobject(sqvm,1, &obj);
+	auto name = GetHudName(&obj);
+	if(strcmp(name,"menu_BurnCardMenu") == 0)
+	{
+		isMenuOpen = false;
+	}
 	hook.Original(sqvm);
 }));
 bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
@@ -226,6 +250,9 @@ ON_DLL_LOAD_CLIENT("engine.dll", CKFHooksEngine, [](CModule module) {
 
 ON_DLL_LOAD_CLIENT("client.dll", CKFHooksClient, [](CModule module) {
 	DISPATCH_MODULE(CKFHooks);
+	sub_114F0 = module.Offset(0x114F0).RCast<decltype(sub_114F0)>();
+	sub_52FD70 = module.Offset(0x52FD70).RCast<decltype(sub_52FD70)>();
+	qword_23E6A98 = module.Offset(0x23E6A98).CCast<uintptr_t>();
 });
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
