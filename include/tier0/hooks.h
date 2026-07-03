@@ -41,6 +41,24 @@
 // Forward declarations from core hooks system
 uintptr_t ParseDLLOffsetString(const char* pAddrString);
 
+
+inline void HookAttach(PVOID* ppOriginal, PVOID pDetour)
+{
+	PVOID pAddr = *ppOriginal;
+	if (MH_CreateHook(pAddr, pDetour, ppOriginal) == MH_OK)
+	{
+		if (MH_EnableHook(pAddr) != MH_OK)
+		{
+			spdlog::error("Failed enabling a function hook!");
+		}
+	}
+	else
+	{
+		spdlog::error("Failed creating a function hook!");
+	}
+}
+
+
 //-----------------------------------------------------------------------------
 // Purpose: Init minhook
 //-----------------------------------------------------------------------------

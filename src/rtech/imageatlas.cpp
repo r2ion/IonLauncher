@@ -840,6 +840,7 @@ void __fastcall sub_F9B80_rebuild(
 		reciprocalScale);
 
 	const __m128 canvasSize = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&ruiData->canvasWidth)));
+
 	const __m128 flippedAtlasRect = _mm_xor_ps(atlasRect, xmmword_5F3E70);
 	const __m128 atlasMin = _mm_and_ps(atlasRect, xmmword_12A14650);
 	const __m128 atlasExtent = _mm_add_ps(RUI_SHUFFLE_PS(atlasRect, 238), flippedAtlasRect);
