@@ -480,7 +480,7 @@ void*, __fastcall, (const char* pPath, void* pCallback))
 	const uintptr_t pathPtr = reinterpret_cast<uintptr_t>(pPath);
 	if (pPath == NULL || (pathPtr & 0xFFFF000000000000ull) == 0xFFFF000000000000ull)
 	{
-		NS::log::rpak->warn("OpenFile called with invalid pPath pointer: 0x{:X}", pathPtr);
+		//NS::log::rpak->warn("OpenFile called with invalid pPath pointer: 0x{:X}", pathPtr);
 		return nullptr;
 	}
 
