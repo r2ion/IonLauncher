@@ -61,8 +61,6 @@ DECLARE_HOOK(PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, void* weapon, 
 	if(player_inst && weapon_inst && weapon_name)
 		g_pSquirrel[ScriptContext::SERVER]->Call("CodeCallback_OnWeaponAttack", player_inst, weapon_inst ,weapon_name, 1);
 
-	sq->Call("CodeCallback_OnWeaponAttack", player, weapon, weaponName, 1);
-
 	return ret;
 })
 
