@@ -4,6 +4,10 @@
 #include <spdlog/sinks/base_sink.h>
 #include <map>
 
+class CGameConsole;
+
+extern CGameConsole* g_pGameConsole;
+
 class EditablePanel
 {
 public:

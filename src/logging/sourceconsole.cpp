@@ -79,6 +79,13 @@ HOOK(OnCommandSubmittedHook, OnCommandSubmitted,
 void, __fastcall, (CConsoleDialog* consoleDialog, const char* pCommand))
 // clang-format on
 {
+	// just in case honestly
+	if (!pCommand)
+	{
+		OnCommandSubmitted(consoleDialog, pCommand);
+		return;
+	}
+
 	if (ConMsg)
 		ConMsg("] %s\n", pCommand);
 

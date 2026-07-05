@@ -52,25 +52,23 @@ void PrintCommandHelpDialogue(const ConCommandBase* command, const char* name)
 void TryPrintCvarHelpForCommand(const char* pCommand)
 {
 	// try to display help text for an inputted command string from the console
-	size_t pCommandLen = strlen(pCommand);
-	char* pCvarStr = new char[pCommandLen];
-	strcpy(pCvarStr, pCommand);
+	std::string cvarStr = pCommand ? pCommand : "";
+	if (cvarStr.empty())
+		return;
 
 	// trim whitespace from right
-	for (size_t i = pCommandLen - 1; i; i--)
+	while (!cvarStr.empty() && isspace(static_cast<unsigned char>(cvarStr.back())))
 	{
-		if (isspace(pCvarStr[i]))
-			pCvarStr[i] = '\0';
-		else
-			break;
+		cvarStr.pop_back();
 	}
 
-	// check if we're inputting a cvar, but not setting it at all
-	ConVar* cvar = g_pCVar->FindVar(pCvarStr);
-	if (cvar)
-		PrintCommandHelpDialogue(&cvar->m_ConCommandBase, pCvarStr);
+	if (cvarStr.empty())
+		return;
 
-	delete[] pCvarStr;
+	// check if we're inputting a cvar, but not setting it at all
+	ConVar* cvar = g_pCVar->FindVar(cvarStr.c_str());
+	if (cvar)
+		PrintCommandHelpDialogue(&cvar->m_ConCommandBase, cvarStr.c_str());
 }
 
 void ConCommand_help(const CCommand& arg)
@@ -147,17 +145,16 @@ void ConCommand_findflags(const CCommand& arg)
 	}
 
 	// convert input flag to uppercase
-	char* upperFlag = new char[strlen(arg.Arg(1))];
-	strcpy(upperFlag, arg.Arg(1));
+	std::string upperFlag = arg.Arg(1);
 
-	for (int i = 0; upperFlag[i]; i++)
-		upperFlag[i] = toupper(upperFlag[i]);
+	for (char& ch : upperFlag)
+		ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
 
 	// resolve flag name => int flags
 	int resolvedFlag = FCVAR_NONE;
 	for (auto& flagPair : g_PrintCommandFlags)
 	{
-		if (!strcmp(flagPair.second, upperFlag))
+		if (!strcmp(flagPair.second, upperFlag.c_str()))
 		{
 			resolvedFlag |= flagPair.first;
 			break;
@@ -182,8 +179,6 @@ void ConCommand_findflags(const CCommand& arg)
 		if (map.second->m_nFlags & resolvedFlag)
 			PrintCommandHelpDialogue(map.second, map.second->m_pszName);
 	}
-
-	delete[] upperFlag;
 }
 
 void ConCommand_list(const CCommand& arg)
