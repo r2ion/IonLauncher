@@ -120,6 +120,7 @@ struct unknown2
 	_BYTE byte_6;
 	_BYTE byte_7;
 };
+static_assert(sizeof(unknown2) == 0x8);
 
 struct testStruct
 {
@@ -135,8 +136,7 @@ struct struct_v1
 	_DWORD dword_10;
 	_DWORD dword_14;
 	_QWORD qword_18;
-	unknown2 unk2[1];
-	_BYTE gap_28[1424];
+	unknown2 unk2[179];
 	unsigned int dword_5B8;
 	_BYTE gap_5BC[8200];
 	// Sixty-four line-break triples followed by the final-line-width sentinel.
@@ -149,6 +149,7 @@ struct struct_v1
 	testStruct m128_3A80[3];
 };
 static_assert(offsetof(struct_v1, float_25C4) == 0x25C4);
+static_assert(offsetof(struct_v1, dword_5B8) == 0x5B8);
 static_assert(offsetof(struct_v1, dword_28C8) == 0x28C8);
 static_assert(offsetof(struct_v1, dword_28CC) == 0x28CC);
 static_assert(offsetof(struct_v1, gap_28D0) == 0x28D0);
@@ -325,12 +326,17 @@ struct TextRenderJobOffsets
 	uint16_t transformIndex;
 	uint8_t styleDescriptorIndices[4];
 	uint16_t textOffset;
-	uint16_t unknown_A;
-	uint16_t unknown_C;
+	uint16_t targetWidth;
+	uint16_t wrapWidth;
 	uint16_t horizontalAlignScale;
 	uint16_t lineSpacing;
 };
 static_assert(sizeof(TextRenderJobOffsets) == 0x12);
+static_assert(offsetof(TextRenderJobOffsets, styleDescriptorIndices) == 0x4);
+static_assert(offsetof(TextRenderJobOffsets, textOffset) == 0x8);
+static_assert(offsetof(TextRenderJobOffsets, targetWidth) == 0xA);
+static_assert(offsetof(TextRenderJobOffsets, wrapWidth) == 0xC);
+static_assert(offsetof(TextRenderJobOffsets, lineSpacing) == 0x10);
 
 struct TextInlineImageSpan
 {
@@ -528,8 +534,8 @@ typedef __int64 (*readUnicodeCharacter_F2C40Type)(char** a1);
 readUnicodeCharacter_F2C40Type readUnicodeCharacter_F2C40;
 typedef __int64 (*funcs5F4560Type)(__m128* a1, __m128* a2, ruiDrawTriangle* a3, struct_v3* a4);
 
- //uiImageAtlas rpakUIMGAtlases[50];
-uiImageAtlas* rpakUIMGAtlases;
+uiImageAtlas rpakUIMGAtlases[255];
+//uiImageAtlas* rpakUIMGAtlases;
 
 /*
 DECLARE_HOOK(CBaseFileSystem_OpenEx, filesystem_stdio.dll + 0x15F50, [](auto& hook,
@@ -548,7 +554,7 @@ DECLARE_HOOK(
 	{
 	if (a1->hash == 0xA676D6975)
 	{
-		a1->listElementAmount = 20; // sizeof(rpakUIMGAtlases)/sizeof(uiImageAtlas);
+		a1->listElementAmount = 255; // sizeof(rpakUIMGAtlases)/sizeof(uiImageAtlas);
 		a1->listPointer = rpakUIMGAtlases;
 	}
 	return hook.Original(a1, a2, a3);
@@ -2079,6 +2085,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 	struct_v1* runtime = ruiData->v1;
 	const auto* textJob = reinterpret_cast<const TextRenderJobOffsets*>(
 		ruiData->header->renderJobs + static_cast<int32_t>(renderJobOffset));
+	const __int64 includeContext = static_cast<__int64>(runtime->qword_18);
 	styleDescriptorsStruct* descriptors = ruiData->header->styleDescriptors;
 	styleDescriptorsStruct* textStyles[4] = {
 		&descriptors[textJob->styleDescriptorIndices[0]],
@@ -2136,9 +2143,9 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 	const float maximumDescent = maxScalar(
 		maxScalar(textSizes[0] - ascents[0], textSizes[1] - ascents[1]),
 		maxScalar(textSizes[2] - ascents[2], textSizes[3] - ascents[3]));
-	const float lineHeight = maximumAscent + maximumDescent;
+	const float lineHeight = maximumDescent + maximumAscent;
 	const float lineAdvance = dataFloat(textJob->lineSpacing) + lineHeight;
-	const float wrapWidth = dataFloat(textJob->unknown_C);
+	const float wrapWidth = dataFloat(textJob->wrapWidth);
 
 	const uint32_t initialLineCount = runtime->dword_28C8;
 	const uint32_t initialInlineImageCount = runtime->dword_28CC;
@@ -2151,7 +2158,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 	float maximumLineWidth = 0.0f;
 	float verticalOffset = 0.0f;
 	uint32_t parsedGlyphCount = 0;
-	uint32_t previousCodepoint = 0;
+	int32_t previousCodepoint = 0;
 	uint32_t activeStyleMask = 0;
 	uint8_t activeStyle = 0;
 	uint8_t previousBreakClass = fonts[0]->textures[0].unk_6;
@@ -2208,7 +2215,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 					{
 						char* includeText = sub_F98F0(
 							ruiData,
-							static_cast<__int64>(runtime->qword_18),
+							includeContext,
 							&cursor,
 							reinterpret_cast<__int64>(includeScratch));
 						if (!includeText)
@@ -2231,11 +2238,11 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 			if (kernIndex < kernEnd)
 				kerning = font->unk_58[kernIndex].unk_4;
 
-			previousCodepoint = static_cast<uint32_t>(codepoint);
+			previousCodepoint = codepoint;
 			const float beforeGlyph =
-				currentAdvance + glyphAdvanceScales[activeStyle] * kerning;
+				(glyphAdvanceScales[activeStyle] * kerning) + currentAdvance;
 			currentAdvance =
-				beforeGlyph + glyphAdvanceScales[activeStyle] * glyph->unk_0;
+				(glyphAdvanceScales[activeStyle] * glyph->unk_0) + beforeGlyph;
 
 			if (pendingInlineImage)
 				continue;
@@ -2342,7 +2349,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 				reinterpret_cast<const uint8_t*>(imageAtlas->textureDimensions)
 				+ 4LL * textureIndex);
 
-			if (previousCodepoint == 0xF2000u)
+			if (previousCodepoint == 0xF2000)
 			{
 				if (static_cast<uint16_t>(textureIndex) < imageAtlas->textureOffsetsCount)
 				{
@@ -2350,7 +2357,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 						reinterpret_cast<const uint8_t*>(imageAtlas->pointer_20)
 						+ 32LL * textureIndex);
 					currentAdvance +=
-						(trimRecord[0] + trimRecord[2]) * static_cast<float>(dimensions[0]);
+						(trimRecord[2] + trimRecord[0]) * static_cast<float>(dimensions[0]);
 				}
 			}
 			else
@@ -2360,7 +2367,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 					(static_cast<float>(dimensions[0]) / static_cast<float>(dimensions[1]))
 					* glyphAdvanceScales[activeStyle];
 				image->mins[1] = imageMinY;
-				image->maxs[0] = image->mins[0] + imageWidth;
+				image->maxs[0] = imageWidth + image->mins[0];
 				image->maxs[1] = imageMinY + textSizes[activeStyle];
 				currentAdvance += imageWidth;
 				pendingInlineImage = nullptr;
@@ -2369,7 +2376,7 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 			previousBreakClass = 0;
 			pendingSpace = false;
 			currentLineWidth = currentAdvance;
-			previousCodepoint = static_cast<uint32_t>(codepoint);
+			previousCodepoint = codepoint;
 			continue;
 		}
 
@@ -2377,13 +2384,12 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 		{
 			float imageMinY = verticalOffset;
 			float imageMaxY = verticalOffset;
-			uint32_t remainingStyles = activeStyleMask;
-			while (remainingStyles)
+			while (activeStyleMask)
 			{
 				uint32_t styleIndex = 0;
-				while ((remainingStyles & (1u << styleIndex)) == 0)
+				while ((activeStyleMask & (1u << styleIndex)) == 0)
 					++styleIndex;
-				remainingStyles &= remainingStyles - 1;
+				activeStyleMask &= activeStyleMask - 1;
 
 				const float styleMinY = verticalOffset - ascents[styleIndex];
 				imageMinY = minScalar(imageMinY, styleMinY);
@@ -2394,13 +2400,12 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 			pendingInlineImage->maxs[0] = currentAdvance;
 			pendingInlineImage->maxs[1] = imageMaxY;
 			pendingInlineImage = nullptr;
-			activeStyleMask = 0;
 			currentLineWidth = currentAdvance;
 			previousBreakClass = 0;
 			pendingSpace = false;
 		}
 
-		previousCodepoint = static_cast<uint32_t>(codepoint);
+		previousCodepoint = codepoint;
 	}
 
 	const uint32_t finalLineCount = runtime->dword_28C8;
@@ -2409,13 +2414,11 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 
 	const float measuredWidth = maxScalar(maximumLineWidth, currentAdvance);
 	const float measuredHeight = verticalOffset + lineHeight;
-	const float targetWidth = dataFloat(textJob->unknown_A);
+	const float targetWidth = dataFloat(textJob->targetWidth);
 	const float horizontalScale = targetWidth / maxScalar(targetWidth, measuredWidth);
 	const float fittedWidth = horizontalScale * measuredWidth;
 
-	auto* runtimeJobs = reinterpret_cast<unknown2*>(
-		reinterpret_cast<uint8_t*>(runtime) + offsetof(struct_v1, unk2));
-	unknown2& runtimeJob = runtimeJobs[renderJobOffset >> 4];
+	unknown2& runtimeJob = runtime->unk2[renderJobOffset >> 4];
 	runtimeJob.float_0 = horizontalScale;
 	runtimeJob.byte_4 = static_cast<uint8_t>(initialLineCount);
 	runtimeJob.byte_5 = static_cast<uint8_t>(runtime->dword_28C8 - initialLineCount);
@@ -2478,7 +2481,7 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	xmmword_12A146A0 = *module.Offset(0x12A146A0).RCast<__m128*>();
 	xmmword_12A146B0 = module.Offset(0x12A146B0).RCast<__m128*>();
 	xmmword_12A146D0 = *module.Offset(0x12A146D0).RCast<__m128*>();
-	rpakUIMGAtlases = module.Offset(0x12A26140).RCast<uiImageAtlas*>();
+	//rpakUIMGAtlases = module.Offset(0x12A26140).RCast<uiImageAtlas*>();
 	assetIndexList = module.Offset(0x12A4E508).RCast<struct_a1_2*>();
 
 	word_12A2E50C = module.Offset(0x12A2E50C).RCast<short*>();
