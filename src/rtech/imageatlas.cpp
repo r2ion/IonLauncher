@@ -272,22 +272,21 @@ struct AssetRenderOffsets
 };
 
 
-struct renderJobsStruct_2
+struct EllipseRenderJobOffsets
 {
 	uint16_t type;
 	uint16_t transformIndex;
-	uint16_t uint16_4;
-	uint16_t uint16_6;
-	uint16_t uint16_8;
-	uint16_t uint16_A;
-	uint16_t uint16_C;
-	uint16_t uint16_E;
-	uint16_t uint16_10;
-	uint16_t uint16_12;
-	uint16_t uint16_14;
-	_WORD word_16;
-	uint8_t uint8_18;
+	uint16_t assetIndex;
+	Float2Offsets mins;
+	Float2Offsets maxs;
+	Float2Offsets texMins;
+	Float2Offsets texMaxs;
+	uint16_t flags;
+	uint8_t styleIndex;
+	uint8_t pad_19;
 };
+static_assert(sizeof(EllipseRenderJobOffsets) == 0x1A);
+static_assert(offsetof(EllipseRenderJobOffsets, styleIndex) == 0x18);
 
 struct ruiHeader
 {
@@ -1036,159 +1035,154 @@ DECLARE_HOOK(sub_F9B80, engine.dll + 0xF9B80, [](auto& hook,globals* g,
 void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
 	globals** globals,
 	ruiDataStruct* ruiData,
-	renderJobsStruct_2* assetElement,
+	const EllipseRenderJobOffsets* renderJob,
 	struct_v3* batch)
 {
 	(void)globals;
 
-	const int styleDescriptorOffset = assetElement->uint8_18;
-	styleDescriptorsStruct* styleOffsets = &ruiData->header->styleDescriptors[styleDescriptorOffset];
-
-	auto dataFloat = [&](int offset) -> float
+	auto dataFloat = [&](uint16_t offset) -> float
 	{
-		return *reinterpret_cast<const float*>(&ruiData->dataValues[offset]);
+		float value;
+		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		return value;
 	};
 
-	auto dataInt = [&](int offset) -> int
+	auto dataInt = [&](uint16_t offset) -> int32_t
 	{
-		return *reinterpret_cast<const int*>(&ruiData->dataValues[offset]);
+		int32_t value;
+		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		return value;
 	};
 
-	auto dataScalar = [&](int offset) -> __m128
+	auto dataScalar = [&](uint16_t offset) -> __m128
 	{
 		return _mm_set_ss(dataFloat(offset));
 	};
 
-	if (dataFloat(styleOffsets->color_alpha) <= 0.0f)
+	const uint8_t styleIndex = renderJob->styleIndex;
+	const styleDescriptorsStruct& style = ruiData->header->styleDescriptors[styleIndex];
+	if (dataFloat(style.color_alpha) <= 0.0f)
 		return;
 
-	const __int64 transformIndex = assetElement->transformIndex;
-	testStruct* transform = &ruiData->v1->m128_3A80[transformIndex];
-	__m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
-	__m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
+	const uint16_t transformIndex = renderJob->transformIndex;
+	const testStruct* transform = &ruiData->v1->m128_3A80[transformIndex];
+	const __m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
+	const __m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
 	const __m128 determinant = _mm_sub_ps(
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 255), RUI_SHUFFLE_PS(transformRow0, 0)),
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 170), RUI_SHUFFLE_PS(transformRow0, 85)));
 	if (_mm_movemask_ps(_mm_cmpeq_ps(determinant, _mm_setzero_ps())) != 0)
 		return;
 
-	const int orientationMask = _mm_movemask_ps(determinant) & 2;
+	const int orientation = _mm_movemask_ps(determinant) & 2;
 	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
 	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, xmmword_5F3DD0), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
-	const int assetDescriptorIndex = dataInt(assetElement->uint16_4);
+	const int32_t assetDescriptorIndex = dataInt(renderJob->assetIndex);
 	if (assetDescriptorIndex == -1)
 		return;
 
-	ruiBaseUvStruct uv;
-	uv.assetIndex2 = -1;
-	assetIndexData* assetDescriptor = &unk_12A2E508[8LL * assetDescriptorIndex];
-	const uint16_t assetIndex = assetDescriptor->assetIndex;
-	const uint8_t atlasIndex = assetDescriptor->atlasIndex;
-	const uint8_t assetFlags = assetDescriptor->flags;
+	const assetIndexData& asset = unk_12A2E508[assetDescriptorIndex];
+	const int16_t assetIndex = asset.assetIndex;
+	const int16_t combinedFlags = static_cast<int16_t>(renderJob->flags | asset.flags);
 
-	const __int16 combinedFlags = assetElement->word_16 | assetFlags;
-	uv.assetIndex = assetIndex;
-	uv.flags = combinedFlags;
-	uv.styleDescriptorIndex = static_cast<__int16>(styleDescriptorOffset + batch->styleDescriptorIndex);
-
-	const __m128 ellipseU0 = dataScalar(assetElement->uint16_6);
-	const __m128 ellipseV0 = dataScalar(assetElement->uint16_8);
-	const __m128 ellipseU1 = dataScalar(assetElement->uint16_A);
-	const __m128 ellipseV1 = dataScalar(assetElement->uint16_C);
-	const float insetX = dataFloat(assetElement->uint16_E);
-	const float insetY = dataFloat(assetElement->uint16_10);
-	const __m128 ellipseWidth = dataScalar(assetElement->uint16_12);
-	const __m128 ellipseHeight = dataScalar(assetElement->uint16_14);
-	const float stretchX = dataFloat(styleOffsets->stretchXOffset);
+	const __m128 mins = _mm_unpacklo_ps(dataScalar(renderJob->mins.x), dataScalar(renderJob->mins.y));
+	const __m128 maxs = _mm_unpacklo_ps(dataScalar(renderJob->maxs.x), dataScalar(renderJob->maxs.y));
+	const float texMinX = dataFloat(renderJob->texMins.x);
+	const float texMinY = dataFloat(renderJob->texMins.y);
+	const float texMaxX = dataFloat(renderJob->texMaxs.x);
+	const float texMaxY = dataFloat(renderJob->texMaxs.y);
+	const __m128 texMins = _mm_setr_ps(texMinX, texMinY, texMinX, texMinY);
+	const __m128 texMaxs = _mm_setr_ps(texMaxX, texMaxY, texMaxX, texMaxY);
+	const float stretchX = dataFloat(style.stretchXOffset);
 
 	const __m128 transformSize = ruiData->v1->transformSizes[transformIndex];
 	const float transformWidth = transformSize.m128_f32[0];
 	const float transformHeight = transformSize.m128_f32[2];
-	if ((transformWidth < transformHeight ? transformWidth : transformHeight) <= 0.0f)
+	const float minimumTransformExtent = _mm_cvtss_f32(_mm_min_ss(_mm_set_ss(transformWidth), _mm_set_ss(transformHeight)));
+	if (minimumTransformExtent <= 0.0f)
 		return;
 
-	uiImageAtlas* imageAtlas = &rpakUIMGAtlases[atlasIndex];
+	uiImageAtlas* imageAtlas = &rpakUIMGAtlases[asset.atlasIndex];
 	if (!sub_FC0C0(batch, imageAtlas))
 		return;
-	
-	const uint8_t* atlasRecordBase = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets);
-	const uint8_t* atlasRecord = atlasRecordBase + 32ULL * assetIndex;
 
-	const __m128 ellipseMax = _mm_movelh_ps(_mm_unpacklo_ps(ellipseWidth, ellipseHeight), _mm_unpacklo_ps(ellipseWidth, ellipseHeight));
-	const __m128 ellipseMin = _mm_movelh_ps(_mm_unpacklo_ps(_mm_set_ss(insetX), _mm_set_ss(insetY)), _mm_unpacklo_ps(_mm_set_ss(insetX), _mm_set_ss(insetY)));
-	const __m128 ellipseExtent = _mm_max_ps(_mm_sub_ps(ellipseMax, ellipseMin), xmmword_5F3F30);
+	const uint8_t* textureRecord = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets) + 32LL * assetIndex;
 
-	
-	const __m128 axisMask = xmmword_12A4E830[16 * ((static_cast<__int64>(combinedFlags) >> 4) & 3)];
-	const float scaledX = ((transformHeight * stretchX) * (ellipseWidth.m128_f32[0] - insetX)) / transformWidth;
-	const float scaledY = (ellipseHeight.m128_f32[0] - insetY) * stretchX;
-	const __m128 scaledOffset = _mm_movelh_ps(_mm_unpacklo_ps(_mm_set_ss(scaledX), _mm_set_ss(scaledY)), _mm_unpacklo_ps(_mm_set_ss(scaledX), _mm_set_ss(scaledY)));
+	const __m128 textureExtent = _mm_max_ps(_mm_sub_ps(texMaxs, texMins), xmmword_5F3F30);
+	const unsigned int axisMaskIndex = (static_cast<uint16_t>(combinedFlags) >> 4) & 3;
+	const __m128 axisMask = xmmword_12A4E830[axisMaskIndex];
+	const float stretchCorrectionX = ((transformHeight * stretchX) * (texMaxX - texMinX)) / transformWidth;
+	const float stretchCorrectionY = (texMaxY - texMinY) * stretchX;
+	const __m128 stretchCorrection = _mm_setr_ps(stretchCorrectionX, stretchCorrectionY, stretchCorrectionX, stretchCorrectionY);
 
-	const __m128 atlasRect = _mm_loadu_ps(reinterpret_cast<const float*>(atlasRecord));
-	const __m128 normalizedRect = _mm_div_ps(
+	const __m128 textureBounds = _mm_loadu_ps(reinterpret_cast<const float*>(textureRecord));
+	const __m128 normalizedTextureBounds = _mm_div_ps(
 		_mm_add_ps(
-			_mm_sub_ps(atlasRect, _mm_xor_ps(_mm_and_ps(_mm_min_ps(ellipseMin, ellipseMax), axisMask), xmmword_5F3E20)),
-			scaledOffset),
+			_mm_sub_ps(textureBounds, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), xmmword_5F3E20)),
+			stretchCorrection),
 		_mm_or_ps(
-			_mm_and_ps(_mm_andnot_ps(xmmword_5F3DD0, ellipseExtent), axisMask),
+			_mm_and_ps(_mm_andnot_ps(xmmword_5F3DD0, textureExtent), axisMask),
 			_mm_andnot_ps(axisMask, xmmword_5F3E90)));
-	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedRect, xmmword_5F3F60)) != 0)
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureBounds, xmmword_5F3F60)) != 0)
 		return;
 
-	const __m128 clampedUv = _mm_xor_ps(
+	const __m128 requestedBounds = _mm_movelh_ps(_mm_xor_ps(mins, xmmword_5F3DD0), maxs);
+	const __m128 clippedBounds = _mm_xor_ps(
 		_mm_min_ps(
-			_mm_movelh_ps(
-				_mm_xor_ps(_mm_unpacklo_ps(ellipseU0, ellipseV0), xmmword_5F3DD0),
-				_mm_unpacklo_ps(ellipseU1, ellipseV1)),
-			normalizedRect),
+			requestedBounds,
+			normalizedTextureBounds),
 		xmmword_5F3E20);
-	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_PS(clampedUv, 238), RUI_SHUFFLE_PS(clampedUv, 68))) != 0)
+	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_PS(clippedBounds, 238), RUI_SHUFFLE_PS(clippedBounds, 68))) != 0)
 		return;
 
-	ruiDrawTriangle tri;
-	memset(&uv.base2, 0, 48);
-	tri.size = 4;
-	tri.size_ = 4;
+	ruiBaseUvStruct uv;
+	uv.assetIndex = assetIndex;
+	uv.assetIndex2 = -1;
+	uv.styleDescriptorIndex = static_cast<int16_t>(static_cast<uint16_t>(batch->styleDescriptorIndex) + styleIndex);
+	uv.flags = combinedFlags;
+	std::memset(&uv.base2, 0, 48);
 
-	const __m128 atlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(atlasRecord + 24)));
-	const __m128 halfBasis = _mm_mul_ps(inverseBasis, xmmword_5F3E80);
-	const __m128 scaledBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, ellipseExtent), atlasScale);
-	const __m128 atlasBase = _mm_add_ps(
-		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(originSum, ellipseExtent), ellipseMin), atlasScale),
-		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(atlasRecord + 16))));
+	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord + 24)));
+	const __m128 textureBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, textureExtent), textureScale);
+	const __m128 ellipseBasis = _mm_mul_ps(inverseBasis, xmmword_5F3E80);
+	const __m128 textureBase = _mm_add_ps(
+		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(originSum, textureExtent), texMins), textureScale),
+		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord + 16))));
+	const __m128 ellipseBase = _mm_sub_ps(_mm_mul_ps(originSum, xmmword_5F3E80), xmmword_5F3E90);
+	uv.base = _mm_movelh_ps(textureBasis, ellipseBasis);
+	uv.xDir = _mm_movehl_ps(ellipseBasis, textureBasis);
+	uv.yDir = _mm_movelh_ps(textureBase, ellipseBase);
 
-	uv.base = _mm_movelh_ps(scaledBasis, halfBasis);
-	uv.xDir = _mm_movehl_ps(halfBasis, scaledBasis);
-	uv.yDir = _mm_movelh_ps(atlasBase, _mm_sub_ps(_mm_mul_ps(originSum, xmmword_5F3E80), xmmword_5F3E90));
-
-	const __m128 u = RUI_SHUFFLE_PS(clampedUv, 125);
-	const __m128 v = RUI_SHUFFLE_PS(clampedUv, 160);
-	const __m128i transformRows0 = _mm_load_si128(reinterpret_cast<const __m128i*>(&transform->m128_0));
+	const __m128 packedYBounds = RUI_SHUFFLE_PS(clippedBounds, 125);
+	const __m128 packedXBounds = RUI_SHUFFLE_PS(clippedBounds, 160);
 	const __m128 projectedX = _mm_add_ps(
-		_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 170), u), _mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 0), v)),
+		_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 170), packedYBounds), _mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 0), packedXBounds)),
 		RUI_SHUFFLE_PS(transformRow1, 0));
 	const __m128 projectedY = _mm_add_ps(
-		_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 255), u), _mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transformRows0, 85), v)),
+		_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 255), packedYBounds), _mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 85), packedXBounds)),
 		RUI_SHUFFLE_PS(transformRow1, 85));
 
-	__m128 quad0 = _mm_unpacklo_ps(projectedX, projectedY);
-	__m128 quad1 = _mm_unpackhi_ps(projectedX, projectedY);
-	if (orientationMask == 2)
+	__m128 vertices0 = _mm_unpacklo_ps(projectedX, projectedY);
+	__m128 vertices1 = _mm_unpackhi_ps(projectedX, projectedY);
+	if (orientation == 2)
 	{
-		quad0 = RUI_SHUFFLE_PS(quad0, 78);
-		quad1 = RUI_SHUFFLE_PS(quad1, 78);
+		vertices0 = RUI_SHUFFLE_PS(vertices0, 78);
+		vertices1 = RUI_SHUFFLE_PS(vertices1, 78);
 	}
 
-	_mm_storeu_ps(&tri.vert[0][0], quad0);
-	_mm_storeu_ps(&tri.vert[1][0], quad1);
+	ruiDrawTriangle triangle;
+	triangle.size = 4;
+	triangle.size_ = 4;
+	_mm_storeu_ps(&triangle.vert[0][0], vertices0);
+	_mm_storeu_ps(&triangle.vert[1][0], vertices1);
 
 	ruiDrawInfoDataWeapon* drawInfo = ruiData->pvoid_38;
 	ruiDrawInfo_5f4560[drawInfo->type](
 		drawInfo,
 		&uv,
-		&tri,
+		&triangle,
 		batch);
 }
 
@@ -1411,10 +1405,10 @@ DECLARE_HOOK(renderAsset_F72F0, engine.dll + 0xF72F0, [](auto& hook, globals** a
 DECLARE_HOOK(
 	ruiUnknown9Func_2,
 	engine.dll + 0xF7A80,
-	[](auto& hook, globals** a1, ruiDataStruct* a2, renderJobsStruct_2* a3, struct_v3* a4)
+	[](auto& hook, globals** a1, ruiDataStruct* a2, EllipseRenderJobOffsets* a3, struct_v3* a4)
 	{
-		//ruiRenderAssetElipse_F7A80_rebuild(a1, a2, a3, a4);
-		hook.Original(a1, a2, a3, a4);
+		(void)hook;
+		ruiRenderAssetElipse_F7A80_rebuild(a1, a2, a3, a4);
 	});
 
 
