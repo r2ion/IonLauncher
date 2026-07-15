@@ -139,8 +139,8 @@ struct struct_v1
 	_BYTE gap_28[1424];
 	unsigned int dword_5B8;
 	_BYTE gap_5BC[8200];
-	float float_25C4[192];
-	_BYTE gap_28C4[4];
+	// Sixty-four line-break triples followed by the final-line-width sentinel.
+	float float_25C4[193];
 	uint32_t dword_28C8;
 	uint32_t dword_28CC;
 	_BYTE gap_28D0[1280];
@@ -148,6 +148,10 @@ struct struct_v1
 	_BYTE gap_2DE0[3232];
 	testStruct m128_3A80[3];
 };
+static_assert(offsetof(struct_v1, float_25C4) == 0x25C4);
+static_assert(offsetof(struct_v1, dword_28C8) == 0x28C8);
+static_assert(offsetof(struct_v1, dword_28CC) == 0x28CC);
+static_assert(offsetof(struct_v1, gap_28D0) == 0x28D0);
 
 struct ruiArgCluster
 {
@@ -2070,10 +2074,363 @@ DECLARE_HOOK(RenderText, engine.dll + 0xF5840, [](auto& hook, ruiRenderList* a1,
 });
 
 
+__m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int renderJobOffset)
+{
+	struct_v1* runtime = ruiData->v1;
+	const auto* textJob = reinterpret_cast<const TextRenderJobOffsets*>(
+		ruiData->header->renderJobs + static_cast<int32_t>(renderJobOffset));
+	styleDescriptorsStruct* descriptors = ruiData->header->styleDescriptors;
+	styleDescriptorsStruct* textStyles[4] = {
+		&descriptors[textJob->styleDescriptorIndices[0]],
+		&descriptors[textJob->styleDescriptorIndices[1]],
+		&descriptors[textJob->styleDescriptorIndices[2]],
+		&descriptors[textJob->styleDescriptorIndices[3]],
+	};
+
+	auto dataFloat = [&](uint16_t offset) -> float
+	{
+		float value;
+		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		return value;
+	};
+
+	auto dataText = [&](uint16_t offset) -> char*
+	{
+		char* value;
+		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		return value;
+	};
+
+	auto maxScalar = [](float lhs, float rhs) -> float
+	{
+		return _mm_cvtss_f32(_mm_max_ss(_mm_set_ss(lhs), _mm_set_ss(rhs)));
+	};
+
+	auto minScalar = [](float lhs, float rhs) -> float
+	{
+		return _mm_cvtss_f32(_mm_min_ss(_mm_set_ss(lhs), _mm_set_ss(rhs)));
+	};
+
+	rpakFont* fonts[4] = {
+		rpakFontPointers[textStyles[0]->fontIndex],
+		rpakFontPointers[textStyles[1]->fontIndex],
+		rpakFontPointers[textStyles[2]->fontIndex],
+		rpakFontPointers[textStyles[3]->fontIndex],
+	};
+	float textSizes[4];
+	float glyphAdvanceScales[4];
+	float ascents[4];
+	for (uint32_t styleIndex = 0; styleIndex < 4; ++styleIndex)
+	{
+		textSizes[styleIndex] = dataFloat(textStyles[styleIndex]->textSize);
+		glyphAdvanceScales[styleIndex] =
+			textSizes[styleIndex] * dataFloat(textStyles[styleIndex]->stretchXOffset);
+		ascents[styleIndex] =
+			(textSizes[styleIndex] * fonts[styleIndex]->unk_24[0])
+			- dataFloat(textStyles[styleIndex]->uint16_32);
+	}
+
+	const float maximumAscent = maxScalar(
+		maxScalar(ascents[0], ascents[1]),
+		maxScalar(ascents[2], ascents[3]));
+	const float maximumDescent = maxScalar(
+		maxScalar(textSizes[0] - ascents[0], textSizes[1] - ascents[1]),
+		maxScalar(textSizes[2] - ascents[2], textSizes[3] - ascents[3]));
+	const float lineHeight = maximumAscent + maximumDescent;
+	const float lineAdvance = dataFloat(textJob->lineSpacing) + lineHeight;
+	const float wrapWidth = dataFloat(textJob->unknown_C);
+
+	const uint32_t initialLineCount = runtime->dword_28C8;
+	const uint32_t initialInlineImageCount = runtime->dword_28CC;
+	uint32_t savedInlineImageCount = initialInlineImageCount;
+	uint32_t savedBreakGlyph = 0;
+	float savedLineWidth = 0.0f;
+	float savedBreakX = 0.0f;
+	float currentAdvance = 0.0f;
+	float currentLineWidth = 0.0f;
+	float maximumLineWidth = 0.0f;
+	float verticalOffset = 0.0f;
+	uint32_t parsedGlyphCount = 0;
+	uint32_t previousCodepoint = 0;
+	uint32_t activeStyleMask = 0;
+	uint8_t activeStyle = 0;
+	uint8_t previousBreakClass = fonts[0]->textures[0].unk_6;
+	bool pendingSpace = false;
+
+	auto appendLineBreak = [&](uint32_t breakGlyph, float width)
+	{
+		const uint32_t lineIndex = runtime->dword_28C8++;
+		if (lineIndex >= 64)
+			return;
+
+		std::memcpy(
+			&runtime->float_25C4[3 * lineIndex + 1],
+			&breakGlyph,
+			sizeof(breakGlyph));
+		runtime->float_25C4[3 * lineIndex + 2] = width;
+		runtime->float_25C4[3 * lineIndex + 3] = 0.0f;
+	};
+
+	auto* inlineImages = reinterpret_cast<TextInlineImageSpan*>(runtime->gap_28D0);
+	const uiFontAtlas* wordBreakAtlas =
+		&uiFontAtlases[fontIndices[textStyles[0]->fontIndex]];
+	rpakFont* font = fonts[0];
+	TextInlineImageSpan* pendingInlineImage = nullptr;
+	char* cursor = dataText(textJob->textOffset);
+	char* includeStack[29] = {};
+	uint32_t includeDepth = 0;
+	char includeScratch[8];
+
+	for (;;)
+	{
+		const int32_t codepoint = static_cast<int32_t>(readUnicodeCharacter_F2C40(&cursor));
+		++parsedGlyphCount;
+
+		const bool ordinaryCodepoint =
+			(static_cast<uint32_t>(codepoint) - 1u) < 0xEFFFFu
+			&& codepoint != '`';
+		if (ordinaryCodepoint)
+		{
+			if (codepoint == '%')
+			{
+				const int marker = static_cast<int>(static_cast<int8_t>(*cursor));
+				const bool literalPercent =
+					marker <= ' '
+					|| (marker <= '?'
+						&& ((1u << (marker - ' ')) & 0x80005002u) != 0);
+				if (!literalPercent)
+				{
+					if (marker == '%')
+					{
+						++cursor;
+					}
+					else
+					{
+						char* includeText = sub_F98F0(
+							ruiData,
+							static_cast<__int64>(runtime->qword_18),
+							&cursor,
+							reinterpret_cast<__int64>(includeScratch));
+						if (!includeText)
+							break;
+
+						includeStack[includeDepth++] = cursor;
+						cursor = includeText;
+						continue;
+					}
+				}
+			}
+
+			const uint32_t glyphIndex = static_cast<uint32_t>(getFontGlyphIndex(font, codepoint));
+			const rpakFontGlyph* glyph = &font->textures[glyphIndex];
+			uint16_t kernIndex = glyph->unk_4;
+			const uint16_t kernEnd = glyph[1].unk_4;
+			float kerning = 0.0f;
+			while (kernIndex < kernEnd && font->unk_58[kernIndex].unk_0 != previousCodepoint)
+				++kernIndex;
+			if (kernIndex < kernEnd)
+				kerning = font->unk_58[kernIndex].unk_4;
+
+			previousCodepoint = static_cast<uint32_t>(codepoint);
+			const float beforeGlyph =
+				currentAdvance + glyphAdvanceScales[activeStyle] * kerning;
+			currentAdvance =
+				beforeGlyph + glyphAdvanceScales[activeStyle] * glyph->unk_0;
+
+			if (pendingInlineImage)
+				continue;
+
+			if (codepoint == ' ')
+			{
+				pendingSpace = true;
+				continue;
+			}
+
+			if (codepoint == '\n')
+			{
+				appendLineBreak(parsedGlyphCount, currentLineWidth);
+				currentAdvance = 0.0f;
+				savedInlineImageCount = runtime->dword_28CC;
+				previousBreakClass = glyph->unk_6;
+				pendingSpace = false;
+				maximumLineWidth = maxScalar(maximumLineWidth, currentLineWidth);
+				verticalOffset += lineAdvance;
+				currentLineWidth = 0.0f;
+				continue;
+			}
+
+			const uint32_t breakBitIndex = static_cast<uint32_t>(pendingSpace)
+				+ 2u * (static_cast<uint32_t>(glyph->unk_6)
+					+ static_cast<uint32_t>(previousBreakClass) * wordBreakAtlas->uint16_2);
+			const uint8_t breakBit = static_cast<uint8_t>(1u << (breakBitIndex & 7));
+			if ((static_cast<uint8_t>(wordBreakAtlas->qword_18[breakBitIndex >> 3]) & breakBit) != 0)
+			{
+				savedLineWidth = currentLineWidth;
+				savedBreakGlyph = parsedGlyphCount;
+				savedInlineImageCount = runtime->dword_28CC;
+				savedBreakX = beforeGlyph;
+			}
+
+			if (currentAdvance > wrapWidth)
+			{
+				for (uint32_t imageIndex = savedInlineImageCount;
+					imageIndex < runtime->dword_28CC;
+					++imageIndex)
+				{
+					TextInlineImageSpan& image = inlineImages[imageIndex];
+					image.mins[0] -= savedBreakX;
+					image.mins[1] += lineAdvance;
+					image.maxs[0] -= savedBreakX;
+					image.maxs[1] += lineAdvance;
+				}
+
+				appendLineBreak(savedBreakGlyph, savedLineWidth);
+				currentAdvance -= savedBreakX;
+				verticalOffset += lineAdvance;
+				savedInlineImageCount = runtime->dword_28CC;
+				maximumLineWidth = maxScalar(maximumLineWidth, savedLineWidth);
+			}
+
+			pendingSpace = false;
+			currentLineWidth = currentAdvance;
+			previousBreakClass = glyph->unk_6;
+			continue;
+		}
+
+		if (codepoint == 0)
+		{
+			if (includeDepth)
+			{
+				cursor = includeStack[--includeDepth];
+				continue;
+			}
+			break;
+		}
+
+		if (codepoint == '`')
+		{
+			const uint8_t nextStyle = static_cast<uint8_t>(*cursor - '0');
+			if (nextStyle >= 4)
+				break;
+
+			activeStyle = nextStyle;
+			++cursor;
+			previousCodepoint = 0;
+			font = fonts[activeStyle];
+			activeStyleMask |= 1u << activeStyle;
+			continue;
+		}
+
+		if ((static_cast<uint32_t>(codepoint) - 0xF0000u) < 0x2000u)
+		{
+			const uint32_t inlineImageIndex = runtime->dword_28CC++;
+			const uint32_t storageIndex = inlineImageIndex < 64 ? inlineImageIndex : 63;
+			TextInlineImageSpan* image = &inlineImages[storageIndex];
+			image->assetLookupIndex = static_cast<uint16_t>(codepoint);
+			image->styleSelector = activeStyle;
+			image->mins[0] = currentAdvance;
+			pendingInlineImage = image;
+			activeStyleMask = 1u << activeStyle;
+
+			const auto* unicodeAssetTable =
+				*reinterpret_cast<assetIndexData* const*>(assetIndexData_12A4E510);
+			const assetIndexData& unicodeAsset =
+				unicodeAssetTable[image->assetLookupIndex];
+			const int16_t textureIndex = unicodeAsset.assetIndex;
+			uiImageAtlas* imageAtlas = &rpakUIMGAtlases[unicodeAsset.atlasIndex];
+			const auto* dimensions = reinterpret_cast<const uint16_t*>(
+				reinterpret_cast<const uint8_t*>(imageAtlas->textureDimensions)
+				+ 4LL * textureIndex);
+
+			if (previousCodepoint == 0xF2000u)
+			{
+				if (static_cast<uint16_t>(textureIndex) < imageAtlas->textureOffsetsCount)
+				{
+					const auto* trimRecord = reinterpret_cast<const float*>(
+						reinterpret_cast<const uint8_t*>(imageAtlas->pointer_20)
+						+ 32LL * textureIndex);
+					currentAdvance +=
+						(trimRecord[0] + trimRecord[2]) * static_cast<float>(dimensions[0]);
+				}
+			}
+			else
+			{
+				const float imageMinY = verticalOffset - ascents[activeStyle];
+				const float imageWidth =
+					(static_cast<float>(dimensions[0]) / static_cast<float>(dimensions[1]))
+					* glyphAdvanceScales[activeStyle];
+				image->mins[1] = imageMinY;
+				image->maxs[0] = image->mins[0] + imageWidth;
+				image->maxs[1] = imageMinY + textSizes[activeStyle];
+				currentAdvance += imageWidth;
+				pendingInlineImage = nullptr;
+			}
+
+			previousBreakClass = 0;
+			pendingSpace = false;
+			currentLineWidth = currentAdvance;
+			previousCodepoint = static_cast<uint32_t>(codepoint);
+			continue;
+		}
+
+		if (codepoint == 0xF2001 && pendingInlineImage)
+		{
+			float imageMinY = verticalOffset;
+			float imageMaxY = verticalOffset;
+			uint32_t remainingStyles = activeStyleMask;
+			while (remainingStyles)
+			{
+				uint32_t styleIndex = 0;
+				while ((remainingStyles & (1u << styleIndex)) == 0)
+					++styleIndex;
+				remainingStyles &= remainingStyles - 1;
+
+				const float styleMinY = verticalOffset - ascents[styleIndex];
+				imageMinY = minScalar(imageMinY, styleMinY);
+				imageMaxY = maxScalar(imageMaxY, styleMinY + textSizes[styleIndex]);
+			}
+
+			pendingInlineImage->mins[1] = imageMinY;
+			pendingInlineImage->maxs[0] = currentAdvance;
+			pendingInlineImage->maxs[1] = imageMaxY;
+			pendingInlineImage = nullptr;
+			activeStyleMask = 0;
+			currentLineWidth = currentAdvance;
+			previousBreakClass = 0;
+			pendingSpace = false;
+		}
+
+		previousCodepoint = static_cast<uint32_t>(codepoint);
+	}
+
+	const uint32_t finalLineCount = runtime->dword_28C8;
+	if (finalLineCount != initialLineCount && finalLineCount <= 64)
+		runtime->float_25C4[3 * finalLineCount] = currentAdvance;
+
+	const float measuredWidth = maxScalar(maximumLineWidth, currentAdvance);
+	const float measuredHeight = verticalOffset + lineHeight;
+	const float targetWidth = dataFloat(textJob->unknown_A);
+	const float horizontalScale = targetWidth / maxScalar(targetWidth, measuredWidth);
+	const float fittedWidth = horizontalScale * measuredWidth;
+
+	auto* runtimeJobs = reinterpret_cast<unknown2*>(
+		reinterpret_cast<uint8_t*>(runtime) + offsetof(struct_v1, unk2));
+	unknown2& runtimeJob = runtimeJobs[renderJobOffset >> 4];
+	runtimeJob.float_0 = horizontalScale;
+	runtimeJob.byte_4 = static_cast<uint8_t>(initialLineCount);
+	runtimeJob.byte_5 = static_cast<uint8_t>(runtime->dword_28C8 - initialLineCount);
+	runtimeJob.byte_6 = static_cast<uint8_t>(initialInlineImageCount);
+	runtimeJob.byte_7 = static_cast<uint8_t>(runtime->dword_28CC - initialInlineImageCount);
+
+	return _mm_shuffle_ps(_mm_set_ss(fittedWidth), _mm_set_ss(measuredHeight), 0);
+}
+
+
 
 DECLARE_HOOK(GetTextSize, engine.dll + 0xF6980, [](auto& hook, ruiDataStruct *a1, unsigned int a2) -> __m128
 {
-		return hook.Original(a1, a2);
+		(void)hook;
+		return getTextSize_F6980_rebuild(a1, a2);
 });
 
 ON_DLL_LOAD("rtech_game.DLL", AtlasRpak, [](CModule module)
