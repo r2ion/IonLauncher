@@ -631,7 +631,6 @@ __m128 xmmword_5F45D0;
 BYTE* fontIndices;
 assetIndexData* assetIndexData_12A4E510;
 
-//DECLARE_HOOK(ruiUnknown9Func_2, engine.dll + 0xF7A80, [] (auto& hook, __int64 a1, ruiDataStruct* a2, renderJobsStruct_2* a3, struct_v3* a4)
 
 struct ruiRenderList
 {
