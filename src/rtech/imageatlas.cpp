@@ -2069,6 +2069,13 @@ DECLARE_HOOK(RenderText, engine.dll + 0xF5840, [](auto& hook, ruiRenderList* a1,
 		//return hook.Original(a1, a2, a3, a4);
 });
 
+
+
+DECLARE_HOOK(GetTextSize, engine.dll + 0xF6980, [](auto& hook, ruiDataStruct *a1, unsigned int a2) -> __m128
+{
+		return hook.Original(a1, a2);
+});
+
 ON_DLL_LOAD("rtech_game.DLL", AtlasRpak, [](CModule module)
 {
 	DISPATCH_MODULE(AtlasTest);
