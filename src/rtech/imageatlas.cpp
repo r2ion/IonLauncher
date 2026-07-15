@@ -1,5 +1,6 @@
 #include <immintrin.h>
 #include <cstdint>
+#include <cstring>
 DECLARE_MODULE(AtlasTest)
 
 #define LODWORD(x) *(uint32_t*)&x
@@ -315,17 +316,27 @@ struct ruiHeader
 	void(__fastcall* dllFuncHidden)(void*, void*, void*, void*);
 };
 
-struct renderJobsStruct_0
+struct TextRenderJobOffsets
 {
 	uint16_t type;
 	uint16_t transformIndex;
-	uint8_t styleDescriptorsIndices[4];
+	uint8_t styleDescriptorIndices[4];
 	uint16_t textOffset;
-	uint16_t uint16_A;
-	uint16_t uint16_C;
-	uint16_t uint16_E;
-	uint16_t uint16_10;
+	uint16_t unknown_A;
+	uint16_t unknown_C;
+	uint16_t horizontalAlignScale;
+	uint16_t lineSpacing;
 };
+static_assert(sizeof(TextRenderJobOffsets) == 0x12);
+
+struct TextInlineImageSpan
+{
+	uint16_t assetLookupIndex;
+	uint16_t styleSelector;
+	float mins[2];
+	float maxs[2];
+};
+static_assert(sizeof(TextInlineImageSpan) == 0x14);
 
 struct uiFontAtlas
 {
@@ -373,17 +384,26 @@ struct unknownFontStruct
 
 struct rpakFontGlyph
 {
- float unk_0;
-  uint16_t unk_4;
-  uint8_t unk_6;
-  uint8_t proportionIndex;
+	float unk_0;
+	uint16_t unk_4;
+	uint8_t unk_6;
+	uint8_t proportionIndex;
   float posBaseX;
   float posBaseY;
   float posMinX;
   float posMinY;
   float posMaxX;
-  float posMaxY;
+	float posMaxY;
 };
+static_assert(sizeof(rpakFontGlyph) == 0x20);
+
+struct TextGlyphState
+{
+	float penX;
+	uint32_t glyphIndex;
+	const rpakFontGlyph* glyph;
+};
+static_assert(sizeof(TextGlyphState) == 0x10);
 
 struct UIFont_UNK_t
 {
@@ -489,7 +509,7 @@ typedef void (*sub_FEF30Type)(globals*, ruiDataStruct*, __m128*, __m128, __m128*
 typedef void (*sub_FEF30_2Type)(globals*, ruiDataStruct*, __m128*, const __m128*, __m128*);
 typedef _DWORD* (*sub_F3BB0Type)(struct_a1_2* a1, __int64 a2, _BYTE* a3);
 typedef unsigned int* (*sub_F3E30Type)(struct_a1_2* a1, __int64 a2);
-typedef int64_t (*sub_F9B80Type)(
+typedef int (*sub_F9B80Type)(
 	__int64 a1,
 	__int64 a2,
 	_QWORD* a3,
@@ -538,7 +558,7 @@ uiFontAtlas* uiFontAtlases;
 struct assetIndexData
 {
   _DWORD nameHash;
-  uint16_t assetIndex;
+  int16_t assetIndex;
   uint8_t atlasIndex;
   _BYTE flags;
 };
@@ -561,7 +581,7 @@ void (*sub_FEF30_2)(globals*, ruiDataStruct*, __m128*, const __m128*, __m128*);
 _DWORD* (*sub_F3BB0)(struct_a1_2* a1, __int64 a2, _BYTE* a3);
 unsigned int* (*sub_F3E30)(struct_a1_2* a1, __int64 a2);
 
-int64_t (*sub_F9B80)(
+int (*sub_F9B80)(
 	__int64 a1,
 	__int64 a2,
 	_QWORD* a3,
@@ -592,7 +612,7 @@ __m128 xmmword_5F4610;
 
 __m128 xmmword_12A14650;
 __m128 xmmword_12A146A0;
-__m128 xmmword_12A146B0;
+__m128* xmmword_12A146B0;
 __m128 xmmword_12A146D0;
 
 __m128 xmmword_5CB2A0;
@@ -959,7 +979,7 @@ void __fastcall sub_F9B80_rebuild(
 													true,
 													outerBase,
 													outerXDir,
-													blendByMask(outerYDir, edgeYDir, xmmword_12A146A0)))
+											blendByMask(outerYDir, edgeYDir, xmmword_12A146A0)))
 					{
 						return;
 					}
@@ -1003,10 +1023,11 @@ DECLARE_HOOK(sub_F9B80, engine.dll + 0xF9B80, [](auto& hook,globals* g,
 	__m128i* a8, // base UV pair
 	__m128* a9, // visibility threshold
 	__m128* a10, // UV offset
-	__m128* a11)
+	__m128* a11) -> int
 	{
+		sub_F9B80_rebuild(g, ds, drawState, baseUv, a5, a6, nameHash, a8, a9, a10, a11);
+		return 1;
 		//return hook.Original(g, ds, drawState, baseUv, a5, a6, nameHash, a8, a9, a10, a11);
-		return sub_F9B80_rebuild(g, ds, drawState, baseUv, a5, a6, nameHash, a8, a9, a10, a11);
 	});
 
 
@@ -1397,17 +1418,17 @@ DECLARE_HOOK(
 	});
 
 
-void __fastcall renderText_F5840_rebuild(
+int __fastcall renderText_F5840_rebuild(
 	ruiRenderList* renderList,
 	ruiDataStruct* ruiData,
-	AssetRenderOffsets* textElement,
+	const TextRenderJobOffsets* textJob,
 	struct_v3* batch)
 {
 	struct_v1* runtime = ruiData->v1;
-	const __int64 transformIndex = textElement->transformIndex;
+	const __int64 transformIndex = textJob->transformIndex;
 	const __m128 transformSize = runtime->transformSizes[transformIndex];
 	if (_mm_movemask_ps(_mm_cmpeq_ps(_mm_setzero_ps(), transformSize)) != 0)
-		return;
+		return 1;
 
 	testStruct* transform = &runtime->m128_3A80[transformIndex];
 	__m128* transformRows = reinterpret_cast<__m128*>(transform);
@@ -1417,7 +1438,7 @@ void __fastcall renderText_F5840_rebuild(
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(3, 3, 3, 3)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(0, 0, 0, 0))),
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(2, 2, 2, 2)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(1, 1, 1, 1))));
 	if (_mm_movemask_ps(_mm_cmpeq_ps(determinant, _mm_setzero_ps())) != 0)
-		return;
+		return 1;
 
 	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
 	const int orientation = _mm_movemask_ps(determinant) & 2;
@@ -1427,54 +1448,70 @@ void __fastcall renderText_F5840_rebuild(
 	ruiHeader* header = ruiData->header;
 	styleDescriptorsStruct* descriptors = header->styleDescriptors;
 	styleDescriptorsStruct* textStyles[4] = {
-		&descriptors[LOBYTE(textElement->assetIndex_0)],
-		&descriptors[HIBYTE(textElement->assetIndex_0)],
-		&descriptors[LOBYTE(textElement->assetIndex_1)],
-		&descriptors[HIBYTE(textElement->assetIndex_1)],
+		&descriptors[textJob->styleDescriptorIndices[0]],
+		&descriptors[textJob->styleDescriptorIndices[1]],
+		&descriptors[textJob->styleDescriptorIndices[2]],
+		&descriptors[textJob->styleDescriptorIndices[3]],
 	};
 
-	auto dataFloat = [&](int offset) -> float
+	auto dataFloat = [&](uint16_t offset) -> float
 	{
-		return *reinterpret_cast<const float*>(&ruiData->dataValues[offset]);
+		float value;
+		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		return value;
 	};
 
-	auto fontFromIndex = [](__int64 fontIndex) -> rpakFont*
+	auto dataText = [&](uint16_t offset) -> char*
 	{
-		return rpakFontPointers[fontIndex];
+		char* value;
+		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		return value;
+	};
+
+	auto maxScalar = [] (float lhs, float rhs) -> float
+	{
+		return _mm_cvtss_f32(_mm_max_ss(_mm_set_ss(lhs), _mm_set_ss(rhs)));
+	};
+
+	auto minScalar = [] (float lhs, float rhs) -> float
+	{
+		return _mm_cvtss_f32(_mm_min_ss(_mm_set_ss(lhs), _mm_set_ss(rhs)));
+	};
+
+	auto refineReciprocal = [](__m128 value) -> __m128
+	{
+		const __m128 reciprocal = _mm_rcp_ps(value);
+		const __m128 error = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(reciprocal, value));
+		return _mm_add_ps(
+			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(error, error), error), reciprocal),
+			reciprocal);
 	};
 
 	rpakFont* fonts[4] = {
-		fontFromIndex(textStyles[0]->fontIndex),
-		fontFromIndex(textStyles[1]->fontIndex),
-		fontFromIndex(textStyles[2]->fontIndex),
-		fontFromIndex(textStyles[3]->fontIndex),
+		rpakFontPointers[textStyles[0]->fontIndex],
+		rpakFontPointers[textStyles[1]->fontIndex],
+		rpakFontPointers[textStyles[2]->fontIndex],
+		rpakFontPointers[textStyles[3]->fontIndex],
 	};
 
-	const __m128 transformSizeReciprocal = _mm_rcp_ps(transformSize);
-	const __m128 transformSizeError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(transformSizeReciprocal, transformSize));
-	__m128 refinedTransformSizeReciprocal = _mm_add_ps(
-		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(transformSizeError, transformSizeError), transformSizeError), transformSizeReciprocal),
-		transformSizeReciprocal);
+	const __m128 refinedTransformSizeReciprocal = refineReciprocal(transformSize);
 
-	auto maxStyleTextWidth = [&]() -> float
+	auto styleTextWidth = [&](int styleIndex) -> float
 	{
-		float maxWidth = dataFloat(textStyles[0]->textSize) * *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(fonts[0]) + 36)
-			- dataFloat(textStyles[0]->uint16_32);
-		for (int i = 1; i != 4; ++i)
-		{
-			const float width = dataFloat(textStyles[i]->textSize) * *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(fonts[i]) + 36)
-				- dataFloat(textStyles[i]->uint16_32);
-			maxWidth = fmaxf(maxWidth, width);
-		}
-		return maxWidth;
+		return dataFloat(textStyles[styleIndex]->textSize) * fonts[styleIndex]->unk_24[0]
+			- dataFloat(textStyles[styleIndex]->uint16_32);
 	};
 
-	float maxTextWidth = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * maxStyleTextWidth();
-	const float textOriginX = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * dataFloat(textElement->texMins.x);
-	const float lineAdvanceScale = refinedTransformSizeReciprocal.m128_f32[0] * dataFloat(textElement->maxs.y);
+	const float maximumStyleWidth = maxScalar(
+		maxScalar(styleTextWidth(0), styleTextWidth(1)),
+		maxScalar(styleTextWidth(2), styleTextWidth(3)));
+	float lineY = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * maximumStyleWidth;
+	const float lineSpacing = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * dataFloat(textJob->lineSpacing);
+	const float horizontalAlignScale = refinedTransformSizeReciprocal.m128_f32[0] * dataFloat(textJob->horizontalAlignScale);
 
-	const unsigned __int64 renderJobIndex =
-		(static_cast<unsigned int>(reinterpret_cast<uintptr_t>(textElement) - reinterpret_cast<uintptr_t>(header->renderJobs))) >> 4;
+	const uint32_t renderJobAddress = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(textJob));
+	const uint32_t renderJobsAddress = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(header->renderJobs));
+	const uint32_t renderJobIndex = (renderJobAddress - renderJobsAddress) >> 4;
 	const unknown2& runtimeJob = runtime->unk2[renderJobIndex];
 
 	// Inline image spans are stored in runtime->gap_28D0 and are rendered before the text glyph pass.
@@ -1483,33 +1520,31 @@ void __fastcall renderText_F5840_rebuild(
 	if (inlineImageCount)
 	{
 		const __m128 scaledTransformSize = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 216);
-		const __m128 maxTextWidthVec = RUI_SHUFFLE_PS(_mm_set_ss(maxTextWidth), 17);
+		const __m128 lineOffsetVector = RUI_SHUFFLE_PS(_mm_set_ss(lineY), 17);
 		__m128 clipUnit = xmmword_5F4600;
 
-		for (uint32_t inlineImageIndex = inlineImageBegin; inlineImageIndex != inlineImageBegin + inlineImageCount; ++inlineImageIndex)
+		const uint32_t inlineImageEnd = static_cast<uint32_t>(inlineImageBegin) + inlineImageCount;
+		for (uint32_t inlineImageIndex = inlineImageBegin; inlineImageIndex != inlineImageEnd; ++inlineImageIndex)
 		{
-			const uint16_t assetDescriptorIndex = *reinterpret_cast<uint16_t*>(&runtime->gap_28D0[20 * inlineImageIndex]);
-			const auto* assetDescriptor = &unk_12A2E508[assetDescriptorIndex];
+			const auto* inlineImage = reinterpret_cast<const TextInlineImageSpan*>(
+				&runtime->gap_28D0[sizeof(TextInlineImageSpan) * inlineImageIndex]);
+			const auto* assetDescriptor = &unk_12A2E508[inlineImage->assetLookupIndex];
 			const __int16 assetIndex = assetDescriptor->assetIndex;
 			const __int64 nameHash = reinterpret_cast<__int64>(assetDescriptor);
 			uiImageAtlas* imageAtlas = &rpakUIMGAtlases[assetDescriptor->atlasIndex];
 
-			const uint8_t* textureRecord = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets) + 32ULL * static_cast<uint16_t>(assetIndex);
+			const uint8_t* textureRecord = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets) + 32LL * assetIndex;
 
 			const __m128 imageMin = _mm_mul_ps(
-				_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(&runtime->gap_28D0[20 * inlineImageIndex + 4]))),
+				_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(inlineImage->mins))),
 				scaledTransformSize);
 			const __m128 imageExtent = _mm_sub_ps(
 				_mm_mul_ps(
-					_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(&runtime->gap_28D0[20 * inlineImageIndex + 12]))),
+					_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(inlineImage->maxs))),
 					scaledTransformSize),
 				imageMin);
-			const __m128 imageBase = _mm_add_ps(maxTextWidthVec, imageMin);
-			const __m128 imageExtentReciprocal = _mm_rcp_ps(imageExtent);
-			const __m128 imageExtentError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(imageExtentReciprocal, imageExtent));
-			const __m128 refinedImageExtentReciprocal = _mm_add_ps(
-				_mm_mul_ps(_mm_add_ps(_mm_mul_ps(imageExtentError, imageExtentError), imageExtentError), imageExtentReciprocal),
-				imageExtentReciprocal);
+			const __m128 imageBase = _mm_add_ps(lineOffsetVector, imageMin);
+			const __m128 refinedImageExtentReciprocal = refineReciprocal(imageExtent);
 
 			const __m128 textureOffset = _mm_loadu_ps(reinterpret_cast<const float*>(textureRecord));
 			const __m128 atlasUv = _mm_add_ps(_mm_mul_ps(_mm_xor_ps(textureOffset, xmmword_5F3E20), imageExtent), imageBase);
@@ -1518,30 +1553,32 @@ void __fastcall renderText_F5840_rebuild(
 			const __m128 inlineMaskTransform = _mm_mul_ps(_mm_mul_ps(_mm_sub_ps(originSum, imageBase), refinedImageExtentReciprocal), atlasScale);
 			const __m128 inlineMaskBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, refinedImageExtentReciprocal), atlasScale);
 
-			ruiBaseUvStruct imageUv;
+			ruiBaseUvStruct imageUv{};
 			imageUv.assetIndex = assetIndex;
 			imageUv.assetIndex2 = -1;
-			const uint8_t inlineImageStyle = runtime->gap_28D0[20 * inlineImageIndex + 2];
 			imageUv.styleDescriptorIndex = static_cast<__int16>(
-				batch->styleDescriptorIndex + *(reinterpret_cast<uint8_t*>(&textElement->assetIndex_0) + inlineImageStyle));
+				batch->styleDescriptorIndex + textJob->styleDescriptorIndices[inlineImage->styleSelector]);
 			imageUv.flags = 7936;
 			imageUv.yDir = _mm_add_ps(inlineMaskTransform, _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord + 16))));
 			imageUv.base = RUI_SHUFFLE_PS(_mm_castsi128_ps(_mm_castps_si128(inlineMaskBasis)), 68);
 			imageUv.xDir = RUI_SHUFFLE_PS(_mm_castsi128_ps(_mm_castps_si128(inlineMaskBasis)), 238);
 			memset(&imageUv.base2, 0, 48);
 
-			sub_F9B80_rebuild(
-					renderList->globals,
-					ruiData,
-					batch,
-					&imageUv,
-					transformRows,
+			if (!sub_F9B80(
+					reinterpret_cast<__int64>(renderList->globals),
+					reinterpret_cast<__int64>(ruiData),
+					reinterpret_cast<_QWORD*>(batch),
+					reinterpret_cast<__m128*>(&imageUv),
+					reinterpret_cast<const __m128i*>(transformRows),
 					orientation,
 					nameHash,
 					reinterpret_cast<__m128i*>(const_cast<__m128*>(&atlasUv)),
 					&clipUnit,
 					const_cast<__m128*>(&inlineMaskBase),
-					const_cast<__m128*>(&refinedImageExtentReciprocal));
+					const_cast<__m128*>(&refinedImageExtentReciprocal)))
+			{
+				return 0;
+			}
 		}
 	}
 
@@ -1574,9 +1611,7 @@ void __fastcall renderText_F5840_rebuild(
 		}
 	}
 
-	char* textCursor = *reinterpret_cast<char**>(&ruiData->dataValues[textElement->mins.x]);
-	char* activeCursor = textCursor;
-	char* originalText = textCursor;
+	char* activeCursor = dataText(textJob->textOffset);
 	uint32_t styleEscapeCount = 0;
 	uint8_t activeStyle = 0;
 	if (*activeCursor == '`')
@@ -1607,7 +1642,7 @@ void __fastcall renderText_F5840_rebuild(
 	if (lineCursor < lineEnd)
 	{
 		nextLineGlyph = lineBreakGlyph(lineCursor);
-		currentAdvance = (transformSize.m128_f32[0] - runtime->float_25C4[3 * lineCursor + 2]) * lineAdvanceScale;
+		currentAdvance = (transformSize.m128_f32[0] - runtime->float_25C4[3 * lineCursor + 2]) * horizontalAlignScale;
 		++lineCursor;
 	}
 	float carryAdvance = 0.0f;
@@ -1615,42 +1650,39 @@ void __fastcall renderText_F5840_rebuild(
 	sub_FFAE0(transformRows, reinterpret_cast<const __m128i*>(&header->elementWidth), correctionData);
 
 	float previousLineMax = 0.0f;
-	__m128 previousGlyphState = _mm_setzero_ps();
 	const __m128 transformSizeXY = RUI_SHUFFLE_PS(transformSize, 216);
-	uint64_t includeStack[4] = {};
+	char* includeStack[14] = {};
 	uint32_t includeDepth = 0;
 
 	for (;;)
 	{
-		__m128i firstGlyphState = _mm_setzero_si128();
-		__m128i lastGlyphState = _mm_setzero_si128();
-		__m128i currentGlyphState = _mm_setzero_si128();
+		TextGlyphState firstGlyphState{};
+		TextGlyphState lastGlyphState{};
+		TextGlyphState currentGlyphState{};
 		rpakFontGlyph* glyph = nullptr;
 		rpakFont* font = fonts[activeStyle];
 		auto* styleWords = reinterpret_cast<uint16_t*>(textStyles[activeStyle]);
 		const uint16_t styleDescriptorIndex = static_cast<uint16_t>(
-			batch->styleDescriptorIndex + *(reinterpret_cast<uint8_t*>(&textElement->assetIndex_0) + activeStyle));
+			batch->styleDescriptorIndex + textJob->styleDescriptorIndices[activeStyle]);
 
-		ruiBaseUvStruct glyphUv;
+		ruiBaseUvStruct glyphUv{};
 		glyphUv.flags = 0;
 		glyphUv.styleDescriptorIndex = styleDescriptorIndex;
 
-		const float baselineOffset = fmaxf(dataFloat(styleWords[23]), previousLineMax);
+		const float baselineOffset = maxScalar(dataFloat(styleWords[23]), previousLineMax);
 		__m128 glyphScaleX = _mm_set_ss(lineHeightScale);
 		__m128 glyphScaleY = _mm_set_ss(dataFloat(styleWords[20]));
 		glyphScaleX.m128_f32[0] = (lineHeightScale * dataFloat(styleWords[21])) * glyphScaleY.m128_f32[0];
 		const float lineExtra = dataFloat(styleWords[22]);
-		__m128 glyphScale = _mm_movelh_ps(_mm_unpacklo_ps(glyphScaleX, glyphScaleY), _mm_unpacklo_ps(glyphScaleX, glyphScaleY));
-		const __m128 glyphScaleReciprocal = _mm_rcp_ps(glyphScale);
-		const __m128 glyphScaleError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(glyphScaleReciprocal, glyphScale));
-		const bool hasDecorations =
-			fmaxf(dataFloat(styleWords[4]), fminf(fmaxf(dataFloat(styleWords[8]), dataFloat(styleWords[12])), lineExtra)) > 0.0f;
+		const __m128 glyphScale = _mm_movelh_ps(_mm_unpacklo_ps(glyphScaleX, glyphScaleY), _mm_unpacklo_ps(glyphScaleX, glyphScaleY));
+		const __m128 refinedGlyphScaleReciprocal = refineReciprocal(glyphScale);
+		const bool styleRenderable =
+			maxScalar(dataFloat(styleWords[4]), minScalar(maxScalar(dataFloat(styleWords[8]), dataFloat(styleWords[12])), lineExtra)) > 0.0f;
 		const float glyphAdvanceScale = refinedTransformSizeReciprocal.m128_f32[0] * glyphScaleX.m128_f32[0];
 		const __m128 styleOffset = _mm_unpacklo_ps(_mm_set_ss(dataFloat(styleWords[17])), _mm_set_ss(dataFloat(styleWords[18])));
 		__m128 textHeight = _mm_set_ss(dataFloat(styleWords[19]));
 		__m128 glyphScaleYScreen = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255);
-		glyphScaleYScreen = _mm_set_ss(
-			glyphScaleYScreen.m128_f32[0] * glyphScaleY.m128_f32[0]);
+		glyphScaleYScreen.m128_f32[0] *= glyphScaleY.m128_f32[0];
 		const __m128 outlinePad = _mm_mul_ps(_mm_set1_ps(dataFloat(styleWords[24])), xmmword_5F3EB0);
 		const __m128 textBoundsPad = _mm_max_ps(
 			_mm_add_ps(_mm_mul_ps(_mm_set1_ps(textHeight.m128_f32[0]), xmmword_5F3EB0), _mm_xor_ps(_mm_movelh_ps(styleOffset, styleOffset), xmmword_5F3E20)),
@@ -1663,18 +1695,20 @@ void __fastcall renderText_F5840_rebuild(
 		const float glyphBoundsMaxY = glyphBoundsOffset.m128_f32[3];
 		const float glyphBoundsMinY = glyphBoundsOffset.m128_f32[1];
 
-		ruiDrawTriangle tri;
+		ruiDrawTriangle tri{};
 		tri.size = 4;
 		tri.size_ = 4;
 
 		uint32_t previousCodepoint = 0;
+		constexpr uint32_t inlineAssetLeadCodepoint = 0xF2000;
+		constexpr uint32_t inlineAssetTrailCodepoint = 0xF2001;
 		uint32_t pendingGlyphCount = 0;
 		float batchStartX = 0.0f;
 		__m128 batchMinY = _mm_setzero_ps();
 		__m128 batchMaxY = _mm_setzero_ps();
 
 		const __m128 glyphUvScale = _mm_mul_ps(
-			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(_mm_add_ps(_mm_mul_ps(glyphScaleError, glyphScaleError), glyphScaleError), glyphScaleReciprocal), glyphScaleReciprocal), transformSizeXY),
+			_mm_mul_ps(refinedGlyphScaleReciprocal, transformSizeXY),
 			fontAtlasScale);
 		const __m128 glyphBasis = _mm_mul_ps(inverseBasis, glyphUvScale);
 		const __m128 glyphOrigin = _mm_mul_ps(originSum, glyphUvScale);
@@ -1701,7 +1735,7 @@ void __fastcall renderText_F5840_rebuild(
 						break;
 					}
 
-					activeCursor = reinterpret_cast<char*>(includeStack[--includeDepth]);
+					activeCursor = includeStack[--includeDepth];
 				}
 
 				if (haveCodepoint)
@@ -1720,9 +1754,9 @@ void __fastcall renderText_F5840_rebuild(
 				char includeScratch[8];
 				char* includeText = reinterpret_cast<char*>(sub_F98F0(ruiData, reinterpret_cast<__int64>(renderList), reinterpret_cast<char**>(&activeCursor), reinterpret_cast<__int64>(includeScratch)));
 				if (!includeText)
-					return;
+					return 1;
 
-				includeStack[includeDepth++] = reinterpret_cast<uint64_t>(activeCursor);
+				includeStack[includeDepth++] = activeCursor;
 				activeCursor = includeText;
 			}
 
@@ -1732,11 +1766,11 @@ void __fastcall renderText_F5840_rebuild(
 			const bool controlCode = static_cast<unsigned int>(codepoint - 1) >= 0xEFFFF || codepoint == '`';
 			float glyphAdvance = 0.0f;
 			float currentGlyphX;
-			float* glyphMetrics;
+			const rpakFontGlyph* glyphMetrics;
 			if (controlCode)
 			{
-				currentGlyphX = _mm_castsi128_ps(currentGlyphState).m128_f32[0];
-				glyphMetrics = reinterpret_cast<float*>(currentGlyphState.m128i_u64[1]);
+				currentGlyphX = currentGlyphState.penX;
+				glyphMetrics = currentGlyphState.glyph;
 			}
 			else
 			{
@@ -1756,38 +1790,34 @@ void __fastcall renderText_F5840_rebuild(
 					if (static_cast<uint16_t>(kernIndex) < kernEnd)
 						kernOffset = kernTable[static_cast<uint16_t>(kernIndex)].unk_4;
 				}
-				currentGlyphState.m128i_i32[1] = glyphIndex;
+				currentGlyphState.glyphIndex = glyphIndex;
 				glyphAdvance = glyphAdvanceScale * glyph->unk_0;
-				glyphMetrics = &glyph->unk_0;
-				currentGlyphState.m128i_u64[1] = reinterpret_cast<uint64_t>(glyph);
+				glyphMetrics = glyph;
+				currentGlyphState.glyph = glyph;
 				currentAdvance += kernOffset * glyphAdvanceScale;
 				currentGlyphX = currentAdvance;
-				_mm_store_ss(reinterpret_cast<float*>(&currentGlyphState), _mm_set_ss(currentAdvance));
+				currentGlyphState.penX = currentAdvance;
 			}
 
 			const bool reachedLineBreak = parsedCount >= nextLineGlyph;
 			auto submitGlyphBatch = [&](float drawCenterX, __m128 rightMinY, __m128 rightMaxY) -> bool
 			{
-				const uint64_t firstGlyphPtr2 = firstGlyphState.m128i_u64[1];
-				const uint64_t lastGlyphPtr2 = lastGlyphState.m128i_u64[1];
+				const auto* firstGlyph = firstGlyphState.glyph;
+				const auto* lastGlyph = lastGlyphState.glyph;
 				__m128 drawCenter = _mm_set_ss(drawCenterX);
 				__m128 drawStart = _mm_set_ss(batchStartX);
 				const __m128 batchUv = _mm_shuffle_ps(drawStart, drawCenter, 0);
 				const __m128 proportionScale = _mm_shuffle_ps(
-					_mm_set_ss(font->proportions[*reinterpret_cast<uint8_t*>(firstGlyphPtr2 + 7)].scaleBounds),
-					_mm_set_ss(font->proportions[*reinterpret_cast<uint8_t*>(lastGlyphPtr2 + 7)].scaleBounds),
+					_mm_set_ss(font->proportions[firstGlyph->proportionIndex].scaleBounds),
+					_mm_set_ss(font->proportions[lastGlyph->proportionIndex].scaleBounds),
 					0);
 
 				__m128 glyphTextureBase = _mm_castsi128_ps(
-					_mm_loadl_epi64(reinterpret_cast<const __m128i*>(firstGlyphPtr2 + 8)));
+					_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&firstGlyph->posBaseX)));
 				glyphTextureBase = _mm_castpd_ps(
-					_mm_loadh_pd(_mm_castps_pd(glyphTextureBase), reinterpret_cast<const double*>(lastGlyphPtr2 + 8)));
-				const __m128 glyphXPair = _mm_castsi128_ps(_mm_set_epi32(
-					0,
-					0,
-					lastGlyphState.m128i_u32[0],
-					firstGlyphState.m128i_u32[0]));
-				const __m128 lineOffsetPair = _mm_unpacklo_ps(_mm_set_ss(maxTextWidth), _mm_set_ss(maxTextWidth));
+					_mm_loadh_pd(_mm_castps_pd(glyphTextureBase), reinterpret_cast<const double*>(&lastGlyph->posBaseX)));
+				const __m128 glyphXPair = _mm_unpacklo_ps(_mm_set_ss(firstGlyphState.penX), _mm_set_ss(lastGlyphState.penX));
+				const __m128 lineOffsetPair = _mm_unpacklo_ps(_mm_set_ss(lineY), _mm_set_ss(lineY));
 				glyphUv.yDir = _mm_add_ps(
 					_mm_mul_ps(
 						_mm_sub_ps(
@@ -1801,12 +1831,12 @@ void __fastcall renderText_F5840_rebuild(
 				glyphUv.yDir2 = RUI_SHUFFLE_PS(proportionScale, 216);
 				glyphUv.xDir = _mm_mul_ps(RUI_SHUFFLE_PS(glyphBasis, 238), proportionScale);
 				memset(&glyphUv.base2, 0, 32);
-				glyphUv.assetIndex = font->textureIndex + firstGlyphState.m128i_i16[2];
-				glyphUv.assetIndex2 = font->textureIndex + lastGlyphState.m128i_i16[2];
+				glyphUv.assetIndex = static_cast<__int16>(font->textureIndex + static_cast<__int16>(firstGlyphState.glyphIndex));
+				glyphUv.assetIndex2 = static_cast<__int16>(font->textureIndex + static_cast<__int16>(lastGlyphState.glyphIndex));
 
 				const __m128 bounds = _mm_add_ps(
 					_mm_unpacklo_ps(_mm_unpacklo_ps(batchMinY, rightMaxY), _mm_unpacklo_ps(batchMaxY, rightMinY)),
-					_mm_set1_ps(maxTextWidth));
+					_mm_set1_ps(lineY));
 				const __m128i transform0 = _mm_load_si128(reinterpret_cast<const __m128i*>(transformRows));
 				alignas(16) __m128 projected[2];
 				projected[0] = _mm_add_ps(
@@ -1835,59 +1865,34 @@ void __fastcall renderText_F5840_rebuild(
 				batchStartX = drawCenterX;
 				batchMinY = rightMinY;
 				batchMaxY = rightMaxY;
-				correctionMask = _mm_and_ps(correctionMask, xmmword_12A146B0);
+				correctionMask = _mm_and_ps(correctionMask, *xmmword_12A146B0);
 				return true;
 			};
 
-			if (hasDecorations)
+			if (styleRenderable)
 			{
 				if (reachedLineBreak || controlCode)
 				{
-					__m128 drawCorrection;
-					if (pendingGlyphCount > 1)
+					if (pendingGlyphCount)
 					{
-						drawCorrection = correctionMask;
-					}
-					else
-					{
-						if (!pendingGlyphCount)
+						if (pendingGlyphCount == 1)
 						{
-							// Nothing accumulated yet; fall through to line-break/control handling.
-						}
-						else
-						{
-							drawCorrection = _mm_add_ps(correctionMask, xmmword_5F3EE0);
+							correctionMask = _mm_add_ps(correctionMask, xmmword_5F3EE0);
 							firstGlyphState = lastGlyphState;
-							correctionMask = drawCorrection;
-
-							const uint64_t firstGlyphPtr = firstGlyphState.m128i_u64[1];
-							const uint64_t lastGlyphPtr = lastGlyphState.m128i_u64[1];
-							pendingGlyphCount = 0;
-							__m128 minY = _mm_set_ss(fminf(*reinterpret_cast<float*>(firstGlyphPtr + 20), *reinterpret_cast<float*>(lastGlyphPtr + 20)));
-							__m128 maxY = _mm_set_ss(fmaxf(*reinterpret_cast<float*>(firstGlyphPtr + 28), *reinterpret_cast<float*>(lastGlyphPtr + 28)));
-							const float batchEndX = (glyphAdvanceScale * *reinterpret_cast<float*>(lastGlyphPtr + 24)) + *reinterpret_cast<float*>(&lastGlyphState);
-							correctionMask = _mm_add_ps(drawCorrection, xmmword_5F3EF0);
-							const float drawCenterX = batchEndX + glyphBoundsOffset.m128_f32[2];
-							minY.m128_f32[0] = (minY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMinY;
-							maxY.m128_f32[0] = (maxY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMaxY;
-							if (!submitGlyphBatch(drawCenterX, minY, maxY))
-								return;
 						}
-					}
-					if (pendingGlyphCount > 1)
-					{
-						const uint64_t firstGlyphPtr = firstGlyphState.m128i_u64[1];
-						const uint64_t lastGlyphPtr = lastGlyphState.m128i_u64[1];
+
+						const auto* firstGlyph = firstGlyphState.glyph;
+						const auto* lastGlyph = lastGlyphState.glyph;
 						pendingGlyphCount = 0;
-						__m128 minY = _mm_set_ss(fminf(*reinterpret_cast<float*>(firstGlyphPtr + 20), *reinterpret_cast<float*>(lastGlyphPtr + 20)));
-						__m128 maxY = _mm_set_ss(fmaxf(*reinterpret_cast<float*>(firstGlyphPtr + 28), *reinterpret_cast<float*>(lastGlyphPtr + 28)));
-						const float batchEndX = (glyphAdvanceScale * *reinterpret_cast<float*>(lastGlyphPtr + 24)) + *reinterpret_cast<float*>(&lastGlyphState);
-						correctionMask = _mm_add_ps(drawCorrection, xmmword_5F3EF0);
+						__m128 minY = _mm_set_ss(minScalar(firstGlyph->posMinY, lastGlyph->posMinY));
+						__m128 maxY = _mm_set_ss(maxScalar(firstGlyph->posMaxY, lastGlyph->posMaxY));
+						const float batchEndX = (glyphAdvanceScale * lastGlyph->posMaxX) + lastGlyphState.penX;
+						correctionMask = _mm_add_ps(correctionMask, xmmword_5F3EF0);
 						const float drawCenterX = batchEndX + glyphBoundsOffset.m128_f32[2];
 						minY.m128_f32[0] = (minY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMinY;
 						maxY.m128_f32[0] = (maxY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMaxY;
 						if (!submitGlyphBatch(drawCenterX, minY, maxY))
-							return;
+							return 0;
 					}
 				}
 				else
@@ -1910,8 +1915,8 @@ void __fastcall renderText_F5840_rebuild(
 
 						if (pendingGlyphCount)
 						{
-							batchMinY.m128_f32[0] = fminf(batchMinY.m128_f32[0], minY.m128_f32[0]);
-							batchMaxY.m128_f32[0] = fmaxf(batchMaxY.m128_f32[0], maxY.m128_f32[0]);
+							batchMinY.m128_f32[0] = minScalar(batchMinY.m128_f32[0], minY.m128_f32[0]);
+							batchMaxY.m128_f32[0] = maxScalar(batchMaxY.m128_f32[0], maxY.m128_f32[0]);
 						}
 						else
 						{
@@ -1931,30 +1936,30 @@ void __fastcall renderText_F5840_rebuild(
 					}
 
 					{
-						const uint64_t firstGlyphPtr = firstGlyphState.m128i_u64[1];
-						const uint64_t lastGlyphPtr = lastGlyphState.m128i_u64[1];
-						__m128 rightMinY = _mm_set_ss(*reinterpret_cast<float*>(firstGlyphPtr + 20));
-						__m128 rightMaxY = _mm_set_ss(*reinterpret_cast<float*>(firstGlyphPtr + 28));
-						float drawCenterX = (((*reinterpret_cast<float*>(firstGlyphPtr + 24) + glyphMetrics[4]) * glyphAdvanceScale)
-							+ (*reinterpret_cast<float*>(&firstGlyphState) + currentGlyphX)) * 0.5f;
+						const auto* firstGlyph = firstGlyphState.glyph;
+						const auto* lastGlyph = lastGlyphState.glyph;
+						__m128 rightMinY = _mm_set_ss(firstGlyph->posMinY);
+						__m128 rightMaxY = _mm_set_ss(firstGlyph->posMaxY);
+						float drawCenterX = (((firstGlyph->posMaxX + glyphMetrics->posMinX) * glyphAdvanceScale)
+							+ (firstGlyphState.penX + currentGlyphX)) * 0.5f;
 						rightMinY.m128_f32[0] =
-							(fminf(fminf(rightMinY.m128_f32[0], *reinterpret_cast<float*>(lastGlyphPtr + 20)), glyphMetrics[5])
+							(minScalar(minScalar(rightMinY.m128_f32[0], lastGlyph->posMinY), glyphMetrics->posMinY)
 								* glyphScaleYScreen.m128_f32[0])
 							+ glyphBoundsMinY;
 						rightMaxY.m128_f32[0] =
-							(fmaxf(fmaxf(rightMaxY.m128_f32[0], *reinterpret_cast<float*>(lastGlyphPtr + 28)), glyphMetrics[7])
+							(maxScalar(maxScalar(rightMaxY.m128_f32[0], lastGlyph->posMaxY), glyphMetrics->posMaxY)
 								* glyphScaleYScreen.m128_f32[0])
 							+ glyphBoundsMaxY;
 
 						if (!submitGlyphBatch(drawCenterX, rightMinY, rightMaxY))
-							return;
+							return 0;
 					}
 				}
 			}
 
 			if (reachedLineBreak)
 			{
-				maxTextWidth += glyphScaleYScreen.m128_f32[0] + textOriginX;
+				lineY += glyphScaleYScreen.m128_f32[0] + lineSpacing;
 				if (lineCursor >= lineEnd)
 				{
 					nextLineGlyph = static_cast<uint32_t>(-1);
@@ -1967,7 +1972,7 @@ void __fastcall renderText_F5840_rebuild(
 					++lineCursor;
 					currentAdvance = transformSize.m128_f32[0] - runtime->float_25C4[lineRecord + 2];
 				}
-				currentAdvance *= lineAdvanceScale;
+				currentAdvance *= horizontalAlignScale;
 
 				if (!glyph || glyph->posMinX == glyph->posMaxX)
 				{
@@ -1975,7 +1980,7 @@ void __fastcall renderText_F5840_rebuild(
 				}
 				else
 				{
-					currentGlyphState.m128i_i32[0] = _mm_castps_si128(_mm_set_ss(currentAdvance)).m128i_i32[0];
+					currentGlyphState.penX = currentAdvance;
 					pendingGlyphCount = 1;
 					const float posMinX = glyph->posMinX;
 					const float xOffset = glyphAdvanceScale * posMinX;
@@ -1998,14 +2003,14 @@ void __fastcall renderText_F5840_rebuild(
 			}
 
 			if (!codepoint)
-				return;
+				return 1;
 
 			if (codepoint == '`')
 				break;
 
 			if (static_cast<unsigned int>(codepoint - 0xF0000) >= 0x2000)
 			{
-				if (codepoint != 991233)
+				if (codepoint != inlineAssetTrailCodepoint)
 				{
 					previousCodepoint = codepoint;
 					glyph = nullptr;
@@ -2013,21 +2018,22 @@ void __fastcall renderText_F5840_rebuild(
 				}
 
 				currentAdvance += carryAdvance;
-				previousCodepoint = 991233;
+				previousCodepoint = inlineAssetTrailCodepoint;
 				glyph = nullptr;
 				carryAdvance = 0.0f;
 			}
 			else
 			{
-				const uint8_t* unicodeAssetTable = *reinterpret_cast<const uint8_t**>(assetIndexData_12A4E510);
-				const uint8_t* unicodeAsset = unicodeAssetTable + 8ULL * static_cast<uint32_t>(codepoint);
-				const __int16 unicodeTextureIndex = *reinterpret_cast<const __int16*>(unicodeAsset + 4);
-				const uint8_t unicodeAtlasIndex = unicodeAsset[6];
-				uiImageAtlas* unicodeAtlas = &rpakUIMGAtlases[ unicodeAtlasIndex];
-				const uint8_t* unicodeDimensions = reinterpret_cast<const uint8_t*>(unicodeAtlas->textureDimensions) + 4LL * static_cast<uint16_t>(unicodeTextureIndex);
+				const auto* unicodeAssetTable = *reinterpret_cast<assetIndexData* const*>(assetIndexData_12A4E510);
+				const uint16_t unicodeAssetIndex = static_cast<uint16_t>(codepoint);
+				const assetIndexData& unicodeAsset = unicodeAssetTable[unicodeAssetIndex];
+				const __int16 unicodeTextureIndex = unicodeAsset.assetIndex;
+				const uint8_t unicodeAtlasIndex = unicodeAsset.atlasIndex;
+				uiImageAtlas* unicodeAtlas = &rpakUIMGAtlases[unicodeAtlasIndex];
+				const uint8_t* unicodeDimensions = reinterpret_cast<const uint8_t*>(unicodeAtlas->textureDimensions) + 4LL * unicodeTextureIndex;
 				const float unicodeWidth = static_cast<float>(*reinterpret_cast<const uint16_t*>(unicodeDimensions));
 
-				if (previousCodepoint == 991232)
+				if (previousCodepoint == inlineAssetLeadCodepoint)
 				{
 					if (static_cast<uint16_t>(unicodeTextureIndex) >= unicodeAtlas->textureOffsetsCount)
 					{
@@ -2038,7 +2044,7 @@ void __fastcall renderText_F5840_rebuild(
 					else
 					{
 						const float* unicodeOffset = reinterpret_cast<const float*>(
-							reinterpret_cast<const uint8_t*>(unicodeAtlas->pointer_20) + 32LL * static_cast<uint16_t>(unicodeTextureIndex));
+							reinterpret_cast<const uint8_t*>(unicodeAtlas->pointer_20) + 32LL * unicodeTextureIndex);
 						const float scaledWidth = refinedTransformSizeReciprocal.m128_f32[0] * unicodeWidth;
 						currentAdvance += scaledWidth * unicodeOffset[0];
 						carryAdvance = scaledWidth * unicodeOffset[2];
@@ -2057,17 +2063,17 @@ void __fastcall renderText_F5840_rebuild(
 
 		activeStyle = static_cast<uint8_t>(*activeCursor - '0');
 		if (activeStyle >= 4)
-			return;
+			return 1;
 
 		++activeCursor;
-		previousLineMax = previousGlyphState.m128_f32[0];
+		previousLineMax = 0.0f;
 	}
 }
 
-DECLARE_HOOK(RenderText, engine.dll + 0xF5840, [](auto& hook, ruiRenderList* a1, ruiDataStruct* a2, AssetRenderOffsets* a3, struct_v3* a4)
+DECLARE_HOOK(RenderText, engine.dll + 0xF5840, [](auto& hook, ruiRenderList* a1, ruiDataStruct* a2, const TextRenderJobOffsets* a3, struct_v3* a4) -> int
 {
-		//renderText_F5840_rebuild(a1, a2, a3, a4);
-		hook.Original(a1, a2, a3, a4);
+		return renderText_F5840_rebuild(a1, a2, a3, a4);
+		//return hook.Original(a1, a2, a3, a4);
 });
 
 ON_DLL_LOAD("rtech_game.DLL", AtlasRpak, [](CModule module)
@@ -2113,7 +2119,7 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 
 	xmmword_12A14650 = *module.Offset(0x12A14650).RCast<__m128*>();
 	xmmword_12A146A0 = *module.Offset(0x12A146A0).RCast<__m128*>();
-	xmmword_12A146B0 = *module.Offset(0x12A146B0).RCast<__m128*>();
+	xmmword_12A146B0 = module.Offset(0x12A146B0).RCast<__m128*>();
 	xmmword_12A146D0 = *module.Offset(0x12A146D0).RCast<__m128*>();
 	rpakUIMGAtlases = module.Offset(0x12A26140).RCast<uiImageAtlas*>();
 	assetIndexList = module.Offset(0x12A4E508).RCast<struct_a1_2*>();
