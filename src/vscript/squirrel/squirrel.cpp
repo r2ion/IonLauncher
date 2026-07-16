@@ -421,8 +421,8 @@ template <ScriptContext context> bool __fastcall CSquirrelVM_initHook(CSquirrelV
 			{
 				// g_pSquirrel[context]->Call can't be used here ...
 				SQObject functionobj {};
-				SQRESULT result = g_pSquirrel[context]->sq_getfunction(vm->sqvm, mod.initScriptCallBack.value().c_str(), &functionobj, 0);
-				if (result != SQRESULT_NOTNULL) // This func returns 0 on success for some reason
+				int result = g_pSquirrel[context]->sq_getfunction(vm->sqvm, mod.initScriptCallBack.value().c_str(), &functionobj, 0);
+				if (result != SQRESULT_NULL)
 				{
 					spdlog::error("InitScript was unable to find function with name '{}'. Is it global?", mod.initScriptCallBack.value());
 					continue;
