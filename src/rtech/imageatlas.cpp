@@ -139,7 +139,6 @@ struct struct_v1
 	unknown2 unk2[179];
 	unsigned int dword_5B8;
 	_BYTE gap_5BC[8200];
-	// Sixty-four line-break triples followed by the final-line-width sentinel.
 	float float_25C4[193];
 	uint32_t dword_28C8;
 	uint32_t dword_28CC;
