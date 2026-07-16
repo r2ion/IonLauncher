@@ -2481,7 +2481,6 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	xmmword_12A146A0 = *module.Offset(0x12A146A0).RCast<__m128*>();
 	xmmword_12A146B0 = module.Offset(0x12A146B0).RCast<__m128*>();
 	xmmword_12A146D0 = *module.Offset(0x12A146D0).RCast<__m128*>();
-	//rpakUIMGAtlases = module.Offset(0x12A26140).RCast<uiImageAtlas*>();
 	assetIndexList = module.Offset(0x12A4E508).RCast<struct_a1_2*>();
 
 	word_12A2E50C = module.Offset(0x12A2E50C).RCast<short*>();
@@ -2499,8 +2498,6 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	getFontGlyphIndex = module.Offset(0xFAE80).RCast<getFontGlyphIndexType>();
 	getUnicodeCharacter_GPT = module.Offset(0x00F2C40).RCast<getUnicodeCharacter_GPTType>();
 	sub_F98F0 = module.Offset(0xF98F0).RCast<sub_F98F0Type>();
-	// void (*sub_F9B80)(__int64 a1, __int64 a2, _QWORD *a3, __m128 *a4, const __m128i *a5, int a6, __int64 a7, __m128i *a8, __m128 *a9,
-	// __m128 *a10, __m128 *a11);
 	sub_F9B80 = module.Offset(0xF9B80).RCast<sub_F9B80Type>();
 	sub_FFAE0 = module.Offset(0xFFAE0).RCast<sub_FFAE0Type>();
 	sub_FEF30 = module.Offset(0xFEF30).RCast<sub_FEF30Type>();
