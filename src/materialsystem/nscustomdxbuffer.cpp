@@ -57,7 +57,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 			if (textureGUID == 0)
 				continue;
 
-			__int64 texturePointer = g_pakLoadApi->GetAssetByHash(textureGUID);
+			char* texturePointer = g_pakLoadApi->GetAssetBinding(textureGUID);
 			if (!texturePointer)
 				continue;
 
@@ -134,7 +134,7 @@ template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIR
 	auto rPakMaterialGUIDString = (g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1));
 	uint64_t rPakMaterialGUID = std::stoull(rPakMaterialGUIDString, nullptr, 16);
 
-	__int64 AssetFromGUID = g_pakLoadApi->GetAssetByHash(rPakMaterialGUID);
+	char* AssetFromGUID = g_pakLoadApi->GetAssetBinding(rPakMaterialGUID);
 
 	if (!AssetFromGUID)
 	{
@@ -145,7 +145,7 @@ template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIR
 
 	auto* base = reinterpret_cast<uint8_t*>(AssetFromGUID);
 	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
-	//we need to add 16 to the pointer, matglueshort is matglue without the first 16 bytes. GetAssetByHash returns a pointer to the full matglue.
+	// We need to add 16 to the pointer; Pak_GetAssetBinding returns the full material glue.
 	if(!NSRegisteredCustomBufferMaterials.contains( GUIDMaterialGlue_short->guid))
 	{
 		NS::log::SCRIPT_CL->info("Registered GUID: {} to use the NSCustomDXBuffer system", GUIDMaterialGlue_short->guid);
@@ -165,7 +165,7 @@ template <ScriptContext context> SQRESULT NSDeregisterCustomDXBufferForGUID(HSQU
 	auto rPakMaterialGUIDString = (g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1));
 	uint64_t rPakMaterialGUID = std::stoull(rPakMaterialGUIDString, nullptr, 16);
 
-	__int64 AssetFromGUID = g_pakLoadApi->GetAssetByHash(rPakMaterialGUID);
+	char* AssetFromGUID = g_pakLoadApi->GetAssetBinding(rPakMaterialGUID);
 
 	if (!AssetFromGUID)
 	{
@@ -176,7 +176,7 @@ template <ScriptContext context> SQRESULT NSDeregisterCustomDXBufferForGUID(HSQU
 
 	auto* base = reinterpret_cast<uint8_t*>(AssetFromGUID);
 	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
-	//we need to add 16 to the pointer, matglueshort is matglue without the first 16 bytes. GetAssetByHash returns a pointer to the full matglue.
+	// We need to add 16 to the pointer; Pak_GetAssetBinding returns the full material glue.
 	if (NSRegisteredCustomBufferMaterials.contains(GUIDMaterialGlue_short->guid))
 	{
 		NS::log::SCRIPT_CL->info("Deregistered GUID: {} from the NSCustomDXBuffer system", GUIDMaterialGlue_short->guid);
@@ -248,7 +248,7 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 	auto rPakShaderSlotBindingInt = (g_pSquirrel[ScriptContext::CLIENT]->getinteger(sqvm, 3));
 
 	uint64_t rPakMaterialGUID = std::stoull(rPakMaterialGUIDString, nullptr, 16);
-	__int64 MatAssetFromGUID = g_pakLoadApi->GetAssetByHash(rPakMaterialGUID);
+	char* MatAssetFromGUID = g_pakLoadApi->GetAssetBinding(rPakMaterialGUID);
 
 	if (rPakShaderSlotBindingInt > 60)
 	{
@@ -270,7 +270,7 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 	if (!rPakTextureGUIDString == 0)
 	{
 		uint64_t rPakTextureGUID = std::stoull(rPakTextureGUIDString, nullptr, 16);
-		__int64 TexAssetFromGUID = g_pakLoadApi->GetAssetByHash(rPakTextureGUID);
+		char* TexAssetFromGUID = g_pakLoadApi->GetAssetBinding(rPakTextureGUID);
 
 		if (!TexAssetFromGUID)
 		{

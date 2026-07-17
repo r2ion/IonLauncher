@@ -16,14 +16,14 @@ static bool PATCH_CMD_0(PakFile* const pak, size_t* const numAvailableBytes)
   char *patchDstPtr; // rcx
   size_t patchSrcSize; // rsi
   uint64_t v11; // r14
-  __int64 maxCopySize; // rax
+  size_t ringMask;
   const void *decompressedBuffer; // rdx
   size_t v14; // r14
   size_t v15; // r8
 
-  numPatchBytesToProcess = pak->numPatchBytesToProcess;
+  numPatchBytesToProcess = pak->streamBytesRemaining;
   v3 = *numAvailableBytes;
-  numBytesToSkip = pak->numBytesToSkip;
+  numBytesToSkip = pak->skipBytesRemaining;
   v6 = *numAvailableBytes;
   if ( numPatchBytesToProcess < *numAvailableBytes )
     v6 = numPatchBytesToProcess;
@@ -31,32 +31,32 @@ static bool PATCH_CMD_0(PakFile* const pak, size_t* const numAvailableBytes)
   {
     if ( v6 <= numBytesToSkip )
     {
-      pak->processedPatchedDataSize += v6;
-      pak->numBytesToSkip = numBytesToSkip - v6;
-      pak->numPatchBytesToProcess = numPatchBytesToProcess - v6;
+      pak->decodeCursor += v6;
+      pak->skipBytesRemaining = numBytesToSkip - v6;
+      pak->streamBytesRemaining = numPatchBytesToProcess - v6;
       *numAvailableBytes = v3 - v6;
-      return pak->numPatchBytesToProcess == 0LL;
+      return pak->streamBytesRemaining == 0LL;
     }
-    pak->processedPatchedDataSize += numBytesToSkip;
+    pak->decodeCursor += numBytesToSkip;
     v6 -= numBytesToSkip;
-    pak->numBytesToSkip = 0LL;
+    pak->skipBytesRemaining = 0LL;
     v3 -= numBytesToSkip;
-    pak->numPatchBytesToProcess = numPatchBytesToProcess - numBytesToSkip;
+    pak->streamBytesRemaining = numPatchBytesToProcess - numBytesToSkip;
   }
-  processedPatchedDataSize = pak->processedPatchedDataSize;
-  patchDstPtr = pak->patchDstPtr;
-  patchSrcSize = pak->patchSrcSize;
+  processedPatchedDataSize = pak->decodeCursor;
+  patchDstPtr = pak->copyDestination;
+  patchSrcSize = pak->copyBytesRemaining;
   v11 = ~processedPatchedDataSize;
   if ( v6 < patchSrcSize )
     patchSrcSize = v6;
-  maxCopySize = pak->maxCopySize;
-  decompressedBuffer = (const void *)(pak->decompressedBuffer + (maxCopySize & processedPatchedDataSize));
-  v14 = (maxCopySize & v11) + 1;
+  ringMask = pak->decoderRingMask;
+  decompressedBuffer = (const void *)(pak->decoderRingBuffer + (ringMask & processedPatchedDataSize));
+  v14 = (ringMask & v11) + 1;
   if ( patchSrcSize > v14 )
   {
     memcpy(patchDstPtr, decompressedBuffer, v14);
-    decompressedBuffer = (const void *)pak->decompressedBuffer;
-    patchDstPtr = &pak->patchDstPtr[v14];
+    decompressedBuffer = (const void *)pak->decoderRingBuffer;
+    patchDstPtr = &pak->copyDestination[v14];
     v15 = patchSrcSize - v14;
   }
   else
@@ -64,12 +64,12 @@ static bool PATCH_CMD_0(PakFile* const pak, size_t* const numAvailableBytes)
     v15 = patchSrcSize;
   }
   memcpy(patchDstPtr, decompressedBuffer, v15);
-  pak->processedPatchedDataSize += patchSrcSize;
-  pak->patchSrcSize -= patchSrcSize;
-  pak->patchDstPtr += patchSrcSize;
-  pak->numPatchBytesToProcess -= patchSrcSize;
+  pak->decodeCursor += patchSrcSize;
+  pak->copyBytesRemaining -= patchSrcSize;
+  pak->copyDestination += patchSrcSize;
+  pak->streamBytesRemaining -= patchSrcSize;
   *numAvailableBytes = v3 - patchSrcSize;
-  return pak->numPatchBytesToProcess == 0LL;
+  return pak->streamBytesRemaining == 0LL;
 }
 
 static bool PATCH_CMD_1(PakFile* const pak, size_t* const pNumBytesAvailable)
@@ -77,19 +77,19 @@ static bool PATCH_CMD_1(PakFile* const pak, size_t* const pNumBytesAvailable)
   unsigned __int64 numPatchBytesToProcess; // rax
   __int64 v3; // r8
 
-  numPatchBytesToProcess = pak->numPatchBytesToProcess;
+  numPatchBytesToProcess = pak->streamBytesRemaining;
   v3 = *pNumBytesAvailable;
   if ( *pNumBytesAvailable > numPatchBytesToProcess )
   {
-    pak->processedPatchedDataSize += numPatchBytesToProcess;
-    pak->numPatchBytesToProcess = 0LL;
+    pak->decodeCursor += numPatchBytesToProcess;
+    pak->streamBytesRemaining = 0LL;
     *pNumBytesAvailable = v3 - numPatchBytesToProcess;
     return 1;
   }
   else
   {
-    pak->processedPatchedDataSize += v3;
-    pak->numPatchBytesToProcess = numPatchBytesToProcess - v3;
+    pak->decodeCursor += v3;
+    pak->streamBytesRemaining = numPatchBytesToProcess - v3;
     *pNumBytesAvailable = 0LL;
     return 0;
   }
@@ -99,52 +99,52 @@ static bool PATCH_CMD_2(PakFile* const pak, size_t* const pNumBytesAvailable)
 {
     NOTE_UNUSED(pNumBytesAvailable);
 
-    size_t numBytesToProcess = pak->numPatchBytesToProcess;
-    const size_t v3 = pak->numBytesToSkip;
+    size_t numBytesToProcess = pak->streamBytesRemaining;
+    const size_t v3 = pak->skipBytesRemaining;
 
     if (v3)
     {
         if (numBytesToProcess <= v3)
         {
-            pak->numPatchBytesToProcess = 0ull;
-            pak->patchDataPtr += numBytesToProcess;
-            pak->numBytesToSkip = v3 - numBytesToProcess;
+            pak->streamBytesRemaining = 0ull;
+            pak->literalCursor += numBytesToProcess;
+            pak->skipBytesRemaining = v3 - numBytesToProcess;
 
             return true;
         }
 
-        pak->numBytesToSkip = 0i64;
+        pak->skipBytesRemaining = 0i64;
         numBytesToProcess -= v3;
-        pak->patchDataPtr += v3;
-        pak->numPatchBytesToProcess = numBytesToProcess;
+        pak->literalCursor += v3;
+        pak->streamBytesRemaining = numBytesToProcess;
     }
 
-    const size_t patchSrcSize = std::min<size_t>(numBytesToProcess, pak->patchSrcSize);
+    const size_t patchSrcSize = std::min<size_t>(numBytesToProcess, pak->copyBytesRemaining);
 
-    memcpy(pak->patchDstPtr, pak->patchDataPtr, patchSrcSize);
+    memcpy(pak->copyDestination, pak->literalCursor, patchSrcSize);
 
-    pak->patchDataPtr += patchSrcSize;
-    pak->patchSrcSize -= patchSrcSize;
-    pak->patchDstPtr += patchSrcSize;
-    pak->numPatchBytesToProcess -= patchSrcSize;
+    pak->literalCursor += patchSrcSize;
+    pak->copyBytesRemaining -= patchSrcSize;
+    pak->copyDestination += patchSrcSize;
+    pak->streamBytesRemaining -= patchSrcSize;
 
-    return pak->numPatchBytesToProcess == 0;
+    return pak->streamBytesRemaining == 0;
 }
 
 static bool PATCH_CMD_3(PakFile* const pak, size_t* const pNumBytesAvailable)
 {
-    const size_t numBytesLeft = std::min<size_t>(*pNumBytesAvailable, pak->numPatchBytesToProcess);
-    const size_t patchSrcSize = std::min<size_t>(numBytesLeft, pak->patchSrcSize);
+    const size_t numBytesLeft = std::min<size_t>(*pNumBytesAvailable, pak->streamBytesRemaining);
+    const size_t patchSrcSize = std::min<size_t>(numBytesLeft, pak->copyBytesRemaining);
 
-    memcpy(pak->patchDstPtr, pak->patchDataPtr, patchSrcSize);
-    pak->patchDataPtr += patchSrcSize;
-    pak->processedPatchedDataSize += patchSrcSize;
-    pak->patchSrcSize -= patchSrcSize;
-    pak->patchDstPtr += patchSrcSize;
-    pak->numPatchBytesToProcess -= patchSrcSize;
+    memcpy(pak->copyDestination, pak->literalCursor, patchSrcSize);
+    pak->literalCursor += patchSrcSize;
+    pak->decodeCursor += patchSrcSize;
+    pak->copyBytesRemaining -= patchSrcSize;
+    pak->copyDestination += patchSrcSize;
+    pak->streamBytesRemaining -= patchSrcSize;
     *pNumBytesAvailable = *pNumBytesAvailable - patchSrcSize;
 
-    return pak->numPatchBytesToProcess == 0;
+    return pak->streamBytesRemaining == 0;
 }
 
 static bool PATCH_CMD_4_5(PakFile* const pak, size_t* const pNumBytesAvailable)
@@ -154,11 +154,11 @@ static bool PATCH_CMD_4_5(PakFile* const pak, size_t* const pNumBytesAvailable)
     if (!numBytesAvailable)
         return false;
 
-    *pak->patchDstPtr = *(_BYTE*)pak->patchDataPtr++;
-    ++pak->processedPatchedDataSize;
-    --pak->patchSrcSize;
-    ++pak->patchDstPtr;
-    pak->patchFunc = PATCH_CMD_0;
+    *pak->copyDestination = *(_BYTE*)pak->literalCursor++;
+    ++pak->decodeCursor;
+    --pak->copyBytesRemaining;
+    ++pak->copyDestination;
+    pak->decodeStep = PATCH_CMD_0;
     *pNumBytesAvailable = numBytesAvailable - 1;
 
     return PATCH_CMD_0(pak, pNumBytesAvailable);
@@ -177,37 +177,37 @@ static bool PATCH_CMD_6(PakFile* const pak, size_t* const pNumBytesAvailable)
         numBytesToSkip = *pNumBytesAvailable;
     }
 
-    const void* const patchDataPtr = (const void*)pak->patchDataPtr;
-    const size_t patchSrcSize = pak->patchSrcSize;
-    char* const patchDstPtr = pak->patchDstPtr;
+    const void* const patchDataPtr = (const void*)pak->literalCursor;
+    const size_t patchSrcSize = pak->copyBytesRemaining;
+    char* const patchDstPtr = pak->copyDestination;
 
     if (numBytesToSkip > patchSrcSize)
     {
         memcpy(patchDstPtr, patchDataPtr, patchSrcSize);
-        pak->patchDataPtr += patchSrcSize;
-        pak->processedPatchedDataSize += patchSrcSize;
-        pak->patchSrcSize -= patchSrcSize;
-        pak->patchDstPtr += patchSrcSize;
-        pak->patchFunc = PATCH_CMD_4_5;
+        pak->literalCursor += patchSrcSize;
+        pak->decodeCursor += patchSrcSize;
+        pak->copyBytesRemaining -= patchSrcSize;
+        pak->copyDestination += patchSrcSize;
+        pak->decodeStep = PATCH_CMD_4_5;
         *pNumBytesAvailable = numBytesAvailable - patchSrcSize;
     }
     else
     {
         memcpy(patchDstPtr, patchDataPtr, numBytesToSkip);
-        pak->patchDataPtr += numBytesToSkip;
-        pak->processedPatchedDataSize += numBytesToSkip;
-        pak->patchSrcSize -= numBytesToSkip;
-        pak->patchDstPtr += numBytesToSkip;
+        pak->literalCursor += numBytesToSkip;
+        pak->decodeCursor += numBytesToSkip;
+        pak->copyBytesRemaining -= numBytesToSkip;
+        pak->copyDestination += numBytesToSkip;
 
         if (numBytesAvailable >= 2)
         {
-            pak->patchFunc = PATCH_CMD_0;
+            pak->decodeStep = PATCH_CMD_0;
             *pNumBytesAvailable = numBytesAvailable - numBytesToSkip;
 
             return PATCH_CMD_0(pak, pNumBytesAvailable);
         }
 
-        pak->patchFunc = PATCH_CMD_4_5;
+        pak->decodeStep = PATCH_CMD_4_5;
         *pNumBytesAvailable = NULL;
     }
 

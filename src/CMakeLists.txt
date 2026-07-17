@@ -312,6 +312,7 @@ target_link_libraries(
     NorthstarDLL
     PRIVATE minhook
             minizip
+			libzstd_static
 			# VTFLib::VTFLib
             ws2_32.lib
             crypt32.lib

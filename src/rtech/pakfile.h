@@ -37,35 +37,40 @@ struct PakRingBufferFrame_s
 	size_t frameLen;
 };
 
-struct PakFileStream__Descriptor
+struct PakAsyncReadBlock_s
 {
-  int64_t dataOffset;
-  int64_t compressedSize;
-  int64_t decompressedSize;
-  PakDecodeMode_e compressionMode;
+	uint64_t logicalEndOffset;
+	uint64_t sourceEndOffset;
+	uint64_t expectedOutputEnd;
+	PakDecodeMode_e decodeMode;
 };
 
-struct PakFileStream
+struct PakFileStream_s
 {
-  int64_t readOffset;
-  int64_t compressedSize;
-  int32_t fileHandle;
-  int fileReadJobs[32];
-  _BYTE dataChunkStatuses[32];
-  unsigned int numDataChunksProcessed;
-  unsigned int numDataChunks;
-  _BYTE fileReadStatus;
-  bool finishedLoadingPatches;
-  _BYTE gap_BE;
-  _BYTE numLoadedFiles;
-  PakFileStream__Descriptor descriptors[8];
-  uint8_t *fileBuffer;
-  int64_t bufferMask;
-  int64_t bytesStreamed;
+	uint64_t currentFileBaseOffset;
+	uint64_t currentFileEndOffset;
+	int32_t currentFileHandle;
+	int32_t asyncRequestIds[PAK_MAX_DATA_CHUNKS_PER_STREAM];
+	uint8_t asyncRequestStates[PAK_MAX_DATA_CHUNKS_PER_STREAM];
+	uint32_t asyncCompleteIndex;
+	uint32_t asyncSubmitIndex;
+	uint8_t nextReadMode;
+	bool endOfInput;
+	uint8_t reservedBE;
+	uint8_t completedBlockWriteIndex;
+	PakAsyncReadBlock_s completedBlocks[PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS];
+	uint8_t* readRingBuffer;
+	uint64_t readRingMask;
+	uint64_t inputBytesReady;
 };
 
+static_assert(sizeof(PakAsyncReadBlock_s) == 0x20);
+static_assert(sizeof(PakFileStream_s) == 0x1D8);
+static_assert(offsetof(PakFileStream_s, completedBlocks) == 0xC0);
+static_assert(offsetof(PakFileStream_s, readRingBuffer) == 0x1C0);
+static_assert(offsetof(PakFileStream_s, readRingMask) == 0x1C8);
 
-struct __declspec(align(8)) PakDecompState
+struct __declspec(align(8)) RTechDecodeState_s
 {
 	const uint8_t* inputBuf;
 	uint8_t* outputBuf;
@@ -115,9 +120,8 @@ struct __declspec(align(8)) PakDecompState
 	{
 		size_t compressedStreamSize;
 
-		// compressedStreamSize isn't used on ZStd paks, instead, we need to
-		// store the frame header size
-		size_t frameHeaderSize;
+		// The first/next input-size hint returned by the Zstd streaming API.
+		size_t nextInputSize;
 	};
 
 	union
@@ -130,101 +134,115 @@ struct __declspec(align(8)) PakDecompState
 	};
 };
 
-struct PakPatchCompressPair
+static_assert(sizeof(RTechDecodeState_s) == 0x88);
+static_assert(offsetof(RTechDecodeState_s, decodeMode) == 0x44);
+static_assert(offsetof(RTechDecodeState_s, zstreamContext) == 0x80);
+
+void Pak_ReleaseZStdDecoder(RTechDecodeState_s* decoder);
+
+struct RPakPatchFileHeader_s
 {
 	uint64_t compressedSize;
 	uint64_t decompressedSize;
 };
 
-struct PakVirtualSegment
+struct RPakSlabHeader_s
 {
-	uint32_t flags;
-	uint32_t align;
-	uint64_t size;
+	int32_t flags;
+	int32_t alignment;
+	uint64_t dataSize;
 };
 
-struct PakPageInfo
+struct RPakPageHeader_s
 {
-	uint32_t segIdx;
-	uint32_t align;
-	uint32_t dataSize;
+	int32_t slabIndex;
+	int32_t alignment;
+	int32_t dataSize;
 };
 
-struct PakDescriptor
+struct RPakPagePtr_s
 {
-	uint32_t index;
+	uint32_t pageIndex;
 	uint32_t offset;
 };
 
-struct PakPtr
+struct RPakAssetEntryV7_s
 {
-	uint32_t index;
-	uint32_t offset;
-};
-
-/* 89 */
-struct PakAssetEntry
-{
-	uint64_t nameHash;
-	uint64_t padding;
-	PakPtr subHeader;
-	PakPtr rawData;
-	int64_t starpakOffset;
-	uint16_t highestPageNum;
-	int16_t numRemainingDependencies;
-	uint32_t relationsStartIndex;
-	uint32_t usesStartIndex;
-	uint32_t relationsCount;
-	uint16_t usesCount;
-	uint16_t unknown;
-	uint32_t subHeaderSize;
+	uint64_t guid;
+	uint8_t unknown08[8];
+	RPakPagePtr_s headerPtr;
+	RPakPagePtr_s cpuPtr;
+	int64_t packedStarpakOffset;
+	uint16_t pageEnd;
+	int16_t internalDependencyCount;
+	uint32_t dependentsIndex;
+	uint32_t usesIndex;
+	uint32_t dependentsCount;
+	uint32_t usesCount;
+	uint32_t headerSize;
 	uint32_t version;
-	uint32_t magic;
+	uint32_t assetType;
 
 	FORCEINLINE uint8_t HashTableIndexForAssetType() const
 	{
-		return (((0xFF0B020B * magic) >> 24) & 0xF);
+		return (((0xFF0B020B * assetType) >> 24) & 0xF);
 	}
 };
 
+static_assert(sizeof(RPakPatchFileHeader_s) == 0x10);
+static_assert(sizeof(RPakSlabHeader_s) == 0x10);
+static_assert(sizeof(RPakPageHeader_s) == 0xC);
+static_assert(sizeof(RPakPagePtr_s) == 0x8);
+static_assert(sizeof(RPakAssetEntryV7_s) == 0x48);
+static_assert(offsetof(RPakAssetEntryV7_s, usesCount) == 0x38);
 
-struct PakFilePointer
+struct RPakPatchMetadata_s
 {
-	PakPatchCompressPair* patchCompressPairs;
-	__int16* patchFileIndexes;
-	const char* starpakPath;
-	PakVirtualSegment* virtualSegments;
-	PakPageInfo* pageInfo;
-	PakDescriptor* descriptors;
-	PakAssetEntry* assetEntrys;
-	uint64_t* guidDescriptors;
-	uint64_t fileRelations;
-	int* externalAssetOffsets;
-	char* externalAssetStrings;
-	uint64_t pages;
-	uint64_t patchHeader;
+	uint32_t pageDataSkipSize;
+	uint32_t unknown04;
 };
-struct PakHeader
+
+static_assert(sizeof(RPakPatchMetadata_s) == 0x8);
+
+struct PakFileSectionPointers_s
 {
-	char magic[4];
+	RPakPatchFileHeader_s* patchFileHeaders;
+	uint16_t* patchFileIndices;
+	char* starpakPaths;
+	RPakSlabHeader_s* slabHeaders;
+	RPakPageHeader_s* pageHeaders;
+	RPakPagePtr_s* pointerDescriptors;
+	RPakAssetEntryV7_s* assetEntries;
+	RPakPagePtr_s* assetUses;
+	uint32_t* assetDependents;
+	uint32_t* unknownTable;
+	uint8_t* unknownData;
+	uint8_t* pageData;
+	RPakPatchMetadata_s* patchMetadata;
+};
+static_assert(sizeof(PakFileSectionPointers_s) == 0x68);
+
+struct RPakHeaderV7_s
+{
+	uint32_t magic;
 	uint16_t version;
 	uint16_t flags;
-	uint64_t timeCreated;
-	uint64_t unknown_0;
+	FILETIME fileTime;
+	uint64_t unknown10;
 	uint64_t compressedSize;
-	uint64_t starpakFileOffsetMaybe;
+	uint64_t unknown20;
 	uint64_t decompressedSize;
-	uint64_t unknown2;
-	uint16_t lenStarpakPaths;
-	uint16_t virtualSegmentCount;
-	uint16_t pageCount;
+	uint64_t unknown30;
+	uint16_t starpakPathsSize;
+	uint16_t memSlabCount;
+	uint16_t memPageCount;
 	uint16_t patchIndex;
-	uint32_t descriptorCount;
-	uint32_t assetEntryCount;
-	uint32_t guidDescriptorCount;
-	uint32_t fileRelationCount;
-	uint32_t externalAssetCount;
-	uint32_t externalAssetSize;
+	uint32_t pointerCount;
+	uint32_t assetCount;
+	uint32_t assetUsesCount;
+	uint32_t assetDependentsCount;
+	uint32_t unknownTableCount;
+	uint32_t unknownDataSize;
 
 	inline PakDecodeMode_e GetCompressionMode() const
 	{
@@ -237,6 +255,7 @@ struct PakHeader
 	}
 };
 
+static_assert(sizeof(RPakHeaderV7_s) == 0x58);
 
 struct PakPatchFuncs_s
 {
@@ -271,65 +290,74 @@ struct PakFile
 	bool IsValid();
 	inline uint16_t GetPageCount() const
 	{
-		return header.pageCount;
+		return header.memPageCount;
 	}
 	inline bool IsPageOffsetValid(uint32_t index, uint32_t offset) const
 	{
-		// validate page index
-		if (index == UINT32_MAX || index > GetPageCount())
+		if (index == UINT32_MAX || index >= GetPageCount() || !sections.pageHeaders ||
+			sections.pageHeaders[index].dataSize < 0)
 			return false;
 
-		return true;
+		return offset <= static_cast<uint32_t>(sections.pageHeaders[index].dataSize);
 	}
 	
-	inline void* GetPointerForPageOffset(const PakDescriptor* ptr) const
+	inline void* GetPointerForPageOffset(const RPakPagePtr_s* ptr) const
 	{
-		assert(IsPageOffsetValid(ptr->index, ptr->offset));
-		return memPageBuffers[ptr->index] + ptr->offset;
+		assert(IsPageOffsetValid(ptr->pageIndex, ptr->offset));
+		return pageDataPointers[ptr->pageIndex] + ptr->offset;
 	}
-	int numProcessedPointers;
-	int assetsRead;
-	int processedPageCount;
-	int firstPageIdx;
-	int lastLoadedPatchIndex;
-	int dword_14;
-	PakFileStream fileStream;
-	int64_t inputBytePos;
-	char processedStreamCount;
-	BYTE gap_1F9[4];
-    char resetInBytePos;
-	bool updateBytePosPostProcess;
-	bool isCompressed;
-	PakDecompState pakDecoder;
-	uint8_t* decompressedBuffer;
-	int64_t maxCopySize;
-	int64_t headerSize;
-	// Start of PakMemory Data
-	uint64_t processedPatchedDataSize;
-	char* patchData;
-	char* patchDataPtr;
+	uint32_t pointerFixupIndex;
+	uint32_t assetLoadIndex;
+	uint32_t loadedPageCount;
+	uint32_t pageIndexBase;
+	uint32_t currentPatchFileIndex;
+	uint32_t hasPatchData;
+	PakFileStream_s fileStream;
+	uint64_t decodedCursor;
+	uint8_t completedBlockReadIndex;
+	uint8_t padding1F9[4];
+	uint8_t loadNextBlock;
+	bool directBlockActive;
+	bool encodedBlockActive;
+	RTechDecodeState_s codec;
+	uint8_t* decoderRingBuffer;
+	uint64_t decoderRingMask;
+	uint64_t sourceOffset;
+	uint64_t decodeCursor;
+	char* bitstreamCursor;
+	char* literalCursor;
 	RBitRead bitBuf;
-	uint32_t patchDataOffset;
+	uint32_t padding2C4;
 	uint8_t patchCommands[64];
-	uint8_t buf_308[64];
+	uint8_t patchCodeLengths[64];
 	uint8_t PATCH_unk2[256];
 	uint8_t PATCH_unk3[256];
-	int64_t numBytesToSkip;
-	int64_t patchSrcSize;
-	char* patchDstPtr;
-	int64_t numPatchBytesToProcess;
-	PakPatchFuncs_s::PatchFunc_t patchFunc;
-	int64_t fileSize;
-	int pakId;
-	unsigned int jobId;
-	int* loadedAssetIndices;
-	uint8_t** memPageBuffers;
-	PakFilePointer headerFields;
-	int** patchIndices;
-	int dword_600;
-	int32_t dword_604;
-	int64_t qword_608[16];
-	const char* pakFileName;
-	PakHeader header;
+	uint64_t skipBytesRemaining;
+	uint64_t copyBytesRemaining;
+	char* copyDestination;
+	uint64_t streamBytesRemaining;
+	PakPatchFuncs_s::PatchFunc_t decodeStep;
+	uint64_t metadataEndOffset;
+	int32_t ownerPakHandle;
+	uint32_t loadJobGroupId;
+	uint32_t* assetJobIds;
+	uint8_t** pageDataPointers;
+	PakFileSectionPointers_s sections;
+	RPakAssetEntryV7_s** sortedAssetEntries;
+	uint32_t nextSortedAssetIndex;
+	uint32_t nextPointerFixupIndex;
+	uint64_t assetTypeWriteOffsets[16];
+	const char* filename;
+	RPakHeaderV7_s header;
 };
 
+static_assert(sizeof(PakFile) == 0x6E8);
+static_assert(offsetof(PakFile, fileStream) == 0x18);
+static_assert(offsetof(PakFile, codec) == 0x200);
+static_assert(offsetof(PakFile, decoderRingBuffer) == 0x288);
+static_assert(offsetof(PakFile, decoderRingMask) == 0x290);
+static_assert(offsetof(PakFile, decodeCursor) == 0x2A0);
+static_assert(offsetof(PakFile, skipBytesRemaining) == 0x548);
+static_assert(offsetof(PakFile, metadataEndOffset) == 0x570);
+static_assert(offsetof(PakFile, sections) == 0x590);
+static_assert(offsetof(PakFile, header) == 0x690);

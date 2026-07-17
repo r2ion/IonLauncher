@@ -4,28 +4,40 @@
 
 bool PakFile::IsValid()
 {
-	std::map<int, size_t> segmentSizes;
-	size_t segmentRequiredAlignmentPadding[PAK_MAX_SEGMENTS] = {};
-	size_t segmentNextPageOffsets[PAK_MAX_SEGMENTS] = {};
+	if (header.memSlabCount > PAK_MAX_SEGMENTS || !sections.slabHeaders || !sections.pageHeaders)
+		return false;
 
-	for (size_t i = 0; i < header.pageCount; ++i)
+	size_t slabPageSizes[PAK_MAX_SEGMENTS] = {};
+	size_t slabRequiredAlignmentPadding[PAK_MAX_SEGMENTS] = {};
+	size_t slabNextPageOffsets[PAK_MAX_SEGMENTS] = {};
+
+	for (size_t i = 0; i < header.memPageCount; ++i)
 	{
-	    auto pageHdr = headerFields.pageInfo[i];
-	    segmentSizes[pageHdr.segIdx] += pageHdr.dataSize;
+		const RPakPageHeader_s& pageHeader = sections.pageHeaders[i];
+		if (pageHeader.slabIndex < 0 || pageHeader.slabIndex >= header.memSlabCount ||
+			pageHeader.alignment <= 0 || (pageHeader.alignment & (pageHeader.alignment - 1)) != 0 ||
+			pageHeader.dataSize < 0)
+		{
+			return false;
+		}
 
-	    const size_t pageOffsetAligned = IALIGN(segmentNextPageOffsets[pageHdr.segIdx], pageHdr.align);
-	    segmentRequiredAlignmentPadding[pageHdr.segIdx] += pageOffsetAligned - segmentNextPageOffsets[pageHdr.segIdx];
+		const size_t slabIndex = static_cast<size_t>(pageHeader.slabIndex);
+		slabPageSizes[slabIndex] += static_cast<size_t>(pageHeader.dataSize);
 
-	    segmentNextPageOffsets[pageHdr.segIdx] = pageOffsetAligned + pageHdr.dataSize;
+		const size_t pageOffsetAligned = IALIGN(slabNextPageOffsets[slabIndex], static_cast<size_t>(pageHeader.alignment));
+		slabRequiredAlignmentPadding[slabIndex] += pageOffsetAligned - slabNextPageOffsets[slabIndex];
+		slabNextPageOffsets[slabIndex] = pageOffsetAligned + static_cast<size_t>(pageHeader.dataSize);
 	}
 
-	for (size_t segmentIdx = 0; segmentIdx < header.virtualSegmentCount; ++segmentIdx)
+	for (size_t slabIndex = 0; slabIndex < header.memSlabCount; ++slabIndex)
 	{
-	    auto segmentHdr = headerFields.virtualSegments[segmentIdx];
-		const size_t actualSegmentAlignmentPadding = segmentHdr.size - segmentSizes.at(segmentIdx);
+		const RPakSlabHeader_s& slabHeader = sections.slabHeaders[slabIndex];
+		if (slabHeader.dataSize < slabPageSizes[slabIndex])
+			return false;
 
-	    if (actualSegmentAlignmentPadding < segmentRequiredAlignmentPadding[segmentIdx])
-	        return false;
+		const size_t actualAlignmentPadding = slabHeader.dataSize - slabPageSizes[slabIndex];
+		if (actualAlignmentPadding < slabRequiredAlignmentPadding[slabIndex])
+			return false;
 	}
 
 	return true;

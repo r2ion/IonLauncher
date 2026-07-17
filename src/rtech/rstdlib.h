@@ -1,14 +1,15 @@
 #pragma once
 
-class RFixedArray
+struct RFixedArray
 {
-	// have not these int fields in r2, but the size is accurate at least
 	int index;
 	int slotsLeft;
 	int structSize;
 	int modMask;
 	void* buffer;
 };
+
+static_assert(sizeof(RFixedArray) == 0x18);
 
 
 #pragma pack(push, 4)

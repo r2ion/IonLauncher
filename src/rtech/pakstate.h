@@ -23,7 +23,6 @@
 
 typedef uint8_t JobTypeID_t;
 
-// these are still wrong i think
 enum PakStatus_e : int
 {
     PAK_STATUS_FREED             = 0x0,
@@ -42,16 +41,14 @@ enum PakStatus_e : int
     PAK_STATUS_BUSY              = 0xD,
 };
 
-enum PakHandle_t : int
-{
-	PAK_INVALID_HANDLE = -1,
-};
+using PakHandle_t = int32_t;
+inline constexpr PakHandle_t PAK_INVALID_HANDLE = -1;
 
 typedef uint64_t PakGuid_t;
 
 struct PakAssetShort_s
 {
-	PakGuid_t m_Guid;
+	PakGuid_t guid;
 	uint32_t bindingIndex;
 	uint32_t globalIndex;
 };
@@ -59,6 +56,7 @@ struct PakAssetShort_s
 struct PakAssetBinding_s
 {
 	char type[4];
+	uint8_t padding04[4];
 	char* description;
 	void* loadAssetFunc;
 	void* unloadAssetFunc;
@@ -82,29 +80,33 @@ struct PakAssetTracker_s
 	int8_t assetTypeHashIdx;
 };
 
+struct PakAllocator_s
+{
+	void* (__fastcall* allocate)(void* allocator, uint64_t size, uint64_t alignment);
+	void (__fastcall* release)(void* allocator, void* memory);
+};
+
 struct PakLoadedInfo_s
 {
-	// are these even streaming related, might be patch handles?
 	struct PakStreamingInfo_s
 	{
-		// not sure about this, maybe the first handle is something else? it's always -1
 		PakHandle_t handles[MAX_PAK_STREAMING_HANDLES];
-		int fileCount;
+		uint32_t fileCount;
 	};
 
 	PakHandle_t handle;
 	PakStatus_e status;
-	int loadJobId;
-	int assetCount;
+	int32_t loadJobId;
+	int32_t assetCount;
 	char* filename;
-	char pad_0018[8];
-	void* allocator;
-	void* assetGuids;
-   	void* slabBuffers[PAK_SLAB_BUFFER_TYPES];
+	char* rePakFilename;
+	PakAllocator_s* allocator;
+	void** loadedAssets;
+	void* slabBuffers[PAK_SLAB_BUFFER_TYPES];
 	void* guidDescriptors;
 	FILETIME fileTime;
   	PakFile* pakFile;
-	int fileHandle;
+	PakHandle_t pendingFileHandle;
 	PakStreamingInfo_s streamingInfo;
 	HMODULE hModule;
 };
@@ -128,9 +130,8 @@ struct PakGlobalState_s
 
 	PakLoadedInfo_s loadedPaks[PAK_MAX_LOADED_PAKS];
 
-	// b64
-	__int64 loadJobFinished;
-	int lastAssetTrackerIndex;
+	int64_t assetUnloadPlanReady;
+	int assetUnloadPlanOverlay;
 	bool updateSplitScreenAnims;
 
 	int16_t numAssetLoadJobs;
@@ -142,10 +143,8 @@ struct PakGlobalState_s
 
 	int loadedPakHandles[PAK_MAX_LOADED_PAKS]; //0x0120
 
-	// these fields might be related to loading, int16s increment but haven't checked what they actually are
-
 	JobTypeID_t assetBindJobTypes[PAK_MAX_TRACKED_TYPES];
-	int unusedSlots[PAK_MAX_DISPATCH_LOAD_JOBS]; //0x0930
+	int unusedSlots[PAK_MAX_DISPATCH_LOAD_JOBS];
 
 	int32_t N0000928A; //0x0940
 	int32_t N0000A1C2; //0x0944
@@ -153,9 +152,9 @@ struct PakGlobalState_s
 	uint32_t N0000A1C6; //0x094C
 	__int64 gap;
 	RTL_SRWLOCK lock;
-	char pad_0950[48]; //0x0950
+	char pad_395F90[48];
 
-	int currentLoadedPaks; // haven't checked exactly what this offset is
+	int currentLoadedPaks;
 	int numPatchedPaks;
 	const char** patchedPakNames;
 	uint8_t* patchNumbers;
@@ -165,6 +164,19 @@ PakGlobalState_s* Pak_GetGlobals();
 
 static_assert(sizeof(PakGlobalState_s) == 3760088);
 static_assert(sizeof(PakLoadedInfo_s) == 0xA8);
+static_assert(sizeof(PakLoadedInfo_s::PakStreamingInfo_s) == 0x34);
+static_assert(sizeof(PakAssetShort_s) == 0x10);
+static_assert(sizeof(PakAssetBinding_s) == 0x60);
+static_assert(sizeof(PakAssetTracker_s) == 0x18);
+static_assert(sizeof(PakAllocator_s) == 0x10);
+static_assert(sizeof(JobFifoLock_s) == 0x108);
+static_assert(offsetof(PakLoadedInfo_s, pakFile) == 0x60);
+static_assert(offsetof(PakLoadedInfo_s, streamingInfo) == 0x6C);
+static_assert(offsetof(PakLoadedInfo_s, hModule) == 0xA0);
+static_assert(offsetof(PakGlobalState_s, loadedPaks) == 0x380630);
+static_assert(offsetof(PakGlobalState_s, fifoLock) == 0x395640);
+static_assert(offsetof(PakGlobalState_s, assetBindJobTypes) == 0x395F50);
+static_assert(offsetof(PakGlobalState_s, currentLoadedPaks) == 0x395FC0);
 
 extern PakGlobalState_s* g_pakGlobalState;
 

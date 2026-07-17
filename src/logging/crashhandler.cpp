@@ -1057,7 +1057,7 @@ std::vector<std::string> CCrashHandler::FormatLoadedPaks()
 		return lines;
 	}
 
-	std::vector<PakHandle> handles = g_pPakLoadManager->GetPakHandles();
+	std::vector<PakHandle_t> handles = g_pPakLoadManager->GetPakHandles();
 	if (handles.empty())
 	{
 		lines.emplace_back("<none>");
@@ -1066,7 +1066,7 @@ std::vector<std::string> CCrashHandler::FormatLoadedPaks()
 
 	for (size_t i = 0; i < handles.size(); i++)
 	{
-		if (handles[i] == PakHandle::INVALID)
+		if (handles[i] == PAK_INVALID_HANDLE)
 			continue;
 
 		PakLoadedInfo_s& pakInfo = pakState->loadedPaks[handles[i] & PAK_MAX_LOADED_PAKS_MASK];

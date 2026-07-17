@@ -1,11 +1,8 @@
 #pragma once
 
-#include <regex>
+#include "rtech/pakstate.h"
 
-enum PakHandle : int
-{
-	INVALID = -1,
-};
+#include <regex>
 
 struct ModPak_t
 {
@@ -24,7 +21,7 @@ struct ModPak_t
 	// If this is set, the Pak will be unloaded on next map load
 	bool m_markedForDelete = false;
 	// The current rpak handle associated with this Pak
-	PakHandle m_handle = PakHandle::INVALID;
+	PakHandle_t m_handle = PAK_INVALID_HANDLE;
 };
 
 class PakLoadManager
@@ -45,31 +42,31 @@ public:
 	bool GetForceReloadOnMapLoad() const { return m_forceReloadOnMapLoad; }
 	void SetForceReloadOnMapLoad(bool value) { m_forceReloadOnMapLoad = value; }
 
-	void OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle resultingHandle);
-	void OnPakUnloading(PakHandle handle);
+	void OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle_t resultingHandle);
+	void OnPakUnloading(PakHandle_t handle);
 
 	void FixupPakPath(std::string& path);
 
 	void LoadPreloadPaks();
 	void ReloadPostloadPaks();
 
-	void* OpenFile(const char* path);
-	std::vector<PakHandle> GetPakHandles() { std::vector<PakHandle> handles; for (auto& modPak : m_modPaks) { if (modPak.m_handle != PakHandle::INVALID) handles.push_back(modPak.m_handle); } return handles; }
+	void* FindAssetByName(const char* name);
+	std::vector<PakHandle_t> GetPakHandles() { std::vector<PakHandle_t> handles; for (auto& modPak : m_modPaks) { if (modPak.m_handle != PAK_INVALID_HANDLE) handles.push_back(modPak.m_handle); } return handles; }
 
 private:
-	void LoadDependentPaks(std::string& path, PakHandle handle);
-	void UnloadDependentPaks(PakHandle handle);
+	void LoadDependentPaks(std::string& path, PakHandle_t handle);
+	void UnloadDependentPaks(PakHandle_t handle);
 
 	// All paks that vanilla has attempted to load. (they may have been aliased away)
 	// Also known as a list of rpaks that the vanilla game would have loaded at this point in time.
-	std::vector<std::pair<std::string, PakHandle>> m_vanillaPaks;
+	std::vector<std::pair<std::string, PakHandle_t>> m_vanillaPaks;
 
 	// All mod Paks that are currently tracked
 	std::vector<ModPak_t> m_modPaks;
 	// Hashes of the currently loaded map mod paks
 	std::vector<size_t> m_mapPaks;
 	// Currently loaded Pak path hashes that depend on a handle to remain loaded (Postload)
-	std::vector<std::pair<PakHandle, size_t>> m_dependentPaks;
+	std::vector<std::pair<PakHandle_t, size_t>> m_dependentPaks;
 
 	// Used to force rpaks to be unloaded and reloaded on the next map load.
 	// Vanilla behaviour is to not do this when loading into mp_lobby, or loading into the same map you were last in.
@@ -81,45 +78,50 @@ private:
 
 extern PakLoadManager* g_pPakLoadManager;
 
-#pragma pack(push, 1)
-struct PakLoadFuncs
+struct PakLoadFuncs_s
 {
-	void (*InitRpakSystem)();
-	void (*AddAssetLoaderWithJobDetails)(/*assetTypeHeader*/ void*, uint32_t, int);
-	void (*AddAssetLoader)(/*assetTypeHeader*/ void*);
-	PakHandle(*LoadRpakFileAsync)(const char* pPath, void* allocator, int flags);
-	void (*LoadRpakFile)(const char*, __int64(__fastcall*)(), __int64, void(__cdecl*)());
-	__int64 qword28;
-	void (*UnloadPak)(PakHandle iPakHandle, void* callback);
-	__int64 qword38;
-	__int64 qword40;
-	__int64 qword48;
-	__int64 qword50;
-	FARPROC(*GetDllCallback)(__int16 a1, const CHAR* a2);
-	__int64 (*GetAssetByHash)(__int64 hash);
-	__int64 (*GetAssetByName)(const char* a1);
-	__int64 qword70;
-	__int64 qword78;
-	__int64 qword80;
-	__int64 qword88;
-	__int64 qword90;
-	__int64 qword98;
-	__int64 qwordA0;
-	__int64 qwordA8;
-	__int64 qwordB0;
-	__int64 qwordBB;
-	void* (*OpenFile)(const char* pPath);
-	__int64 CloseFile;
-	__int64 qwordD0;
-	__int64 FileReadAsync;
-	__int64 ComplexFileReadAsync;
-	__int64 GetReadJobState;
-	__int64 WaitForFileReadJobComplete;
-	__int64 CancelFileReadJob;
-	__int64 CancelFileReadJobAsync;
-	__int64 qword108;
-};
-static_assert(sizeof(PakLoadFuncs) == 0x110);
-#pragma pack(pop)
+	using Callback_t = void(*)();
+	using AsyncReadCallback_t = void(__fastcall*)(void* context, uint8_t status, const char* errorText);
 
-extern PakLoadFuncs* g_pakLoadApi;
+	void (__fastcall* InitRpakSystem)();
+	__int64 (__fastcall* RegisterAssetBindingType)(PakAssetBinding_s*, uint32_t, uint32_t);
+	uint64_t reserved10;
+	PakHandle_t (__fastcall* AllocateEmptyPak)(const char*, PakAllocator_s*, int);
+	PakHandle_t (__fastcall* AllocAndLoadPak)(const char*, PakAllocator_s*, int, Callback_t, Callback_t);
+	void (__fastcall* BeginUnload)(PakHandle_t);
+	void (__fastcall* UnloadAndWait)(PakHandle_t, Callback_t);
+	uint64_t reserved38;
+	void (__fastcall* PumpLoadJobs)(Callback_t);
+	bool (__fastcall* WaitForLoadCompletion)(PakHandle_t, Callback_t, Callback_t);
+	void (__fastcall* WaitForUnloadCompletion)(PakHandle_t, Callback_t);
+	FARPROC (__fastcall* GetModuleProcAddress)(PakHandle_t, const char*);
+	char* (__fastcall* GetAssetBinding)(PakGuid_t);
+	char* (__fastcall* GetAssetBindingFromFlag)(uint8_t);
+	uint64_t reserved70;
+	PakGuid_t (__fastcall* GetLoadedAsset)(int, int);
+	void (__fastcall* LinkAssetBinding)(int, int, __int64);
+	void (__fastcall* UnlinkAssetBinding)(int, int, __int64);
+	PakHandle_t (__fastcall* GetStreamingFileHandle)(__int64);
+	uint64_t reserved98;
+	uint64_t reservedA0;
+	uint64_t reservedA8;
+	uint64_t reservedB0;
+	uint64_t reservedB8;
+	PakHandle_t (__fastcall* OpenFile)(const char*, uint64_t*);
+	void (__fastcall* ReleaseFileHandle)(PakHandle_t);
+	void (__fastcall* AddRefFileHandle)(PakHandle_t);
+	int (__fastcall* QueueAsyncRead)(PakHandle_t, uint64_t, uint64_t, void*, int);
+	int (__fastcall* QueueAsyncReadEx)(PakHandle_t, uint64_t, uint64_t, void*, AsyncReadCallback_t, void*, int);
+	uint8_t (__fastcall* PollAsyncRead)(uint8_t, uint64_t*, const char**);
+	uint8_t (__fastcall* WaitAsyncRead)(uint8_t, uint64_t*, const char**);
+	uint8_t (__fastcall* CancelAndWaitAsyncRead)(uint8_t);
+	void (__fastcall* CancelAsyncRead)(uint8_t);
+	HANDLE (__fastcall* GetWorkerThreadHandle)(HANDLE*);
+};
+static_assert(sizeof(PakLoadFuncs_s) == 0x110);
+static_assert(offsetof(PakLoadFuncs_s, AllocateEmptyPak) == 0x18);
+static_assert(offsetof(PakLoadFuncs_s, UnloadAndWait) == 0x30);
+static_assert(offsetof(PakLoadFuncs_s, OpenFile) == 0xC0);
+static_assert(offsetof(PakLoadFuncs_s, GetWorkerThreadHandle) == 0x108);
+
+extern PakLoadFuncs_s* g_pakLoadApi;

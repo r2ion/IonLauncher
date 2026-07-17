@@ -2,8 +2,8 @@
 #include "pakdecode.h"
 #include "pakpatch.h"
 #include "pakstate.h"
-#include <util/zstdutils.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 struct AsyncHandleStatus_s
@@ -25,8 +25,8 @@ struct AsyncHandleStatus_s
 };
 
 static uint64_t rtechBaseAddr;
+static constexpr size_t PAK_ZSTD_FRAME_HEADER_MAX_SIZE = 18;
 
-static ZSTDDecoder_s s_zstdPakDecoder;
 #define ALIGN_VALUE( val, alignment ) ( ( val + alignment - 1 ) & ~( alignment - 1 ) ) 
 
 #define CMD_INVALID -1
@@ -35,52 +35,80 @@ static ZSTDDecoder_s s_zstdPakDecoder;
 static const int s_patchCmdToBytesToProcess[] = { CMD_INVALID, CMD_INVALID, CMD_INVALID, CMD_INVALID, 3, 7, 6, 0 };
 #undef CMD_INVALID
 
-int64_t (*CheckAsyncRequest)(int64_t requestHandle, size_t* bytesProcessed, const char** statusMsg);
-void (*RTechLog)(__int64 a1, const char *a2, ...);
-__int64 (*FS_ReadAsyncFile)(
-        unsigned int handle,
-        __int64 readOffset,
-        unsigned __int64 readSize,
-        uint8_t* buffer,
-        int type);
+uint8_t (*Pak_PollAsyncRead)(uint8_t requestId, uint64_t* bytesRead, const char** errorText);
+int (*Pak_QueueAsyncRead)(PakHandle_t fileHandle, uint64_t fileOffset, uint64_t size, void* destination, int queueIndex);
+void (*Pak_ReleaseFileHandle)(PakHandle_t fileHandle);
+PakHandle_t (*Pak_OpenFile)(const char* filename, uint64_t* fileSize);
 
-size_t (*vsnprintf_)(char *a1, size_t a2, const char *a3, ...);
-
-void (*FS_CloseAsyncFile)(unsigned int handle);
-int16_t (*FS_OpenAsyncFile)(const char*, size_t*);
-
-int (*Pak_TrackAsset)(PakFile* const a1, PakAssetEntry* a2);
+int (*Pak_TrackAsset)(PakFile* const pak, RPakAssetEntryV7_s* asset);
 
 void (*JTGuts_AddJob)(JobTypeID_t, uint32_t, void*, void*);
 void (*JT_EndJobGroup)(uint32_t);
-void (*Pak_ProcessAssetRelationsAndResolveDependencies)(PakFile* pak_arg, PakAssetEntry* asset_arg, uint32_t a3, uint32_t a4);
+void (*Pak_ProcessAssetRelationsAndResolveDependencies)(PakFile* pak, RPakAssetEntryV7_s* asset, uint32_t assetIndex, uint32_t assetBind);
 
 
-static size_t Pak_ZStdDecoderInit(PakDecompState* const decoder, const uint8_t* frameHeader,
-	const size_t dataSize, const size_t headerSize)
+void Pak_ReleaseZStdDecoder(RTechDecodeState_s* const decoder)
 {
-	ZSTD_DStream* dctx = decoder->zstreamContext;
+	if (!decoder || decoder->decodeMode != PakDecodeMode_e::MODE_ZSTD)
+		return;
 
-	assert(dctx);
-	
-	if (ZSTD_getFrameHeader(&dctx->fParams, frameHeader, dataSize) != 0)
-		return NULL; // content size error
+	if (decoder->zstreamContext)
+		ZSTD_freeDStream(decoder->zstreamContext);
 
-	// ideally the frame header of the block gets parsed first, the length
-	// thereof is returned by initDStream and thus being processed first
-	// before moving on to actual data
-	decoder->frameHeaderSize = ZSTD_initDStream(dctx);
+	decoder->zstreamContext = nullptr;
+	decoder->decodeMode = PakDecodeMode_e::MODE_DISABLED;
+}
 
-	// we need at least this many bytes of streamed data to process the frame
-	// header of the compressed block
-	decoder->bufferSizeNeeded = decoder->inBufBytePos + decoder->frameHeaderSize;
+static size_t Pak_ZStdDecoderInit(RTechDecodeState_s* const decoder,
+	const size_t dataSize, const size_t headerSize, const size_t expectedDecompressedSize)
+{
+	if (dataSize <= headerSize)
+		return 0;
 
-	// must include header size
-	decoder->decompSize = dctx->fParams.frameContentSize + headerSize;
+	const size_t frameSize = dataSize - headerSize;
+	const size_t headerBytes = std::min(frameSize, PAK_ZSTD_FRAME_HEADER_MAX_SIZE);
+	std::array<uint8_t, PAK_ZSTD_FRAME_HEADER_MAX_SIZE> frameHeader{};
+
+	for (size_t i = 0; i < headerBytes; ++i)
+		frameHeader[i] = decoder->inputBuf[(decoder->inBufBytePos + i) & decoder->inputMask];
+
+	unsigned long long frameContentSize = ZSTD_getFrameContentSize(frameHeader.data(), headerBytes);
+	if (frameContentSize == ZSTD_CONTENTSIZE_ERROR)
+	{
+		NS::log::rpak->error("{}: invalid Zstd frame header", __FUNCTION__);
+		return 0;
+	}
+	if (frameContentSize == ZSTD_CONTENTSIZE_UNKNOWN)
+	{
+		if (expectedDecompressedSize < headerSize)
+			return 0;
+		frameContentSize = expectedDecompressedSize - headerSize;
+	}
+	if (frameContentSize > SIZE_MAX - headerSize)
+		return 0;
+
+	decoder->zstreamContext = ZSTD_createDStream();
+	if (!decoder->zstreamContext)
+	{
+		NS::log::rpak->error("{}: failed to allocate Zstd decoder", __FUNCTION__);
+		return 0;
+	}
+
+	decoder->nextInputSize = ZSTD_initDStream(decoder->zstreamContext);
+	if (ZSTD_isError(decoder->nextInputSize))
+	{
+		NS::log::rpak->error("{}: failed to initialize Zstd decoder: {}", __FUNCTION__, ZSTD_getErrorName(decoder->nextInputSize));
+		Pak_ReleaseZStdDecoder(decoder);
+		return 0;
+	}
+
+	decoder->allChunksStreamed = false;
+	decoder->bufferSizeNeeded = decoder->inBufBytePos + decoder->nextInputSize;
+	decoder->decompSize = static_cast<size_t>(frameContentSize) + headerSize;
 	return decoder->decompSize;
 }
 
-static size_t Pak_RTechDecoderInit(PakDecompState* const decoder, const uint8_t* const fileBuffer,
+static size_t Pak_RTechDecoderInit(RTechDecodeState_s* const decoder, const uint8_t* const fileBuffer,
 	const uint64_t inputMask, const size_t dataSize, const size_t dataOffset, const size_t headerSize)
 {
 	uint64_t frameHeader = *(_QWORD*)((inputMask & (dataOffset + headerSize)) + fileBuffer);
@@ -143,7 +171,7 @@ static size_t Pak_RTechDecoderInit(PakDecompState* const decoder, const uint8_t*
 }
 
 
-static bool Pak_RTechStreamDecode(PakDecompState* const decoder, const size_t inLen, const size_t outLen)
+static bool Pak_RTechStreamDecode(RTechDecodeState_s* const decoder, const size_t inLen, const size_t outLen)
 {
 	bool result; // al
 	uint64_t outBufBytePos; // r15
@@ -467,10 +495,18 @@ LABEL_69:
 	return result;
 }
 
-size_t Pak_InitDecoder(PakDecompState* decoder, const uint8_t* const inputBuf,  uint8_t* const outputBuf,
+size_t Pak_InitDecoder(RTechDecodeState_s* decoder, const uint8_t* const inputBuf, uint8_t* const outputBuf,
 	const uint64_t inputMask, const uint64_t outputMask, const size_t dataSize, const size_t dataOffset,
-	const size_t headerSize, const PakDecodeMode_e decodeMode)
+	const size_t headerSize, const size_t expectedDecompressedSize, const PakDecodeMode_e decodeMode)
 {
+	assert((inputMask & (inputMask + 1)) == 0);
+	assert((outputMask & (outputMask + 1)) == 0);
+
+	if (decoder->decodeMode == PakDecodeMode_e::MODE_ZSTD)
+		Pak_ReleaseZStdDecoder(decoder);
+	else if (decodeMode == PakDecodeMode_e::MODE_ZSTD)
+		decoder->zstreamContext = nullptr;
+
 	// the absolute start address of the input and output buffers
 
 
@@ -498,21 +534,12 @@ size_t Pak_InitDecoder(PakDecompState* decoder, const uint8_t* const inputBuf,  
 	if(decodeMode == PakDecodeMode_e::MODE_RTECH)
 		return Pak_RTechDecoderInit(decoder, inputBuf,inputMask,dataSize,dataOffset,headerSize);
 
-	decoder->outputInvMask = PAK_DECODE_OUT_RING_BUFFER_MASK;
+	decoder->outputInvMask = outputMask;
 
-	// this points to the first byte of the frame header, takes dataOffset
-	// into account which is the offset in the ring buffer to the patched
-	// data as we parse it contiguously after the base pak data, which
-	// might have ended somewhere in the middle of the ring buffer
-	const uint8_t* const frameHeaderData = &inputBuf[inputMask & (dataOffset + headerSize)];
-	
-	const size_t decodeSize = Pak_ZStdDecoderInit(decoder, frameHeaderData, dataSize, headerSize);
-	assert(decodeSize);
-
-	return decodeSize;
+	return Pak_ZStdDecoderInit(decoder, dataSize, headerSize, expectedDecompressedSize);
 }
 
-static bool Pak_HasEnoughDecodeBufferAvailable(PakDecompState* const decoder, const size_t outLen)
+static bool Pak_HasEnoughDecodeBufferAvailable(RTechDecodeState_s* const decoder, const size_t outLen)
 {
 	// align to nearest multiple of buffer size
 	const uint64_t bufPosAligned = (decoder->outBufBytePos & ~decoder->outputInvMask);
@@ -527,6 +554,10 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 {
 	PakRingBufferFrame_s ring;
 	ring.bufIndex = seekPos & bufMask;
+	ring.frameLen = 0;
+
+	if (seekPos >= dataLen)
+		return ring;
 
 	// the total amount of bytes used and available in this frame
 	const size_t bytesUsed = ring.bufIndex & bufMask;
@@ -538,23 +569,24 @@ static PakRingBufferFrame_s Pak_DetermineRingBufferFrame(const uint64_t bufMask,
 	return ring;
 }
 
-static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBufferFrame_s& outFrame, const PakRingBufferFrame_s& inFrame)
+static bool Pak_ZStdStreamDecode(RTechDecodeState_s* const decoder, const PakRingBufferFrame_s& outFrame, const PakRingBufferFrame_s& inFrame)
 {
-
-	if (decoder->outputBuf == decoder->inputBuf)
+	if (!decoder->zstreamContext || !decoder->inputBuf || !decoder->outputBuf ||
+		decoder->outputBuf == decoder->inputBuf)
 	{
-		RTechLog(4,"%s: decode error: %s\n", __FUNCTION__, "same input and output buffer");
+		NS::log::rpak->error("{}: invalid Zstd decoder state", __FUNCTION__);
+		Pak_ReleaseZStdDecoder(decoder);
 		return false;
 	}
 
 	ZSTD_outBuffer outBuffer = {
 		&decoder->outputBuf[outFrame.bufIndex],
-		outFrame.frameLen, NULL
+		outFrame.frameLen, 0
 	};
 
 	ZSTD_inBuffer inBuffer = {
 		&decoder->inputBuf[inFrame.bufIndex],
-		inFrame.frameLen, NULL
+		inFrame.frameLen, 0
 	};
 
 	ZSTD_DStream* const dctx = decoder->zstreamContext;
@@ -563,12 +595,9 @@ static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBuf
 
 	if (ZSTD_isError(ret))
 	{
-		// NOTE: obtained here and not in the error formatter as we could check
-		// the error string during the assertion
 		const char* const decodeError = ZSTD_getErrorName(ret);
-		assert(0);
-
-		RTechLog(4,"%s: decode error: %s\n", __FUNCTION__, decodeError);
+		NS::log::rpak->error("{}: decode error: {}", __FUNCTION__, decodeError);
+		Pak_ReleaseZStdDecoder(decoder);
 		return false;
 	}
 
@@ -577,18 +606,40 @@ static bool Pak_ZStdStreamDecode(PakDecompState* const decoder, const PakRingBuf
 	decoder->outBufBytePos += outBuffer.pos;
 	decoder->inBufBytePos += inBuffer.pos;
 
-	// NOTE: if inBuffer.pos < inBuffer.size, we made full use of the output
-	// buffer and couldn't decode any more data into it. the decoded data needs
-	// to be copied out to the destination so we can reuse the ring buffer and
-	// process the remainder of this frame. in these cases we do not update the
-	// bufferSizeNeeded objective below as we still have data left to process.
-	if (inBuffer.pos == inBuffer.size)
-		decoder->bufferSizeNeeded = decoder->inBufBytePos + ZSTD_DStreamInSize();
+	if (ret == 0)
+	{
+		if (decoder->inBufBytePos != decoder->fileSize || decoder->outBufBytePos != decoder->decompSize)
+		{
+			NS::log::rpak->error("{}: Zstd frame ended at unexpected input/output offsets", __FUNCTION__);
+			Pak_ReleaseZStdDecoder(decoder);
+			return false;
+		}
 
-	return ret == NULL;
+		return true;
+	}
+
+	if (inBuffer.pos == 0 && outBuffer.pos == 0 && decoder->allChunksStreamed)
+	{
+		NS::log::rpak->error("{}: truncated Zstd frame made no decoding progress", __FUNCTION__);
+		Pak_ReleaseZStdDecoder(decoder);
+		return false;
+	}
+
+	// If all provided input was consumed, use Zstd's exact next-input hint.
+	// Keeping the current target when input remains lets the caller first make
+	// room in the output ring without unnecessarily waiting for another read.
+	if (inBuffer.pos == inBuffer.size)
+	{
+		decoder->nextInputSize = ret;
+		decoder->bufferSizeNeeded = ret > SIZE_MAX - decoder->inBufBytePos
+			? SIZE_MAX
+			: decoder->inBufBytePos + ret;
+	}
+
+	return false;
 }
 
-bool Pak_StreamToBufferDecode(PakDecompState* const decoder, const size_t inLen, const size_t outLen, const PakDecodeMode_e decodeMode)
+bool Pak_StreamToBufferDecode(RTechDecodeState_s* const decoder, const size_t inLen, const size_t outLen, const PakDecodeMode_e decodeMode)
 {
 	if (!(inLen >= decoder->bufferSizeNeeded))
 	{
@@ -606,7 +657,8 @@ bool Pak_StreamToBufferDecode(PakDecompState* const decoder, const size_t inLen,
 	   return Pak_RTechStreamDecode(decoder,inLen,outLen);
     }
 
-	assert(decoder->zstreamContext && decoder->inBufBytePos <= inLen);
+	if (decoder->decodeMode != PakDecodeMode_e::MODE_ZSTD || !decoder->zstreamContext || decoder->inBufBytePos > inLen)
+		return false;
 
 	const PakRingBufferFrame_s inFrame = Pak_DetermineRingBufferFrame(decoder->inputMask, decoder->inBufBytePos, inLen);
 	const PakRingBufferFrame_s outFrame = Pak_DetermineRingBufferFrame(decoder->outputMask, decoder->outBufBytePos, std::min(decoder->decompSize, outLen));
@@ -625,158 +677,210 @@ const char* Pak_DecoderToString(const PakDecodeMode_e mode)
 	return "Unknown";
 }
 
-
-static bool Pak_ProcessPakFile(PakFile* const pak)
+static bool Pak_HasCompleteZStdFrameHeader(const PakAsyncReadBlock_s& block, const uint64_t inputBytesReady)
 {
-    PakFileStream* const fileStream = &pak->fileStream;
+	if (block.sourceEndOffset <= block.logicalEndOffset)
+		return false;
+
+	const uint64_t frameSize = block.sourceEndOffset - block.logicalEndOffset;
+	const uint64_t headerSize = std::min<uint64_t>(frameSize, PAK_ZSTD_FRAME_HEADER_MAX_SIZE);
+	return inputBytesReady >= block.logicalEndOffset + headerSize;
+}
+
+static void Pak_MarkLoadError(PakFile* const pak)
+{
+	PakGlobalState_s* const globals = Pak_GetGlobals();
+	if (!globals)
+		return;
+
+	for (PakLoadedInfo_s& loadedPak : globals->loadedPaks)
+	{
+		if (loadedPak.pakFile == pak)
+		{
+			loadedPak.status = PAK_STATUS_ERROR;
+			return;
+		}
+	}
+}
+
+
+static bool Pak_ReadFile_Custom(PakFile* const pak)
+{
+    PakFileStream_s* const fileStream = &pak->fileStream;
 
     // first request is always just the header.
-    size_t readStart = sizeof(PakHeader);
+    size_t readStart = sizeof(RPakHeaderV7_s);
 
-    if (fileStream->numDataChunks > 0)
-        readStart = fileStream->numDataChunks * PAK_READ_DATA_CHUNK_SIZE;
+    if (fileStream->asyncSubmitIndex > 0)
+        readStart = fileStream->asyncSubmitIndex * PAK_READ_DATA_CHUNK_SIZE;
 
-    for (; fileStream->numDataChunksProcessed != fileStream->numDataChunks; fileStream->numDataChunksProcessed++)
+    for (; fileStream->asyncCompleteIndex != fileStream->asyncSubmitIndex; fileStream->asyncCompleteIndex++)
     {
-        const int currentDataChunkIndex = fileStream->numDataChunksProcessed & PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK;
-        const uint8_t dataChunkStatus = fileStream->dataChunkStatuses[currentDataChunkIndex];
+        const int currentDataChunkIndex = fileStream->asyncCompleteIndex & PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK;
+        const uint8_t dataChunkStatus = fileStream->asyncRequestStates[currentDataChunkIndex];
 
         if (dataChunkStatus != 1)
         {
             size_t bytesProcessed = 0;
             const char* statusMsg = "(no reason)";
 
-            const uint8_t currentStatus = CheckAsyncRequest(fileStream->fileReadJobs[currentDataChunkIndex], &bytesProcessed, &statusMsg);
+            const uint8_t currentStatus = Pak_PollAsyncRead(
+				static_cast<uint8_t>(fileStream->asyncRequestIds[currentDataChunkIndex]),
+				reinterpret_cast<uint64_t*>(&bytesProcessed), &statusMsg);
 
-            if (currentStatus == AsyncHandleStatus_s::FS_ASYNC_ERROR)
-                RTechLog(4, "Error reading pak file \"%s\" -- %s\n", pak->pakFileName, statusMsg);
+            if (currentStatus == AsyncHandleStatus_s::FS_ASYNC_ERROR ||
+				currentStatus == AsyncHandleStatus_s::FS_ASYNC_CANCELLED)
+            {
+				NS::log::rpak->error("Error reading pak file \"{}\" -- {}", pak->filename, statusMsg);
+                Pak_MarkLoadError(pak);
+                Pak_ReleaseZStdDecoder(&pak->codec);
+                return false;
+            }
             else if (currentStatus == AsyncHandleStatus_s::FS_ASYNC_PENDING)
                 break;
 
-            fileStream->bytesStreamed += bytesProcessed;
+            fileStream->inputBytesReady += bytesProcessed;
             if (dataChunkStatus)
             {
-                const PakHeader* pakHeader = &pak->header;
-                const uint64_t totalDataChunkSizeProcessed = fileStream->numDataChunksProcessed * PAK_READ_DATA_CHUNK_SIZE;
+                const RPakHeaderV7_s* pakHeader = &pak->header;
+                const uint64_t totalDataChunkSizeProcessed = fileStream->asyncCompleteIndex * PAK_READ_DATA_CHUNK_SIZE;
 
                 if (dataChunkStatus == 2)
                 {
-                    fileStream->bytesStreamed = bytesProcessed + totalDataChunkSizeProcessed;
-                    pakHeader = (PakHeader*)&fileStream->fileBuffer[totalDataChunkSizeProcessed & fileStream->bufferMask];
+                    fileStream->inputBytesReady = bytesProcessed + totalDataChunkSizeProcessed;
+                    pakHeader = reinterpret_cast<RPakHeaderV7_s*>(&fileStream->readRingBuffer[totalDataChunkSizeProcessed & fileStream->readRingMask]);
                 }
 
-                const uint8_t fileIndex = fileStream->numLoadedFiles++ & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK;
+                const uint8_t fileIndex = fileStream->completedBlockWriteIndex++ & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK;
 
-                fileStream->descriptors[fileIndex].dataOffset = totalDataChunkSizeProcessed + sizeof(PakHeader);
-                fileStream->descriptors[fileIndex].compressedSize = totalDataChunkSizeProcessed + pakHeader->compressedSize;
-                fileStream->descriptors[fileIndex].decompressedSize = pakHeader->decompressedSize;
-                fileStream->descriptors[fileIndex].compressionMode = pakHeader->GetCompressionMode();
+                fileStream->completedBlocks[fileIndex].logicalEndOffset = totalDataChunkSizeProcessed + sizeof(RPakHeaderV7_s);
+                fileStream->completedBlocks[fileIndex].sourceEndOffset = totalDataChunkSizeProcessed + pakHeader->compressedSize;
+                fileStream->completedBlocks[fileIndex].expectedOutputEnd = pakHeader->decompressedSize;
+                fileStream->completedBlocks[fileIndex].decodeMode = pakHeader->GetCompressionMode();
             }
         }
     }
 
-    size_t currentOutBytePos = pak->processedPatchedDataSize;
+    size_t currentOutBytePos = pak->decodeCursor;
 
-    for (; pak->processedStreamCount != fileStream->numLoadedFiles; pak->processedStreamCount++)
+    for (; pak->completedBlockReadIndex != fileStream->completedBlockWriteIndex; pak->completedBlockReadIndex++)
     {
-        PakFileStream__Descriptor* const streamDesc = &fileStream->descriptors[pak->processedStreamCount & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK];
+        PakAsyncReadBlock_s* const streamDesc = &fileStream->completedBlocks[pak->completedBlockReadIndex & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK];
 
-        if (pak->resetInBytePos)
+        if (pak->loadNextBlock)
         {
-            pak->resetInBytePos = false;
-            pak->inputBytePos = streamDesc->dataOffset;
+			if (streamDesc->decodeMode == PakDecodeMode_e::MODE_ZSTD &&
+				!Pak_HasCompleteZStdFrameHeader(*streamDesc, fileStream->inputBytesReady))
+			{
+				break;
+			}
 
-            if (streamDesc->compressionMode != PakDecodeMode_e::MODE_DISABLED)
+            pak->loadNextBlock = false;
+            pak->decodedCursor = streamDesc->logicalEndOffset;
+
+            if (streamDesc->decodeMode != PakDecodeMode_e::MODE_DISABLED)
             {
-                pak->updateBytePosPostProcess = false;
-                pak->isCompressed = true;
+                pak->directBlockActive = false;
+                pak->encodedBlockActive = true;
 
-                pak->processedPatchedDataSize = sizeof(PakHeader);
+                pak->decodeCursor = sizeof(RPakHeaderV7_s);
             }
             else
             {
-                pak->updateBytePosPostProcess = true;
-                pak->isCompressed = false;
+                pak->directBlockActive = true;
+                pak->encodedBlockActive = false;
 
-                pak->processedPatchedDataSize = streamDesc->dataOffset;
+                pak->decodeCursor = streamDesc->logicalEndOffset;
             }
 
-            if (pak->isCompressed)
+            if (pak->encodedBlockActive)
             {
-                if (streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD)
-                    pak->pakDecoder.zstreamContext = s_zstdPakDecoder.dctx;
+                const size_t decompressedSize = Pak_InitDecoder(&pak->codec,
+                    fileStream->readRingBuffer, pak->decoderRingBuffer,
+					PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
+                    streamDesc->sourceEndOffset - (streamDesc->logicalEndOffset - sizeof(RPakHeaderV7_s)),
+                    streamDesc->logicalEndOffset - sizeof(RPakHeaderV7_s), sizeof(RPakHeaderV7_s),
+					static_cast<size_t>(streamDesc->expectedOutputEnd), streamDesc->decodeMode);
 
-                const size_t decompressedSize = Pak_InitDecoder(&pak->pakDecoder,
-                    fileStream->fileBuffer, pak->decompressedBuffer,
-                    PAK_DECODE_IN_RING_BUFFER_MASK, PAK_DECODE_OUT_RING_BUFFER_MASK,
-                    streamDesc->compressedSize - (streamDesc->dataOffset - sizeof(PakHeader)),
-                    streamDesc->dataOffset - sizeof(PakHeader), sizeof(PakHeader), streamDesc->compressionMode);
-
-                if (decompressedSize != streamDesc->decompressedSize)
-                    RTechLog(4,
-                        "Error reading pak file \"%s\" with decoder \"%s\" -- decompressed size %zu doesn't match expected value %zu\n",
-                        pak->pakFileName,
-                        Pak_DecoderToString(streamDesc->compressionMode),
+                if (decompressedSize == 0 || decompressedSize != streamDesc->expectedOutputEnd)
+				{
+					NS::log::rpak->error(
+						"Error reading pak file \"{}\" with decoder \"{}\" -- decompressed size {} doesn't match expected value {}",
+                        pak->filename,
+                        Pak_DecoderToString(streamDesc->decodeMode),
                         decompressedSize,
-                        pak->header.decompressedSize);
+						static_cast<size_t>(streamDesc->expectedOutputEnd));
+					Pak_MarkLoadError(pak);
+					Pak_ReleaseZStdDecoder(&pak->codec);
+					return false;
+				}
             }
         }
 
-        if (pak->isCompressed)
+        if (pak->encodedBlockActive)
         {
-            currentOutBytePos = pak->pakDecoder.outBufBytePos;
+            currentOutBytePos = pak->codec.outBufBytePos;
 
-            if (currentOutBytePos != pak->pakDecoder.decompSize)
+            if (currentOutBytePos != pak->codec.decompSize)
             {
-                if (streamDesc->compressionMode == PakDecodeMode_e::MODE_ZSTD)
-                    pak->pakDecoder.allChunksStreamed = fileStream->numDataChunksProcessed == fileStream->numDataChunks;
+                if (streamDesc->decodeMode == PakDecodeMode_e::MODE_ZSTD)
+                    pak->codec.allChunksStreamed = fileStream->asyncCompleteIndex == fileStream->asyncSubmitIndex;
 
-                const bool didDecode = Pak_StreamToBufferDecode(&pak->pakDecoder, 
-                    fileStream->bytesStreamed, (pak->processedPatchedDataSize + PAK_DECODE_OUT_RING_BUFFER_SIZE), streamDesc->compressionMode);
+                const bool didDecode = Pak_StreamToBufferDecode(&pak->codec,
+					fileStream->inputBytesReady,
+					pak->decodeCursor + PAK_DECODE_OUT_RING_BUFFER_SIZE,
+					streamDesc->decodeMode);
 
-                currentOutBytePos = pak->pakDecoder.outBufBytePos;
-                pak->inputBytePos = pak->pakDecoder.inBufBytePos;
+                currentOutBytePos = pak->codec.outBufBytePos;
+                pak->decodedCursor = pak->codec.inBufBytePos;
+
+				if (streamDesc->decodeMode == PakDecodeMode_e::MODE_ZSTD &&
+					pak->codec.decodeMode == PakDecodeMode_e::MODE_DISABLED)
+				{
+					Pak_MarkLoadError(pak);
+					return false;
+				}
 
                 if (didDecode)
                 {
-                    NS::log::rpak->info("Pak: {}, decoded with method {}", pak->pakFileName, Pak_DecoderToString(streamDesc->compressionMode));
-					pak->pakDecoder.zstreamContext = nullptr;
+                    NS::log::rpak->info("Pak: {}, decoded with method {}", pak->filename, Pak_DecoderToString(streamDesc->decodeMode));
+					Pak_ReleaseZStdDecoder(&pak->codec);
 				}
 			}
         }
         else
         {
-            currentOutBytePos = std::min(streamDesc->compressedSize, fileStream->bytesStreamed);
+            currentOutBytePos = std::min(streamDesc->sourceEndOffset, fileStream->inputBytesReady);
         }
 		
-        if (pak->inputBytePos != streamDesc->compressedSize || pak->processedPatchedDataSize != currentOutBytePos)
+        if (pak->decodedCursor != streamDesc->sourceEndOffset || pak->decodeCursor != currentOutBytePos)
             break;
 
-        pak->resetInBytePos = true;
-        currentOutBytePos = pak->processedPatchedDataSize;
+        pak->loadNextBlock = true;
+        currentOutBytePos = pak->decodeCursor;
     }
 
-    size_t numBytesToProcess = currentOutBytePos - pak->processedPatchedDataSize;
+    size_t numBytesToProcess = currentOutBytePos - pak->decodeCursor;
 
-    while (pak->patchSrcSize  + pak->numBytesToSkip)
+    while (pak->copyBytesRemaining + pak->skipBytesRemaining)
     {
         // if there are no bytes left to process in this patch operation
-		if ( !pak->numPatchBytesToProcess ) {
+		if (!pak->streamBytesRemaining) {
 			RBitRead& bitbuf = pak->bitBuf;
-            bitbuf.ConsumeData(pak->patchData, bitbuf.BitsAvailable());
+            bitbuf.ConsumeData(pak->bitstreamCursor, bitbuf.BitsAvailable());
 
             // advance patch data buffer by the number of bytes that have just been fetched
-            pak->patchData = &pak->patchData[bitbuf.BitsAvailable() >> 3];
+            pak->bitstreamCursor = &pak->bitstreamCursor[bitbuf.BitsAvailable() >> 3];
 
             // store the number of bits remaining to complete the data read
             bitbuf.m_bitsAvailable = bitbuf.BitsAvailable() & 7; // number of bits above a whole byte
 
             const __int8 cmd = pak->patchCommands[bitbuf.ReadBits(6)];
 
-            bitbuf.DiscardBits(pak->buf_308[bitbuf.ReadBits(6)]);
+            bitbuf.DiscardBits(pak->patchCodeLengths[bitbuf.ReadBits(6)]);
 
             // get the next patch function to execute
-            pak->patchFunc = g_pakPatchApi[cmd];
+            pak->decodeStep = g_pakPatchApi[cmd];
 
             if (cmd <= 3u)
             {
@@ -784,86 +888,86 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
                 bitbuf.DiscardBits(pak->PATCH_unk3[bitbuf.ReadBits(8)]);
 
-                pak->numPatchBytesToProcess = (1ull << bitExponent) + bitbuf.ReadBits(bitExponent);
+                pak->streamBytesRemaining = (1ull << bitExponent) + bitbuf.ReadBits(bitExponent);
 
                 bitbuf.DiscardBits(bitExponent);
             }
             else
             {
-                pak->numPatchBytesToProcess = s_patchCmdToBytesToProcess[cmd];
+                pak->streamBytesRemaining = s_patchCmdToBytesToProcess[cmd];
             }
 
 		}
 
-        if (!pak->patchFunc(pak, &numBytesToProcess))
+        if (!pak->decodeStep(pak, &numBytesToProcess))
             break;
     }
 
-    if (pak->updateBytePosPostProcess)
-        pak->inputBytePos = pak->processedPatchedDataSize;
+    if (pak->directBlockActive)
+        pak->decodedCursor = pak->decodeCursor;
 
-    if (!fileStream->finishedLoadingPatches)
+    if (!fileStream->endOfInput)
     {
-        const size_t numDataChunksProcessed = std::min<size_t>(fileStream->numDataChunksProcessed, pak->inputBytePos >> 19);
+        const size_t numDataChunksProcessed = std::min<size_t>(fileStream->asyncCompleteIndex, pak->decodedCursor >> 19);
 
-        while (fileStream->numDataChunks != numDataChunksProcessed + 32)
+        while (fileStream->asyncSubmitIndex != numDataChunksProcessed + 32)
         {
-            const int8_t requestIdx = fileStream->numDataChunks & PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK;
-            const size_t readOffsetEnd = (fileStream->numDataChunks + 1ull) * PAK_READ_DATA_CHUNK_SIZE;
+            const int8_t requestIdx = fileStream->asyncSubmitIndex & PAK_MAX_DATA_CHUNKS_PER_STREAM_MASK;
+            const size_t readOffsetEnd = (fileStream->asyncSubmitIndex + 1ull) * PAK_READ_DATA_CHUNK_SIZE;
 
-            if (fileStream->fileReadStatus == 1)
+            if (fileStream->nextReadMode == 1)
             {
-                fileStream->fileReadJobs[requestIdx] = -2;
-                fileStream->dataChunkStatuses[requestIdx] = 1;
+                fileStream->asyncRequestIds[requestIdx] = -2;
+                fileStream->asyncRequestStates[requestIdx] = 1;
 
                 if (((requestIdx + 1) & PAK_MAX_ASYNC_STREAMED_LOAD_REQUESTS_MASK) == 0)
-                    fileStream->fileReadStatus = 2;
+                    fileStream->nextReadMode = 2;
 
-                ++fileStream->numDataChunks;
+                ++fileStream->asyncSubmitIndex;
                 readStart = readOffsetEnd;
             }
             else
             {
-                if (readStart < fileStream->compressedSize)
+                if (readStart < fileStream->currentFileEndOffset)
                 {
-                    const size_t lenToRead = std::min<size_t>(fileStream->compressedSize, readOffsetEnd);
+                    const size_t lenToRead = std::min<size_t>(fileStream->currentFileEndOffset, readOffsetEnd);
 
-                    const size_t readOffset = readStart - fileStream->readOffset;
+                    const size_t readOffset = readStart - fileStream->currentFileBaseOffset;
                     const size_t readSize = lenToRead - readStart;
 
-                    fileStream->fileReadJobs[requestIdx] = FS_ReadAsyncFile(
-                        fileStream->fileHandle,
+                    fileStream->asyncRequestIds[requestIdx] = Pak_QueueAsyncRead(
+                        fileStream->currentFileHandle,
                         readOffset,
                         readSize,
-                        &fileStream->fileBuffer[readStart & fileStream->bufferMask],
+                        &fileStream->readRingBuffer[readStart & fileStream->readRingMask],
                        2);
 
-                    fileStream->dataChunkStatuses[requestIdx] = fileStream->fileReadStatus;
-                    fileStream->fileReadStatus = 0;
+                    fileStream->asyncRequestStates[requestIdx] = fileStream->nextReadMode;
+                    fileStream->nextReadMode = 0;
 
-                    ++fileStream->numDataChunks;
+                    ++fileStream->asyncSubmitIndex;
                     readStart = readOffsetEnd;
                 }
                 else
                 {
-                    if (pak->lastLoadedPatchIndex >= pak->header.patchIndex)
+                    if (pak->currentPatchFileIndex >= pak->header.patchIndex)
                     {
-                        FS_CloseAsyncFile(fileStream->fileHandle);
-                        fileStream->fileHandle = -1;
-                        fileStream->readOffset = 0;
-                        fileStream->finishedLoadingPatches = true;
+                        Pak_ReleaseFileHandle(fileStream->currentFileHandle);
+                        fileStream->currentFileHandle = PAK_INVALID_HANDLE;
+                        fileStream->currentFileBaseOffset = 0;
+                        fileStream->endOfInput = true;
 
-                        return pak->patchSrcSize == 0;
+                        return pak->copyBytesRemaining == 0;
                     }
 
-                    if (!pak->dword_14)
-                        return pak->patchSrcSize == 0;
+                    if (!pak->hasPatchData)
+                        return pak->copyBytesRemaining == 0;
 
                     char pakPatchPath[MAX_PATH] = {};
-                    sprintf(pakPatchPath, "r2\\paks\\Win64\\%s", pak->pakFileName);
+                    sprintf(pakPatchPath, "r2\\paks\\Win64\\%s", pak->filename);
 
                     // get path of next patch rpak to load
-                    if (pak->headerFields.patchFileIndexes[pak->lastLoadedPatchIndex])
+                    if (pak->sections.patchFileIndices[pak->currentPatchFileIndex])
                     {
                         char* pExtension = nullptr;
 
@@ -883,28 +987,40 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
                         // replace extension '.rpak' with '(xx).rpak'
                         snprintf(it, &pakPatchPath[sizeof(pakPatchPath)] - it,
-                            "(%02u).rpak", pak->headerFields.patchFileIndexes[pak->lastLoadedPatchIndex]);
+                            "(%02u).rpak", pak->sections.patchFileIndices[pak->currentPatchFileIndex]);
                     }
 
-                    const int patchFileHandle = FS_OpenAsyncFile(pakPatchPath, &numBytesToProcess);
+                    uint64_t patchFileSize = 0;
+                    const PakHandle_t patchFileHandle = Pak_OpenFile(pakPatchPath, &patchFileSize);
 
-                    if (patchFileHandle == -1)
-                        RTechLog(4, "Couldn't open file \"%s\".\n", pakPatchPath);
+                    if (patchFileHandle == PAK_INVALID_HANDLE)
+					{
+						NS::log::rpak->error("Couldn't open file \"{}\"", pakPatchPath);
+						Pak_MarkLoadError(pak);
+						Pak_ReleaseZStdDecoder(&pak->codec);
+						return false;
+					}
 
-                    if (numBytesToProcess < pak->headerFields.patchCompressPairs[pak->lastLoadedPatchIndex].compressedSize)
-                        RTechLog(4, "File \"%s\" appears truncated\n",pakPatchPath);
+                    if (patchFileSize < pak->sections.patchFileHeaders[pak->currentPatchFileIndex].compressedSize)
+					{
+						NS::log::rpak->error("File \"{}\" appears truncated", pakPatchPath);
+						Pak_ReleaseFileHandle(patchFileHandle);
+						Pak_MarkLoadError(pak);
+						Pak_ReleaseZStdDecoder(&pak->codec);
+						return false;
+					}
 
-                    FS_CloseAsyncFile(fileStream->fileHandle);
+                    Pak_ReleaseFileHandle(fileStream->currentFileHandle);
 
-                    fileStream->fileHandle = patchFileHandle;
+                    fileStream->currentFileHandle = patchFileHandle;
 
-                    const size_t readOffset = ALIGN_VALUE(fileStream->numDataChunks, 8ull) * PAK_READ_DATA_CHUNK_SIZE;
-                    fileStream->fileReadStatus = (fileStream->numDataChunks == ALIGN_VALUE(fileStream->numDataChunks, 8ull)) + 1;
+                    const size_t readOffset = ALIGN_VALUE(fileStream->asyncSubmitIndex, 8ull) * PAK_READ_DATA_CHUNK_SIZE;
+                    fileStream->nextReadMode = (fileStream->asyncSubmitIndex == ALIGN_VALUE(fileStream->asyncSubmitIndex, 8ull)) + 1;
 
-                    fileStream->readOffset = readOffset;
-                    fileStream->compressedSize = readOffset + pak->headerFields.patchCompressPairs[pak->lastLoadedPatchIndex].compressedSize;
+                    fileStream->currentFileBaseOffset = readOffset;
+                    fileStream->currentFileEndOffset = readOffset + pak->sections.patchFileHeaders[pak->currentPatchFileIndex].compressedSize;
 
-                    pak->lastLoadedPatchIndex++;
+                    pak->currentPatchFileIndex++;
                 }
             }
         }
@@ -912,124 +1028,109 @@ static bool Pak_ProcessPakFile(PakFile* const pak)
 
 
 
-    return pak->patchSrcSize== 0;
+    return pak->copyBytesRemaining == 0;
 }
 
 
 
-using Pak_ProcessFile_t = bool(__fastcall*)(PakFile* pak);
-Pak_ProcessFile_t pPak_ProcessPakFile = nullptr;
-HOOK(v_Pak_ProcessPakFile, o_Pak_ProcessPakFile, bool, __fastcall, (PakFile* pak))
+using Pak_ReadFile_t = bool(__fastcall*)(PakFile* pak);
+Pak_ReadFile_t pPak_ReadFile = nullptr;
+HOOK(v_Pak_ReadFile, o_Pak_ReadFile, bool, __fastcall, (PakFile* pak))
 {
-	//check the reutrn address of this to see if we are in pakSetup
-	uint64_t rva = (uint64_t)_ReturnAddress() - rtechBaseAddr;
-	if((uint64_t)_ReturnAddress() == rtechBaseAddr + 0xA618) {
-		pak->patchFunc = g_pakPatchApi[0];
+	// Pak_LoadPendingPak seeds the first patch/decode step at this call site.
+	if (reinterpret_cast<uint64_t>(_ReturnAddress()) == rtechBaseAddr + 0xA618)
+	{
+		pak->decodeStep = g_pakPatchApi[0];
 	}
-	//if((uint64_t)_ReturnAddress() == rtechBaseAddr + 0x9CBC) {
-	//	pak->patchFunc = g_pakPatchApi[0];
-	//}
-	return Pak_ProcessPakFile(pak);
+	return Pak_ReadFile_Custom(pak);
 }
 
 static uint32_t Pak_ProcessRemainingPagePointers(PakFile* const pak)
 {
-	  uint32_t i; // r9d
-  PakDescriptor *descriptors; // rax
-  __int64 index; // r10
-  PakDescriptor *v5; // rdx
-  int curCount; // ecx
-  uint8_t **pageOffsets; // r8
-  uint8_t **v8; // rdx
-  __int64 assetsRead; // rsi
-  PakAssetEntry *asset; // rdi
-  __int64 v11; // r14
-  __int64 assetBind; // rbp
-    uint32_t processedPointers = 0;
+	uint32_t processedPointers = pak->pointerFixupIndex;
 
-    for (processedPointers = pak->numProcessedPointers; processedPointers < pak->header.descriptorCount; ++processedPointers)
+	for (; processedPointers < pak->header.pointerCount; ++processedPointers)
     {
-		PakDescriptor* const curPage = &pak->headerFields.descriptors[processedPointers];
-        int curCount = curPage->index - pak->firstPageIdx;
+		const RPakPagePtr_s* const pointerDescriptor = &pak->sections.pointerDescriptors[processedPointers];
+		int relativePageIndex = pointerDescriptor->pageIndex - pak->pageIndexBase;
 
-        if (curCount < 0)
-            curCount += pak->header.pageCount;
+		if (relativePageIndex < 0)
+			relativePageIndex += pak->header.memPageCount;
 
-        if (curCount >= pak->processedPageCount)
-            break;
+		if (relativePageIndex >= pak->loadedPageCount)
+			break;
 
-        PakDescriptor* ptr = reinterpret_cast<PakDescriptor*>(pak->GetPointerForPageOffset(curPage));
-        ptr = reinterpret_cast<PakDescriptor*>(&pak->memPageBuffers[ptr->index][ptr->offset]);
+		RPakPagePtr_s* const pointerLocation = reinterpret_cast<RPakPagePtr_s*>(pak->GetPointerForPageOffset(pointerDescriptor));
+		void* const target = &pak->pageDataPointers[pointerLocation->pageIndex][pointerLocation->offset];
+		*reinterpret_cast<void**>(pointerLocation) = target;
     }
 
     return processedPointers;
 }
 
-static void Pak_RunAssetLoadingJobs(PakFile* const pak) {
-	pak->numProcessedPointers = Pak_ProcessRemainingPagePointers(pak);
+static void Pak_FixupPointersAndQueueAssets_Custom(PakFile* const pak) {
+	pak->pointerFixupIndex = Pak_ProcessRemainingPagePointers(pak);
 
-	const uint32_t numAssets = pak->assetsRead;
+	const uint32_t numAssets = pak->assetLoadIndex;
 
-    if (numAssets == pak->header.assetEntryCount)
+    if (numAssets == pak->header.assetCount)
         return;
 
-	PakAssetEntry* pakAsset = &pak->headerFields.assetEntrys[numAssets];
-	if (pakAsset->highestPageNum > pak->processedPageCount) {
+	RPakAssetEntryV7_s* pakAsset = &pak->sections.assetEntries[numAssets];
+	if (pakAsset->pageEnd > pak->loadedPageCount) {
 		return;
 	}
 
 	for (uint32_t currentAsset = numAssets; Pak_GetGlobals()->numAssetLoadJobs <= 0xC8u;) {
-		pak->loadedAssetIndices[currentAsset] = Pak_TrackAsset(pak,pakAsset);
+		pak->assetJobIds[currentAsset] = Pak_TrackAsset(pak,pakAsset);
 
 		_InterlockedIncrement16(&Pak_GetGlobals()->numAssetLoadJobs);
 
 		const uint8_t assetBind = pakAsset->HashTableIndexForAssetType();
 		if (Pak_GetGlobals()->assetBindings[assetBind].loadAssetFunc)
         {
-            const JobTypeID_t jobTypeId = ((uint64_t)Pak_GetGlobals() + assetBind + 0x395F50);
+			const JobTypeID_t jobTypeId = Pak_GetGlobals()->assetBindJobTypes[assetBind];
 
             // have to cast it to a bigger size to send it as param to JTGuts_AddJob().
-            const int64_t pakId = pak->pakId;
+            const int64_t pakId = pak->ownerPakHandle;
 
-            JTGuts_AddJob(jobTypeId, pak->jobId, (void*)pakId, (void*)(uint64_t)currentAsset);
+            JTGuts_AddJob(jobTypeId, pak->loadJobGroupId, (void*)pakId, (void*)(uint64_t)currentAsset);
         }
         else
 		{
-			 if (_InterlockedExchangeAdd16(&pakAsset->numRemainingDependencies, -1) == 1)
+			 if (_InterlockedExchangeAdd16(&pakAsset->internalDependencyCount, -1) == 1)
 				Pak_ProcessAssetRelationsAndResolveDependencies(pak, pakAsset, currentAsset, assetBind);
             _InterlockedDecrement16(&Pak_GetGlobals()->numAssetLoadJobs);
         }
-		currentAsset = ++pak->assetsRead;
+		currentAsset = ++pak->assetLoadIndex;
 
-        if (currentAsset == pak->header.assetEntryCount)
+        if (currentAsset == pak->header.assetCount)
         {
-            JT_EndJobGroup(pak->jobId);
+            JT_EndJobGroup(pak->loadJobGroupId);
             return;
         }
 
-        pakAsset = &pak->headerFields.assetEntrys[currentAsset];
+        pakAsset = &pak->sections.assetEntries[currentAsset];
 
-        if (pakAsset->highestPageNum > pak->processedPageCount)
+        if (pakAsset->pageEnd > pak->loadedPageCount)
             return;
 	}
 
 }
 
 
-//9AD0
-using Pak_RunAssetLoadingJobs_t = void(__fastcall*)(PakFile* pak);
-Pak_RunAssetLoadingJobs_t pPak_RunAssetLoadingJobs = nullptr;
-HOOK(v_Pak_RunAssetLoadingJobs, o_Pak_RunAssetLoadingJobs, void, __fastcall, (PakFile* pakFile))
+using Pak_FixupPointersAndQueueAssets_t = void(__fastcall*)(PakFile* pak);
+Pak_FixupPointersAndQueueAssets_t pPak_FixupPointersAndQueueAssets = nullptr;
+HOOK(v_Pak_FixupPointersAndQueueAssets, o_Pak_FixupPointersAndQueueAssets, void, __fastcall, (PakFile* pakFile))
 {
-	//Pak_RunAssetLoadingJobs(pakFile);
-	o_Pak_RunAssetLoadingJobs(pakFile);
+	o_Pak_FixupPointersAndQueueAssets(pakFile);
 }
 
-using Pak_ProcessAssets_t = void(__fastcall*)(PakLoadedInfo_s* pak);
-Pak_ProcessAssets_t pPak_ProcessAssets = nullptr;
-HOOK(v_Pak_ProcessAssets, o_Pak_ProcessAssets, void, __fastcall, (PakLoadedInfo_s* pak))
+using Pak_LoadPak_t = bool(__fastcall*)(PakLoadedInfo_s* pak);
+Pak_LoadPak_t pPak_LoadPak = nullptr;
+HOOK(v_Pak_LoadPak, o_Pak_LoadPak, bool, __fastcall, (PakLoadedInfo_s* pak))
 {
-	return o_Pak_ProcessAssets(pak);
+	return o_Pak_LoadPak(pak);
 }
 
 ON_DLL_LOAD("tier0.dll", RetchT0,[](CModule module)
@@ -1040,22 +1141,22 @@ ON_DLL_LOAD("tier0.dll", RetchT0,[](CModule module)
 
 ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 {
-	pPak_ProcessPakFile = module.Offset(0x8D10).RCast<Pak_ProcessFile_t>();
-	pPak_ProcessAssets = module.Offset(0x9C60).RCast<Pak_ProcessAssets_t>();
-	pPak_RunAssetLoadingJobs = module.Offset(0x9AD0).RCast<Pak_RunAssetLoadingJobs_t>();
-	v_Pak_ProcessPakFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessPakFile));
-	v_Pak_ProcessAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_ProcessAssets));
-	v_Pak_RunAssetLoadingJobs.Dispatch(reinterpret_cast<LPVOID*>(pPak_RunAssetLoadingJobs));
-	CheckAsyncRequest = module.Offset( 0x1AF0 ).RCast<int64_t (*)(int64_t, size_t*, const char**)>();
-	FS_ReadAsyncFile = module.Offset( 0x1F00 ).RCast<int64_t (*)(unsigned int, __int64, unsigned __int64, uint8_t*, int)>();
-	FS_CloseAsyncFile = module.Offset( 0x2100 ).RCast<void (*)(unsigned int)>();
-	FS_OpenAsyncFile = module.Offset( 0x1E20 ).RCast<int16_t (*)(const char*, size_t*)>();
-	RTechLog = module.Offset( 0x10AB0 ).RCast<void (*)(int64_t, const char*, ...)>();
-	vsnprintf_ = module.Offset( 0x31C0 ).RCast<size_t (*)(char*, size_t, const char*,...)>();
-	Pak_TrackAsset = module.Offset( 0xB2B0 ).RCast<int (*)(PakFile*, PakAssetEntry*)>();
-	// allow use of zstd flags
-	module.Offset(0x0A30C).Patch({0xB8,0x00,0x81});
+	pPak_ReadFile = module.Offset(0x8D10).RCast<Pak_ReadFile_t>();
+	pPak_LoadPak = module.Offset(0x9C60).RCast<Pak_LoadPak_t>();
+	pPak_FixupPointersAndQueueAssets = module.Offset(0x9AD0).RCast<Pak_FixupPointersAndQueueAssets_t>();
+	Pak_PollAsyncRead = module.Offset(0x1AF0).RCast<decltype(Pak_PollAsyncRead)>();
+	Pak_QueueAsyncRead = module.Offset(0x1F00).RCast<decltype(Pak_QueueAsyncRead)>();
+	Pak_ReleaseFileHandle = module.Offset(0x2100).RCast<decltype(Pak_ReleaseFileHandle)>();
+	Pak_OpenFile = module.Offset(0x1E20).RCast<decltype(Pak_OpenFile)>();
+	Pak_TrackAsset = module.Offset(0xB2B0).RCast<decltype(Pak_TrackAsset)>();
+	// Treat both RTech and Zstd paks as encoded when allocating the decode
+	// buffer and when selecting the active copy ring/mask.
+	module.Offset(0x0A30C).Patch({0xB8, 0x00, 0x81});
+	module.Offset(0x0A4F9).Patch({0xB8, 0x00, 0x81});
 	rtechBaseAddr = module.Offset(0);
-	Pak_ProcessAssetRelationsAndResolveDependencies = module.Offset(0xA890).RCast<void (*)(PakFile*, PakAssetEntry*, uint32_t, uint32_t)>();
-	
+	Pak_ProcessAssetRelationsAndResolveDependencies = module.Offset(0xA890).RCast<decltype(Pak_ProcessAssetRelationsAndResolveDependencies)>();
+
+	v_Pak_ReadFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ReadFile));
+	v_Pak_LoadPak.Dispatch(reinterpret_cast<LPVOID*>(pPak_LoadPak));
+	v_Pak_FixupPointersAndQueueAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_FixupPointersAndQueueAssets));
 })
