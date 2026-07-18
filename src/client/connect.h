@@ -83,7 +83,7 @@ private:
 	void FinaliseJoiningServer(std::string& address);
 
 	void DownloadMods(bool remoteServer, RemoteServerInfo* info);
-	void ReloadMods(RemoteServerInfo* info);
+	void ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address);
 public:
 	void Connect(const std::string& address, eConnectionMode mode, bool useSCRPlaque = true, std::string mapName = "");
 	void Connect(bool useSCRPlaque = true, std::string mapName = "");

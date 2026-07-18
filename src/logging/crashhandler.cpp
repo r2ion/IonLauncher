@@ -9,6 +9,7 @@
 #include "rtech/pakfilesystem.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
+#include "tier0/module.h"
 #include "util/version.h"
 #include "util/utils.h"
 
@@ -35,6 +36,8 @@ typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 #define CRASHHANDLER_GETMODULEHANDLE_FAIL "<unknown module>"
 #define CRASHHANDLER_NULL_INSTRUCTION_PTR "<null instruction pointer>"
 
+static void* s_pTier0FatalAppExit = nullptr;
+
 struct GPUInfo_s
 {
 	bool found = false;
@@ -42,6 +45,27 @@ struct GPUInfo_s
 	uint64_t dedicatedVramBytes = 0;
 	std::vector<std::pair<std::string, uint64_t>> allAdapters; // name, vram
 };
+
+void PatchTier0FatalAppExit()
+{
+	CModule tier0(GetModuleHandleA("tier0.dll"));
+	if (!tier0.GetModuleBase())
+		return;
+
+	CMemory abortSite = tier0.Offset(0x26170);
+	if (!abortSite.CheckOpCodes({0xCD, 0x29}))
+		return;
+
+	abortSite.Patch({0x0F, 0x0B});
+	s_pTier0FatalAppExit = abortSite.RCast<void*>();
+	FlushInstructionCache(GetCurrentProcess(), s_pTier0FatalAppExit, 2);
+}
+
+bool IsTier0FatalAppExit(const EXCEPTION_RECORD* exception)
+{
+	return s_pTier0FatalAppExit && exception && exception->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION &&
+		exception->ExceptionAddress == s_pTier0FatalAppExit;
+}
 
 //-----------------------------------------------------------------------------
 // Purpose: Vectored exception callback
@@ -171,6 +195,7 @@ CCrashHandler::~CCrashHandler()
 void CCrashHandler::Init()
 {
 	m_hExceptionFilter = AddVectoredExceptionHandler(TRUE, ExceptionFilter);
+	PatchTier0FatalAppExit();
 	m_bHasSetConsolehandler = SetConsoleCtrlHandler(ConsoleCtrlRoutine, TRUE);
 
 	SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
@@ -470,6 +495,9 @@ void CCrashHandler::SetCrashedModule()
 
 const CHAR* CCrashHandler::GetExceptionString() const
 {
+	if (IsTier0FatalAppExit(m_pExceptionInfos->ExceptionRecord))
+		return "FAST_FAIL_FATAL_APP_EXIT";
+
 	return GetExceptionString(m_pExceptionInfos->ExceptionRecord->ExceptionCode);
 }
 
@@ -1169,6 +1197,7 @@ void CCrashHandler::WriteCrashComment()
 	commentFile << "Unfortunately Ion has crashed, please send this to a developer - you can reach us at:\n* GitHub: "
 				   "https://github.com/R2Ion/Ion\n* Discord (in #ion-tech-support): https://discord.gg/UhPwruvSFH\n\n";
 	commentFile << "=== Crash Report ===\n";
+	commentFile << "Timestamp: " << std::put_time(&currentTime, "%Y-%m-%d %H-%M-%S") << "\n";
 	commentFile << fmt::format("Version: {}\n", version);
 	commentFile << fmt::format("Patch: {}\n", ION_PATCH);
 	if (!m_svError.empty())

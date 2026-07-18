@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstddef>
+
 // taken from ttf2sdk
 typedef void* FileHandle_t;
 
-struct VPKData;
+class CPackedStore;
 
 enum SearchPathAdd_t
 {
@@ -35,10 +37,12 @@ public:
 	{
 		void* unknown[10];
 		void (*AddSearchPath)(IFileSystem* fileSystem, const char* pPath, const char* pathID, SearchPathAdd_t addType);
-		void* unknown2[84];
+		bool (*RemoveSearchPath)(IFileSystem* fileSystem, const char* pPath, const char* pathID);
+		void* unknown2[83];
 		bool (*ReadFromCache)(IFileSystem* fileSystem, const char* path, void* result);
 		void* unknown3[15];
-		VPKData* (*MountVPK)(IFileSystem* fileSystem, const char* vpkPath);
+		CPackedStore* (*MountVPK)(IFileSystem* fileSystem, const char* vpkPath);
+		void (*UnmountVPK)(IFileSystem* fileSystem, const char* vpkPath);
 	};
 
 	struct VTable2
@@ -57,7 +61,21 @@ public:
 	VTable2* m_vtable2;
 };
 
+static_assert(offsetof(IFileSystem::VTable, AddSearchPath) == 10 * sizeof(void*));
+static_assert(offsetof(IFileSystem::VTable, RemoveSearchPath) == 11 * sizeof(void*));
+static_assert(offsetof(IFileSystem::VTable, ReadFromCache) == 95 * sizeof(void*));
+static_assert(offsetof(IFileSystem::VTable, MountVPK) == 111 * sizeof(void*));
+static_assert(offsetof(IFileSystem::VTable, UnmountVPK) == 112 * sizeof(void*));
+
 extern IFileSystem* g_pFilesystem;
 
 std::string ReadVPKFile(const char* path);
 std::string ReadVPKFile(const char* path, int fileSourceFilter);
+
+// Mounts an already-resolved VPK base path without invoking the mod VPK hook.
+CPackedStore* MountVPKDirect(const char* vpkPath);
+bool UnmountVPKDirect(const char* vpkPath);
+bool IsVPKMounted(const char* vpkPath);
+
+// Removes every loose mod directory added through SetNewModSearchPaths.
+bool RemoveModSearchPaths();

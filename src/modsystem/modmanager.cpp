@@ -4,11 +4,17 @@
 #include "client/audio.h"
 #include "masterserver/masterserver.h"
 #include "core/filesystem/filesystem.h"
+#include "vpklib/vpkdirectory.h"
+#include "datacache/mdlcache.h"
+#include "dedicated/dedicated.h"
 #include "rtech/pakfilesystem.h"
+#include "rtech/pakstate.h"
 #include "config/profile.h"
 #include "engine/r2engine.h"
-#include "engine/models.h"
 #include "modsystem/modshellext.h"
+#include "tier0/frametask.h"
+#include "tier0/module.h"
+#include "util/utils.h"
 
 #include "rapidjson/error/en.h"
 #include "rapidjson/document.h"
@@ -22,8 +28,20 @@
 
 ModManager* g_pModManager;
 
-ModManager::ModManager()
+enum class ModelReloadType_t : uint32_t
 {
+    LodChanged = 0,
+    Everything,
+    RefreshModels,
+    Async,
+};
+
+static constexpr int CModelLoader_RetouchModelsVTableIndex = 23;
+
+ModManager::ModManager(const CModule& engineModule)
+{
+	m_pModelLoader = engineModule.Offset(0x7C4C20).RCast<void*>();
+	m_pFlushModelByName = engineModule.Offset(0xCEF30).RCast<decltype(m_pFlushModelByName)>();
 	cfgPath = GetNorthstarPrefix() + "/enabledmods.json";
 
 	HandleModShellExtension();
@@ -109,9 +127,27 @@ static void ModConCommandCallback(const CCommand& command)
 	};
 }
 
+void ModManager::RegisterLooseModelReloadPath(const fs::path& path)
+{
+	std::string modelPath = NormaliseModFilePath(path);
+	if (fs::path(modelPath).extension() != ".mdl")
+		return;
+
+	std::replace(modelPath.begin(), modelPath.end(), '\\', '/');
+	std::scoped_lock lock(m_ModelReloadMutex);
+	m_ModModelFiles.insert(modelPath);
+	m_ModLooseModelFiles.insert(std::move(modelPath));
+}
+
+void ModManager::ReloadMods()
+{
+	RunInMainThread([this]() { LoadMods(); });
+}
+
 void ModManager::LoadMods()
 {
-	if (m_bHasLoadedMods)
+	const bool wasLoaded = m_bHasLoadedMods;
+	if (wasLoaded)
 		UnloadMods();
 
 	// Find all mods from disk
@@ -124,9 +160,6 @@ void ModManager::LoadMods()
 	{
 		if (!mod.m_bEnabled)
 			continue;
-
-		if (mod.m_bRequiredModelReload)
-			modsUsingModelsSum++;
 
 		// register convars
 		// for reloads, this is sorta barebones, when we have a good findconvar method, we could probably reset flags and stuff on
@@ -191,8 +224,19 @@ void ModManager::LoadMods()
 														  dVpkJson["Preload"].HasMember(vpkName) && dVpkJson["Preload"][vpkName].IsTrue());
 					modVpk.m_sVpkPath = (file.path().parent_path() / vpkName).string();
 
-					if (m_bHasLoadedMods && modVpk.m_bAutoLoad)
-						g_pFilesystem->m_vtable->MountVPK(g_pFilesystem, vpkName.c_str());
+					VPKDirectory_GetFileList(file.path(), "mdl", modVpk.m_ModelPaths);
+
+					bool modelsAvailable = IsVPKMounted(modVpk.m_sVpkPath.c_str());
+					if (modVpk.m_bAutoLoad)
+					{
+						if (m_bHasLoadedMods)
+							modelsAvailable = MountVPKDirect(modVpk.m_sVpkPath.c_str()) != nullptr;
+						else
+							modelsAvailable = true;
+					}
+
+					if (modelsAvailable)
+						RegisterMountedVPKModels(modVpk);
 				}
 			}
 		}
@@ -404,6 +448,8 @@ void ModManager::LoadMods()
 					modFile.m_pOwningMod = &mod;
 					modFile.m_Path = path;
 					m_ModFiles.insert_or_assign(path, modFile);
+
+					RegisterLooseModelReloadPath(path);
 				}
 			}
 		}
@@ -413,6 +459,8 @@ void ModManager::LoadMods()
 	BuildModInfo();
 
 	m_bHasLoadedMods = true;
+	if (wasLoaded)
+		RequestModelReload();
 }
 
 void ModManager::UnloadMods()
@@ -420,6 +468,31 @@ void ModManager::UnloadMods()
 	// clean up stuff from mods before we unload
 	m_DependencyConstants.clear();
 
+	RemoveModSearchPaths();
+
+	std::unordered_set<std::string> staleVPKModelFiles;
+
+	for (const Mod& mod : m_LoadedMods)
+	{
+		for (const ModVPKEntry& vpkEntry : mod.Vpks)
+		{
+			if (mod.m_bEnabled && !vpkEntry.m_bAutoLoad)
+				continue;
+
+			staleVPKModelFiles.insert(vpkEntry.m_ModelPaths.begin(), vpkEntry.m_ModelPaths.end());
+			UnmountVPKDirect(vpkEntry.m_sVpkPath.c_str());
+		}
+	}
+
+	// Enabled paths are rediscovered below; retain old paths for cache eviction.
+	{
+		std::scoped_lock lock(m_ModelReloadMutex);
+		m_StaleModModelFiles.insert(m_ModLooseModelFiles.begin(), m_ModLooseModelFiles.end());
+		m_StaleModModelFiles.insert(staleVPKModelFiles.begin(), staleVPKModelFiles.end());
+		m_ModModelFiles.clear();
+		m_ModLooseModelFiles.clear();
+		m_ModVpkModelSources.clear();
+	}
 	m_ModFiles.clear();
 	m_CompiledFiles.clear();
 	m_CompiledAssetFiles.clear();
@@ -446,14 +519,6 @@ void ModManager::UnloadMods()
 
 	// save mods configuration to disk
 	ExportModsConfigurationToFile();
-
-	// model reloading is super slow so we want to only do it if necessary
-	if(modsUsingModelsSum > 0 && modsUsingModelsSum != previousModsUsingModelsSum)
-	{
-		// ReloadModels();
-		previousModsUsingModelsSum = modsUsingModelsSum;
-		modsUsingModelsSum = 0;
-	}
 
 	// do we need to dealloc individual entries in m_loadedMods? idk, rework
 	m_LoadedMods.clear();
@@ -852,7 +917,7 @@ void ModManager::BuildModInfo()
 	g_pMasterServerManager->m_sOwnModInfoJson = std::string(buffer.GetString());
 }
 
-std::string ModManager::NormaliseModFilePath(const fs::path path)
+std::string ModManager::NormaliseModFilePath(const fs::path path) const
 {
 	std::string str = path.lexically_normal().string();
 
@@ -862,6 +927,166 @@ std::string ModManager::NormaliseModFilePath(const fs::path path)
 			c = c - ('Z' - 'z');
 
 	return str;
+}
+
+std::vector<std::string> ModManager::GetModelReloadPaths() const
+{
+	std::scoped_lock lock(m_ModelReloadMutex);
+	std::vector<std::string> paths;
+	paths.reserve(m_ModModelFiles.size() + m_StaleModModelFiles.size());
+
+	paths.insert(paths.end(), m_ModModelFiles.begin(), m_ModModelFiles.end());
+	for (const std::string& path : m_StaleModModelFiles)
+	{
+		if (!m_ModModelFiles.contains(path))
+			paths.push_back(path);
+	}
+
+	std::sort(paths.begin(), paths.end());
+	return paths;
+}
+
+void ModManager::MarkModelsReloaded(const std::unordered_set<std::string>& failedPaths)
+{
+	std::scoped_lock lock(m_ModelReloadMutex);
+	for (auto it = m_StaleModModelFiles.begin(); it != m_StaleModModelFiles.end();)
+	{
+		if (failedPaths.contains(*it))
+			++it;
+		else
+			it = m_StaleModModelFiles.erase(it);
+	}
+}
+
+void ModManager::RequestModelReload()
+{
+	if (IsDedicatedServer())
+		return;
+
+	RunInMainThread([this]()
+	{
+		if (m_bModelReloadPending)
+			return;
+
+		m_bModelReloadPending = true;
+		g_TaskQueue.Dispatch([this]() { RunModelReload(); });
+	});
+}
+
+void ModManager::RunModelReload()
+{
+	if (!m_bModelReloadPending)
+		return;
+
+	if (!m_pModelLoader || !m_pFlushModelByName || !g_pMDLCache)
+	{
+		m_bModelReloadPending = false;
+		return;
+	}
+
+	bool pakLockHeld = false;
+	if (g_pPakLoadManager)
+	{
+		if (!g_pPakLoadManager->TryAcquireIdlePakLock())
+		{
+			g_TaskQueue.Dispatch([this]() { RunModelReload(); });
+			return;
+		}
+		pakLockHeld = true;
+	}
+	const ScopeGuard pakLockGuard([&]()
+	{
+		if (pakLockHeld)
+			g_pPakLoadManager->ReleasePakLock();
+	});
+
+	if (Pak_HasUnsafeLoadedPaks())
+	{
+		m_bModelReloadPending = false;
+		return;
+	}
+
+	const std::vector<std::string> modelPaths = GetModelReloadPaths();
+	m_bModelReloadPending = false;
+	if (modelPaths.empty())
+		return;
+
+	std::unordered_set<std::string> failedPaths;
+	for (const std::string& path : modelPaths)
+	{
+		const MDLHandle_t handle = g_pMDLCache->FindExistingMDL(path.c_str());
+		m_pFlushModelByName(m_pModelLoader, path.c_str());
+
+		if (handle != InvalidMDLHandle)
+		{
+			if (!g_pMDLCache->FlushCacheByHandle(handle))
+				failedPaths.insert(path);
+			g_pMDLCache->Release(handle);
+		}
+	}
+
+	CallVFunc<void>(CModelLoader_RetouchModelsVTableIndex, m_pModelLoader, ModelReloadType_t::RefreshModels);
+
+	if (!g_pPakLoadManager || !g_pPakLoadManager->GetForceReloadOnMapLoad())
+		MarkModelsReloaded(failedPaths);
+
+	if (!failedPaths.empty())
+		spdlog::warn("Failed to flush {} model cache entries", failedPaths.size());
+}
+
+void ModManager::RegisterMountedVPKModels(const ModVPKEntry& vpkEntry)
+{
+	std::scoped_lock lock(m_ModelReloadMutex);
+	for (const std::string& modelPath : vpkEntry.m_ModelPaths)
+	{
+		m_ModModelFiles.insert(modelPath);
+
+		m_ModVpkModelSources.try_emplace(modelPath, vpkEntry.m_sVpkPath);
+	}
+}
+
+std::string ModManager::NormaliseModelLookupPath(const fs::path& path) const
+{
+	std::string modelPath = path.generic_string();
+	std::replace(modelPath.begin(), modelPath.end(), '\\', '/');
+
+	if (modelPath.starts_with("//"))
+	{
+		const size_t relativePathStart = modelPath.find('/', 2);
+		if (relativePathStart == std::string::npos)
+			return {};
+
+		modelPath.erase(0, relativePathStart + 1);
+	}
+
+	modelPath = NormaliseModFilePath(fs::path(modelPath));
+	std::replace(modelPath.begin(), modelPath.end(), '\\', '/');
+	return modelPath;
+}
+
+bool ModManager::IsModModelFile(const fs::path& path) const
+{
+	const std::string modelPath = NormaliseModelLookupPath(path);
+	if (modelPath.empty())
+		return false;
+
+	std::scoped_lock lock(m_ModelReloadMutex);
+	return m_ModModelFiles.contains(modelPath) || m_StaleModModelFiles.contains(modelPath);
+}
+
+bool ModManager::GetModVPKModelSource(const fs::path& path, std::string& vpkPath) const
+{
+	const std::string modelPath = NormaliseModelLookupPath(path);
+	if (modelPath.empty())
+		return false;
+
+	std::scoped_lock lock(m_ModelReloadMutex);
+	const auto source = m_ModVpkModelSources.find(modelPath);
+	if (source == m_ModVpkModelSources.end())
+		return false;
+
+	vpkPath = source->second;
+	return true;
 }
 
 void ModManager::CompileAssetsForFile(const char* filename)
@@ -929,7 +1154,7 @@ void ModManager::DeleteRemoteMod(const char* modName, const char* version) {
 void ConCommand_reload_mods(const CCommand& args)
 {
 	NOTE_UNUSED(args);
-	g_pModManager->LoadMods();
+	g_pModManager->ReloadMods();
 }
 
 fs::path GetModFolderPath()
@@ -955,7 +1180,7 @@ fs::path GetModIconPath()
 
 ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer), [](CModule module)
 {
-	g_pModManager = new ModManager;
+	g_pModManager = new ModManager(module);
 
 	RegisterConCommand("reload_mods", ConCommand_reload_mods, "reloads mods", FCVAR_NONE);
 })

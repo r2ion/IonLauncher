@@ -2,19 +2,47 @@
 #include "core/tier1.h"
 #include "modsystem/modmanager.h"
 
-#include <iostream>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <mutex>
 #include <sstream>
+#include <unordered_map>
+#include <vector>
 
 DECLARE_MODULE(FilesystemHooks)
 
 // the currently accepted sources for files
 int iFileSourceType = FileSourceType_Any;
 
-std::string sCurrentModPath;
-
 ConVar* Cvar_ns_fs_log_reads;
 
 IFileSystem* g_pFilesystem;
+
+using AddSearchPathFn = void(__fastcall*)(IFileSystem*, const char*, const char*, SearchPathAdd_t);
+using MountVPKFn = CPackedStore* (*)(IFileSystem*, const char*);
+using UnmountVPKFn = void (*)(IFileSystem*, const char*);
+
+struct AddedModSearchPath_s
+{
+	std::string m_Path;
+	std::string m_PathID;
+	bool m_bHasPathID;
+};
+
+struct ModFilesystemState_s
+{
+	std::mutex m_SearchPathMutex;
+	std::string m_CurrentModPath;
+	std::vector<AddedModSearchPath_s> m_AddedSearchPaths;
+	std::mutex m_MountedVPKsMutex;
+	std::unordered_map<std::string, CPackedStore*> m_MountedVPKs;
+	AddSearchPathFn m_AddSearchPath = nullptr;
+	MountVPKFn m_MountVPK = nullptr;
+	UnmountVPKFn m_UnmountVPK = nullptr;
+};
+
+static ModFilesystemState_s s_ModFilesystem;
 
 std::string ReadVPKFile(const char* path)
 {
@@ -47,25 +75,45 @@ std::string ReadVPKFile(const char* path, int fileSourceType)
 	return ret;
 }
 
-static void(__fastcall* o_pAddSearchPath)(IFileSystem* fileSystem, const char* pPath, const char* pathID, SearchPathAdd_t addType) =
-	nullptr;
-static void __fastcall h_AddSearchPath(IFileSystem* fileSystem, const char* pPath, const char* pathID, SearchPathAdd_t addType)
+static void AddTrackedModSearchPathLocked(
+	IFileSystem* const fileSystem, const std::string& path, const char* const pathID, const SearchPathAdd_t addType)
 {
-	o_pAddSearchPath(fileSystem, pPath, pathID, addType);
+	if (!fileSystem || path.empty())
+		return;
+
+	s_ModFilesystem.m_AddSearchPath(fileSystem, path.c_str(), pathID, addType);
+
+	const std::string trackedPathID = pathID ? pathID : "";
+	const auto existing = std::find_if(
+		s_ModFilesystem.m_AddedSearchPaths.begin(), s_ModFilesystem.m_AddedSearchPaths.end(), [&](const AddedModSearchPath_s& added)
+	{
+		return added.m_Path == path && added.m_PathID == trackedPathID && added.m_bHasPathID == (pathID != nullptr);
+	});
+	if (existing == s_ModFilesystem.m_AddedSearchPaths.end())
+		s_ModFilesystem.m_AddedSearchPaths.push_back({path, trackedPathID, pathID != nullptr});
+}
+
+DECLARE_HOOK(AddSearchPath, filesystem_stdio.dll + 0xB510, [](auto& hook, IFileSystem* fileSystem, const char* pPath, const char* pathID, SearchPathAdd_t addType)
+{
+	hook.Original(fileSystem, pPath, pathID, addType);
+
+	std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
 
 	// make sure current mod paths are at head
-	if (sCurrentModPath.compare(pPath) && addType == PATH_ADD_TO_HEAD)
+	if (s_ModFilesystem.m_CurrentModPath.compare(pPath) && addType == PATH_ADD_TO_HEAD)
 	{
-		o_pAddSearchPath(fileSystem, sCurrentModPath.c_str(), pathID, PATH_ADD_TO_HEAD);
-		o_pAddSearchPath(fileSystem, GetCompiledAssetsPath().string().c_str(), pathID, PATH_ADD_TO_HEAD);
+		AddTrackedModSearchPathLocked(fileSystem, s_ModFilesystem.m_CurrentModPath, pathID, PATH_ADD_TO_HEAD);
+		s_ModFilesystem.m_AddSearchPath(fileSystem, GetCompiledAssetsPath().string().c_str(), pathID, PATH_ADD_TO_HEAD);
 	}
-}
+})
 
 void SetNewCompiledSearchPaths(const char* pPathID)
 {
+	std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
+
 	// push compiled to head
-	o_pAddSearchPath(g_pFilesystem, fs::absolute(GetCompiledAssetsPath()).string().c_str(), pPathID, PATH_ADD_TO_HEAD);
-	sCurrentModPath = "";
+	s_ModFilesystem.m_AddSearchPath(g_pFilesystem, fs::absolute(GetCompiledAssetsPath()).string().c_str(), pPathID, PATH_ADD_TO_HEAD);
+	s_ModFilesystem.m_CurrentModPath.clear();
 }
 
 void SetNewModSearchPaths(Mod* mod, const char* pPathID)
@@ -74,11 +122,29 @@ void SetNewModSearchPaths(Mod* mod, const char* pPathID)
 	// in the future we could also determine whether the file we're setting paths for needs a mod dir, or compiled assets
 	if (mod == nullptr)
 		return;
-	if ((fs::absolute(mod->m_ModDirectory) / MOD_OVERRIDE_DIR).string().compare(sCurrentModPath))
+	const std::string modPath = (fs::absolute(mod->m_ModDirectory) / MOD_OVERRIDE_DIR).string();
+	std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
+	if (modPath.compare(s_ModFilesystem.m_CurrentModPath))
 	{
-		o_pAddSearchPath(g_pFilesystem, (fs::absolute(mod->m_ModDirectory) / MOD_OVERRIDE_DIR).string().c_str(), pPathID, PATH_ADD_TO_HEAD);
-		sCurrentModPath = (fs::absolute(mod->m_ModDirectory) / MOD_OVERRIDE_DIR).string();
+		AddTrackedModSearchPathLocked(g_pFilesystem, modPath, pPathID, PATH_ADD_TO_HEAD);
+		s_ModFilesystem.m_CurrentModPath = modPath;
 	}
+}
+
+bool RemoveModSearchPaths()
+{
+	if (!g_pFilesystem || !g_pFilesystem->m_vtable || !g_pFilesystem->m_vtable->RemoveSearchPath)
+		return false;
+
+	std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
+
+	for (const AddedModSearchPath_s& added : s_ModFilesystem.m_AddedSearchPaths)
+		g_pFilesystem->m_vtable->RemoveSearchPath(
+			g_pFilesystem, added.m_Path.c_str(), added.m_bHasPathID ? added.m_PathID.c_str() : nullptr);
+
+	s_ModFilesystem.m_AddedSearchPaths.clear();
+	s_ModFilesystem.m_CurrentModPath.clear();
+	return true;
 }
 
 bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID = "GAME")
@@ -86,7 +152,7 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 	// idk how efficient the lexically normal check is
 	// can't just set all /s in path to \, since some paths aren't in writeable memory
 	std::string normalisedPath = g_pModManager->NormaliseModFilePath(fs::path(pPath));
-	
+
 	if (iFileSourceType & FileSourceType_Compiled)
 	{
 		// only compile assets if we would accept a compiled asset in the first place
@@ -103,13 +169,9 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 	if (iFileSourceType & FileSourceType_ModOverride)
 	{
 		auto file = g_pModManager->m_ModFiles.find(normalisedPath);
-		
+
 		if (file != g_pModManager->m_ModFiles.end())
 		{
-			if (pPathID && strcmp(pPathID, "PLATFORM") == 0)
-			{
-				spdlog::info("Shader: {} requested with PLATFORM pathid, skipping mod override checks", pPath);
-			}
 			SetNewModSearchPaths(file->second.m_pOwningMod,pPathID);
 			return true;
 		}
@@ -118,19 +180,44 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 	return false;
 }
 
-// force modded files to be read from mods, not cache
-static bool(__fastcall* o_pReadFromCache)(IFileSystem* filesystem, char* pPath, void* result) = nullptr;
-static bool __fastcall h_ReadFromCache(IFileSystem* filesystem, char* pPath, void* result)
+DECLARE_HOOK(ReadFromCache, filesystem_stdio.dll + 0xFE50, [](auto& hook, IFileSystem* filesystem, const char* pPath, void* result) -> bool
 {
-	if (TryReplaceFile(pPath, true, "GAME"))
+	// A VPK remount does not invalidate filesystem_stdio's cached source choice.
+	const bool isReloadModel = g_pModManager->IsModModelFile(pPath);
+	if (TryReplaceFile(pPath, true, "GAME") || isReloadModel)
 		return false;
 
-	return o_pReadFromCache(filesystem, pPath, result);
+	return hook.Original(filesystem, pPath, result);
+})
+
+static std::string NormaliseVPKPath(const char* path)
+{
+	std::string normalised = fs::path(path).lexically_normal().generic_string();
+	std::transform(normalised.begin(), normalised.end(), normalised.begin(), [](const unsigned char c) { return std::tolower(c); });
+	return normalised;
 }
 
-static FileHandle_t(__fastcall* o_pReadFileFromVPK)(VPKData* vpkInfo, uint64_t* b, char* filename) = nullptr;
+static void ForgetMountedVPK(const char* path)
+{
+	if (!path)
+		return;
 
-DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0, [](auto& hook, VPKData* vpkInfo, uint64_t* b, char* filename) -> FileHandle_t
+	std::scoped_lock lock(s_ModFilesystem.m_MountedVPKsMutex);
+	s_ModFilesystem.m_MountedVPKs.erase(NormaliseVPKPath(path));
+}
+
+static CPackedStore* FindMountedModVPK(const char* path)
+{
+	if (!path)
+		return nullptr;
+
+	const std::string normalisedPath = NormaliseVPKPath(path);
+	std::scoped_lock lock(s_ModFilesystem.m_MountedVPKsMutex);
+	const auto mounted = s_ModFilesystem.m_MountedVPKs.find(normalisedPath);
+	return mounted == s_ModFilesystem.m_MountedVPKs.end() ? nullptr : mounted->second;
+}
+
+DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0, [](auto& hook, CPackedStore* vpkInfo, uint64_t* b, char* filename) -> FileHandle_t
 {
 	// don't compile here because this is only ever called from OpenEx, which already compiles
 	if (TryReplaceFile(filename, false))
@@ -139,12 +226,21 @@ DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0, [](auto& hook, VPK
 		return b;
 	}
 
+	std::string sourcePath;
+	const bool isModVPKModel = g_pModManager->GetModVPKModelSource(filename, sourcePath);
+	CPackedStore* const preferredVPK = isModVPKModel ? FindMountedModVPK(sourcePath.c_str()) : nullptr;
+
+	// Remounted mod VPKs are appended after vanilla, so make the registered mod
+	// source authoritative for its model paths.
+	if (preferredVPK && vpkInfo != preferredVPK)
+	{
+		if (b)
+			*reinterpret_cast<int32_t*>(b) = -1;
+		return b;
+	}
+
 	return hook.Original(vpkInfo, b, filename);
 })
-
-static FileHandle_t(__fastcall* o_pCBaseFileSystem__OpenEx)(
-	IFileSystem* filesystem, const char* pPath, const char* pOptions, uint32_t flags, const char* pPathID, char** ppszResolvedFilename) =
-	nullptr;
 
 DECLARE_HOOK(CBaseFileSystem_OpenEx, filesystem_stdio.dll + 0x15F50, [](auto& hook,
 	IFileSystem* filesystem,
@@ -158,18 +254,65 @@ DECLARE_HOOK(CBaseFileSystem_OpenEx, filesystem_stdio.dll + 0x15F50, [](auto& ho
 	return hook.Original(filesystem, pPath, pOptions, flags, pPathID, ppszResolvedFilename);
 })
 
-static VPKData* (*o_pMountVPK)(IFileSystem* fileSystem, const char* pVpkPath) = nullptr;
-static VPKData* h_MountVPK(IFileSystem* fileSystem, const char* pVpkPath)
+static CPackedStore* MountModVPK(IFileSystem* fileSystem, const char* path)
 {
-	NS::log::fs->info("MountVPK {}", pVpkPath);
-	VPKData* ret = o_pMountVPK(fileSystem, pVpkPath);
+	const std::string normalisedPath = NormaliseVPKPath(path);
 
-	for (Mod mod : g_pModManager->m_LoadedMods)
+	CPackedStore* const loaded = s_ModFilesystem.m_MountVPK(fileSystem, path);
+	{
+		std::scoped_lock mountedLock(s_ModFilesystem.m_MountedVPKsMutex);
+		if (loaded)
+			s_ModFilesystem.m_MountedVPKs.insert_or_assign(normalisedPath, loaded);
+		else
+			s_ModFilesystem.m_MountedVPKs.erase(normalisedPath);
+	}
+	return loaded;
+}
+
+CPackedStore* MountVPKDirect(const char* pVpkPath)
+{
+	if (!g_pFilesystem || !s_ModFilesystem.m_MountVPK || !pVpkPath)
+		return nullptr;
+
+	return MountModVPK(g_pFilesystem, pVpkPath);
+}
+
+bool UnmountVPKDirect(const char* pVpkPath)
+{
+	if (!g_pFilesystem || !s_ModFilesystem.m_UnmountVPK || !pVpkPath)
+		return false;
+
+	s_ModFilesystem.m_UnmountVPK(g_pFilesystem, pVpkPath);
+	ForgetMountedVPK(pVpkPath);
+	return true;
+}
+
+bool IsVPKMounted(const char* pVpkPath)
+{
+	if (!pVpkPath)
+		return false;
+
+	std::scoped_lock lock(s_ModFilesystem.m_MountedVPKsMutex);
+	const std::string normalisedPath = NormaliseVPKPath(pVpkPath);
+	return s_ModFilesystem.m_MountedVPKs.contains(normalisedPath);
+}
+
+DECLARE_HOOK(UnmountVPK, filesystem_stdio.dll + 0x1A120, [](auto& hook, IFileSystem* fileSystem, const char* pVpkPath)
+{
+	hook.Original(fileSystem, pVpkPath);
+	ForgetMountedVPK(pVpkPath);
+})
+
+DECLARE_HOOK(MountVPK, filesystem_stdio.dll + 0xBEA0, [](auto& hook, IFileSystem* fileSystem, const char* pVpkPath) -> CPackedStore*
+{
+	CPackedStore* ret = hook.Original(fileSystem, pVpkPath);
+
+	for (const Mod& mod : g_pModManager->m_LoadedMods)
 	{
 		if (!mod.m_bEnabled)
 			continue;
 
-		for (ModVPKEntry& vpkEntry : mod.Vpks)
+		for (const ModVPKEntry& vpkEntry : mod.Vpks)
 		{
 			// if we're autoloading, just load no matter what
 			if (!vpkEntry.m_bAutoLoad)
@@ -182,32 +325,24 @@ static VPKData* h_MountVPK(IFileSystem* fileSystem, const char* pVpkPath)
 					continue;
 			}
 
-			VPKData* loaded = o_pMountVPK(fileSystem, vpkEntry.m_sVpkPath.c_str());
+			CPackedStore* loaded = MountModVPK(fileSystem, vpkEntry.m_sVpkPath.c_str());
+			if (loaded)
+				g_pModManager->RegisterMountedVPKModels(vpkEntry);
 			if (!ret) // this is primarily for map vpks and stuff, so the map's vpk is what gets returned from here
 				ret = loaded;
 		}
 	}
 
 	return ret;
-}
+})
 
-static ManualHook AddSearchPathHook("AddSearchPath", (LPVOID*)&o_pAddSearchPath, (LPVOID)h_AddSearchPath);
-static ManualHook ReadFromCacheHook("ReadFromCache", (LPVOID*)&o_pReadFromCache, (LPVOID)h_ReadFromCache);
-static ManualHook MountVPKHook("MountVPK", (LPVOID*)&o_pMountVPK, (LPVOID)h_MountVPK);
-
-ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, [](CModule module)
+ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, [](CModule)
 {
-	DISPATCH_MODULE(FilesystemHooks)
-	o_pReadFileFromVPK = HookSys::GetOriginalFunction<decltype(o_pReadFileFromVPK)>(HookSys::FindHook("ReadFileFromVPK"));
-	o_pCBaseFileSystem__OpenEx =
-		HookSys::GetOriginalFunction<decltype(o_pCBaseFileSystem__OpenEx)>(HookSys::FindHook("CBaseFileSystem_OpenEx"));
-
 	g_pFilesystem = Sys_GetFactoryPtr("filesystem_stdio.dll", "VFileSystem017").RCast<IFileSystem*>();
 
-	o_pAddSearchPath = reinterpret_cast<decltype(o_pAddSearchPath)>(g_pFilesystem->m_vtable->AddSearchPath);
-	AddSearchPathHook.Dispatch(reinterpret_cast<LPVOID>(g_pFilesystem->m_vtable->AddSearchPath));
-	o_pReadFromCache = reinterpret_cast<decltype(o_pReadFromCache)>(g_pFilesystem->m_vtable->ReadFromCache);
-	ReadFromCacheHook.Dispatch(reinterpret_cast<LPVOID>(g_pFilesystem->m_vtable->ReadFromCache));
-	o_pMountVPK = reinterpret_cast<decltype(o_pMountVPK)>(g_pFilesystem->m_vtable->MountVPK);
-	MountVPKHook.Dispatch(reinterpret_cast<LPVOID>(g_pFilesystem->m_vtable->MountVPK));
+	DISPATCH_MODULE(FilesystemHooks)
+
+	s_ModFilesystem.m_AddSearchPath = HookSys::GetOriginalFunction<AddSearchPathFn>(HookSys::FindHook("AddSearchPath"));
+	s_ModFilesystem.m_MountVPK = HookSys::GetOriginalFunction<MountVPKFn>(HookSys::FindHook("MountVPK"));
+	s_ModFilesystem.m_UnmountVPK = HookSys::GetOriginalFunction<UnmountVPKFn>(HookSys::FindHook("UnmountVPK"));
 })

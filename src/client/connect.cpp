@@ -4,9 +4,10 @@
 #include "common/proto_oob.h"
 #include "core/tier0.h"
 #include "tier0/vanilla.h"
-#include "engine/models.h"
+#include "tier0/frametask.h"
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
+#include "modsystem/modmanager.h"
 #include "server/auth/serverauthentication.h"
 #include "vscript/squirrel/squirrel.h"
 
@@ -608,11 +609,7 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			RETURN_IF_CANCELLED()
 
-			ReloadMods(serverInfo);
-
-			RETURN_IF_CANCELLED()
-
-			FinaliseJoiningServer(address);
+			ReloadModsAndConnect(serverInfo->requiredMods, std::move(address));
 		});
 
 	authThread.detach();
@@ -699,56 +696,59 @@ void ConnectionManager::ConnectToDirectServer(const std::string& address)
 	authThread.detach();
 }
 
-void ConnectionManager::ReloadMods(RemoteServerInfo* info)
+void ConnectionManager::ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address)
 {
 	UpdateMessage("#RELOADING_MODS");
+	const bool downloadedMods = m_bDownloadedMods;
+	if (m_bRetrying)
+		Sleep(500); // going too fast here can cause the UI to never start
 
-	bool shouldReloadMods = false;
-
-	if (m_bDownloadedMods)
-		shouldReloadMods = true;
-
-	for (Mod& loaded : g_pModManager->m_LoadedMods)
+	RunInMainThread([this, requiredMods = std::move(requiredMods), address = std::move(address), downloadedMods]() mutable
 	{
-		bool wasEnabled = loaded.m_bEnabled;
-		bool isRequired = false;
+		if (IsCancelled())
+			return;
 
-		for (const auto& required : info->requiredMods)
+		bool shouldReloadMods = downloadedMods;
+		for (Mod& loaded : g_pModManager->m_LoadedMods)
 		{
-			if (loaded.Name != required.Name)
-				continue;
+			const bool wasEnabled = loaded.m_bEnabled;
+			bool isRequired = false;
 
-			if (loaded.IsCoreMod() || loaded.Version == required.Version)
+			for (const RemoteModInfo& required : requiredMods)
 			{
-				isRequired = true;
-				break;
+				if (loaded.Name != required.Name)
+					continue;
+
+				if (loaded.IsCoreMod() || loaded.Version == required.Version)
+				{
+					isRequired = true;
+					break;
+				}
 			}
+
+			if (isRequired)
+				loaded.m_bEnabled = true;
+			else if (loaded.RequiredOnClient)
+				loaded.m_bEnabled = false;
+
+			if (!wasEnabled && loaded.m_bEnabled && loaded.RequiredOnClient)
+				shouldReloadMods = true;
 		}
 
-		if (isRequired)
-			loaded.m_bEnabled = true;
-		else if (loaded.RequiredOnClient)
-			loaded.m_bEnabled = false;
+		if (shouldReloadMods)
+		{
+			g_pModManager->ReloadMods();
 
-		// Only trigger reload if we had to enable a RequiredOnClient mod
-		if (!wasEnabled && loaded.m_bEnabled && loaded.RequiredOnClient)
-			shouldReloadMods = true;
-	}
+			Cbuf_AddText(
+				Cbuf_GetCurrentPlayer(),
+				"reload_localization; loadPlaylists; weapon_reparse; playerSettings_reparse; uiscript_reset",
+				cmd_source_t::kCommandSrcCode);
+			Cbuf_Execute();
+		}
 
-	if (shouldReloadMods)
-	{
-		g_pModManager->LoadMods();
-
-		Cbuf_AddText(
-			Cbuf_GetCurrentPlayer(),
-			"reload_localization; loadPlaylists; weapon_reparse; playerSettings_reparse; uiscript_reset",
-			cmd_source_t::kCommandSrcCode);
-
-		Cbuf_Execute();
-	}
-
-	if (m_bRetrying)
-		Sleep(500); // going too fast here can cause the ui to just not ever start
+		if (!IsCancelled())
+			FinaliseJoiningServer(address);
+	});
 }
 
 void ConnectionManager::FinaliseJoiningServer(std::string& address)
@@ -838,47 +838,34 @@ DECLARE_HOOK(matchmake, engine.dll + 0xF220, [](auto& hook) -> int*
 
 	if (Cvar_cl_unload_remote_mods_on_matchmaking->GetBool() && !g_pConnectionManager->UnloadingRemoteModsOnMatchmaking())
 	{
-		std::thread unloadThread(
-			[]()
+		g_pConnectionManager->SetUnloadingRemoteModsOnMatchmaking(true);
+		g_TaskQueue.Dispatch([]()
+		{
+			int affectedMods = 0;
+			for (Mod& loaded : g_pModManager->m_LoadedMods)
 			{
-				g_pConnectionManager->SetUnloadingRemoteModsOnMatchmaking(true);
-
-				spdlog::info("Unloading remote requiredOnClient mods for matchmaking");
-
-				int affectedMods = 0;
-
-				for (auto& loaded : g_pModManager->m_LoadedMods)
+				if (loaded.RequiredOnClient && loaded.IsRemote() && loaded.m_bEnabled && !loaded.IsCoreMod())
 				{
-					if (loaded.RequiredOnClient && loaded.IsRemote() && loaded.m_bEnabled && !loaded.IsCoreMod())
-					{
-						affectedMods++;
-						loaded.m_bEnabled = false;
-					}
+					++affectedMods;
+					loaded.m_bEnabled = false;
 				}
+			}
 
-				if (affectedMods > 0)
-				{
-					g_pModManager->LoadMods();
-					Cbuf_AddText(
-						Cbuf_GetCurrentPlayer(),
-						"reload_localization; loadPlaylists; weapon_reparse; playerSettings_reparse; "
-						"uiscript_reset; matchmake",
-						cmd_source_t::kCommandSrcCode);
-				}
+			if (affectedMods > 0)
+			{
+				g_pModManager->ReloadMods();
+				Cbuf_AddText(
+					Cbuf_GetCurrentPlayer(),
+					"reload_localization; loadPlaylists; weapon_reparse; playerSettings_reparse; uiscript_reset",
+					cmd_source_t::kCommandSrcCode);
+			}
 
-				Cbuf_AddText(Cbuf_GetCurrentPlayer(), "matchmake", cmd_source_t::kCommandSrcCode);
-
-				Cbuf_Execute();
-			});
-		unloadThread.detach();
+			Cbuf_AddText(Cbuf_GetCurrentPlayer(), "matchmake", cmd_source_t::kCommandSrcCode);
+			Cbuf_Execute();
+		});
 		return 0;
 	}
 
-	using OriginalFn = int*(HOOKSYS_CALLCONV*)();
-	static auto s_matchmakeHook = HookSys::FindHook("matchmake");
-	static auto s_matchmakeOriginal = HookSys::GetOriginalFunction<OriginalFn>(s_matchmakeHook);
-	if (s_matchmakeOriginal)
-		return s_matchmakeOriginal();
 	return hook.Original();
 })
 // clang-format on

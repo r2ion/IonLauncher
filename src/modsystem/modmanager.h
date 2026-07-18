@@ -7,12 +7,16 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 #include <regex>
 #include "mod.h"
 #include "tier0/vanilla.h"
 
 namespace fs = std::filesystem;
+
+class CModule;
 
 const fs::path MOD_FOLDER_SUFFIX = "mods";
 const fs::path PACKAGE_MOD_FOLDER_SUFFIX = "packages";
@@ -41,8 +45,22 @@ private:
 	rapidjson_document m_EnabledModsCfg;
 	std::string cfgPath;
 	int manifestoVersion = 0;
-	int modsUsingModelsSum = 0;
-	int previousModsUsingModelsSum = 0;
+	std::unordered_set<std::string> m_ModModelFiles;
+	std::unordered_set<std::string> m_ModLooseModelFiles;
+	std::unordered_map<std::string, std::string> m_ModVpkModelSources;
+	std::unordered_set<std::string> m_StaleModModelFiles;
+	mutable std::mutex m_ModelReloadMutex;
+	bool m_bModelReloadPending = false;
+	void* m_pModelLoader = nullptr;
+	void (*m_pFlushModelByName)(void* pModelLoader, const char* pModelPath) = nullptr;
+
+	void LoadMods();
+	void UnloadMods();
+	void RunModelReload();
+	void RegisterLooseModelReloadPath(const fs::path& path);
+	std::string NormaliseModelLookupPath(const fs::path& path) const;
+	std::vector<std::string> GetModelReloadPaths() const;
+	void MarkModelsReloaded(const std::unordered_set<std::string>& failedPaths);
 
 	// precalculated hashes
 	size_t m_hScriptsRsonHash;
@@ -114,10 +132,13 @@ private:
 	void BuildModInfo();
 
 public:
-	ModManager();
-	void LoadMods();
-	void UnloadMods();
-	std::string NormaliseModFilePath(const fs::path path);
+	explicit ModManager(const CModule& engineModule);
+	void ReloadMods();
+	void RequestModelReload();
+	void RegisterMountedVPKModels(const ModVPKEntry& vpkEntry);
+	bool IsModModelFile(const fs::path& path) const;
+	bool GetModVPKModelSource(const fs::path& path, std::string& vpkPath) const;
+	std::string NormaliseModFilePath(const fs::path path) const;
 	void CompileAssetsForFile(const char* filename);
 
 	void DeleteRemoteMod(const char* modName, const char* version);

@@ -160,6 +160,22 @@ struct RPakPageHeader_s
 	int32_t dataSize;
 };
 
+struct PakSlabRepair_s
+{
+	size_t slabIndex;
+	uint32_t bufferType;
+	uint64_t oldDataSize;
+	uint64_t newDataSize;
+};
+
+struct PakSlabRepairReport_s
+{
+	size_t repairCount;
+	uint64_t addedBytes;
+	uint64_t allocationGrowthBytes;
+	PakSlabRepair_s repairs[PAK_MAX_SEGMENTS];
+};
+
 struct RPakPagePtr_s
 {
 	uint32_t pageIndex;
@@ -287,7 +303,8 @@ struct PakPatchFuncs_s
 
 struct PakFile
 {
-	bool IsValid();
+	bool IsValid() const;
+	bool ValidateAndRepairSlabMetadata(PakSlabRepairReport_s& report);
 	inline uint16_t GetPageCount() const
 	{
 		return header.memPageCount;
@@ -358,6 +375,7 @@ static_assert(offsetof(PakFile, decoderRingBuffer) == 0x288);
 static_assert(offsetof(PakFile, decoderRingMask) == 0x290);
 static_assert(offsetof(PakFile, decodeCursor) == 0x2A0);
 static_assert(offsetof(PakFile, skipBytesRemaining) == 0x548);
+static_assert(offsetof(PakFile, copyBytesRemaining) == 0x550);
 static_assert(offsetof(PakFile, metadataEndOffset) == 0x570);
 static_assert(offsetof(PakFile, sections) == 0x590);
 static_assert(offsetof(PakFile, header) == 0x690);

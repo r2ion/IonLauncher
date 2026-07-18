@@ -49,6 +49,7 @@ struct ModVPKEntry
 public:
 	bool m_bAutoLoad;
 	std::string m_sVpkPath;
+	std::vector<std::string> m_ModelPaths;
 };
 
 struct ModRpakEntry
@@ -89,7 +90,6 @@ public:
 	bool m_bWasReadSuccessfully = false;
 	fs::path m_ModDirectory;
 	ModSource m_Source = ModSource::Unmanaged;
-	bool m_bRequiredModelReload = false;
 
 	// mod.json stuff:
 

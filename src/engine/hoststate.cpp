@@ -10,6 +10,7 @@
 #include "shared/playlist.h"
 #include "vscript/squirrel/squirrel.h"
 #include "tier0/vanilla.h"
+#include "tier0/frametask.h"
 #include "modsystem/moddownloader.h"
 #include "eos/eos_layer.h"
 
@@ -163,6 +164,7 @@ DECLARE_HOOK(CHostState__State_GameShutdown, engine.dll + 0x16E640, [](auto& hoo
 DECLARE_HOOK(CHostState__FrameUpdate, engine.dll + 0x16DB00, [](auto& hook, CHostState* self, double flCurrentTime, float flFrameTime)
 {
 	hook.Original(self, flCurrentTime, flFrameTime);
+	RunFrameTasks();
 
 	if (*g_pServerState == server_state_t::ss_active)
 	{

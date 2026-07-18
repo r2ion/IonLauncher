@@ -100,29 +100,6 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 		spdlog::info("Mod file {} is missing a LoadPriority, consider adding one", (modDir / "mod.json").string());
 		LoadPriority = 0;
 	}
-
-    m_bRequiredModelReload = false;
-
-    try
-    {
-        for (const auto& entry : fs::recursive_directory_iterator(m_ModDirectory))
-        {
-            if (!entry.is_regular_file())
-                continue;
-
-            if (entry.path().extension() == ".mdl")
-            {
-                m_bRequiredModelReload = true;
-                break;
-            }
-        }
-    }
-    catch (const std::exception& e)
-    {
-        spdlog::warn("Failed while scanning '{}' for model files: {}", m_ModDirectory.string(), e.what());
-    }
-
-
 	// Parse all array fields
 	ParseConVars(modJson);
 	ParseConCommands(modJson);

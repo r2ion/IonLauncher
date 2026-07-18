@@ -180,4 +180,8 @@ static_assert(offsetof(PakGlobalState_s, currentLoadedPaks) == 0x395FC0);
 
 extern PakGlobalState_s* g_pakGlobalState;
 
-extern std::vector<PakHandle_t> g_pBadPaks;
+// A pack detected only after its slab storage was populated may already have
+// corrupted allocator state. Such packs remain resident and make targeted
+// model/material teardown unsafe until the process is restarted.
+bool Pak_IsUnsafeLoadedPak(PakHandle_t handle);
+bool Pak_HasUnsafeLoadedPaks();

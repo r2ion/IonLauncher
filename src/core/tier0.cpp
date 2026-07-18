@@ -9,7 +9,10 @@ IMemAlloc* g_pMemAllocSingleton = nullptr;
 
 CommandLineType CommandLine;
 Plat_FloatTimeType Plat_FloatTime;
-ThreadInServerFrameThreadType ThreadInServerFrameThread;
+
+using ThreadCheckFn = bool (*)();
+static ThreadCheckFn s_ThreadInMainThread = nullptr;
+static ThreadCheckFn s_ThreadInServerFrameThread = nullptr;
 
 typedef IMemAlloc* (*CreateGlobalMemAllocType)();
 CreateGlobalMemAllocType CreateGlobalMemAlloc;
@@ -21,6 +24,16 @@ void TryCreateGlobalMemAlloc()
 	CreateGlobalMemAlloc =
 		reinterpret_cast<CreateGlobalMemAllocType>(GetProcAddress(GetModuleHandleA("tier0.dll"), "CreateGlobalMemAlloc"));
 	g_pMemAllocSingleton = CreateGlobalMemAlloc(); // if it already exists, this returns the preexisting IMemAlloc instance
+}
+
+bool ThreadInMainThread()
+{
+	return s_ThreadInMainThread && s_ThreadInMainThread();
+}
+
+bool ThreadInServerFrameThread()
+{
+	return s_ThreadInServerFrameThread && s_ThreadInServerFrameThread();
 }
 
 HRESULT WINAPI _SetThreadDescription(HANDLE hThread, PCWSTR lpThreadDescription)
@@ -58,5 +71,6 @@ ON_DLL_LOAD("tier0.dll", Tier0GameFuncs, [](CModule module)
 	// setup tier0 funcs
 	CommandLine = module.GetExportedFunction("CommandLine").RCast<CommandLineType>();
 	Plat_FloatTime = module.GetExportedFunction("Plat_FloatTime").RCast<Plat_FloatTimeType>();
-	ThreadInServerFrameThread = module.GetExportedFunction("ThreadInServerFrameThread").RCast<ThreadInServerFrameThreadType>();
+	s_ThreadInMainThread = module.GetExportedFunction("ThreadInMainThread").RCast<ThreadCheckFn>();
+	s_ThreadInServerFrameThread = module.GetExportedFunction("ThreadInServerFrameThread").RCast<ThreadCheckFn>();
 })

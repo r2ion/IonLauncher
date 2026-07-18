@@ -41,6 +41,9 @@ public:
 	// Whether paks will be forced to reload on the next map load
 	bool GetForceReloadOnMapLoad() const { return m_forceReloadOnMapLoad; }
 	void SetForceReloadOnMapLoad(bool value) { m_forceReloadOnMapLoad = value; }
+	// On success, the native Rpak FIFO lock remains held until ReleasePakLock.
+	bool TryAcquireIdlePakLock() const;
+	void ReleasePakLock() const;
 
 	void OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle_t resultingHandle);
 	void OnPakUnloading(PakHandle_t handle);
