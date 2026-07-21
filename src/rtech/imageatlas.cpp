@@ -1,6 +1,26 @@
+#include "rtech/imageatlas.h"
+#include "rtech/pakfilesystem.h"
+#include "rtech/paktools.h"
+#include "materialsystem/cmaterialglue.h"
+#include "dedicated/dedicated.h"
+
+#include "rapidjson/document.h"
+#include "rapidjson/error/en.h"
+
 #include <immintrin.h>
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 DECLARE_MODULE(AtlasTest)
 
 #define LODWORD(x) *(uint32_t*)&x
@@ -103,6 +123,13 @@ struct uiImageAtlas
 	unsigned int bufferStructIndex;
 	_DWORD dword_44;
 };
+static constexpr size_t RUI_IMAGE_ATLAS_CAPACITY = 255;
+static constexpr uint8_t RUI_DYNAMIC_IMAGE_ATLAS_FIRST = 192;
+static constexpr uint8_t RUI_DYNAMIC_IMAGE_ATLAS_LAST = RUI_IMAGE_ATLAS_CAPACITY - 1;
+
+static_assert(RUI_DYNAMIC_IMAGE_ATLAS_FIRST < RUI_IMAGE_ATLAS_CAPACITY);
+static_assert(RUI_IMAGE_ATLAS_CAPACITY <= UINT8_MAX);
+static_assert(sizeof(uiImageAtlas) == 0x48);
 static_assert(offsetof(uiImageAtlas, widthRatio) == 0);
 static_assert(offsetof(uiImageAtlas, heightRatio) == 4);
 static_assert(offsetof(uiImageAtlas, width) == 8);
@@ -533,7 +560,8 @@ typedef __int64 (*readUnicodeCharacter_F2C40Type)(char** a1);
 readUnicodeCharacter_F2C40Type readUnicodeCharacter_F2C40;
 typedef __int64 (*funcs5F4560Type)(__m128* a1, __m128* a2, ruiDrawTriangle* a3, struct_v3* a4);
 
-uiImageAtlas rpakUIMGAtlases[255];
+uiImageAtlas rpakUIMGAtlases[RUI_IMAGE_ATLAS_CAPACITY];
+static bool s_ImageAtlasLoaderConfigured = false;
 //uiImageAtlas* rpakUIMGAtlases;
 
 /*
@@ -553,8 +581,11 @@ DECLARE_HOOK(
 	{
 	if (a1->hash == 0xA676D6975)
 	{
-		a1->listElementAmount = 255; // sizeof(rpakUIMGAtlases)/sizeof(uiImageAtlas);
+		// Native atlases use the lower range. The upper range is reserved for
+		// runtime wrappers around ordinary texture assets.
+		a1->listElementAmount = RUI_DYNAMIC_IMAGE_ATLAS_FIRST;
 		a1->listPointer = rpakUIMGAtlases;
+		s_ImageAtlasLoaderConfigured = true;
 	}
 	return hook.Original(a1, a2, a3);
 })
@@ -639,6 +670,738 @@ __m128 xmmword_5F45D0;
 
 BYTE* fontIndices;
 assetIndexData* assetIndexData_12A4E510;
+
+namespace
+{
+struct RuiDynamicAtlasImage_t
+{
+	std::string m_Path;
+	uint32_t m_PosX = 0;
+	uint32_t m_PosY = 0;
+	uint32_t m_Width = 0;
+	uint32_t m_Height = 0;
+	uint8_t m_Flags = 0;
+	bool m_UseFullTexture = false;
+};
+
+struct RuiDynamicAtlasTextureRecord_t
+{
+	float m_Bounds[4];
+	float m_UvBase[2];
+	float m_UvScale[2];
+};
+static_assert(sizeof(RuiDynamicAtlasTextureRecord_t) == 0x20);
+
+struct RuiDynamicAtlasTextureDimensions_t
+{
+	uint16_t m_Width;
+	uint16_t m_Height;
+};
+static_assert(sizeof(RuiDynamicAtlasTextureDimensions_t) == 0x4);
+
+struct RuiDynamicAtlasGpuRecord_t
+{
+	float m_UvMin[2];
+	float m_UvMax[2];
+};
+static_assert(sizeof(RuiDynamicAtlasGpuRecord_t) == 0x10);
+
+struct RuiDynamicAtlasDescriptor_t
+{
+	uint32_t m_NameHash;
+	int16_t m_AssetIndex;
+	assetIndexData* m_Descriptor;
+};
+
+struct RuiDynamicAtlasDefinition_t
+{
+	PakHandle_t m_OwnerHandle = PAK_INVALID_HANDLE;
+	fs::path m_SourcePath;
+	std::string m_TexturePath;
+	std::vector<RuiDynamicAtlasImage_t> m_Images;
+	std::vector<RuiDynamicAtlasTextureRecord_t> m_TextureRecords;
+	std::vector<RuiDynamicAtlasTextureDimensions_t> m_TextureDimensions;
+	std::vector<RuiDynamicAtlasGpuRecord_t> m_GpuRecords;
+	std::vector<uint64_t> m_TextureHashes;
+	std::vector<RuiDynamicAtlasDescriptor_t> m_Descriptors;
+	std::optional<uint8_t> m_AtlasIndex;
+	bool m_Invalid = false;
+};
+
+using LoadImageAtlasFn = void(__fastcall*)(uiImageAtlas* atlas, const void* gpuRecords);
+using DestroyImageAtlasFn = void(__fastcall*)(uiImageAtlas* atlas);
+using GetAssetDescriptorFn = assetIndexData*(__fastcall*)(struct_a1_2* hashMap, uint32_t nameHash);
+using RpakHashFn = uint64_t(__fastcall*)(const char* path);
+
+LoadImageAtlasFn s_LoadImageAtlas = nullptr;
+DestroyImageAtlasFn s_DestroyImageAtlas = nullptr;
+GetAssetDescriptorFn s_GetAssetDescriptor = nullptr;
+RpakHashFn s_RpakHashAligned = nullptr;
+RpakHashFn s_RpakHashUnaligned = nullptr;
+
+std::mutex s_DynamicAtlasMutex;
+std::array<bool, RUI_IMAGE_ATLAS_CAPACITY> s_DynamicAtlasSlots = {};
+std::unordered_map<PakHandle_t, std::vector<std::unique_ptr<RuiDynamicAtlasDefinition_t>>> s_DynamicAtlasesByPak;
+std::unordered_map<uint32_t, std::vector<RuiDynamicAtlasDefinition_t*>> s_DynamicAtlasesByImage;
+
+uint64_t GetRuiAssetGuid(const char* path)
+{
+	if (!path)
+		return 0;
+
+	RpakHashFn hashFunction = (reinterpret_cast<uintptr_t>(path) & 3)
+		? s_RpakHashUnaligned
+		: s_RpakHashAligned;
+	return hashFunction ? hashFunction(path) : Pak_StringToGuid(path);
+}
+
+uint32_t GetRuiImageHash(const char* path)
+{
+	const uint64_t guid = GetRuiAssetGuid(path);
+	return static_cast<uint32_t>(guid) ^ static_cast<uint32_t>(guid >> 32);
+}
+
+uint32_t GetRuiImageHash(const std::string& path)
+{
+	return GetRuiImageHash(path.c_str());
+}
+
+assetIndexData* FindRuiImageDescriptor(uint32_t nameHash)
+{
+	if (!assetIndexList || !s_GetAssetDescriptor)
+		return nullptr;
+
+	return s_GetAssetDescriptor(assetIndexList, nameHash);
+}
+
+bool ReadAtlasUint(
+	const rapidjson_document::ValueType& object,
+	const char* memberName,
+	uint32_t& value,
+	const fs::path& sourcePath,
+	const char* imagePath)
+{
+	if (!object.HasMember(memberName) || !object[memberName].IsUint())
+	{
+		spdlog::error(
+			"RUI atlas sidecar '{}': image '{}' requires unsigned integer member '{}'",
+			sourcePath.string(),
+			imagePath,
+			memberName);
+		return false;
+	}
+
+	value = object[memberName].GetUint();
+	return true;
+}
+
+std::unique_ptr<RuiDynamicAtlasDefinition_t> ParseDynamicAtlasDefinition(
+	const rapidjson_document::ValueType& value,
+	const fs::path& sourcePath,
+	PakHandle_t ownerHandle)
+{
+	if (!value.IsObject())
+	{
+		spdlog::error("RUI atlas sidecar '{}': each atlas must be a JSON object", sourcePath.string());
+		return nullptr;
+	}
+
+	if (value.HasMember("$type") && (!value["$type"].IsString() || strcmp(value["$type"].GetString(), "uimg") != 0))
+	{
+		spdlog::error("RUI atlas sidecar '{}': '$type' must be 'uimg'", sourcePath.string());
+		return nullptr;
+	}
+
+	if (!value.HasMember("atlas") || !value["atlas"].IsString() || value["atlas"].GetStringLength() == 0)
+	{
+		spdlog::error("RUI atlas sidecar '{}': each atlas requires a non-empty string member 'atlas'", sourcePath.string());
+		return nullptr;
+	}
+
+	auto definition = std::make_unique<RuiDynamicAtlasDefinition_t>();
+	definition->m_OwnerHandle = ownerHandle;
+	definition->m_SourcePath = sourcePath;
+	definition->m_TexturePath.assign(value["atlas"].GetString(), value["atlas"].GetStringLength());
+
+	if (!value.HasMember("textures"))
+	{
+		RuiDynamicAtlasImage_t image;
+		image.m_Path = definition->m_TexturePath;
+		image.m_UseFullTexture = true;
+		definition->m_Images.push_back(std::move(image));
+		return definition;
+	}
+
+	if (!value["textures"].IsArray() || value["textures"].Empty())
+	{
+		spdlog::error("RUI atlas sidecar '{}': 'textures' must be a non-empty array", sourcePath.string());
+		return nullptr;
+	}
+
+	if (value["textures"].Size() > static_cast<rapidjson::SizeType>(INT16_MAX))
+	{
+		spdlog::error(
+			"RUI atlas sidecar '{}': atlas '{}' contains too many images (maximum {})",
+			sourcePath.string(),
+			definition->m_TexturePath,
+			INT16_MAX);
+		return nullptr;
+	}
+
+	std::unordered_set<uint32_t> imageHashes;
+	for (const auto& imageValue : value["textures"].GetArray())
+	{
+		if (!imageValue.IsObject() || !imageValue.HasMember("path") || !imageValue["path"].IsString()
+			|| imageValue["path"].GetStringLength() == 0)
+		{
+			spdlog::error("RUI atlas sidecar '{}': every image requires a non-empty string member 'path'", sourcePath.string());
+			return nullptr;
+		}
+
+		RuiDynamicAtlasImage_t image;
+		image.m_Path.assign(imageValue["path"].GetString(), imageValue["path"].GetStringLength());
+		if (!ReadAtlasUint(imageValue, "posX", image.m_PosX, sourcePath, image.m_Path.c_str())
+			|| !ReadAtlasUint(imageValue, "posY", image.m_PosY, sourcePath, image.m_Path.c_str())
+			|| !ReadAtlasUint(imageValue, "width", image.m_Width, sourcePath, image.m_Path.c_str())
+			|| !ReadAtlasUint(imageValue, "height", image.m_Height, sourcePath, image.m_Path.c_str()))
+		{
+			return nullptr;
+		}
+
+		if (image.m_Width == 0 || image.m_Height == 0 || image.m_Width > UINT16_MAX || image.m_Height > UINT16_MAX)
+		{
+			spdlog::error(
+				"RUI atlas sidecar '{}': image '{}' width and height must be between 1 and {}",
+				sourcePath.string(),
+				image.m_Path,
+				UINT16_MAX);
+			return nullptr;
+		}
+
+		if (imageValue.HasMember("flags"))
+		{
+			if (!imageValue["flags"].IsUint() || imageValue["flags"].GetUint() > UINT8_MAX)
+			{
+				spdlog::error(
+					"RUI atlas sidecar '{}': image '{}' flags must be between 0 and {}",
+					sourcePath.string(),
+					image.m_Path,
+					UINT8_MAX);
+				return nullptr;
+			}
+			image.m_Flags = static_cast<uint8_t>(imageValue["flags"].GetUint());
+		}
+
+		const uint32_t imageHash = GetRuiImageHash(image.m_Path);
+		if (!imageHashes.insert(imageHash).second)
+		{
+			spdlog::error(
+				"RUI atlas sidecar '{}': image '{}' collides with another image name in the same atlas",
+				sourcePath.string(),
+				image.m_Path);
+			return nullptr;
+		}
+
+		definition->m_Images.push_back(std::move(image));
+	}
+
+	return definition;
+}
+
+std::vector<std::unique_ptr<RuiDynamicAtlasDefinition_t>> ParseDynamicAtlasSidecar(
+	const fs::path& sourcePath,
+	PakHandle_t ownerHandle)
+{
+	std::ifstream stream(sourcePath, std::ios::binary);
+	if (!stream)
+	{
+		spdlog::error("Failed opening RUI atlas sidecar '{}'", sourcePath.string());
+		return {};
+	}
+
+	std::string contents((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+	rapidjson_document document;
+	document.Parse<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag>(contents.c_str(), contents.size());
+	if (document.HasParseError())
+	{
+		spdlog::error(
+			"Failed parsing RUI atlas sidecar '{}': {} at byte {}",
+			sourcePath.string(),
+			rapidjson::GetParseError_En(document.GetParseError()),
+			document.GetErrorOffset());
+		return {};
+	}
+
+	std::vector<std::unique_ptr<RuiDynamicAtlasDefinition_t>> definitions;
+	auto parseArray = [&](const rapidjson_document::ValueType& array)
+	{
+		for (const auto& atlasValue : array.GetArray())
+		{
+			auto definition = ParseDynamicAtlasDefinition(atlasValue, sourcePath, ownerHandle);
+			if (definition)
+				definitions.push_back(std::move(definition));
+		}
+	};
+
+	if (document.IsArray())
+	{
+		parseArray(document);
+	}
+	else if (document.IsObject() && document.HasMember("atlases"))
+	{
+		if (!document["atlases"].IsArray())
+		{
+			spdlog::error("RUI atlas sidecar '{}': 'atlases' must be an array", sourcePath.string());
+			return {};
+		}
+		parseArray(document["atlases"]);
+	}
+	else if (document.IsObject())
+	{
+		auto definition = ParseDynamicAtlasDefinition(document, sourcePath, ownerHandle);
+		if (definition)
+			definitions.push_back(std::move(definition));
+	}
+	else
+	{
+		spdlog::error("RUI atlas sidecar '{}': root must be an atlas object or array", sourcePath.string());
+	}
+
+	return definitions;
+}
+
+std::optional<fs::path> FindDynamicAtlasSidecar(const fs::path& pakPath)
+{
+	std::error_code error;
+	fs::path appendedPath = pakPath;
+	appendedPath += ".atlas.json";
+	if (fs::is_regular_file(appendedPath, error))
+		return appendedPath;
+
+	error.clear();
+	fs::path replacedPath = pakPath;
+	replacedPath.replace_extension(".atlas.json");
+	if (fs::is_regular_file(replacedPath, error))
+		return replacedPath;
+
+	return std::nullopt;
+}
+
+std::optional<uint8_t> AllocateDynamicAtlasSlot()
+{
+	for (int atlasIndex = RUI_DYNAMIC_IMAGE_ATLAS_LAST; atlasIndex >= RUI_DYNAMIC_IMAGE_ATLAS_FIRST; --atlasIndex)
+	{
+		if (s_DynamicAtlasSlots[atlasIndex])
+			continue;
+
+		s_DynamicAtlasSlots[atlasIndex] = true;
+		return static_cast<uint8_t>(atlasIndex);
+	}
+
+	return std::nullopt;
+}
+
+void ReleaseDynamicAtlasSlot(uint8_t atlasIndex)
+{
+	if (atlasIndex >= RUI_DYNAMIC_IMAGE_ATLAS_FIRST && atlasIndex <= RUI_DYNAMIC_IMAGE_ATLAS_LAST)
+		s_DynamicAtlasSlots[atlasIndex] = false;
+}
+
+bool HasFreeRuiImageDescriptor()
+{
+	return assetIndexList->dword_28 != assetIndexList->dword_2C
+		|| assetIndexList->dword_2C < assetIndexList->pointer_10_ByteSize;
+}
+
+bool DescriptorStillBelongsTo(
+	const RuiDynamicAtlasDescriptor_t& insertedDescriptor,
+	uint8_t atlasIndex)
+{
+	const assetIndexData* descriptor = insertedDescriptor.m_Descriptor;
+	return descriptor && descriptor->nameHash == insertedDescriptor.m_NameHash
+		&& descriptor->assetIndex == insertedDescriptor.m_AssetIndex && descriptor->atlasIndex == atlasIndex;
+}
+
+void RemoveDynamicAtlasDescriptors(RuiDynamicAtlasDefinition_t& definition)
+{
+	if (!assetIndexList || !sub_F3E30 || !definition.m_AtlasIndex)
+	{
+		definition.m_Descriptors.clear();
+		return;
+	}
+
+	AcquireSRWLockExclusive(&assetIndexList->lock);
+	for (const RuiDynamicAtlasDescriptor_t& insertedDescriptor : definition.m_Descriptors)
+	{
+		if (DescriptorStillBelongsTo(insertedDescriptor, *definition.m_AtlasIndex))
+			sub_F3E30(assetIndexList, insertedDescriptor.m_NameHash);
+	}
+	ReleaseSRWLockExclusive(&assetIndexList->lock);
+	definition.m_Descriptors.clear();
+}
+
+bool AddMissingDynamicAtlasDescriptors(RuiDynamicAtlasDefinition_t& definition)
+{
+	if (!assetIndexList || !sub_F3BB0 || !sub_F3E30 || !s_GetAssetDescriptor || !definition.m_AtlasIndex)
+		return false;
+
+	bool addedDescriptor = false;
+	AcquireSRWLockExclusive(&assetIndexList->lock);
+	for (size_t imageIndex = 0; imageIndex < definition.m_Images.size(); ++imageIndex)
+	{
+		const RuiDynamicAtlasImage_t& image = definition.m_Images[imageIndex];
+		const uint32_t nameHash = GetRuiImageHash(image.m_Path);
+		if (s_GetAssetDescriptor(assetIndexList, nameHash))
+			continue;
+
+		if (!HasFreeRuiImageDescriptor())
+		{
+			spdlog::error("RUI image descriptor table is full while loading '{}'", definition.m_SourcePath.string());
+			break;
+		}
+
+		_BYTE inserted = 0;
+		auto* descriptor = reinterpret_cast<assetIndexData*>(sub_F3BB0(assetIndexList, nameHash, &inserted));
+		if (!descriptor || !inserted)
+			continue;
+
+		descriptor->nameHash = nameHash;
+		descriptor->assetIndex = static_cast<int16_t>(imageIndex);
+		descriptor->atlasIndex = *definition.m_AtlasIndex;
+		descriptor->flags = image.m_Flags;
+		assetIndexList->pointer_10[assetIndexList->dword_34] = assetIndexList->dword_30;
+		++assetIndexList->dword_0;
+		definition.m_Descriptors.push_back(
+			{nameHash, static_cast<int16_t>(imageIndex), descriptor});
+		if (s_GetAssetDescriptor(assetIndexList, nameHash) != descriptor)
+		{
+			spdlog::error(
+				"RUI image '{}' descriptor insertion failed verification for hash 0x{:08X}",
+				image.m_Path,
+				nameHash);
+			continue;
+		}
+
+		spdlog::info(
+			"Registered RUI image '{}' with hash 0x{:08X} in runtime atlas {} at index {}",
+			image.m_Path,
+			nameHash,
+			*definition.m_AtlasIndex,
+			imageIndex);
+		addedDescriptor = true;
+	}
+	ReleaseSRWLockExclusive(&assetIndexList->lock);
+
+	return addedDescriptor;
+}
+
+void DestroyDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
+{
+	RemoveDynamicAtlasDescriptors(definition);
+	if (!definition.m_AtlasIndex)
+		return;
+
+	uiImageAtlas& atlas = rpakUIMGAtlases[*definition.m_AtlasIndex];
+	if (s_DestroyImageAtlas && atlas.bufferStructIndex != UINT_MAX)
+		s_DestroyImageAtlas(&atlas);
+
+	memset(&atlas, 0, sizeof(atlas));
+	ReleaseDynamicAtlasSlot(*definition.m_AtlasIndex);
+	definition.m_AtlasIndex.reset();
+	definition.m_TextureRecords.clear();
+	definition.m_TextureDimensions.clear();
+	definition.m_GpuRecords.clear();
+	definition.m_TextureHashes.clear();
+}
+
+bool CreateDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
+{
+	if (definition.m_Invalid)
+		return false;
+	if (!s_ImageAtlasLoaderConfigured || !g_pakLoadApi || !s_LoadImageAtlas || !s_DestroyImageAtlas)
+	{
+		spdlog::error(
+			"Cannot create runtime RUI atlas from '{}': the engine atlas loader is not ready",
+			definition.m_SourcePath.string());
+		return false;
+	}
+
+	const uint64_t textureGuid = GetRuiAssetGuid(definition.m_TexturePath.c_str());
+	auto* texture = reinterpret_cast<RpakTextureHeader*>(
+		g_pakLoadApi->GetAssetBinding(textureGuid));
+	if (!texture)
+	{
+		spdlog::error(
+			"RUI atlas sidecar '{}': TXTR '{}' (GUID 0x{:016X}) is not loaded",
+			definition.m_SourcePath.string(),
+			definition.m_TexturePath,
+			textureGuid);
+		return false;
+	}
+
+	const uint32_t atlasWidth = texture->width;
+	const uint32_t atlasHeight = texture->height;
+	if (atlasWidth == 0 || atlasHeight == 0)
+	{
+		spdlog::error(
+			"RUI atlas sidecar '{}': TXTR '{}' has invalid dimensions {}x{}",
+			definition.m_SourcePath.string(),
+			definition.m_TexturePath,
+			atlasWidth,
+			atlasHeight);
+		return false;
+	}
+
+	std::vector<RuiDynamicAtlasImage_t> resolvedImages = definition.m_Images;
+	for (RuiDynamicAtlasImage_t& image : resolvedImages)
+	{
+		if (image.m_UseFullTexture)
+		{
+			image.m_Width = atlasWidth;
+			image.m_Height = atlasHeight;
+		}
+
+		const uint64_t maxX = static_cast<uint64_t>(image.m_PosX) + image.m_Width;
+		const uint64_t maxY = static_cast<uint64_t>(image.m_PosY) + image.m_Height;
+		if (image.m_Width == 0 || image.m_Height == 0 || maxX > atlasWidth || maxY > atlasHeight)
+		{
+			spdlog::error(
+				"RUI atlas sidecar '{}': image '{}' bounds ({}, {}, {}, {}) exceed texture '{}' dimensions {}x{}",
+				definition.m_SourcePath.string(),
+				image.m_Path,
+				image.m_PosX,
+				image.m_PosY,
+				image.m_Width,
+				image.m_Height,
+				definition.m_TexturePath,
+				atlasWidth,
+				atlasHeight);
+			definition.m_Invalid = true;
+			return false;
+		}
+	}
+
+	const std::optional<uint8_t> atlasIndex = AllocateDynamicAtlasSlot();
+	if (!atlasIndex)
+	{
+		spdlog::error(
+			"No runtime RUI image atlas slots remain while loading '{}' ({} slots are reserved)",
+			definition.m_SourcePath.string(),
+			RUI_IMAGE_ATLAS_CAPACITY - RUI_DYNAMIC_IMAGE_ATLAS_FIRST);
+		return false;
+	}
+
+	definition.m_Images = std::move(resolvedImages);
+	definition.m_TextureRecords.resize(definition.m_Images.size());
+	definition.m_TextureDimensions.resize(definition.m_Images.size());
+	definition.m_GpuRecords.resize(definition.m_Images.size());
+	definition.m_TextureHashes.resize(definition.m_Images.size());
+	definition.m_AtlasIndex = atlasIndex;
+
+	const float inverseWidth = 1.0f / static_cast<float>(atlasWidth);
+	const float inverseHeight = 1.0f / static_cast<float>(atlasHeight);
+	for (size_t imageIndex = 0; imageIndex < definition.m_Images.size(); ++imageIndex)
+	{
+		const RuiDynamicAtlasImage_t& image = definition.m_Images[imageIndex];
+		RuiDynamicAtlasTextureRecord_t& textureRecord = definition.m_TextureRecords[imageIndex];
+		textureRecord.m_Bounds[0] = 0.0f;
+		textureRecord.m_Bounds[1] = 0.0f;
+		textureRecord.m_Bounds[2] = static_cast<float>(image.m_Width);
+		textureRecord.m_Bounds[3] = static_cast<float>(image.m_Height);
+		textureRecord.m_UvBase[0] = static_cast<float>(image.m_PosX) * inverseWidth;
+		textureRecord.m_UvBase[1] = static_cast<float>(image.m_PosY) * inverseHeight;
+		textureRecord.m_UvScale[0] = inverseWidth;
+		textureRecord.m_UvScale[1] = inverseHeight;
+
+		definition.m_TextureDimensions[imageIndex] = {
+			static_cast<uint16_t>(image.m_Width),
+			static_cast<uint16_t>(image.m_Height)};
+
+		RuiDynamicAtlasGpuRecord_t& gpuRecord = definition.m_GpuRecords[imageIndex];
+		gpuRecord.m_UvMin[0] = textureRecord.m_UvBase[0];
+		gpuRecord.m_UvMin[1] = textureRecord.m_UvBase[1];
+		gpuRecord.m_UvMax[0] = static_cast<float>(image.m_PosX + image.m_Width) * inverseWidth;
+		gpuRecord.m_UvMax[1] = static_cast<float>(image.m_PosY + image.m_Height) * inverseHeight;
+
+		definition.m_TextureHashes[imageIndex] = static_cast<uint64_t>(GetRuiImageHash(image.m_Path))
+			| (static_cast<uint64_t>(image.m_Flags) << 32);
+	}
+
+	uiImageAtlas& atlas = rpakUIMGAtlases[*atlasIndex];
+	memset(&atlas, 0, sizeof(atlas));
+	atlas.widthRatio = inverseWidth;
+	atlas.heightRatio = inverseHeight;
+	atlas.width = static_cast<uint16_t>(atlasWidth);
+	atlas.height = static_cast<uint16_t>(atlasHeight);
+	atlas.TextureCount = static_cast<uint16_t>(definition.m_Images.size());
+	atlas.textureOffsetsCount = 0;
+	atlas.textureOffsets = definition.m_TextureRecords.data();
+	atlas.textureDimensions = definition.m_TextureDimensions.data();
+	atlas.pointer_20 = nullptr;
+	atlas.textureHashes = definition.m_TextureHashes.data();
+	atlas.textureNames = nullptr;
+	atlas.textureMaybe = reinterpret_cast<uint64_t>(texture);
+	atlas.bufferStructIndex = UINT_MAX;
+
+	s_LoadImageAtlas(&atlas, definition.m_GpuRecords.data());
+	if (atlas.bufferStructIndex == UINT_MAX)
+	{
+		spdlog::error(
+			"Failed creating the GPU bounds buffer for runtime RUI atlas '{}'",
+			definition.m_TexturePath);
+		DestroyDynamicAtlas(definition);
+		return false;
+	}
+
+	if (!AddMissingDynamicAtlasDescriptors(definition))
+	{
+		DestroyDynamicAtlas(definition);
+		return false;
+	}
+
+	spdlog::info(
+		"Registered texture '{}' as runtime RUI atlas {} with {} image(s)",
+		definition.m_TexturePath,
+		*atlasIndex,
+		definition.m_Images.size());
+	return true;
+}
+
+bool EnsureDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
+{
+	if (!definition.m_AtlasIndex && !CreateDynamicAtlas(definition))
+		return false;
+
+	AddMissingDynamicAtlasDescriptors(definition);
+	return true;
+}
+
+void UnregisterDynamicAtlasesForPakLocked(PakHandle_t handle)
+{
+	auto ownerIt = s_DynamicAtlasesByPak.find(handle);
+	if (ownerIt == s_DynamicAtlasesByPak.end())
+		return;
+
+	for (const auto& definition : ownerIt->second)
+	{
+		DestroyDynamicAtlas(*definition);
+		for (const RuiDynamicAtlasImage_t& image : definition->m_Images)
+		{
+			const uint32_t nameHash = GetRuiImageHash(image.m_Path);
+			auto imageIt = s_DynamicAtlasesByImage.find(nameHash);
+			if (imageIt == s_DynamicAtlasesByImage.end())
+				continue;
+
+			auto& definitions = imageIt->second;
+			definitions.erase(std::remove(definitions.begin(), definitions.end(), definition.get()), definitions.end());
+			if (definitions.empty())
+				s_DynamicAtlasesByImage.erase(imageIt);
+		}
+	}
+
+	spdlog::info("Unregistered {} runtime RUI atlas definition(s) for pak handle {}", ownerIt->second.size(), handle);
+	s_DynamicAtlasesByPak.erase(ownerIt);
+}
+
+bool TryRegisterDynamicAtlasForImage(const char* imagePath)
+{
+	if (!imagePath || !*imagePath || !s_ImageAtlasLoaderConfigured)
+		return false;
+
+	const uint32_t nameHash = GetRuiImageHash(imagePath);
+	if (FindRuiImageDescriptor(nameHash))
+		return true;
+
+	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
+	auto imageIt = s_DynamicAtlasesByImage.find(nameHash);
+	if (imageIt == s_DynamicAtlasesByImage.end())
+		return false;
+
+	spdlog::info(
+		"Runtime RUI image lookup '{}' matched sidecar hash 0x{:08X}",
+		imagePath,
+		nameHash);
+
+	for (auto definitionIt = imageIt->second.rbegin(); definitionIt != imageIt->second.rend(); ++definitionIt)
+	{
+		if (EnsureDynamicAtlas(**definitionIt) && FindRuiImageDescriptor(nameHash))
+			return true;
+	}
+
+	spdlog::error(
+		"Runtime RUI image '{}' matched a sidecar but descriptor registration failed for hash 0x{:08X}",
+		imagePath,
+		nameHash);
+	return false;
+}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Registers the atlas definition stored beside a pak before loading.
+//-----------------------------------------------------------------------------
+void RuiImageAtlas_OnPakLoaded(const fs::path& pakPath, PakHandle_t handle)
+{
+	if (handle == PAK_INVALID_HANDLE || IsDedicatedServer())
+		return;
+
+	const std::optional<fs::path> sidecarPath = FindDynamicAtlasSidecar(pakPath);
+	if (!sidecarPath)
+		return;
+
+	auto definitions = ParseDynamicAtlasSidecar(*sidecarPath, handle);
+	if (definitions.empty())
+		return;
+
+	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
+	UnregisterDynamicAtlasesForPakLocked(handle);
+	for (const auto& definition : definitions)
+	{
+		for (const RuiDynamicAtlasImage_t& image : definition->m_Images)
+			s_DynamicAtlasesByImage[GetRuiImageHash(image.m_Path)].push_back(definition.get());
+	}
+
+	spdlog::info(
+		"Loaded {} runtime RUI atlas definition(s) from '{}'",
+		definitions.size(),
+		sidecarPath->string());
+	s_DynamicAtlasesByPak.emplace(handle, std::move(definitions));
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Creates atlas wrappers once the pak's texture bindings are live.
+//-----------------------------------------------------------------------------
+void RuiImageAtlas_OnPakLoadCompleted(PakHandle_t handle)
+{
+	if (handle == PAK_INVALID_HANDLE || IsDedicatedServer())
+		return;
+
+	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
+	auto ownerIt = s_DynamicAtlasesByPak.find(handle);
+	if (ownerIt == s_DynamicAtlasesByPak.end())
+		return;
+
+	for (const auto& definition : ownerIt->second)
+		EnsureDynamicAtlas(*definition);
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Removes descriptors and GPU buffers before their texture pak unloads.
+//-----------------------------------------------------------------------------
+void RuiImageAtlas_OnPakUnloading(PakHandle_t handle)
+{
+	if (handle == PAK_INVALID_HANDLE)
+		return;
+
+	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
+	UnregisterDynamicAtlasesForPakLocked(handle);
+}
+
+DECLARE_HOOK(RuiData_LoadDynamicAtlasAsset, engine.dll + 0xF8000,
+	[](auto& hook, ruiDataStruct* ruiData, const char* imagePath) -> __int64
+	{
+		TryRegisterDynamicAtlasForImage(imagePath);
+		return hook.Original(ruiData, imagePath);
+	})
 
 
 struct ruiRenderList
@@ -2445,6 +3208,12 @@ ON_DLL_LOAD("rtech_game.DLL", AtlasRpak, [](CModule module)
 
 ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 {
+	s_RpakHashAligned = module.Offset(0x4305D0).RCast<RpakHashFn>();
+	s_RpakHashUnaligned = module.Offset(0x4305E0).RCast<RpakHashFn>();
+	s_LoadImageAtlas = module.Offset(0xFBF60).RCast<LoadImageAtlasFn>();
+	s_DestroyImageAtlas = module.Offset(0xFC4F0).RCast<DestroyImageAtlasFn>();
+	s_GetAssetDescriptor = module.Offset(0xF3C60).RCast<GetAssetDescriptorFn>();
+
 	// AUTOHOOK_DISPATCH_MODULE(engine.dll)
 	DISPATCH_MODULE(AtlasTest);
 	ruiDrawInfo_5f4560 = module.Offset(0x5F4560).RCast<ruiDrawInfoFunc*>();
