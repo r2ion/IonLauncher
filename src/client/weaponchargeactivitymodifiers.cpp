@@ -10,7 +10,7 @@ namespace
 constexpr int ACTIVITY_MODIFIER_CAPACITY = 32;
 constexpr std::uint16_t INVALID_ACTIVITY_MODIFIER = 0xFFFF;
 constexpr int PARTIAL_CHARGE_LEVEL_COUNT = 4;
-constexpr bool LOG_CHARGE_ACTIVITY_MODIFIERS = true;
+constexpr bool LOG_CHARGE_ACTIVITY_MODIFIERS = false;
 
 enum class ChargeActivityModifier : int
 {
