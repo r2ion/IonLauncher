@@ -26,6 +26,7 @@ add_library(
     "client/entity_client_tools.cpp"
     "client/languagehooks.cpp"
     "client/latencyflex.cpp"
+    "client/weaponchargeactivitymodifiers.cpp"
     "client/localchatwriter.cpp"
     "client/localchatwriter.h"
     "client/modlocalisation.cpp"
