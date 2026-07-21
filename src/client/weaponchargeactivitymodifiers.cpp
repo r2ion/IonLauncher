@@ -10,6 +10,7 @@ namespace
 constexpr int ACTIVITY_MODIFIER_CAPACITY = 32;
 constexpr std::uint16_t INVALID_ACTIVITY_MODIFIER = 0xFFFF;
 constexpr int PARTIAL_CHARGE_LEVEL_COUNT = 4;
+constexpr bool LOG_CHARGE_ACTIVITY_MODIFIERS = true;
 
 enum class ChargeActivityModifier : int
 {
@@ -19,6 +20,22 @@ enum class ChargeActivityModifier : int
 	Level3,
 	Level4,
 	FullyCharged,
+};
+
+struct LatchedChargeActivity
+{
+	ChargeActivityModifier modifier = ChargeActivityModifier::Uncharged;
+	float fraction = 0.0f;
+	int nativeLevel = 0;
+};
+
+constexpr std::array<const char*, 6> CHARGE_MODIFIER_NAMES = {
+	"",
+	"charged_lv1",
+	"charged_lv2",
+	"charged_lv3",
+	"charged_lv4",
+	"fully_charged",
 };
 
 using InternActivityModifierFn = std::uint16_t*(__fastcall*)(std::uint16_t* output, const char* name);
@@ -40,32 +57,30 @@ std::array<std::uint16_t, 6> s_ChargeModifierSymbols = {
 };
 
 thread_local C_WeaponX* s_ChargedAttackWeapon;
-thread_local ChargeActivityModifier s_ChargedAttackModifier;
+thread_local LatchedChargeActivity s_ChargedAttack;
 
 void InitializeChargeModifierSymbols()
 {
 	std::call_once(s_ChargeModifierInit, [] {
-		s_InternActivityModifier(&s_ChargeModifierSymbols[1], "charged_lv1");
-		s_InternActivityModifier(&s_ChargeModifierSymbols[2], "charged_lv2");
-		s_InternActivityModifier(&s_ChargeModifierSymbols[3], "charged_lv3");
-		s_InternActivityModifier(&s_ChargeModifierSymbols[4], "charged_lv4");
-		s_InternActivityModifier(&s_ChargeModifierSymbols[5], "fully_charged");
+		for (int i = 1; i < static_cast<int>(CHARGE_MODIFIER_NAMES.size()); ++i)
+			s_InternActivityModifier(&s_ChargeModifierSymbols[i], CHARGE_MODIFIER_NAMES[i]);
 	});
 }
 
-ChargeActivityModifier GetAttackChargeModifier(C_WeaponX* weapon)
+LatchedChargeActivity GetAttackChargeActivity(C_WeaponX* weapon)
 {
 	const float chargeFraction = std::clamp(s_GetWeaponChargeFraction(weapon), 0.0f, 1.0f);
+	const int nativeLevel = s_GetWeaponChargeLevel(weapon);
 	if (chargeFraction <= 0.0f)
-		return ChargeActivityModifier::Uncharged;
+		return { ChargeActivityModifier::Uncharged, chargeFraction, nativeLevel };
 
 	if (chargeFraction >= 1.0f)
-		return ChargeActivityModifier::FullyCharged;
+		return { ChargeActivityModifier::FullyCharged, chargeFraction, nativeLevel };
 
 	// The native getter numbers the first partial band as zero. Shift it by
 	// one so four native bands become charged_lv1 through charged_lv4.
-	const int partialLevel = std::clamp(s_GetWeaponChargeLevel(weapon) + 1, 1, PARTIAL_CHARGE_LEVEL_COUNT);
-	return static_cast<ChargeActivityModifier>(partialLevel);
+	const int partialLevel = std::clamp(nativeLevel + 1, 1, PARTIAL_CHARGE_LEVEL_COUNT);
+	return { static_cast<ChargeActivityModifier>(partialLevel), chargeFraction, nativeLevel };
 }
 }
 
@@ -75,15 +90,15 @@ DECLARE_MODULE(WeaponChargeActivityModifierHooks)
 DECLARE_HOOK(C_WeaponX_PrimaryAttack_CaptureChargeLevel, client.dll + 0x5B48C0, [](auto& hook, C_WeaponX* weapon) -> char
 {
 	C_WeaponX* previousWeapon = s_ChargedAttackWeapon;
-	const ChargeActivityModifier previousModifier = s_ChargedAttackModifier;
+	const LatchedChargeActivity previousCharge = s_ChargedAttack;
 
 	s_ChargedAttackWeapon = weapon;
-	s_ChargedAttackModifier = GetAttackChargeModifier(weapon);
+	s_ChargedAttack = GetAttackChargeActivity(weapon);
 
 	const char result = hook.Original(weapon);
 
 	s_ChargedAttackWeapon = previousWeapon;
-	s_ChargedAttackModifier = previousModifier;
+	s_ChargedAttack = previousCharge;
 	return result;
 })
 
@@ -93,15 +108,27 @@ DECLARE_HOOK(C_WeaponX_BuildActivityModifiers_ChargeLevel, client.dll + 0xBAE00,
 {
 	int modifierCount = hook.Original(weapon, modifiers);
 
-	if (weapon != s_ChargedAttackWeapon || s_ChargedAttackModifier == ChargeActivityModifier::Uncharged
+	if (weapon != s_ChargedAttackWeapon || s_ChargedAttack.modifier == ChargeActivityModifier::Uncharged
 		|| modifierCount >= ACTIVITY_MODIFIER_CAPACITY)
 		return modifierCount;
 
 	InitializeChargeModifierSymbols();
 
-	const std::uint16_t modifier = s_ChargeModifierSymbols[static_cast<int>(s_ChargedAttackModifier)];
+	const int chargeModifierIndex = static_cast<int>(s_ChargedAttack.modifier);
+	const std::uint16_t modifier = s_ChargeModifierSymbols[chargeModifierIndex];
 	if (modifier != INVALID_ACTIVITY_MODIFIER)
+	{
 		modifiers[modifierCount++] = modifier;
+
+		if constexpr (LOG_CHARGE_ACTIVITY_MODIFIERS)
+		{
+			spdlog::info("[weapon activity] injected {} (fraction={:.3f}, nativeLevel={}, modifierCount={})",
+				CHARGE_MODIFIER_NAMES[chargeModifierIndex],
+				s_ChargedAttack.fraction,
+				s_ChargedAttack.nativeLevel,
+				modifierCount);
+		}
+	}
 
 	return modifierCount;
 })
