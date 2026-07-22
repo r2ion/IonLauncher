@@ -3,6 +3,7 @@
 #include "rtech/paktools.h"
 #include "materialsystem/cmaterialglue.h"
 #include "dedicated/dedicated.h"
+#include "vscript/squirrel/squirrel.h"
 
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
@@ -10,6 +11,7 @@
 #include <immintrin.h>
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -18,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -718,6 +721,7 @@ struct RuiDynamicAtlasDefinition_t
 	PakHandle_t m_OwnerHandle = PAK_INVALID_HANDLE;
 	fs::path m_SourcePath;
 	std::string m_TexturePath;
+	std::optional<uint64_t> m_TextureGuid;
 	std::vector<RuiDynamicAtlasImage_t> m_Images;
 	std::vector<RuiDynamicAtlasTextureRecord_t> m_TextureRecords;
 	std::vector<RuiDynamicAtlasTextureDimensions_t> m_TextureDimensions;
@@ -743,6 +747,8 @@ std::mutex s_DynamicAtlasMutex;
 std::array<bool, RUI_IMAGE_ATLAS_CAPACITY> s_DynamicAtlasSlots = {};
 std::unordered_map<PakHandle_t, std::vector<std::unique_ptr<RuiDynamicAtlasDefinition_t>>> s_DynamicAtlasesByPak;
 std::unordered_map<uint32_t, std::vector<RuiDynamicAtlasDefinition_t*>> s_DynamicAtlasesByImage;
+std::unordered_map<int32_t, std::unique_ptr<RuiDynamicAtlasDefinition_t>> s_ScriptDynamicAtlases;
+int32_t s_NextScriptDynamicAtlasHandle = 1;
 
 uint64_t GetRuiAssetGuid(const char* path)
 {
@@ -764,6 +770,21 @@ uint32_t GetRuiImageHash(const char* path)
 uint32_t GetRuiImageHash(const std::string& path)
 {
 	return GetRuiImageHash(path.c_str());
+}
+
+bool ParseTextureGuid(const char* text, uint64_t& textureGuid)
+{
+	if (!text)
+		return false;
+
+	std::string_view value(text);
+	if (value.starts_with("0x") || value.starts_with("0X"))
+		value.remove_prefix(2);
+	if (value.empty() || value.size() > 16)
+		return false;
+
+	const auto result = std::from_chars(value.data(), value.data() + value.size(), textureGuid, 16);
+	return result.ec == std::errc() && result.ptr == value.data() + value.size();
 }
 
 assetIndexData* FindRuiImageDescriptor(uint32_t nameHash)
@@ -970,6 +991,106 @@ std::vector<std::unique_ptr<RuiDynamicAtlasDefinition_t>> ParseDynamicAtlasSidec
 	return definitions;
 }
 
+std::unique_ptr<RuiDynamicAtlasDefinition_t> ParseScriptDynamicAtlas(
+	uint64_t textureGuid,
+	const char* jsonData,
+	std::string& errorMessage)
+{
+	if (!jsonData || !*jsonData)
+	{
+		errorMessage = "jsonData cannot be empty";
+		return nullptr;
+	}
+
+	rapidjson_document document;
+	document.Parse<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag>(jsonData);
+	if (document.HasParseError())
+	{
+		errorMessage = fmt::format(
+			"invalid atlas JSON: {} at byte {}",
+			rapidjson::GetParseError_En(document.GetParseError()),
+			document.GetErrorOffset());
+		return nullptr;
+	}
+
+	const rapidjson_document::ValueType* textures = nullptr;
+	if (document.IsArray())
+		textures = &document;
+	else if (document.IsObject() && document.HasMember("textures"))
+		textures = &document["textures"];
+
+	if (!textures || !textures->IsArray() || textures->Empty())
+	{
+		errorMessage = "jsonData must be a non-empty image array or an object containing a non-empty 'textures' array";
+		return nullptr;
+	}
+	if (textures->Size() > static_cast<rapidjson::SizeType>(INT16_MAX))
+	{
+		errorMessage = fmt::format("an atlas can contain at most {} images", INT16_MAX);
+		return nullptr;
+	}
+
+	auto definition = std::make_unique<RuiDynamicAtlasDefinition_t>();
+	definition->m_SourcePath = "NS_CreateImageAtlas";
+	definition->m_TexturePath = fmt::format("GUID 0x{:016X}", textureGuid);
+	definition->m_TextureGuid = textureGuid;
+
+	std::unordered_set<uint32_t> imageHashes;
+	for (const auto& imageValue : textures->GetArray())
+	{
+		if (!imageValue.IsObject() || !imageValue.HasMember("path") || !imageValue["path"].IsString()
+			|| imageValue["path"].GetStringLength() == 0)
+		{
+			errorMessage = "every atlas image requires a non-empty string member 'path'";
+			return nullptr;
+		}
+
+		RuiDynamicAtlasImage_t image;
+		image.m_Path.assign(imageValue["path"].GetString(), imageValue["path"].GetStringLength());
+		auto readUint = [&](const char* memberName, uint32_t& output)
+		{
+			if (!imageValue.HasMember(memberName) || !imageValue[memberName].IsUint())
+			{
+				errorMessage = fmt::format("image '{}' requires unsigned integer member '{}'", image.m_Path, memberName);
+				return false;
+			}
+			output = imageValue[memberName].GetUint();
+			return true;
+		};
+
+		if (!readUint("posX", image.m_PosX) || !readUint("posY", image.m_PosY)
+			|| !readUint("width", image.m_Width) || !readUint("height", image.m_Height))
+		{
+			return nullptr;
+		}
+		if (image.m_Width == 0 || image.m_Height == 0 || image.m_Width > UINT16_MAX || image.m_Height > UINT16_MAX)
+		{
+			errorMessage = fmt::format("image '{}' width and height must be between 1 and {}", image.m_Path, UINT16_MAX);
+			return nullptr;
+		}
+
+		if (imageValue.HasMember("flags"))
+		{
+			if (!imageValue["flags"].IsUint() || imageValue["flags"].GetUint() > UINT8_MAX)
+			{
+				errorMessage = fmt::format("image '{}' flags must be between 0 and {}", image.m_Path, UINT8_MAX);
+				return nullptr;
+			}
+			image.m_Flags = static_cast<uint8_t>(imageValue["flags"].GetUint());
+		}
+
+		const uint32_t imageHash = GetRuiImageHash(image.m_Path);
+		if (!imageHashes.insert(imageHash).second)
+		{
+			errorMessage = fmt::format("image '{}' collides with another image name in the atlas", image.m_Path);
+			return nullptr;
+		}
+		definition->m_Images.push_back(std::move(image));
+	}
+
+	return definition;
+}
+
 std::optional<fs::path> FindDynamicAtlasSidecar(const fs::path& pakPath)
 {
 	std::error_code error;
@@ -1126,7 +1247,9 @@ bool CreateDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
 		return false;
 	}
 
-	const uint64_t textureGuid = GetRuiAssetGuid(definition.m_TexturePath.c_str());
+	const uint64_t textureGuid = definition.m_TextureGuid
+		? *definition.m_TextureGuid
+		: GetRuiAssetGuid(definition.m_TexturePath.c_str());
 	auto* texture = reinterpret_cast<RpakTextureHeader*>(
 		g_pakLoadApi->GetAssetBinding(textureGuid));
 	if (!texture)
@@ -1276,6 +1399,41 @@ bool EnsureDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
 	return true;
 }
 
+void IndexDynamicAtlasImages(RuiDynamicAtlasDefinition_t& definition)
+{
+	for (const RuiDynamicAtlasImage_t& image : definition.m_Images)
+		s_DynamicAtlasesByImage[GetRuiImageHash(image.m_Path)].push_back(&definition);
+}
+
+void UnindexDynamicAtlasImages(RuiDynamicAtlasDefinition_t& definition)
+{
+	for (const RuiDynamicAtlasImage_t& image : definition.m_Images)
+	{
+		const uint32_t nameHash = GetRuiImageHash(image.m_Path);
+		auto imageIt = s_DynamicAtlasesByImage.find(nameHash);
+		if (imageIt == s_DynamicAtlasesByImage.end())
+			continue;
+
+		auto& definitions = imageIt->second;
+		definitions.erase(std::remove(definitions.begin(), definitions.end(), &definition), definitions.end());
+		if (definitions.empty())
+			s_DynamicAtlasesByImage.erase(imageIt);
+	}
+}
+
+std::optional<int32_t> AllocateScriptDynamicAtlasHandle()
+{
+	for (size_t attempt = 0; attempt <= s_ScriptDynamicAtlases.size(); ++attempt)
+	{
+		const int32_t candidate = s_NextScriptDynamicAtlasHandle;
+		s_NextScriptDynamicAtlasHandle = candidate == INT32_MAX ? 1 : candidate + 1;
+		if (!s_ScriptDynamicAtlases.contains(candidate))
+			return candidate;
+	}
+
+	return std::nullopt;
+}
+
 void UnregisterDynamicAtlasesForPakLocked(PakHandle_t handle)
 {
 	auto ownerIt = s_DynamicAtlasesByPak.find(handle);
@@ -1285,18 +1443,7 @@ void UnregisterDynamicAtlasesForPakLocked(PakHandle_t handle)
 	for (const auto& definition : ownerIt->second)
 	{
 		DestroyDynamicAtlas(*definition);
-		for (const RuiDynamicAtlasImage_t& image : definition->m_Images)
-		{
-			const uint32_t nameHash = GetRuiImageHash(image.m_Path);
-			auto imageIt = s_DynamicAtlasesByImage.find(nameHash);
-			if (imageIt == s_DynamicAtlasesByImage.end())
-				continue;
-
-			auto& definitions = imageIt->second;
-			definitions.erase(std::remove(definitions.begin(), definitions.end(), definition.get()), definitions.end());
-			if (definitions.empty())
-				s_DynamicAtlasesByImage.erase(imageIt);
-		}
+		UnindexDynamicAtlasImages(*definition);
 	}
 
 	spdlog::info("Unregistered {} runtime RUI atlas definition(s) for pak handle {}", ownerIt->second.size(), handle);
@@ -1336,6 +1483,102 @@ bool TryRegisterDynamicAtlasForImage(const char* imagePath)
 }
 }
 
+ADD_SQFUNC(
+	"int",
+	NS_CreateImageAtlas,
+	"string textureGUID, string jsonData",
+	"Creates a runtime RUI image atlas for a loaded TXTR GUID and returns its handle.",
+	ScriptContext::UI | ScriptContext::CLIENT)
+{
+	const char* textureGuidText = g_pSquirrel[context]->getstring(sqvm, 1);
+	const char* jsonData = g_pSquirrel[context]->getstring(sqvm, 2);
+	uint64_t textureGuid = 0;
+	if (!ParseTextureGuid(textureGuidText, textureGuid))
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm,
+			"NS_CreateImageAtlas expected textureGUID to contain 1-16 hexadecimal digits, optionally prefixed with 0x");
+		return SQRESULT_ERROR;
+	}
+
+	std::string parseError;
+	auto definition = ParseScriptDynamicAtlas(textureGuid, jsonData, parseError);
+	if (!definition)
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm,
+			fmt::format("NS_CreateImageAtlas: {}", parseError).c_str());
+		return SQRESULT_ERROR;
+	}
+
+	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
+	for (const RuiDynamicAtlasImage_t& image : definition->m_Images)
+	{
+		const uint32_t nameHash = GetRuiImageHash(image.m_Path);
+		const auto reservedIt = s_DynamicAtlasesByImage.find(nameHash);
+		if (FindRuiImageDescriptor(nameHash) || reservedIt != s_DynamicAtlasesByImage.end())
+		{
+			g_pSquirrel[context]->raiseerror(
+				sqvm,
+				fmt::format(
+					"NS_CreateImageAtlas cannot register RUI image '{}' because hash 0x{:08X} is already registered or reserved",
+					image.m_Path,
+					nameHash)
+					.c_str());
+			return SQRESULT_ERROR;
+		}
+	}
+
+	if (!CreateDynamicAtlas(*definition))
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm,
+			fmt::format(
+				"NS_CreateImageAtlas could not create an atlas for loaded TXTR GUID 0x{:016X}; check the log for the exact failure",
+				textureGuid)
+				.c_str());
+		return SQRESULT_ERROR;
+	}
+
+	const std::optional<int32_t> handle = AllocateScriptDynamicAtlasHandle();
+	if (!handle)
+	{
+		DestroyDynamicAtlas(*definition);
+		g_pSquirrel[context]->raiseerror(sqvm, "NS_CreateImageAtlas could not allocate an atlas handle");
+		return SQRESULT_ERROR;
+	}
+
+	IndexDynamicAtlasImages(*definition);
+	s_ScriptDynamicAtlases.emplace(*handle, std::move(definition));
+	spdlog::info("Created script runtime RUI atlas handle {} for TXTR GUID 0x{:016X}", *handle, textureGuid);
+	g_pSquirrel[context]->pushinteger(sqvm, *handle);
+	return SQRESULT_NOTNULL;
+}
+
+ADD_SQFUNC(
+	"bool",
+	NS_DestroyImageAtlas,
+	"int atlasHandle",
+	"Destroys a runtime RUI image atlas created by NS_CreateImageAtlas.",
+	ScriptContext::UI | ScriptContext::CLIENT)
+{
+	const int32_t handle = g_pSquirrel[context]->getinteger(sqvm, 1);
+	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
+	auto atlasIt = s_ScriptDynamicAtlases.find(handle);
+	if (atlasIt == s_ScriptDynamicAtlases.end())
+	{
+		g_pSquirrel[context]->pushbool(sqvm, false);
+		return SQRESULT_NOTNULL;
+	}
+
+	DestroyDynamicAtlas(*atlasIt->second);
+	UnindexDynamicAtlasImages(*atlasIt->second);
+	s_ScriptDynamicAtlases.erase(atlasIt);
+	spdlog::info("Destroyed script runtime RUI atlas handle {}", handle);
+	g_pSquirrel[context]->pushbool(sqvm, true);
+	return SQRESULT_NOTNULL;
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Registers the atlas definition stored beside a pak before loading.
 //-----------------------------------------------------------------------------
@@ -1355,10 +1598,7 @@ void RuiImageAtlas_OnPakLoaded(const fs::path& pakPath, PakHandle_t handle)
 	std::lock_guard<std::mutex> lock(s_DynamicAtlasMutex);
 	UnregisterDynamicAtlasesForPakLocked(handle);
 	for (const auto& definition : definitions)
-	{
-		for (const RuiDynamicAtlasImage_t& image : definition->m_Images)
-			s_DynamicAtlasesByImage[GetRuiImageHash(image.m_Path)].push_back(definition.get());
-	}
+		IndexDynamicAtlasImages(*definition);
 
 	spdlog::info(
 		"Loaded {} runtime RUI atlas definition(s) from '{}'",
