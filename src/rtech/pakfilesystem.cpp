@@ -5,6 +5,7 @@
 #include "util/utils.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
+#include "rtech/imageatlas.h"
 #include <mutex>
 #include <algorithm>
 
@@ -304,6 +305,8 @@ void PakLoadManager::UnloadModPaks()
 // Called after a Pak was loaded.
 void PakLoadManager::OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle_t resultingHandle)
 {
+	RuiImageAtlas_OnPakLoaded(resultingPath, resultingHandle);
+
 	if (IsVanillaCall())
 	{
 		// add entry to loaded vanilla rpaks
@@ -316,6 +319,8 @@ void PakLoadManager::OnPakLoaded(std::string& originalPath, std::string& resulti
 // Called before a Pak was unloaded.
 void PakLoadManager::OnPakUnloading(PakHandle_t handle)
 {
+	RuiImageAtlas_OnPakUnloading(handle);
+
 	UnloadDependentPaks(handle);
 
 	if (IsVanillaCall())
@@ -830,6 +835,7 @@ DECLARE_HOOK(Pak_BeginUnload, rtech_game.DLL + 0xB1B0, [](auto& hook, PakHandle_
 
 DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo_s* info)
 {
+	const PakHandle_t handle = info ? info->handle : PAK_INVALID_HANDLE;
 	bool invalidPakFile = false;
 	if (info && info->pakFile)
 	{
@@ -854,6 +860,9 @@ DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo
 	}
 
 	hook.Original(info);
+
+	if (handle != PAK_INVALID_HANDLE && info && info->status == PAK_STATUS_LOADED)
+		RuiImageAtlas_OnPakLoadCompleted(handle);
 })
 
 ON_DLL_LOAD("engine.dll", RpakFilesystem, [](CModule module)
