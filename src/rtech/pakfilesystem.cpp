@@ -5,7 +5,7 @@
 #include "util/utils.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
-#include "rtech/imageatlas.h"
+#include "rtech/rui/dynamic_imageatlas.h"
 #include <mutex>
 #include <algorithm>
 
@@ -128,10 +128,10 @@ bool PakLoadManager::TryAcquireIdlePakLock() const
 	if (!pakGlobals)
 		return false;
 
-	s_AcquirePakFifoLockOrHelp(&pakGlobals->fifoLock);
+	s_AcquirePakFifoLockOrHelp(&pakGlobals->fifoLock.lock);
 	if (m_reentranceCounter != 0 || HasActivePakTransactionsLocked(*pakGlobals))
 	{
-		s_ReleasePakFifoLock(&pakGlobals->fifoLock);
+		s_ReleasePakFifoLock(&pakGlobals->fifoLock.lock);
 		return false;
 	}
 
@@ -141,7 +141,7 @@ bool PakLoadManager::TryAcquireIdlePakLock() const
 void PakLoadManager::ReleasePakLock() const
 {
 	if (PakGlobalState_s* const pakGlobals = Pak_GetGlobals(); pakGlobals && s_ReleasePakFifoLock)
-		s_ReleasePakFifoLock(&pakGlobals->fifoLock);
+		s_ReleasePakFifoLock(&pakGlobals->fifoLock.lock);
 }
 
 
@@ -305,7 +305,7 @@ void PakLoadManager::UnloadModPaks()
 // Called after a Pak was loaded.
 void PakLoadManager::OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle_t resultingHandle)
 {
-	RuiImageAtlas_OnPakLoaded(resultingPath, resultingHandle);
+	RuiDynamicImageAtlas_OnPakLoaded(resultingPath, resultingHandle);
 
 	if (IsVanillaCall())
 	{
@@ -319,7 +319,7 @@ void PakLoadManager::OnPakLoaded(std::string& originalPath, std::string& resulti
 // Called before a Pak was unloaded.
 void PakLoadManager::OnPakUnloading(PakHandle_t handle)
 {
-	RuiImageAtlas_OnPakUnloading(handle);
+	RuiDynamicImageAtlas_OnPakUnloading(handle);
 
 	UnloadDependentPaks(handle);
 
@@ -862,7 +862,7 @@ DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo
 	hook.Original(info);
 
 	if (handle != PAK_INVALID_HANDLE && info && info->status == PAK_STATUS_LOADED)
-		RuiImageAtlas_OnPakLoadCompleted(handle);
+		RuiDynamicImageAtlas_OnPakLoadCompleted(handle);
 })
 
 ON_DLL_LOAD("engine.dll", RpakFilesystem, [](CModule module)

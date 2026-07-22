@@ -87,7 +87,7 @@ struct PakLoadFuncs_s
 	using AsyncReadCallback_t = void(__fastcall*)(void* context, uint8_t status, const char* errorText);
 
 	void (__fastcall* InitRpakSystem)();
-	__int64 (__fastcall* RegisterAssetBindingType)(PakAssetBinding_s*, uint32_t, uint32_t);
+	JobTypeID_t (__fastcall* RegisterAssetBindingType)(PakAssetBinding_s*, JobPriority_e, uint32_t);
 	uint64_t reserved10;
 	PakHandle_t (__fastcall* AllocateEmptyPak)(const char*, PakAllocator_s*, int);
 	PakHandle_t (__fastcall* AllocAndLoadPak)(const char*, PakAllocator_s*, int, Callback_t, Callback_t);

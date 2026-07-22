@@ -40,13 +40,6 @@ int (*Pak_QueueAsyncRead)(PakHandle_t fileHandle, uint64_t fileOffset, uint64_t 
 void (*Pak_ReleaseFileHandle)(PakHandle_t fileHandle);
 PakHandle_t (*Pak_OpenFile)(const char* filename, uint64_t* fileSize);
 
-int (*Pak_TrackAsset)(PakFile* const pak, RPakAssetEntryV7_s* asset);
-
-void (*JTGuts_AddJob)(JobTypeID_t, uint32_t, void*, void*);
-void (*JT_EndJobGroup)(uint32_t);
-void (*Pak_ProcessAssetRelationsAndResolveDependencies)(PakFile* pak, RPakAssetEntryV7_s* asset, uint32_t assetIndex, uint32_t assetBind);
-
-
 void Pak_ReleaseZStdDecoder(RTechDecodeState_s* const decoder)
 {
 	if (!decoder || decoder->decodeMode != PakDecodeMode_e::MODE_ZSTD)
@@ -1045,80 +1038,6 @@ HOOK(v_Pak_ReadFile, o_Pak_ReadFile, bool, __fastcall, (PakFile* pak))
 	return Pak_ReadFile_Custom(pak);
 }
 
-static uint32_t Pak_ProcessRemainingPagePointers(PakFile* const pak)
-{
-	uint32_t processedPointers = pak->pointerFixupIndex;
-
-	for (; processedPointers < pak->header.pointerCount; ++processedPointers)
-    {
-		const RPakPagePtr_s* const pointerDescriptor = &pak->sections.pointerDescriptors[processedPointers];
-		int relativePageIndex = pointerDescriptor->pageIndex - pak->pageIndexBase;
-
-		if (relativePageIndex < 0)
-			relativePageIndex += pak->header.memPageCount;
-
-		if (relativePageIndex >= pak->loadedPageCount)
-			break;
-
-		RPakPagePtr_s* const pointerLocation = reinterpret_cast<RPakPagePtr_s*>(pak->GetPointerForPageOffset(pointerDescriptor));
-		void* const target = &pak->pageDataPointers[pointerLocation->pageIndex][pointerLocation->offset];
-		*reinterpret_cast<void**>(pointerLocation) = target;
-    }
-
-    return processedPointers;
-}
-
-static void Pak_FixupPointersAndQueueAssets_Custom(PakFile* const pak) {
-	pak->pointerFixupIndex = Pak_ProcessRemainingPagePointers(pak);
-
-	const uint32_t numAssets = pak->assetLoadIndex;
-
-    if (numAssets == pak->header.assetCount)
-        return;
-
-	RPakAssetEntryV7_s* pakAsset = &pak->sections.assetEntries[numAssets];
-	if (pakAsset->pageEnd > pak->loadedPageCount) {
-		return;
-	}
-
-	for (uint32_t currentAsset = numAssets; Pak_GetGlobals()->numAssetLoadJobs <= 0xC8u;) {
-		pak->assetJobIds[currentAsset] = Pak_TrackAsset(pak,pakAsset);
-
-		_InterlockedIncrement16(&Pak_GetGlobals()->numAssetLoadJobs);
-
-		const uint8_t assetBind = pakAsset->HashTableIndexForAssetType();
-		if (Pak_GetGlobals()->assetBindings[assetBind].loadAssetFunc)
-        {
-			const JobTypeID_t jobTypeId = Pak_GetGlobals()->assetBindJobTypes[assetBind];
-
-            // have to cast it to a bigger size to send it as param to JTGuts_AddJob().
-            const int64_t pakId = pak->ownerPakHandle;
-
-            JTGuts_AddJob(jobTypeId, pak->loadJobGroupId, (void*)pakId, (void*)(uint64_t)currentAsset);
-        }
-        else
-		{
-			 if (_InterlockedExchangeAdd16(&pakAsset->internalDependencyCount, -1) == 1)
-				Pak_ProcessAssetRelationsAndResolveDependencies(pak, pakAsset, currentAsset, assetBind);
-            _InterlockedDecrement16(&Pak_GetGlobals()->numAssetLoadJobs);
-        }
-		currentAsset = ++pak->assetLoadIndex;
-
-        if (currentAsset == pak->header.assetCount)
-        {
-            JT_EndJobGroup(pak->loadJobGroupId);
-            return;
-        }
-
-        pakAsset = &pak->sections.assetEntries[currentAsset];
-
-        if (pakAsset->pageEnd > pak->loadedPageCount)
-            return;
-	}
-
-}
-
-
 using Pak_FixupPointersAndQueueAssets_t = void(__fastcall*)(PakFile* pak);
 Pak_FixupPointersAndQueueAssets_t pPak_FixupPointersAndQueueAssets = nullptr;
 HOOK(v_Pak_FixupPointersAndQueueAssets, o_Pak_FixupPointersAndQueueAssets, void, __fastcall, (PakFile* pakFile))
@@ -1133,12 +1052,6 @@ HOOK(v_Pak_LoadPak, o_Pak_LoadPak, bool, __fastcall, (PakLoadedInfo_s* pak))
 	return o_Pak_LoadPak(pak);
 }
 
-ON_DLL_LOAD("tier0.dll", RetchT0,[](CModule module)
-{
-	JTGuts_AddJob = module.Offset(0x6240).RCast<void (*)(JobTypeID_t, uint32_t, void*, void*)>();
-	JT_EndJobGroup = module.Offset(0x7710).RCast<void (*)(uint32_t)>();
-})
-
 ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 {
 	pPak_ReadFile = module.Offset(0x8D10).RCast<Pak_ReadFile_t>();
@@ -1148,14 +1061,11 @@ ON_DLL_LOAD("rtech_game.DLL", PakParseRtech, [](CModule module)
 	Pak_QueueAsyncRead = module.Offset(0x1F00).RCast<decltype(Pak_QueueAsyncRead)>();
 	Pak_ReleaseFileHandle = module.Offset(0x2100).RCast<decltype(Pak_ReleaseFileHandle)>();
 	Pak_OpenFile = module.Offset(0x1E20).RCast<decltype(Pak_OpenFile)>();
-	Pak_TrackAsset = module.Offset(0xB2B0).RCast<decltype(Pak_TrackAsset)>();
 	// Treat both RTech and Zstd paks as encoded when allocating the decode
 	// buffer and when selecting the active copy ring/mask.
 	module.Offset(0x0A30C).Patch({0xB8, 0x00, 0x81});
 	module.Offset(0x0A4F9).Patch({0xB8, 0x00, 0x81});
 	rtechBaseAddr = module.Offset(0);
-	Pak_ProcessAssetRelationsAndResolveDependencies = module.Offset(0xA890).RCast<decltype(Pak_ProcessAssetRelationsAndResolveDependencies)>();
-
 	v_Pak_ReadFile.Dispatch(reinterpret_cast<LPVOID*>(pPak_ReadFile));
 	v_Pak_LoadPak.Dispatch(reinterpret_cast<LPVOID*>(pPak_LoadPak));
 	v_Pak_FixupPointersAndQueueAssets.Dispatch(reinterpret_cast<LPVOID*>(pPak_FixupPointersAndQueueAssets));

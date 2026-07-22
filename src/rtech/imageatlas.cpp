@@ -24,107 +24,66 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-DECLARE_MODULE(AtlasTest)
+DECLARE_MODULE(ImageAtlas)
 
-#define LODWORD(x) *(uint32_t*)&x
+struct RuiImageAtlas;
+struct RuiInstance;
+struct RuiRenderContext;
 
-typedef uint8_t _BYTE;
-typedef uint16_t _WORD;
-typedef uint32_t _DWORD;
-typedef uint64_t _QWORD;
-
-typedef uint64_t ulonglong;
-typedef uint32_t uint;
-typedef uint16_t ushort;
-typedef _BYTE byte;
-typedef _BYTE uchar;
-
-struct ListController
+struct RuiDrawQuad
 {
-	uint32_t headPointer_fromGPT;
-	uint32_t tailPointer_fromGPT;
-	int elementSize;
-	int elementAmount;
-	void* storagePointer;
+	uint32_t vertexCount;
+	uint32_t vertexCapacity;
+	float positions[2][4];
 };
-struct ruiDrawTriangle
+static_assert(sizeof(RuiDrawQuad) == 0x28);
+
+struct RuiImageAtlasEntry
 {
-	_DWORD size;
-	_DWORD size_;
-	float vert[2][4];
+	float bounds[4];
+	float uvBase[2];
+	float uvScale[2];
 };
-struct assetLoader
+static_assert(sizeof(RuiImageAtlasEntry) == 0x20);
+
+struct RuiImageDimensions
 {
-	__int64 hash;
-	const char* name;
-	__int64 qword_10;
-	__int64 qword_18;
-	void* pointer_20;
-	void* listPointer;
-	int dword_30;
-	unsigned int listElementSize;
-	int dword_38;
-	int listElementAmount;
-	ListController list_40;
-	__int64 qword_58;
+	uint16_t width;
+	uint16_t height;
 };
+static_assert(sizeof(RuiImageDimensions) == 0x4);
 
-struct mat_3x4
+struct RuiImageAtlasGpuRecord
 {
-	float m[3][4];
+	float uvMin[2];
+	float uvMax[2];
 };
+static_assert(sizeof(RuiImageAtlasGpuRecord) == 0x10);
 
-struct ruiWeaponMeshHeader
+struct RuiImageAtlasNineSlice
 {
-	_DWORD numParents;
-	_DWORD numVerts;
-	_DWORD numFaces;
-	_DWORD parentOffset;
-	_DWORD vertOffset;
-	_DWORD indiceOffset;
-	_DWORD bonundsOffset;
-	_DWORD faceBitField;
+	float normalizedBounds[4];
+	float edgeScale[2];
+	float minimumEdgeSize[2];
 };
+static_assert(sizeof(RuiImageAtlasNineSlice) == 0x20);
 
-
-struct weaponSubStruct
+struct RuiImageAtlas
 {
-	__m128 f1;
-	__m128 f2;
-	__m128 f3;
-	__m128 f4;
-	__m128 f5;
-	__m128 f6;
-};
-
-struct ruiDrawInfoDataWeapon
-{
-	int type;
-	int pad4;
-	_QWORD pad8;
-	ruiWeaponMeshHeader* weaponMeshHeader;
-	weaponSubStruct* output;
-	mat_3x4 bone[2];
-	const char* rui_name;
-};
-
-
-struct uiImageAtlas
-{
-	float widthRatio;
-	float heightRatio;
-	uint16_t width; 
-	uint16_t height; 
-	uint16_t TextureCount;
-	uint16_t textureOffsetsCount;
-	void* textureOffsets;
-	void* textureDimensions;
-	void* pointer_20;
-	uint64_t* textureHashes;
-	void* textureNames;
-	_QWORD textureMaybe;
-	unsigned int bufferStructIndex;
-	_DWORD dword_44;
+	float inverseWidth;
+	float inverseHeight;
+	uint16_t width;
+	uint16_t height;
+	uint16_t imageCount;
+	uint16_t nineSliceImageCount;
+	RuiImageAtlasEntry* images;
+	RuiImageDimensions* imageDimensions;
+	RuiImageAtlasNineSlice* nineSliceData;
+	uint64_t* imageNameHashes;
+	const char** imageNames;
+	void* texture;
+	uint32_t gpuRecordBuffer;
+	uint32_t reserved44;
 };
 static constexpr size_t RUI_IMAGE_ATLAS_CAPACITY = 255;
 static constexpr uint8_t RUI_DYNAMIC_IMAGE_ATLAS_FIRST = 192;
@@ -132,547 +91,515 @@ static constexpr uint8_t RUI_DYNAMIC_IMAGE_ATLAS_LAST = RUI_IMAGE_ATLAS_CAPACITY
 
 static_assert(RUI_DYNAMIC_IMAGE_ATLAS_FIRST < RUI_IMAGE_ATLAS_CAPACITY);
 static_assert(RUI_IMAGE_ATLAS_CAPACITY <= UINT8_MAX);
-static_assert(sizeof(uiImageAtlas) == 0x48);
-static_assert(offsetof(uiImageAtlas, widthRatio) == 0);
-static_assert(offsetof(uiImageAtlas, heightRatio) == 4);
-static_assert(offsetof(uiImageAtlas, width) == 8);
-static_assert(offsetof(uiImageAtlas, height) == 0xa);
-static_assert(offsetof(uiImageAtlas, TextureCount) == 0xc);
-static_assert(offsetof(uiImageAtlas, textureOffsetsCount) == 0xe);
-static_assert(offsetof(uiImageAtlas, textureOffsets) == 0x10);
-static_assert(offsetof(uiImageAtlas, pointer_20) == 0x20);
-static_assert(offsetof(uiImageAtlas, textureHashes) == 0x28);
-struct unknown2
-{
-	float float_0;
-	_BYTE byte_4;
-	_BYTE byte_5;
-	_BYTE byte_6;
-	_BYTE byte_7;
-};
-static_assert(sizeof(unknown2) == 0x8);
+static_assert(sizeof(RuiImageAtlas) == 0x48);
+static_assert(offsetof(RuiImageAtlas, images) == 0x10);
+static_assert(offsetof(RuiImageAtlas, nineSliceData) == 0x20);
+static_assert(offsetof(RuiImageAtlas, imageNameHashes) == 0x28);
 
-struct testStruct
+struct RuiRenderJobState
 {
-	__m128i m128_0;
-	__m128i m128_10;
+	float fittedScale;
+	uint8_t firstLine;
+	uint8_t lineCount;
+	uint8_t firstInlineImage;
+	uint8_t inlineImageCount;
 };
+static_assert(sizeof(RuiRenderJobState) == 0x8);
 
-struct struct_v1
+struct RuiTransform
 {
-	uint8_t* pByte_0;
-	uint32_t uint_8;
-	_DWORD dword_C;
-	_DWORD dword_10;
-	_DWORD dword_14;
-	_QWORD qword_18;
-	unknown2 unk2[179];
-	unsigned int dword_5B8;
-	_BYTE gap_5BC[8200];
-	float float_25C4[193];
-	uint32_t dword_28C8;
-	uint32_t dword_28CC;
-	_BYTE gap_28D0[1280];
-	__m128 transformSizes[1];
-	_BYTE gap_2DE0[3232];
-	testStruct m128_3A80[3];
+	__m128 rows[2];
 };
-static_assert(offsetof(struct_v1, float_25C4) == 0x25C4);
-static_assert(offsetof(struct_v1, dword_5B8) == 0x5B8);
-static_assert(offsetof(struct_v1, dword_28C8) == 0x28C8);
-static_assert(offsetof(struct_v1, dword_28CC) == 0x28CC);
-static_assert(offsetof(struct_v1, gap_28D0) == 0x28D0);
+static_assert(sizeof(RuiTransform) == 0x20);
 
-struct ruiArgCluster
+struct RuiInlineImageSpan
 {
-	uint16_t argIndex;
-	uint16_t argCount;
-	uint8_t byte_4;
-	uint8_t byte_5;
-	_BYTE gap_6[4];
-	uint16_t word_A;
-	_BYTE gap_C[6];
+	uint16_t descriptorIndex;
+	uint16_t styleIndex;
+	float boundsMin[2];
+	float boundsMax[2];
 };
+static_assert(sizeof(RuiInlineImageSpan) == 0x14);
 
-struct ruiArg
+struct RuiRuntimeState
 {
-	uint8_t argType;
-	uint8_t unk1;
-	uint16_t offset;
-	uint16_t nameOffset;
-	uint16_t shortHash;
+	uint8_t* unknown00;
+	uint32_t unknown08;
+	uint32_t unknown0C;
+	uint32_t unknown10;
+	uint32_t unknown14;
+	RuiRenderContext* textContext;
+	RuiRenderJobState renderJobStates[179];
+	uint32_t textScratchUsed;
+	uint8_t textScratch[0x2008];
+	float textLineData[193];
+	uint32_t textLineCount;
+	uint32_t inlineImageCount;
+	RuiInlineImageSpan inlineImages[64];
+	__m128 transformSizes[203];
+	RuiTransform transforms[1];
 };
+static_assert(sizeof(RuiRuntimeState) == 0x3AA0);
+static_assert(offsetof(RuiRuntimeState, renderJobStates) == 0x20);
+static_assert(offsetof(RuiRuntimeState, textScratchUsed) == 0x5B8);
+static_assert(offsetof(RuiRuntimeState, textScratch) == 0x5BC);
+static_assert(offsetof(RuiRuntimeState, textLineData) == 0x25C4);
+static_assert(offsetof(RuiRuntimeState, inlineImages) == 0x28D0);
+static_assert(offsetof(RuiRuntimeState, transformSizes) == 0x2DD0);
+static_assert(offsetof(RuiRuntimeState, transforms) == 0x3A80);
 
-struct globals
+struct RuiGlobalState
 {
-	_BYTE gap_0[60];
-	float localPlayerPos[3];
+	uint8_t reserved00[60];
+	float viewOrigin[3];
 	float screenWidth;
 	float screenHeight;
-	_BYTE gap_50[64];
-	_QWORD frameTime;
+	uint8_t reserved50[64];
+	uint64_t frameTime;
 	float currentTime;
-	_BYTE gap_9C[4];
-	int dword_A0;
-	int isConsole;
-	int dword_A8;
-	int dword_AC;
-	int dword_B0;
-	int dword_B4;
-	float globalAdsFrac;
-	float float_BC;
-	float float_C0;
-	int dword_C4;
-	float float_C8;
-	float float_CC;
-	_DWORD dword_D0;
-	_DWORD dword_D4;
-	_DWORD dword_D8;
-	_DWORD dword_DC;
-	float float_E0;
-	_DWORD dword_E4;
+	uint8_t reserved9C[76];
 };
+static_assert(sizeof(RuiGlobalState) == 0xE8);
 
+struct RuiRenderContext
+{
+	RuiGlobalState* globals;
+	uint64_t reserved08;
+	uint16_t rendererIndex;
+	uint16_t recordCount;
+	uint16_t materialBatchCount;
+	uint16_t ruiCount;
+	RuiInstance* instances[1];
+};
+static_assert(sizeof(RuiRenderContext) == 0x20);
+static_assert(offsetof(RuiRenderContext, instances) == 0x18);
 
-struct styleDescriptorsStruct
+struct RuiStyleDescriptorOffsets
 {
 	uint16_t type;
-	uint16_t color_red;
-	uint16_t color_green;
-	uint16_t color_blue;
-	uint16_t color_alpha;
-	uint16_t word_A;
-	uint16_t word_C;
-	uint16_t word_E;
-	uint16_t word_10;
-	uint16_t word_12;
-	uint16_t word_14;
-	uint16_t word_16;
-	uint16_t word_18;
-	uint16_t word_1A;
-	uint16_t word_1C;
+	uint16_t colorRed;
+	uint16_t colorGreen;
+	uint16_t colorBlue;
+	uint16_t colorAlpha;
+	uint16_t unknown0A;
+	uint16_t unknown0C;
+	uint16_t unknown0E;
+	uint16_t unknown10;
+	uint16_t unknown12;
+	uint16_t unknown14;
+	uint16_t unknown16;
+	uint16_t unknown18;
+	uint16_t unknown1A;
+	uint16_t unknown1C;
 	uint16_t fontIndex;
-	uint16_t word_20;
-	uint16_t word_22;
-	uint16_t word_24;
-	uint16_t word_26;
+	uint16_t unknown20;
+	uint16_t unknown22;
+	uint16_t unknown24;
+	uint16_t unknown26;
 	uint16_t textSize;
-	uint16_t stretchXOffset;
-	uint16_t word_2C;
-	uint16_t word_2E;
-	uint16_t word_30;
-	uint16_t uint16_32;
+	uint16_t stretchX;
+	uint16_t unknown2C;
+	uint16_t unknown2E;
+	uint16_t unknown30;
+	uint16_t unknown32;
 };
+static_assert(sizeof(RuiStyleDescriptorOffsets) == 0x34);
 
-struct ruiUnknown10
-{
-	uint32_t dataCount;
-	uint16_t unk1;
-	uint16_t unk2;
-	float* data;
-};
-
-struct Float2Offsets
+struct RuiFloat2Offsets
 {
 	uint16_t x;
 	uint16_t y;
 };
 
-struct Float4Offsets
-{
-	uint16_t x;
-	uint16_t y;
-	uint16_t z;
-	uint16_t w;
-};
-
-struct AssetRenderOffsets
-{
-  uint16_t type;
-  uint16_t transformIndex;
-  uint16_t assetIndex_0;
-  uint16_t assetIndex_1;
-  Float2Offsets mins;
-  Float2Offsets maxs;
-  Float2Offsets texMins;
-  Float2Offsets texMaxs;
-  Float2Offsets maskCenter;
-  uint16_t maskRotation;
-  Float2Offsets maskTranslate;
-  Float2Offsets maskSize;
-  uint16_t flags;
-  uint8_t styleIndex;
-  char pad_29;
-};
-
-
-struct EllipseRenderJobOffsets
+struct RuiImageRenderJob
 {
 	uint16_t type;
 	uint16_t transformIndex;
-	uint16_t assetIndex;
-	Float2Offsets mins;
-	Float2Offsets maxs;
-	Float2Offsets texMins;
-	Float2Offsets texMaxs;
+	uint16_t imageOffset;
+	uint16_t maskImageOffset;
+	RuiFloat2Offsets boundsMinOffsets;
+	RuiFloat2Offsets boundsMaxOffsets;
+	RuiFloat2Offsets uvMinOffsets;
+	RuiFloat2Offsets uvMaxOffsets;
+	RuiFloat2Offsets maskCenterOffsets;
+	uint16_t maskRotationOffset;
+	RuiFloat2Offsets maskTranslationOffsets;
+	RuiFloat2Offsets maskScaleOffsets;
 	uint16_t flags;
 	uint8_t styleIndex;
-	uint8_t pad_19;
+	uint8_t reserved;
 };
-static_assert(sizeof(EllipseRenderJobOffsets) == 0x1A);
-static_assert(offsetof(EllipseRenderJobOffsets, styleIndex) == 0x18);
+static_assert(sizeof(RuiImageRenderJob) == 0x2A);
 
-struct ruiHeader
+struct RuiEllipseRenderJob
+{
+	uint16_t type;
+	uint16_t transformIndex;
+	uint16_t imageOffset;
+	RuiFloat2Offsets boundsMinOffsets;
+	RuiFloat2Offsets boundsMaxOffsets;
+	RuiFloat2Offsets uvMinOffsets;
+	RuiFloat2Offsets uvMaxOffsets;
+	uint16_t flags;
+	uint8_t styleIndex;
+	uint8_t reserved;
+};
+static_assert(sizeof(RuiEllipseRenderJob) == 0x1A);
+
+struct RuiHeader
 {
 	const char* name;
 	void* defaultValues;
 	uint8_t* transformData;
 	float elementWidth;
 	float elementHeight;
-	float elementWidthRatio;
-	float elementHeightRatio;
-	const char* argNames;
-	ruiArgCluster* argClusters;
-	ruiArg* args;
-	__int16 argCount;
-	__int16 unk10Count;
-	uint16_t ruiDataStructSize;
+	float inverseElementWidth;
+	float inverseElementHeight;
+	const char* argumentNames;
+	void* argumentClusters;
+	void* arguments;
+	uint16_t argumentCount;
+	uint16_t unknown42;
+	uint16_t instanceDataSize;
 	uint16_t defaultValuesSize;
-	uint16_t unknown8Count;
-	uint16_t unk_A4;
+	uint16_t styleDescriptorCount;
+	uint16_t unknown4A;
 	uint16_t renderJobCount;
-	uint16_t argClusterCount;
-	styleDescriptorsStruct* styleDescriptors;
+	uint16_t argumentClusterCount;
+	RuiStyleDescriptorOffsets* styleDescriptors;
 	uint8_t* renderJobs;
-	ruiUnknown10* unknown_10;
-	void(__fastcall* dllFunc)(void* a1, void*, void*, char*);
-	void(__fastcall* dllFuncHidden)(void*, void*, void*, void*);
+	void* mappingData;
+	void(__fastcall* update)(void*, void*, RuiInstance*, uint8_t*);
+	void(__fastcall* updateHidden)(void*, void*, RuiInstance*, uint8_t*);
 };
+static_assert(sizeof(RuiHeader) == 0x78);
 
-struct TextRenderJobOffsets
+struct RuiTextRenderJob
 {
 	uint16_t type;
 	uint16_t transformIndex;
-	uint8_t styleDescriptorIndices[4];
+	uint8_t styleIndices[4];
 	uint16_t textOffset;
-	uint16_t targetWidth;
-	uint16_t wrapWidth;
-	uint16_t horizontalAlignScale;
-	uint16_t lineSpacing;
+	uint16_t targetWidthOffset;
+	uint16_t wrapWidthOffset;
+	uint16_t horizontalAlignmentOffset;
+	uint16_t lineSpacingOffset;
 };
-static_assert(sizeof(TextRenderJobOffsets) == 0x12);
-static_assert(offsetof(TextRenderJobOffsets, styleDescriptorIndices) == 0x4);
-static_assert(offsetof(TextRenderJobOffsets, textOffset) == 0x8);
-static_assert(offsetof(TextRenderJobOffsets, targetWidth) == 0xA);
-static_assert(offsetof(TextRenderJobOffsets, wrapWidth) == 0xC);
-static_assert(offsetof(TextRenderJobOffsets, lineSpacing) == 0x10);
+static_assert(sizeof(RuiTextRenderJob) == 0x12);
 
-struct TextInlineImageSpan
-{
-	uint16_t assetLookupIndex;
-	uint16_t styleSelector;
-	float mins[2];
-	float maxs[2];
-};
-static_assert(sizeof(TextInlineImageSpan) == 0x14);
-
-struct uiFontAtlas
+struct RuiFontAtlas
 {
 	uint16_t fontCount;
-	uint16_t uint16_2;
-	uint16_t Width;
-	uint16_t Hight;
-	float float_8;
-	float float_C;
-	void* qword_10;
-	char* qword_18;
-	uiImageAtlas* atlas;
-	_QWORD qword_28;
+	uint16_t wordBreakClassCount;
+	uint16_t width;
+	uint16_t height;
+	float inverseWidth;
+	float inverseHeight;
+	void* fontGpuRecords;
+	uint8_t* wordBreakTable;
+	RuiImageAtlas* imageAtlas;
+	uint32_t gpuRecordBuffer;
+	uint32_t reserved2C;
+};
+static_assert(sizeof(RuiFontAtlas) == 0x30);
+
+struct RuiDrawMaterialBatch
+{
+	uint32_t firstVertex;
+	uint32_t firstIndex;
+	RuiFontAtlas* fontAtlas;
+	RuiImageAtlas* imageAtlas;
+};
+static_assert(sizeof(RuiDrawMaterialBatch) == 0x18);
+
+enum class RuiDrawInfoMode : uint32_t
+{
+	Direct = 0,
+	Clipped = 1,
+	Mesh = 2,
+	Angular = 3,
 };
 
-struct unknownRuiListElement
+struct RuiDrawInfo
 {
-	_DWORD dword_0;
-	_DWORD dword_4;
-	uiFontAtlas* uiFontAtlas_8;
-	uiImageAtlas* uiImageAtlas_10;
+	RuiDrawInfoMode mode;
 };
 
-struct ruiDataStruct
+struct RuiProjectionBasis
 {
-	ruiHeader* header;
+	__m128 positionOrigin;
+	__m128 positionBasisX;
+	__m128 positionBasisY;
+	__m128 secondaryOrigin;
+	__m128 secondaryBasisY;
+	__m128 secondaryBasisX;
+};
+static_assert(sizeof(RuiProjectionBasis) == 0x60);
+
+struct RuiMeshHeader
+{
+	uint32_t boneCount;
+	uint32_t vertexCount;
+	uint32_t faceCount;
+	uint32_t boneIndicesOffset;
+	uint32_t verticesOffset;
+	uint32_t faceIndicesOffset;
+	uint32_t faceBoundsOffset;
+	uint32_t windingBits;
+};
+static_assert(sizeof(RuiMeshHeader) == 0x20);
+
+struct RuiDrawInfoMesh
+{
+	RuiDrawInfoMode mode;
+	uint32_t reserved04;
+	uint64_t reserved08;
+	RuiMeshHeader* mesh;
+	RuiProjectionBasis* faceBases;
+	float boneMatrices[2][3][4];
+	const char* debugName;
+};
+static_assert(sizeof(RuiDrawInfoMesh) == 0x88);
+
+struct RuiInstance
+{
+	RuiHeader* header;
 	float canvasWidth;
 	float canvasHeight;
-	float canvasWidthRatio;
-	float canvasHeightRatio;
-	struct_v1* v1;
-	__int64 createTimeStamp;
-	_BYTE byte_28;
-	_BYTE error;
-	_BYTE gap_2A[14];
-	ruiDrawInfoDataWeapon* pvoid_38;
-	char dataValues[1];
+	float inverseCanvasWidth;
+	float inverseCanvasHeight;
+	RuiRuntimeState* runtime;
+	int64_t createTimestamp;
+	uint8_t hidden;
+	uint8_t hasError;
+	uint8_t reserved2A[14];
+	RuiDrawInfo* drawInfo;
+	uint8_t data[1];
+};
+static_assert(sizeof(RuiInstance) == 0x48);
+static_assert(offsetof(RuiInstance, drawInfo) == 0x38);
+
+struct RuiFontKerning
+{
+	int32_t codepoint;
+	float offset;
 };
 
-struct unknownFontStruct
+struct RuiFontGlyph
 {
-	int dword_0;
-	float float_4;
-};
-
-struct rpakFontGlyph
-{
-	float unk_0;
-	uint16_t unk_4;
-	uint8_t unk_6;
+	float advance;
+	uint16_t firstKerning;
+	uint8_t wordBreakClass;
 	uint8_t proportionIndex;
-  float posBaseX;
-  float posBaseY;
-  float posMinX;
-  float posMinY;
-  float posMaxX;
-	float posMaxY;
+	float uvBase[2];
+	float boundsMin[2];
+	float boundsMax[2];
 };
-static_assert(sizeof(rpakFontGlyph) == 0x20);
+static_assert(sizeof(RuiFontGlyph) == 0x20);
 
-struct TextGlyphState
+struct RuiTextGlyphState
 {
 	float penX;
 	uint32_t glyphIndex;
-	const rpakFontGlyph* glyph;
+	const RuiFontGlyph* glyph;
 };
-static_assert(sizeof(TextGlyphState) == 0x10);
+static_assert(sizeof(RuiTextGlyphState) == 0x10);
 
-struct UIFont_UNK_t
+struct RuiFontProportion
 {
-  int unk_0;
-  float unk_4;
+	float boundsScale;
+	float sizeScale;
 };
 
-struct UIFontProportion_v7_t
+struct RuiFont
 {
-  float scaleBounds;
-  float scaleSize;
+	const char* name;
+	uint16_t fontIndex;
+	uint16_t proportionCount;
+	uint16_t glyphChunkCount;
+	uint16_t unicodeChunkCount;
+	int32_t glyphChunkBase;
+	int32_t unicodeChunkBase;
+	uint32_t glyphCount;
+	float atlasScale[2];
+	float verticalMetrics[2];
+	uint32_t atlasGlyphBase;
+	uint16_t* unicodeChunks;
+	uint16_t* unicodeChunkIndices;
+	uint64_t* unicodeChunkMasks;
+	RuiFontProportion* proportions;
+	RuiFontGlyph* glyphs;
+	RuiFontKerning* kerning;
 };
+static_assert(sizeof(RuiFont) == 0x60);
 
-
-struct rpakFont
+struct RHashMap
 {
-char *name;
-  uint16_t fontIndex;
-  uint16_t numProportions;
-  uint16_t numGlyphChunks;
-  uint16_t numUnicodeChunks;
-  int glyphIndex;
-  int unicodeIndex;
-  uint32_t numTextures;
-  float proportionScaleX;
-  float proportionScaleY;
-  float unk_24[2];
-  uint32_t textureIndex;
-  uint16_t *unicodeChunks;
-  uint16_t *unicodeChunksIndex;
-  uint64_t *unicodeChunksMask;
-  UIFontProportion_v7_t *proportions;
-  rpakFontGlyph *textures;
-  UIFont_UNK_t *unk_58;
+	uint32_t size;
+	uint32_t bucketPairCount;
+	void* entries;
+	int32_t* buckets;
+	uint32_t(__fastcall* hashKey)(uint32_t key);
+	bool(__fastcall* keysEqual)(const void* entry, uint32_t key);
+	uint32_t freeListHead;
+	uint32_t nextUnusedIndex;
+	uint32_t lastInsertIndex;
+	uint32_t lastProbeIndex;
+	uint64_t entryStride;
+	RTL_SRWLOCK lock;
 };
+static_assert(sizeof(RHashMap) == 0x48);
 
-struct struct_a1_2
+struct RuiComputedStyle
 {
-	_DWORD dword_0;
-	unsigned int pointer_10_ByteSize;
-	_QWORD pointer_8;
-	int* pointer_10;
-	uint32_t(__fastcall* pfunc_18)(uint32_t);
-	bool(__fastcall* pfunc_20)(_DWORD*, int);
-	unsigned int dword_28;
-	_DWORD dword_2C;
-	_DWORD dword_30;
-	_DWORD dword_34;
-	_QWORD pointer8_elementByteSize;
-	_RTL_SRWLOCK lock;
+	float commonValues[14];
+	float typeValues[7];
+	uint8_t reserved54[12];
 };
+static_assert(sizeof(RuiComputedStyle) == 0x60);
 
-struct struct_v3
+struct RuiDrawBatch
 {
-	unknownRuiListElement* ruiInstance;
-	unsigned int unsigned_int_8;
-	_DWORD dword_C;
-	_BYTE gap_10[8];
-	_QWORD vertexBuffer;
-	uint16_t vertexBufferFlags;
-	uint16_t vertexBufferElementCount;
-	_DWORD vertexBufferSize;
-	_QWORD qword_28;
-	_DWORD styleDescriptorIndex;
-	_DWORD dword_34;
-	_QWORD indexBuffer;
-	_DWORD indexBufferSize;
-	_DWORD indexBufferCapacity;
-	_QWORD unkDXData1;
-	_QWORD unkDXData2;
-	_QWORD unkDXData3;
-	_QWORD unkDXData4;
-	_QWORD unkDXData5;
-	_QWORD unkDXData6;
-	__int64 unkFlag;
-	__int64 index;
+	RuiDrawMaterialBatch* materialBatches;
+	uint32_t materialBatchIndex;
+	uint32_t materialBatchCapacity;
+	uint8_t reserved10[8];
+	void* vertexBuffer;
+	uint32_t vertexCount;
+	uint32_t vertexBufferSize;
+	RuiComputedStyle* computedStyles;
+	uint32_t computedStyleCount;
+	uint32_t computedStyleCapacity;
+	void* indexBuffer;
+	uint32_t indexBufferSize;
+	uint32_t indexBufferCapacity;
+	uint64_t rendererData[6];
+	uint64_t rendererFlags;
+	uint64_t drawIndex;
 };
+static_assert(sizeof(RuiDrawBatch) == 0x88);
 
-
-struct ruiBaseUvStruct
+struct RuiVector4
 {
-	__m128 base;
-	__m128 xDir;
-	__m128 yDir;
-	__m128 base2;
-	__m128 xDir2;
-	__m128 yDir2;
-	__int16 assetIndex;
-	__int16 assetIndex2;
-	__int16 styleDescriptorIndex;
-	__int16 flags;
-	float vert[2][4];
+	float values[4];
+
+	RuiVector4& operator=(__m128 value)
+	{
+		_mm_storeu_ps(values, value);
+		return *this;
+	}
+
+	operator __m128() const
+	{
+		return _mm_loadu_ps(values);
+	}
 };
+static_assert(sizeof(RuiVector4) == 0x10);
 
+struct RuiBaseUv
+{
+	RuiVector4 primaryBasisX;
+	RuiVector4 primaryBasisY;
+	RuiVector4 primaryOrigin;
+	RuiVector4 secondaryBasisX;
+	RuiVector4 secondaryBasisY;
+	RuiVector4 secondaryOrigin;
+	int16_t imageIndex;
+	int16_t maskImageIndex;
+	int16_t computedStyleIndex;
+	uint16_t flags;
+};
+static_assert(sizeof(RuiBaseUv) == 0x68);
 
-typedef unsigned int (*sub_FC0C0Type)(struct_v3* a1, uiImageAtlas* a2);
+struct RuiImageAssetDescriptor
+{
+	uint32_t nameHash;
+	int16_t imageIndex;
+	uint8_t atlasIndex;
+	uint8_t flags;
+};
+static_assert(sizeof(RuiImageAssetDescriptor) == 0x8);
 
-typedef uint64_t (*getFontGlyphIndexType)(rpakFont* a1, int c);
-typedef uint64_t (*getUnicodeCharacter_GPTType)(char** a1);
-typedef char* (*sub_F98F0Type)(ruiDataStruct* a1, __int64 a2, char** a3, __int64 a4);
-typedef void (*sub_FFAE0Type)(__m128* a1, const __m128i* a2, __m128* a3);
-typedef void (*sub_FEF30Type)(globals*, ruiDataStruct*, __m128*, __m128, __m128*);
-typedef void (*sub_FEF30_2Type)(globals*, ruiDataStruct*, __m128*, const __m128*, __m128*);
-typedef _DWORD* (*sub_F3BB0Type)(struct_a1_2* a1, __int64 a2, _BYTE* a3);
-typedef unsigned int* (*sub_F3E30Type)(struct_a1_2* a1, __int64 a2);
-typedef int (*sub_F9B80Type)(
-	__int64 a1,
-	__int64 a2,
-	_QWORD* a3,
-	__m128* a4,
-	const __m128i* a5,
-	int a6,
-	__int64 a7,
-	__m128i* a8,
-	__m128* a9,
-	 __m128 *a10, __m128 *a11);
+using RuiDrawInfoHandlerFn = bool(__fastcall*)(RuiDrawInfo*, const RuiBaseUv*, RuiDrawQuad*, RuiDrawBatch*);
+using BindImageAtlasFn = bool(__fastcall*)(RuiDrawBatch*, RuiImageAtlas*);
+using ReadUnicodeCharacterFn = uint32_t(__fastcall*)(char**);
+using GetFontGlyphIndexFn = uint64_t(__fastcall*)(RuiFont*, int32_t);
+using ResolveTextEscapeFn = char*(__fastcall*)(RuiInstance*, RuiRenderContext*, char**, char*);
+using BuildEdgeCorrectionFn = void(__fastcall*)(const RuiTransform*, const float*, __m128*);
+using ApplyEdgeCorrectionFn = void(__fastcall*)(RuiGlobalState*, RuiInstance*, const __m128*, const __m128*, __m128*);
+using RHashMapInsertFn = void*(__fastcall*)(RHashMap*, uint32_t, uint8_t*);
+using RHashMapRemoveFn = uint32_t*(__fastcall*)(RHashMap*, uint32_t);
 
-typedef __int64 (*readUnicodeCharacter_F2C40Type)(char** a1);
-readUnicodeCharacter_F2C40Type readUnicodeCharacter_F2C40;
-typedef __int64 (*funcs5F4560Type)(__m128* a1, __m128* a2, ruiDrawTriangle* a3, struct_v3* a4);
-
-uiImageAtlas rpakUIMGAtlases[RUI_IMAGE_ATLAS_CAPACITY];
+static RuiImageAtlas g_RuiImageAtlases[RUI_IMAGE_ATLAS_CAPACITY];
 static bool s_ImageAtlasLoaderConfigured = false;
-//uiImageAtlas* rpakUIMGAtlases;
-
-/*
-DECLARE_HOOK(CBaseFileSystem_OpenEx, filesystem_stdio.dll + 0x15F50, [](auto& hook,
-	IFileSystem* filesystem,
-	const char* pPath,
-	const char* pOptions,
-	uint32_t flags,
-	const char* pPathID,
-	char** ppszResolvedFilename) -> FileHandle_t
-*/
 
 DECLARE_HOOK(
-	addAssetLoader,
+	Pak_RegisterAssetBindingType,
 	rtech_game.DLL + 0x7BE0,
-	[](auto& hook, assetLoader* a1, unsigned int a2, unsigned int a3) -> __int64
+	[](auto& hook, PakAssetBinding_s* binding, uint8_t assetType, uint32_t affinity) -> uint8_t
 	{
-	if (a1->hash == 0xA676D6975)
-	{
-		// Native atlases use the lower range. The upper range is reserved for
-		// runtime wrappers around ordinary texture assets.
-		a1->listElementAmount = RUI_DYNAMIC_IMAGE_ATLAS_FIRST;
-		a1->listPointer = rpakUIMGAtlases;
-		s_ImageAtlasLoaderConfigured = true;
-	}
-	return hook.Original(a1, a2, a3);
-})
+		if (std::memcmp(binding->type, "uimg", sizeof(binding->type)) == 0)
+		{
+			// Native atlases use the lower range. The upper range is reserved for
+			// runtime wrappers around ordinary texture assets.
+			binding->trackerCapacity = RUI_DYNAMIC_IMAGE_ATLAS_FIRST;
+			binding->trackerStorage = g_RuiImageAtlases;
+			s_ImageAtlasLoaderConfigured = true;
+		}
 
-short* word_12A2E50C;
-uint8_t* byte_12A2E50E;
-uint8_t* byte_12A2E50F;
-uiFontAtlas* uiFontAtlases;
-struct assetIndexData
-{
-  _DWORD nameHash;
-  int16_t assetIndex;
-  uint8_t atlasIndex;
-  _BYTE flags;
-};
-assetIndexData* unk_12A2E508;
+		return hook.Original(binding, assetType, affinity);
+	})
 
-__m128* xmmword_12A4E830;
-funcs5F4560Type* funcs_5F4560;
-unsigned int (*sub_FC0C0)(struct_v3* a1, uiImageAtlas* a2);
-rpakFont** rpakFontPointers;
-struct_a1_2* assetIndexList;
+static RuiFontAtlas* g_RuiFontAtlases;
+static RuiImageAssetDescriptor* g_RuiImageDescriptors;
+static RuiFont** g_RuiFonts;
+static uint8_t* g_RuiFontAtlasIndices;
+static RHashMap* g_RuiImageDescriptorMap;
+static __m128* g_RuiEllipseAxisMasks;
+static __m128* g_RuiEdgeCorrectionMasks;
+static RuiDrawInfoHandlerFn* g_RuiDrawInfoHandlers;
 
-uint64_t (*getFontGlyphIndex)(rpakFont* a1, int c);
-uint64_t (*getUnicodeCharacter_GPT)(char** a1);
-char* (*sub_F98F0)(ruiDataStruct* a1, __int64 a2, char** a3, __int64 a4);
-// void (*sub_F9B80)(__int64 a1, __int64 a2, _QWORD *a3, __m128 *a4, const __m128i *a5, int a6, __int64 a7, __m128i *a8, __m128 *a9, __m128
-// *a10, __m128 *a11);
-void (*sub_FFAE0)(__m128* a1, const __m128i* a2, __m128* a3);
-void (*sub_FEF30)(globals*, ruiDataStruct*, __m128*, __m128, __m128*);
-void (*sub_FEF30_2)(globals*, ruiDataStruct*, __m128*, const __m128*, __m128*);
-_DWORD* (*sub_F3BB0)(struct_a1_2* a1, __int64 a2, _BYTE* a3);
-unsigned int* (*sub_F3E30)(struct_a1_2* a1, __int64 a2);
+static BindImageAtlasFn s_BindImageAtlas;
+static ReadUnicodeCharacterFn s_ReadUnicodeCharacter;
+static GetFontGlyphIndexFn s_GetFontGlyphIndex;
+static ResolveTextEscapeFn s_ResolveTextEscape;
+static BuildEdgeCorrectionFn s_BuildEdgeCorrection;
+static ApplyEdgeCorrectionFn s_ApplyEdgeCorrection;
+static RHashMapInsertFn s_RHashMapInsert;
+static RHashMapRemoveFn s_RHashMapRemove;
 
-int (*sub_F9B80)(
-	__int64 a1,
-	__int64 a2,
-	_QWORD* a3,
-	__m128* a4,
-	const __m128i* a5,
-	int a6,
-	__int64 a7,
-	__m128i* a8,
-	__m128* a9,
-	__m128* a10,
-	__m128* a11);
+static __m128 g_RuiSignMaskAll;
+static __m128 g_RuiSignMaskLowHalf;
+static __m128 g_RuiSignMaskMiddleLanes;
+static __m128 g_RuiSignMaskHighHalf;
+static __m128 g_RuiSignMaskLane2;
+static __m128 g_RuiFloatTwo;
+static __m128 g_RuiFloatOne;
+static __m128 g_RuiFloatHalf;
+static __m128 g_RuiFloatFour;
+static __m128 g_RuiFloatMinNormal;
+static __m128 g_RuiFloatAbsMask;
+static __m128 g_RuiUnitX;
+static __m128 g_RuiUnitY;
+static __m128 g_RuiHighHalfOne;
+static __m128 g_RuiHighHalfSignedOne;
+static __m128 g_RuiQuarterEndpoints;
+static __m128 g_RuiIntOne;
+static __m128 g_RuiIntTwo;
 
-__m128* stru_5F4740;
+static __m128 g_RuiBlendMaskLowHalf;
+static __m128 g_RuiBlendMaskLane0;
+static __m128 g_RuiBlendMaskLane1;
+static __m128 g_RuiBlendMaskHighHalf;
 
-__m128 xmmword_5F3DD0;
-__m128 xmmword_5F3E20 = {};
-__m128 xmmword_5F3E50;
-__m128 xmmword_5F3E70;
-__m128 xmmword_5F3E80;
-__m128 xmmword_5F3E90;
-__m128 xmmword_5F3EB0;
-__m128 xmmword_5F3EE0;
-__m128 xmmword_5F3EF0;
-__m128 xmmword_5F3F30;
-__m128 xmmword_5F3F60;
-__m128 xmmword_5F4600;
-__m128 xmmword_5F4610;
-
-__m128 xmmword_12A14650;
-__m128 xmmword_12A146A0;
-__m128* xmmword_12A146B0;
-__m128 xmmword_12A146D0;
-
-__m128 xmmword_5CB2A0;
-__m128 xmmword_5F34E0;
-__m128 xmmword_5F34B0;
-__m128 xmmword_5F3510;
-__m128 xmmword_5F3490;
-__m128 xmmword_5F3500;
-__m128 xmmword_5F34A0;
-__m128 xmmword_5F3470;
-__m128 xmmword_5F34F0;
-__m128 xmmword_5F3460;
-__m128 xmmword_5F3E00;
-__m128 xmmword_5F34C0;
-__m128 xmmword_5F45D0;
-
-BYTE* fontIndices;
-assetIndexData* assetIndexData_12A4E510;
+static __m128 g_RuiSinApproxCoeff0;
+static __m128 g_RuiSinApproxCoeff1;
+static __m128 g_RuiSinApproxCoeff2;
+static __m128 g_RuiSinApproxCoeff3;
+static __m128 g_RuiCosApproxCoeff0;
+static __m128 g_RuiCosApproxCoeff1;
+static __m128 g_RuiCosApproxCoeff2;
+static __m128 g_RuiCosApproxCoeff3;
 
 namespace
 {
@@ -687,33 +614,11 @@ struct RuiDynamicAtlasImage_t
 	bool m_UseFullTexture = false;
 };
 
-struct RuiDynamicAtlasTextureRecord_t
-{
-	float m_Bounds[4];
-	float m_UvBase[2];
-	float m_UvScale[2];
-};
-static_assert(sizeof(RuiDynamicAtlasTextureRecord_t) == 0x20);
-
-struct RuiDynamicAtlasTextureDimensions_t
-{
-	uint16_t m_Width;
-	uint16_t m_Height;
-};
-static_assert(sizeof(RuiDynamicAtlasTextureDimensions_t) == 0x4);
-
-struct RuiDynamicAtlasGpuRecord_t
-{
-	float m_UvMin[2];
-	float m_UvMax[2];
-};
-static_assert(sizeof(RuiDynamicAtlasGpuRecord_t) == 0x10);
-
 struct RuiDynamicAtlasDescriptor_t
 {
 	uint32_t m_NameHash;
 	int16_t m_AssetIndex;
-	assetIndexData* m_Descriptor;
+	RuiImageAssetDescriptor* m_Descriptor;
 };
 
 struct RuiDynamicAtlasDefinition_t
@@ -723,18 +628,18 @@ struct RuiDynamicAtlasDefinition_t
 	std::string m_TexturePath;
 	std::optional<uint64_t> m_TextureGuid;
 	std::vector<RuiDynamicAtlasImage_t> m_Images;
-	std::vector<RuiDynamicAtlasTextureRecord_t> m_TextureRecords;
-	std::vector<RuiDynamicAtlasTextureDimensions_t> m_TextureDimensions;
-	std::vector<RuiDynamicAtlasGpuRecord_t> m_GpuRecords;
+	std::vector<RuiImageAtlasEntry> m_TextureRecords;
+	std::vector<RuiImageDimensions> m_TextureDimensions;
+	std::vector<RuiImageAtlasGpuRecord> m_GpuRecords;
 	std::vector<uint64_t> m_TextureHashes;
 	std::vector<RuiDynamicAtlasDescriptor_t> m_Descriptors;
 	std::optional<uint8_t> m_AtlasIndex;
 	bool m_Invalid = false;
 };
 
-using LoadImageAtlasFn = void(__fastcall*)(uiImageAtlas* atlas, const void* gpuRecords);
-using DestroyImageAtlasFn = void(__fastcall*)(uiImageAtlas* atlas);
-using GetAssetDescriptorFn = assetIndexData*(__fastcall*)(struct_a1_2* hashMap, uint32_t nameHash);
+using LoadImageAtlasFn = void(__fastcall*)(RuiImageAtlas* atlas, const void* gpuRecords);
+using DestroyImageAtlasFn = void(__fastcall*)(RuiImageAtlas* atlas);
+using GetAssetDescriptorFn = RuiImageAssetDescriptor*(__fastcall*)(RHashMap* hashMap, uint32_t nameHash);
 using RpakHashFn = uint64_t(__fastcall*)(const char* path);
 
 LoadImageAtlasFn s_LoadImageAtlas = nullptr;
@@ -787,12 +692,12 @@ bool ParseTextureGuid(const char* text, uint64_t& textureGuid)
 	return result.ec == std::errc() && result.ptr == value.data() + value.size();
 }
 
-assetIndexData* FindRuiImageDescriptor(uint32_t nameHash)
+RuiImageAssetDescriptor* FindRuiImageDescriptor(uint32_t nameHash)
 {
-	if (!assetIndexList || !s_GetAssetDescriptor)
+	if (!g_RuiImageDescriptorMap || !s_GetAssetDescriptor)
 		return nullptr;
 
-	return s_GetAssetDescriptor(assetIndexList, nameHash);
+	return s_GetAssetDescriptor(g_RuiImageDescriptorMap, nameHash);
 }
 
 bool ReadAtlasUint(
@@ -1130,49 +1035,49 @@ void ReleaseDynamicAtlasSlot(uint8_t atlasIndex)
 
 bool HasFreeRuiImageDescriptor()
 {
-	return assetIndexList->dword_28 != assetIndexList->dword_2C
-		|| assetIndexList->dword_2C < assetIndexList->pointer_10_ByteSize;
+	return g_RuiImageDescriptorMap->freeListHead != g_RuiImageDescriptorMap->nextUnusedIndex
+		|| g_RuiImageDescriptorMap->nextUnusedIndex < g_RuiImageDescriptorMap->bucketPairCount;
 }
 
 bool DescriptorStillBelongsTo(
 	const RuiDynamicAtlasDescriptor_t& insertedDescriptor,
 	uint8_t atlasIndex)
 {
-	const assetIndexData* descriptor = insertedDescriptor.m_Descriptor;
+	const RuiImageAssetDescriptor* descriptor = insertedDescriptor.m_Descriptor;
 	return descriptor && descriptor->nameHash == insertedDescriptor.m_NameHash
-		&& descriptor->assetIndex == insertedDescriptor.m_AssetIndex && descriptor->atlasIndex == atlasIndex;
+		&& descriptor->imageIndex == insertedDescriptor.m_AssetIndex && descriptor->atlasIndex == atlasIndex;
 }
 
 void RemoveDynamicAtlasDescriptors(RuiDynamicAtlasDefinition_t& definition)
 {
-	if (!assetIndexList || !sub_F3E30 || !definition.m_AtlasIndex)
+	if (!g_RuiImageDescriptorMap || !s_RHashMapRemove || !definition.m_AtlasIndex)
 	{
 		definition.m_Descriptors.clear();
 		return;
 	}
 
-	AcquireSRWLockExclusive(&assetIndexList->lock);
+	AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
 	for (const RuiDynamicAtlasDescriptor_t& insertedDescriptor : definition.m_Descriptors)
 	{
 		if (DescriptorStillBelongsTo(insertedDescriptor, *definition.m_AtlasIndex))
-			sub_F3E30(assetIndexList, insertedDescriptor.m_NameHash);
+			s_RHashMapRemove(g_RuiImageDescriptorMap, insertedDescriptor.m_NameHash);
 	}
-	ReleaseSRWLockExclusive(&assetIndexList->lock);
+	ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
 	definition.m_Descriptors.clear();
 }
 
 bool AddMissingDynamicAtlasDescriptors(RuiDynamicAtlasDefinition_t& definition)
 {
-	if (!assetIndexList || !sub_F3BB0 || !sub_F3E30 || !s_GetAssetDescriptor || !definition.m_AtlasIndex)
+	if (!g_RuiImageDescriptorMap || !s_RHashMapInsert || !s_RHashMapRemove || !s_GetAssetDescriptor || !definition.m_AtlasIndex)
 		return false;
 
 	bool addedDescriptor = false;
-	AcquireSRWLockExclusive(&assetIndexList->lock);
+	AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
 	for (size_t imageIndex = 0; imageIndex < definition.m_Images.size(); ++imageIndex)
 	{
 		const RuiDynamicAtlasImage_t& image = definition.m_Images[imageIndex];
 		const uint32_t nameHash = GetRuiImageHash(image.m_Path);
-		if (s_GetAssetDescriptor(assetIndexList, nameHash))
+		if (s_GetAssetDescriptor(g_RuiImageDescriptorMap, nameHash))
 			continue;
 
 		if (!HasFreeRuiImageDescriptor())
@@ -1181,20 +1086,20 @@ bool AddMissingDynamicAtlasDescriptors(RuiDynamicAtlasDefinition_t& definition)
 			break;
 		}
 
-		_BYTE inserted = 0;
-		auto* descriptor = reinterpret_cast<assetIndexData*>(sub_F3BB0(assetIndexList, nameHash, &inserted));
+		uint8_t inserted = 0;
+		auto* descriptor = static_cast<RuiImageAssetDescriptor*>(s_RHashMapInsert(g_RuiImageDescriptorMap, nameHash, &inserted));
 		if (!descriptor || !inserted)
 			continue;
 
 		descriptor->nameHash = nameHash;
-		descriptor->assetIndex = static_cast<int16_t>(imageIndex);
+		descriptor->imageIndex = static_cast<int16_t>(imageIndex);
 		descriptor->atlasIndex = *definition.m_AtlasIndex;
 		descriptor->flags = image.m_Flags;
-		assetIndexList->pointer_10[assetIndexList->dword_34] = assetIndexList->dword_30;
-		++assetIndexList->dword_0;
+		g_RuiImageDescriptorMap->buckets[g_RuiImageDescriptorMap->lastProbeIndex] = g_RuiImageDescriptorMap->lastInsertIndex;
+		++g_RuiImageDescriptorMap->size;
 		definition.m_Descriptors.push_back(
 			{nameHash, static_cast<int16_t>(imageIndex), descriptor});
-		if (s_GetAssetDescriptor(assetIndexList, nameHash) != descriptor)
+		if (s_GetAssetDescriptor(g_RuiImageDescriptorMap, nameHash) != descriptor)
 		{
 			spdlog::error(
 				"RUI image '{}' descriptor insertion failed verification for hash 0x{:08X}",
@@ -1211,7 +1116,7 @@ bool AddMissingDynamicAtlasDescriptors(RuiDynamicAtlasDefinition_t& definition)
 			imageIndex);
 		addedDescriptor = true;
 	}
-	ReleaseSRWLockExclusive(&assetIndexList->lock);
+	ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
 
 	return addedDescriptor;
 }
@@ -1222,11 +1127,11 @@ void DestroyDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
 	if (!definition.m_AtlasIndex)
 		return;
 
-	uiImageAtlas& atlas = rpakUIMGAtlases[*definition.m_AtlasIndex];
-	if (s_DestroyImageAtlas && atlas.bufferStructIndex != UINT_MAX)
+	RuiImageAtlas& atlas = g_RuiImageAtlases[*definition.m_AtlasIndex];
+	if (s_DestroyImageAtlas && atlas.gpuRecordBuffer != UINT_MAX)
 		s_DestroyImageAtlas(&atlas);
 
-	memset(&atlas, 0, sizeof(atlas));
+	atlas = {};
 	ReleaseDynamicAtlasSlot(*definition.m_AtlasIndex);
 	definition.m_AtlasIndex.reset();
 	definition.m_TextureRecords.clear();
@@ -1326,48 +1231,48 @@ bool CreateDynamicAtlas(RuiDynamicAtlasDefinition_t& definition)
 	for (size_t imageIndex = 0; imageIndex < definition.m_Images.size(); ++imageIndex)
 	{
 		const RuiDynamicAtlasImage_t& image = definition.m_Images[imageIndex];
-		RuiDynamicAtlasTextureRecord_t& textureRecord = definition.m_TextureRecords[imageIndex];
-		textureRecord.m_Bounds[0] = 0.0f;
-		textureRecord.m_Bounds[1] = 0.0f;
-		textureRecord.m_Bounds[2] = static_cast<float>(image.m_Width);
-		textureRecord.m_Bounds[3] = static_cast<float>(image.m_Height);
-		textureRecord.m_UvBase[0] = static_cast<float>(image.m_PosX) * inverseWidth;
-		textureRecord.m_UvBase[1] = static_cast<float>(image.m_PosY) * inverseHeight;
-		textureRecord.m_UvScale[0] = inverseWidth;
-		textureRecord.m_UvScale[1] = inverseHeight;
+		RuiImageAtlasEntry& textureRecord = definition.m_TextureRecords[imageIndex];
+		textureRecord.bounds[0] = 0.0f;
+		textureRecord.bounds[1] = 0.0f;
+		textureRecord.bounds[2] = static_cast<float>(image.m_Width);
+		textureRecord.bounds[3] = static_cast<float>(image.m_Height);
+		textureRecord.uvBase[0] = static_cast<float>(image.m_PosX) * inverseWidth;
+		textureRecord.uvBase[1] = static_cast<float>(image.m_PosY) * inverseHeight;
+		textureRecord.uvScale[0] = inverseWidth;
+		textureRecord.uvScale[1] = inverseHeight;
 
 		definition.m_TextureDimensions[imageIndex] = {
 			static_cast<uint16_t>(image.m_Width),
 			static_cast<uint16_t>(image.m_Height)};
 
-		RuiDynamicAtlasGpuRecord_t& gpuRecord = definition.m_GpuRecords[imageIndex];
-		gpuRecord.m_UvMin[0] = textureRecord.m_UvBase[0];
-		gpuRecord.m_UvMin[1] = textureRecord.m_UvBase[1];
-		gpuRecord.m_UvMax[0] = static_cast<float>(image.m_PosX + image.m_Width) * inverseWidth;
-		gpuRecord.m_UvMax[1] = static_cast<float>(image.m_PosY + image.m_Height) * inverseHeight;
+		RuiImageAtlasGpuRecord& gpuRecord = definition.m_GpuRecords[imageIndex];
+		gpuRecord.uvMin[0] = textureRecord.uvBase[0];
+		gpuRecord.uvMin[1] = textureRecord.uvBase[1];
+		gpuRecord.uvMax[0] = static_cast<float>(image.m_PosX + image.m_Width) * inverseWidth;
+		gpuRecord.uvMax[1] = static_cast<float>(image.m_PosY + image.m_Height) * inverseHeight;
 
 		definition.m_TextureHashes[imageIndex] = static_cast<uint64_t>(GetRuiImageHash(image.m_Path))
 			| (static_cast<uint64_t>(image.m_Flags) << 32);
 	}
 
-	uiImageAtlas& atlas = rpakUIMGAtlases[*atlasIndex];
-	memset(&atlas, 0, sizeof(atlas));
-	atlas.widthRatio = inverseWidth;
-	atlas.heightRatio = inverseHeight;
+	RuiImageAtlas& atlas = g_RuiImageAtlases[*atlasIndex];
+	atlas = {};
+	atlas.inverseWidth = inverseWidth;
+	atlas.inverseHeight = inverseHeight;
 	atlas.width = static_cast<uint16_t>(atlasWidth);
 	atlas.height = static_cast<uint16_t>(atlasHeight);
-	atlas.TextureCount = static_cast<uint16_t>(definition.m_Images.size());
-	atlas.textureOffsetsCount = 0;
-	atlas.textureOffsets = definition.m_TextureRecords.data();
-	atlas.textureDimensions = definition.m_TextureDimensions.data();
-	atlas.pointer_20 = nullptr;
-	atlas.textureHashes = definition.m_TextureHashes.data();
-	atlas.textureNames = nullptr;
-	atlas.textureMaybe = reinterpret_cast<uint64_t>(texture);
-	atlas.bufferStructIndex = UINT_MAX;
+	atlas.imageCount = static_cast<uint16_t>(definition.m_Images.size());
+	atlas.nineSliceImageCount = 0;
+	atlas.images = definition.m_TextureRecords.data();
+	atlas.imageDimensions = definition.m_TextureDimensions.data();
+	atlas.nineSliceData = nullptr;
+	atlas.imageNameHashes = definition.m_TextureHashes.data();
+	atlas.imageNames = nullptr;
+	atlas.texture = texture;
+	atlas.gpuRecordBuffer = UINT_MAX;
 
 	s_LoadImageAtlas(&atlas, definition.m_GpuRecords.data());
-	if (atlas.bufferStructIndex == UINT_MAX)
+	if (atlas.gpuRecordBuffer == UINT_MAX)
 	{
 		spdlog::error(
 			"Failed creating the GPU bounds buffer for runtime RUI atlas '{}'",
@@ -1636,138 +1541,110 @@ void RuiImageAtlas_OnPakUnloading(PakHandle_t handle)
 	UnregisterDynamicAtlasesForPakLocked(handle);
 }
 
-DECLARE_HOOK(RuiData_LoadDynamicAtlasAsset, engine.dll + 0xF8000,
-	[](auto& hook, ruiDataStruct* ruiData, const char* imagePath) -> __int64
+DECLARE_HOOK(Rui_FindImageAsset, engine.dll + 0xF8000,
+	[](auto& hook, RuiInstance* rui, const char* imagePath) -> __int64
 	{
 		TryRegisterDynamicAtlasForImage(imagePath);
-		return hook.Original(ruiData, imagePath);
+		return hook.Original(rui, imagePath);
 	})
 
 
-struct ruiRenderList
+DECLARE_HOOK(RuiImageAtlas_Replace, engine.dll + 0xFB960, [](auto& hook, RuiImageAtlas* destination, const RuiImageAtlas* source, const RuiImageAtlas* previous)
 {
-	globals* globals;
-	_QWORD qword_8;
-	uint16_t word_10;
-	uint16_t word_12;
-	_WORD word_14;
-	uint16_t ruiCount;
-	ruiDataStruct* ruiInstances[1];
-};
-static const __m128* xmmword_5F4740;
-
-
-DECLARE_HOOK(sub_FB960, engine.dll + 0xFB960, [](auto& hook,uiImageAtlas * a1, __int64 a2, __int64 a3)
-{
-	__int64 v3; // rdi
-	unsigned int i; // ebx
-	_DWORD* v8; // rax
-	int v9; // edx
-	char a3a; // [rsp+48h] [rbp+10h] BYREF
-
-	v3 = 0i64;
-	if (a3)
+	if (previous)
 	{
-		for (i = 0; i < *(unsigned __int16*)(a3 + 12); sub_F3E30(assetIndexList, *(unsigned int*)(*(_QWORD*)(a3 + 40) + 8i64 * i++)))
-		{
-			;
-		}
+		for (uint16_t imageIndex = 0; imageIndex < previous->imageCount; ++imageIndex)
+			s_RHashMapRemove(g_RuiImageDescriptorMap, static_cast<uint32_t>(previous->imageNameHashes[imageIndex]));
 	}
-	if (a2)
+	if (source)
 	{
-		*a1 = *(uiImageAtlas*)a2;
-		AcquireSRWLockExclusive(&assetIndexList->lock);
-		if (*(_WORD*)(a2 + 12))
+		*destination = *source;
+		AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
+		for (uint16_t imageIndex = 0; imageIndex < source->imageCount; ++imageIndex)
 		{
-			do
-			{
-				v8 = sub_F3BB0(assetIndexList, *(unsigned int*)(8 * v3 + *(_QWORD*)(a2 + 40)), (_BYTE*)&a3a);
-				v9 = *(_DWORD*)(8 * v3 + *(_QWORD*)(a2 + 40));
-				*((_WORD*)v8 + 2) = v3;
-				*((_BYTE*)v8 + 6) = a1 - rpakUIMGAtlases;
-				*v8 = v9;
-				*((_BYTE*)v8 + 7) = *(_BYTE*)(*(_QWORD*)(a2 + 40) + 8 * v3 + 4);
-				assetIndexList->pointer_10[assetIndexList->dword_34] = assetIndexList->dword_30;
-				++assetIndexList->dword_0;
-				v3 = (unsigned int)(v3 + 1);
-			} while ((unsigned int)v3 < *(unsigned __int16*)(a2 + 12));
+			uint8_t inserted = 0;
+			auto* descriptor = static_cast<RuiImageAssetDescriptor*>(s_RHashMapInsert(
+				g_RuiImageDescriptorMap,
+				static_cast<uint32_t>(source->imageNameHashes[imageIndex]),
+				&inserted));
+			descriptor->nameHash = static_cast<uint32_t>(source->imageNameHashes[imageIndex]);
+			descriptor->imageIndex = static_cast<int16_t>(imageIndex);
+			descriptor->atlasIndex = static_cast<uint8_t>(destination - g_RuiImageAtlases);
+			descriptor->flags = static_cast<uint8_t>(source->imageNameHashes[imageIndex] >> 32);
+			g_RuiImageDescriptorMap->buckets[g_RuiImageDescriptorMap->lastProbeIndex] = g_RuiImageDescriptorMap->lastInsertIndex;
+			++g_RuiImageDescriptorMap->size;
 		}
-		ReleaseSRWLockExclusive(&assetIndexList->lock);
+		ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
 	}
 });
 
 
 
-//__m128i* xmmword_5F4740; // edge-clip table
+//__m128i* g_RuiEdgeCorrectionMasks; // edge-clip table
 
-
-typedef uint32_t(__fastcall* ruiDrawInfoFunc)(ruiDrawInfoDataWeapon*, ruiBaseUvStruct*, ruiDrawTriangle*, struct_v3*); 
-
-// External callees
-ruiDrawInfoFunc* ruiDrawInfo_5f4560;
 
 #define RUI_SHUFFLE_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(value), imm))
 
 #define RUI_SHUFFLE_I32_AS_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32((value), imm))
 
-void __fastcall sub_F9B80_rebuild(
-	globals* globals,
-	ruiDataStruct* ruiData,
-	struct_v3* batch,
-	ruiBaseUvStruct* baseUv,
-	__m128* transform,
+bool RuiDrawImageAtlasEntry(
+	RuiGlobalState* globalState,
+	RuiInstance* rui,
+	RuiDrawBatch* batch,
+	const RuiBaseUv* baseUv,
+	const RuiTransform* transform,
 	int orientation,
-	__int64 nameHash,
-	__m128i* atlasUv,
-	__m128* clipThreshold,
-	__m128* uvBias,
-	__m128* viewportScale)
+	const RuiImageAssetDescriptor* descriptor,
+	const __m128i* atlasUv,
+	const __m128* clipThreshold,
+	const __m128* uvBias,
+	const __m128* viewportScale)
 {
-	const __int64 instanceIndex = batch->unsigned_int_8;
-	unknownRuiListElement* instances = batch->ruiInstance;
-	const uint8_t atlasIndex = *reinterpret_cast<const uint8_t*>(nameHash + 6);
-	uiImageAtlas* imageAtlas = &rpakUIMGAtlases[atlasIndex];
-	
-	if (instances[instanceIndex].uiImageAtlas_10 != imageAtlas)
-	{
-		uiImageAtlas* currentAtlas = instances[instanceIndex].uiImageAtlas_10;
+	const __int64 instanceIndex = batch->materialBatchIndex;
+	RuiDrawMaterialBatch* instances = batch->materialBatches;
+	const uint8_t atlasIndex = descriptor->atlasIndex;
+	RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[atlasIndex];
 
-		if (!currentAtlas || instances[instanceIndex].dword_4 == batch->indexBufferSize)
+	if (instances[instanceIndex].imageAtlas != imageAtlas)
+	{
+		RuiImageAtlas* currentAtlas = instances[instanceIndex].imageAtlas;
+
+		if (!currentAtlas || instances[instanceIndex].firstIndex == batch->indexBufferSize)
 		{
-			instances[instanceIndex].uiImageAtlas_10 = imageAtlas;
+			instances[instanceIndex].imageAtlas = imageAtlas;
 		}
 		else
 		{
-			instances[instanceIndex].dword_4 = batch->indexBufferSize;
+			instances[instanceIndex].firstIndex = batch->indexBufferSize;
 
-			if (++batch->unsigned_int_8 == batch->dword_C)
-				return;
+			if (++batch->materialBatchIndex == batch->materialBatchCapacity)
+				return false;
 
-			instances[instanceIndex + 1].dword_4 = batch->indexBufferSize;
-			instances[instanceIndex + 1].uiFontAtlas_8 = 0;
-			instances[instanceIndex + 1].dword_0 = instances[instanceIndex].dword_0;
-			instances[instanceIndex + 1].uiImageAtlas_10 = imageAtlas;
+			instances[instanceIndex + 1].firstIndex = batch->indexBufferSize;
+			instances[instanceIndex + 1].fontAtlas = 0;
+			instances[instanceIndex + 1].firstVertex = instances[instanceIndex].firstVertex;
+			instances[instanceIndex + 1].imageAtlas = imageAtlas;
 		}
 	}
 
-	ruiDrawTriangle tri;
-	ruiBaseUvStruct drawUv;
+	RuiDrawQuad tri;
+	RuiBaseUv drawUv;
 	__m128 correctionData[5];
 
-	tri.size = 4;
-	tri.size_ = 4;
+	tri.vertexCount = 4;
+	tri.vertexCapacity = 4;
 
 	const __int16 correctionMask = (~baseUv->flags >> 8) & 0xF;
 	if (correctionMask)
-		sub_FFAE0(transform, (const __m128i*)& ruiData->header->elementWidth, correctionData);
+		s_BuildEdgeCorrection(transform, &rui->header->elementWidth, correctionData);
 
-	const uint16_t textureOffsetIndex = *reinterpret_cast<const uint16_t*>(nameHash + 4);
+	const uint16_t textureOffsetIndex = static_cast<uint16_t>(descriptor->imageIndex);
 	const __m128 zero = _mm_setzero_ps();
 
-	auto submitDraw = [&]() -> int
+	auto submitDraw = [&]() -> bool
 	{
-		auto* drawInfo = ruiData->pvoid_38;
-		return ruiDrawInfo_5f4560[drawInfo->type](
+		RuiDrawInfo* drawInfo = rui->drawInfo;
+		return g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
 			drawInfo,
 			&drawUv,
 			&tri,
@@ -1776,8 +1653,8 @@ void __fastcall sub_F9B80_rebuild(
 
 	auto setTriangleFromUv = [&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, bool forceCorrection)
 	{
-		const __m128 row0 = transform[0];
-		const __m128 row1 = transform[1];
+		const __m128 row0 = transform->rows[0];
+		const __m128 row1 = transform->rows[1];
 
 		__m128 projected[2];
 		projected[0] = _mm_add_ps(
@@ -1786,7 +1663,7 @@ void __fastcall sub_F9B80_rebuild(
 			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(row0, 255), u), _mm_mul_ps(RUI_SHUFFLE_PS(row0, 85), v)), RUI_SHUFFLE_PS(row1, 85));
 
 		if (correction && (forceCorrection || _mm_movemask_ps(_mm_cmpneq_ps(*correction, zero))))
-			sub_FEF30_2(globals, ruiData, correctionData, correction, projected);
+			s_ApplyEdgeCorrection(globalState, rui, correctionData, correction, projected);
 
 		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
 		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
@@ -1805,27 +1682,29 @@ void __fastcall sub_F9B80_rebuild(
 			}
 		}
 
-		_mm_storeu_ps(&tri.vert[0][0], quad0);
-		_mm_storeu_ps(&tri.vert[1][0], quad1);
+		_mm_storeu_ps(&tri.positions[0][0], quad0);
+		_mm_storeu_ps(&tri.positions[1][0], quad1);
 	};
 
 	auto drawPiece =
-		[&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, __m128 base, __m128 xDir, __m128 yDir) -> int
+		[&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, __m128 base, __m128 xDir, __m128 yDir) -> bool
 	{
 		setTriangleFromUv(u, v, correction, useAlternateOrientationShuffle, false);
 
-		drawUv.yDir = yDir;
-		drawUv.base = base;
-		drawUv.xDir = xDir;
-		*reinterpret_cast<__int64*>(&drawUv.assetIndex) = *reinterpret_cast<const __int64*>(&baseUv->assetIndex);
-		memset(&drawUv.base2, 0, 48);
+		drawUv.primaryOrigin = yDir;
+		drawUv.primaryBasisX = base;
+		drawUv.primaryBasisY = xDir;
+		drawUv.imageIndex = baseUv->imageIndex;
+		drawUv.maskImageIndex = baseUv->maskImageIndex;
+		drawUv.computedStyleIndex = baseUv->computedStyleIndex;
+		drawUv.flags = baseUv->flags;
+		std::memset(&drawUv.secondaryBasisX, 0, sizeof(drawUv.secondaryBasisX) * 3);
 		return submitDraw();
 	};
 
-	if (textureOffsetIndex >= imageAtlas->textureOffsetsCount)
+	if (textureOffsetIndex >= imageAtlas->nineSliceImageCount)
 	{
-		//const __m128 transformRow0 = _mm_castsi128_ps(_mm_load_si128(reinterpret_cast<const __m128i*>(transform)));
-		__m128 transformRow0 = transform[0];
+		const __m128 transformRow0 = transform->rows[0];
 		const __m128 u = RUI_SHUFFLE_I32_AS_PS(*atlasUv, 125);
 		const __m128 v = RUI_SHUFFLE_I32_AS_PS(*atlasUv, 160);
 
@@ -1833,13 +1712,13 @@ void __fastcall sub_F9B80_rebuild(
 		projected[0] = _mm_add_ps(
 			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 170), u),
 					   _mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 0), v)),
-			RUI_SHUFFLE_PS(transform[1], 0));
+			RUI_SHUFFLE_PS(transform->rows[1], 0));
 		projected[1] = _mm_add_ps(
 			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 255), u), _mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 85), v)),
-			RUI_SHUFFLE_PS(transform[1], 85));
+			RUI_SHUFFLE_PS(transform->rows[1], 85));
 
 		if (correctionMask) {
-			sub_FEF30(globals, ruiData, correctionData, xmmword_5F4740[correctionMask], projected);
+			s_ApplyEdgeCorrection(globalState, rui, correctionData, &g_RuiEdgeCorrectionMasks[correctionMask], projected);
 		}
 		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
 		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
@@ -1849,74 +1728,73 @@ void __fastcall sub_F9B80_rebuild(
 			quad0 = RUI_SHUFFLE_PS(quad0, _MM_SHUFFLE(1, 0, 3, 2));
 			quad1 = RUI_SHUFFLE_PS(quad1, _MM_SHUFFLE(1, 0, 3, 2));
 		}
-		_mm_storeu_ps(&tri.vert[0][0], quad0);
-		_mm_storeu_ps(&tri.vert[1][0], quad1);
+		_mm_storeu_ps(&tri.positions[0][0], quad0);
+		_mm_storeu_ps(&tri.positions[1][0], quad1);
 
-		auto* drawInfo = ruiData->pvoid_38;
-		ruiDrawInfo_5f4560[drawInfo->type](
+		RuiDrawInfo* drawInfo = rui->drawInfo;
+		return g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
 			drawInfo,
 			baseUv,
 			&tri,
 			batch);
-		return;
 	}
-	const double* atlasRecord = reinterpret_cast<const double*>(reinterpret_cast<char*>(imageAtlas->pointer_20) + 32 * textureOffsetIndex);
-	const __m128 atlasRect = _mm_loadu_ps(reinterpret_cast<const float*>(atlasRecord));
+	const RuiImageAtlasNineSlice& atlasRecord = imageAtlas->nineSliceData[textureOffsetIndex];
+	const __m128 atlasRect = _mm_loadu_ps(atlasRecord.normalizedBounds);
 
 	const __m128 reciprocalScale = _mm_rcp_ps(*viewportScale);
-	const __m128 reciprocalScaleError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(reciprocalScale, *viewportScale));
+	const __m128 reciprocalScaleError = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(reciprocalScale, *viewportScale));
 	const __m128 refinedReciprocalScale = _mm_add_ps(
 		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(reciprocalScaleError, reciprocalScaleError), reciprocalScaleError), reciprocalScale),
 		reciprocalScale);
 
-	const __m128 canvasSize = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&ruiData->canvasWidth)));
+	const __m128 canvasSize = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&rui->canvasWidth)));
 
-	const __m128 flippedAtlasRect = _mm_xor_ps(atlasRect, xmmword_5F3E70);
-	const __m128 atlasMin = _mm_and_ps(atlasRect, xmmword_12A14650);
+	const __m128 flippedAtlasRect = _mm_xor_ps(atlasRect, g_RuiSignMaskHighHalf);
+	const __m128 atlasMin = _mm_and_ps(atlasRect, g_RuiBlendMaskLowHalf);
 	const __m128 atlasExtent = _mm_add_ps(RUI_SHUFFLE_PS(atlasRect, 238), flippedAtlasRect);
-	const __m128 inverseAtlasExtent = _mm_sub_ps(xmmword_5F3E90, atlasExtent);
+	const __m128 inverseAtlasExtent = _mm_sub_ps(g_RuiFloatOne, atlasExtent);
 
 	const __m128 projectedCanvas =
-		_mm_mul_ps(_mm_mul_ps(_mm_unpacklo_ps(canvasSize, canvasSize), RUI_SHUFFLE_PS(transform[0], 216)), refinedReciprocalScale);
+		_mm_mul_ps(_mm_mul_ps(_mm_unpacklo_ps(canvasSize, canvasSize), RUI_SHUFFLE_PS(transform->rows[0], 216)), refinedReciprocalScale);
 	const __m128 projectedCanvasSq = _mm_mul_ps(projectedCanvas, projectedCanvas);
 	const __m128 edgeSize = _mm_max_ps(
 		_mm_mul_ps(
 			_mm_sqrt_ps(_mm_add_ps(RUI_SHUFFLE_PS(projectedCanvasSq, 78), projectedCanvasSq)),
-			_mm_castpd_ps(_mm_loaddup_pd(atlasRecord + 2))),
-		_mm_castpd_ps(_mm_loaddup_pd(atlasRecord + 3)));
+			_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(atlasRecord.edgeScale)))),
+		_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(atlasRecord.minimumEdgeSize))));
 
 	const __m128 availableExtent = _mm_sub_ps(edgeSize, atlasExtent);
 	const __m128 availableExtentReciprocal = _mm_rcp_ps(availableExtent);
-	const __m128 availableExtentError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(availableExtentReciprocal, availableExtent));
+	const __m128 availableExtentError = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(availableExtentReciprocal, availableExtent));
 	const __m128 refinedAvailableExtentReciprocal = _mm_add_ps(
 		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(availableExtentError, availableExtentError), availableExtentError), availableExtentReciprocal),
 		availableExtentReciprocal);
 
-	const __m128 edgeScale = _mm_movelh_ps(edgeSize, xmmword_5F3E90);
-	const __m128 outerYDir = _mm_mul_ps(edgeScale, baseUv->yDir);
-	const __m128 outerXDir = _mm_mul_ps(edgeScale, baseUv->xDir);
-	const __m128 edgeYDir = _mm_add_ps(_mm_sub_ps(xmmword_5F3E90, edgeScale), outerYDir);
-	const __m128 outerBase = _mm_mul_ps(edgeScale, baseUv->base);
+	const __m128 edgeScale = _mm_movelh_ps(edgeSize, g_RuiFloatOne);
+	const __m128 outerYDir = _mm_mul_ps(edgeScale, baseUv->primaryOrigin);
+	const __m128 outerXDir = _mm_mul_ps(edgeScale, baseUv->primaryBasisY);
+	const __m128 edgeYDir = _mm_add_ps(_mm_sub_ps(g_RuiFloatOne, edgeScale), outerYDir);
+	const __m128 outerBase = _mm_mul_ps(edgeScale, baseUv->primaryBasisX);
 
 	const __m128 innerScale =
-		_mm_movelh_ps(_mm_mul_ps(_mm_mul_ps(inverseAtlasExtent, edgeSize), refinedAvailableExtentReciprocal), xmmword_5F3E90);
-	const __m128 innerBase = _mm_mul_ps(innerScale, baseUv->base);
-	const __m128 innerXDir = _mm_mul_ps(innerScale, baseUv->xDir);
+		_mm_movelh_ps(_mm_mul_ps(_mm_mul_ps(inverseAtlasExtent, edgeSize), refinedAvailableExtentReciprocal), g_RuiFloatOne);
+	const __m128 innerBase = _mm_mul_ps(innerScale, baseUv->primaryBasisX);
+	const __m128 innerXDir = _mm_mul_ps(innerScale, baseUv->primaryBasisY);
 	const __m128 innerYDir = _mm_add_ps(
 		_mm_sub_ps(atlasMin, _mm_mul_ps(_mm_mul_ps(atlasMin, inverseAtlasExtent), refinedAvailableExtentReciprocal)),
-		_mm_mul_ps(innerScale, baseUv->yDir));
+		_mm_mul_ps(innerScale, baseUv->primaryOrigin));
 
 	const __m128 atlasStep = _mm_mul_ps(
 		_mm_sub_ps(
-			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(refinedAvailableExtentReciprocal, 238), flippedAtlasRect), xmmword_5F4600), *uvBias),
+			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(refinedAvailableExtentReciprocal, 238), flippedAtlasRect), g_RuiHighHalfOne), *uvBias),
 		refinedReciprocalScale);
 	const __m128 atlasStepShuffled = RUI_SHUFFLE_PS(atlasStep, 216);
 	const __m128 atlasUvBase = RUI_SHUFFLE_I32_AS_PS(*atlasUv, 216);
 	const __m128 uvHigh = _mm_unpackhi_ps(atlasUvBase, atlasStepShuffled);
 	const __m128 uvLow = _mm_unpacklo_ps(atlasUvBase, atlasStepShuffled);
 
-	int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, xmmword_5F3E20)));
-	int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), xmmword_5F3E20)));
+	int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, g_RuiSignMaskLowHalf)));
+	int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), g_RuiSignMaskLowHalf)));
 
 	auto blendByMask = [](__m128 keep, __m128 replace, __m128 mask)
 	{ return _mm_or_ps(_mm_andnot_ps(mask, keep), _mm_and_ps(replace, mask)); };
@@ -1927,48 +1805,48 @@ void __fastcall sub_F9B80_rebuild(
 	if ((clipMaskX & 3) == 0 && !drawPiece(
 									RUI_SHUFFLE_PS(uvHigh, 20),
 									RUI_SHUFFLE_PS(uvLow, 80),
-									&xmmword_5F4740[correctionMask & 5],
+									&g_RuiEdgeCorrectionMasks[correctionMask & 5],
 									false,
 									outerBase,
 									outerXDir,
 									outerYDir))
 	{
-		return;
+		return false;
 	}
 
 	if ((clipMaskY_5 | (clipMaskX & 2)) || drawPiece(
 											   RUI_SHUFFLE_PS(uvHigh, 20),
 											   RUI_SHUFFLE_PS(uvLow, 245),
-											   &xmmword_5F4740[correctionMask & 4],
+											   &g_RuiEdgeCorrectionMasks[correctionMask & 4],
 											   true,
-											   blendByMask(outerBase, innerBase, xmmword_12A146D0),
-											   blendByMask(outerXDir, innerXDir, xmmword_12A146D0),
-											   blendByMask(outerYDir, innerYDir, xmmword_12A146D0)))
+											   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane0),
+											   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane0),
+											   blendByMask(outerYDir, innerYDir, g_RuiBlendMaskLane0)))
 	{
-		// Original LABEL_29 case: if ((nameHasha & 6) == 0) draw this piece.
+		// The corresponding piece is visible only when neither clipped axis rejects it.
 		if ((clipMaskX & 6) == 0)
 		{
 			if (!drawPiece(
 					RUI_SHUFFLE_PS(uvHigh, 20),
 					RUI_SHUFFLE_PS(uvLow, 175),
-					&xmmword_5F4740[correctionMask & 6],
+					&g_RuiEdgeCorrectionMasks[correctionMask & 6],
 					false,
 					outerBase,
 					outerXDir,
-					blendByMask(outerYDir, edgeYDir, xmmword_12A146D0)))
+					blendByMask(outerYDir, edgeYDir, g_RuiBlendMaskLane0)))
 			{
-				return;
+				return false;
 			}
 		}
 
 		if ((clipMaskY_A | (clipMaskX & 1)) || drawPiece(
 												   RUI_SHUFFLE_PS(uvHigh, 125),
 												   RUI_SHUFFLE_PS(uvLow, 80),
-												   &xmmword_5F4740[correctionMask & 1],
+												   &g_RuiEdgeCorrectionMasks[correctionMask & 1],
 												   false,
-												   blendByMask(outerBase, innerBase, xmmword_12A146A0),
-												   blendByMask(outerXDir, innerXDir, xmmword_12A146A0),
-												   blendByMask(outerYDir, innerYDir, xmmword_12A146A0)))
+												   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane1),
+												   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane1),
+												   blendByMask(outerYDir, innerYDir, g_RuiBlendMaskLane1)))
 		{
 			if (clipMaskY ||
 				drawPiece(RUI_SHUFFLE_PS(uvHigh, 125), RUI_SHUFFLE_PS(uvLow, 245), nullptr, true, innerBase, innerXDir, innerYDir))
@@ -1976,92 +1854,114 @@ void __fastcall sub_F9B80_rebuild(
 				if ((clipMaskY_A | (clipMaskX & 4)) || drawPiece(
 														   RUI_SHUFFLE_PS(uvHigh, 125),
 														   RUI_SHUFFLE_PS(uvLow, 175),
-														   &xmmword_5F4740[correctionMask & 2],
+														   &g_RuiEdgeCorrectionMasks[correctionMask & 2],
 														   false,
-														   blendByMask(outerBase, innerBase, xmmword_12A146A0),
-														   blendByMask(outerXDir, innerXDir, xmmword_12A146A0),
-														   blendByMask(edgeYDir, innerYDir, xmmword_12A146A0)))
+														   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane1),
+														   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane1),
+														   blendByMask(edgeYDir, innerYDir, g_RuiBlendMaskLane1)))
 				{
 					if ((clipMaskX & 9) == 0 && !drawPiece(
 													RUI_SHUFFLE_PS(uvHigh, 235),
 													RUI_SHUFFLE_PS(uvLow, 80),
-													&xmmword_5F4740[correctionMask & 9],
+													&g_RuiEdgeCorrectionMasks[correctionMask & 9],
 													true,
 													outerBase,
 													outerXDir,
-											blendByMask(outerYDir, edgeYDir, xmmword_12A146A0)))
+											blendByMask(outerYDir, edgeYDir, g_RuiBlendMaskLane1)))
 					{
-						return;
+						return false;
 					}
 
 					if ((clipMaskY_5 | (clipMaskX & 8)) || drawPiece(
 															   RUI_SHUFFLE_PS(uvHigh, 235),
 															   RUI_SHUFFLE_PS(uvLow, 245),
-															   &xmmword_5F4740[correctionMask & 8],
+															   &g_RuiEdgeCorrectionMasks[correctionMask & 8],
 															   false,
-															   blendByMask(outerBase, innerBase, xmmword_12A146D0),
-															   blendByMask(outerXDir, innerXDir, xmmword_12A146D0),
-															   blendByMask(edgeYDir, innerYDir, xmmword_12A146D0)))
+															   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane0),
+															   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane0),
+															   blendByMask(edgeYDir, innerYDir, g_RuiBlendMaskLane0)))
 					{
 						if ((clipMaskX & 0xC) == 0)
 						{
-							drawPiece(
+							return drawPiece(
 								RUI_SHUFFLE_PS(uvHigh, 235),
 								RUI_SHUFFLE_PS(uvLow, 175),
-								&xmmword_5F4740[correctionMask & 0xA],
+								&g_RuiEdgeCorrectionMasks[correctionMask & 0xA],
 								true,
 								outerBase,
 								outerXDir,
 								edgeYDir);
 						}
 					}
+					else
+					{
+						return false;
+					}
+				}
+				else
+				{
+					return false;
 				}
 			}
+			else
+			{
+				return false;
+			}
+		}
+		else
+		{
+			return false;
 		}
 	}
+	else
+	{
+		return false;
+	}
+	return true;
 }
 
 
 
-DECLARE_HOOK(sub_F9B80, engine.dll + 0xF9B80, [](auto& hook,globals* g,
-	ruiDataStruct* ds,
-	struct_v3* drawState,
-	ruiBaseUvStruct* baseUv,
-	__m128* a5, // [0]=transform row, [1]=translate
-	int a6, // winding (2 ⇒ swap halves)
-	std::int64_t nameHash,
-	__m128i* a8, // base UV pair
-	__m128* a9, // visibility threshold
-	__m128* a10, // UV offset
-	__m128* a11) -> int
+DECLARE_HOOK(RuiDrawImageAtlasEntry, engine.dll + 0xF9B80, [](auto& hook,
+	RuiGlobalState* globalState,
+	RuiInstance* rui,
+	RuiDrawBatch* batch,
+	const RuiBaseUv* baseUv,
+	const RuiTransform* transform,
+	int orientation,
+	const RuiImageAssetDescriptor* descriptor,
+	const __m128i* atlasUv,
+	const __m128* clipThreshold,
+	const __m128* uvBias,
+	const __m128* viewportScale) -> bool
 	{
-		sub_F9B80_rebuild(g, ds, drawState, baseUv, a5, a6, nameHash, a8, a9, a10, a11);
-		return 1;
-		//return hook.Original(g, ds, drawState, baseUv, a5, a6, nameHash, a8, a9, a10, a11);
+		return RuiDrawImageAtlasEntry(
+			globalState, rui, batch, baseUv, transform, orientation, descriptor,
+			atlasUv, clipThreshold, uvBias, viewportScale);
 	});
 
 
 
 
-void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
-	globals** globals,
-	ruiDataStruct* ruiData,
-	const EllipseRenderJobOffsets* renderJob,
-	struct_v3* batch)
+bool __fastcall RuiRenderEllipseJob(
+	RuiRenderContext* context,
+	RuiInstance* rui,
+	const RuiEllipseRenderJob* job,
+	RuiDrawBatch* batch)
 {
-	(void)globals;
+	(void)context;
 
 	auto dataFloat = [&](uint16_t offset) -> float
 	{
 		float value;
-		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		std::memcpy(&value, &rui->data[offset], sizeof(value));
 		return value;
 	};
 
 	auto dataInt = [&](uint16_t offset) -> int32_t
 	{
 		int32_t value;
-		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		std::memcpy(&value, &rui->data[offset], sizeof(value));
 		return value;
 	};
 
@@ -2070,101 +1970,101 @@ void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
 		return _mm_set_ss(dataFloat(offset));
 	};
 
-	const uint8_t styleIndex = renderJob->styleIndex;
-	const styleDescriptorsStruct& style = ruiData->header->styleDescriptors[styleIndex];
-	if (dataFloat(style.color_alpha) <= 0.0f)
-		return;
+	const uint8_t styleIndex = job->styleIndex;
+	const RuiStyleDescriptorOffsets& style = rui->header->styleDescriptors[styleIndex];
+	if (dataFloat(style.colorAlpha) <= 0.0f)
+		return true;
 
-	const uint16_t transformIndex = renderJob->transformIndex;
-	const testStruct* transform = &ruiData->v1->m128_3A80[transformIndex];
-	const __m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
-	const __m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
+	const uint16_t transformIndex = job->transformIndex;
+	const RuiTransform* transform = &rui->runtime->transforms[transformIndex];
+	const __m128 transformRow0 = transform->rows[0];
+	const __m128 transformRow1 = transform->rows[1];
 	const __m128 determinant = _mm_sub_ps(
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 255), RUI_SHUFFLE_PS(transformRow0, 0)),
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, 170), RUI_SHUFFLE_PS(transformRow0, 85)));
 	if (_mm_movemask_ps(_mm_cmpeq_ps(determinant, _mm_setzero_ps())) != 0)
-		return;
+		return true;
 
 	const int orientation = _mm_movemask_ps(determinant) & 2;
-	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
-	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, xmmword_5F3DD0), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), g_RuiSignMaskMiddleLanes), determinant);
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, g_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
-	const int32_t assetDescriptorIndex = dataInt(renderJob->assetIndex);
+	const int32_t assetDescriptorIndex = dataInt(job->imageOffset);
 	if (assetDescriptorIndex == -1)
-		return;
+		return true;
 
-	const assetIndexData& asset = unk_12A2E508[assetDescriptorIndex];
-	const int16_t assetIndex = asset.assetIndex;
-	const int16_t combinedFlags = static_cast<int16_t>(renderJob->flags | asset.flags);
+	const RuiImageAssetDescriptor& asset = g_RuiImageDescriptors[assetDescriptorIndex];
+	const int16_t assetIndex = asset.imageIndex;
+	const int16_t combinedFlags = static_cast<int16_t>(job->flags | asset.flags);
 
-	const __m128 mins = _mm_unpacklo_ps(dataScalar(renderJob->mins.x), dataScalar(renderJob->mins.y));
-	const __m128 maxs = _mm_unpacklo_ps(dataScalar(renderJob->maxs.x), dataScalar(renderJob->maxs.y));
-	const float texMinX = dataFloat(renderJob->texMins.x);
-	const float texMinY = dataFloat(renderJob->texMins.y);
-	const float texMaxX = dataFloat(renderJob->texMaxs.x);
-	const float texMaxY = dataFloat(renderJob->texMaxs.y);
+	const __m128 mins = _mm_unpacklo_ps(dataScalar(job->boundsMinOffsets.x), dataScalar(job->boundsMinOffsets.y));
+	const __m128 maxs = _mm_unpacklo_ps(dataScalar(job->boundsMaxOffsets.x), dataScalar(job->boundsMaxOffsets.y));
+	const float texMinX = dataFloat(job->uvMinOffsets.x);
+	const float texMinY = dataFloat(job->uvMinOffsets.y);
+	const float texMaxX = dataFloat(job->uvMaxOffsets.x);
+	const float texMaxY = dataFloat(job->uvMaxOffsets.y);
 	const __m128 texMins = _mm_setr_ps(texMinX, texMinY, texMinX, texMinY);
 	const __m128 texMaxs = _mm_setr_ps(texMaxX, texMaxY, texMaxX, texMaxY);
-	const float stretchX = dataFloat(style.stretchXOffset);
+	const float stretchX = dataFloat(style.stretchX);
 
-	const __m128 transformSize = ruiData->v1->transformSizes[transformIndex];
+	const __m128 transformSize = rui->runtime->transformSizes[transformIndex];
 	const float transformWidth = transformSize.m128_f32[0];
 	const float transformHeight = transformSize.m128_f32[2];
 	const float minimumTransformExtent = _mm_cvtss_f32(_mm_min_ss(_mm_set_ss(transformWidth), _mm_set_ss(transformHeight)));
 	if (minimumTransformExtent <= 0.0f)
-		return;
+		return true;
 
-	uiImageAtlas* imageAtlas = &rpakUIMGAtlases[asset.atlasIndex];
-	if (!sub_FC0C0(batch, imageAtlas))
-		return;
+	RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[asset.atlasIndex];
+	if (!s_BindImageAtlas(batch, imageAtlas))
+		return false;
 
-	const uint8_t* textureRecord = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets) + 32LL * assetIndex;
+	const RuiImageAtlasEntry& textureRecord = imageAtlas->images[assetIndex];
 
-	const __m128 textureExtent = _mm_max_ps(_mm_sub_ps(texMaxs, texMins), xmmword_5F3F30);
+	const __m128 textureExtent = _mm_max_ps(_mm_sub_ps(texMaxs, texMins), g_RuiFloatMinNormal);
 	const unsigned int axisMaskIndex = (static_cast<uint16_t>(combinedFlags) >> 4) & 3;
-	const __m128 axisMask = xmmword_12A4E830[axisMaskIndex];
+	const __m128 axisMask = g_RuiEllipseAxisMasks[axisMaskIndex];
 	const float stretchCorrectionX = ((transformHeight * stretchX) * (texMaxX - texMinX)) / transformWidth;
 	const float stretchCorrectionY = (texMaxY - texMinY) * stretchX;
 	const __m128 stretchCorrection = _mm_setr_ps(stretchCorrectionX, stretchCorrectionY, stretchCorrectionX, stretchCorrectionY);
 
-	const __m128 textureBounds = _mm_loadu_ps(reinterpret_cast<const float*>(textureRecord));
+	const __m128 textureBounds = _mm_loadu_ps(textureRecord.bounds);
 	const __m128 normalizedTextureBounds = _mm_div_ps(
 		_mm_add_ps(
-			_mm_sub_ps(textureBounds, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), xmmword_5F3E20)),
+			_mm_sub_ps(textureBounds, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), g_RuiSignMaskLowHalf)),
 			stretchCorrection),
 		_mm_or_ps(
-			_mm_and_ps(_mm_andnot_ps(xmmword_5F3DD0, textureExtent), axisMask),
-			_mm_andnot_ps(axisMask, xmmword_5F3E90)));
-	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureBounds, xmmword_5F3F60)) != 0)
-		return;
+			_mm_and_ps(_mm_andnot_ps(g_RuiSignMaskAll, textureExtent), axisMask),
+			_mm_andnot_ps(axisMask, g_RuiFloatOne)));
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureBounds, g_RuiFloatAbsMask)) != 0)
+		return true;
 
-	const __m128 requestedBounds = _mm_movelh_ps(_mm_xor_ps(mins, xmmword_5F3DD0), maxs);
+	const __m128 requestedBounds = _mm_movelh_ps(_mm_xor_ps(mins, g_RuiSignMaskAll), maxs);
 	const __m128 clippedBounds = _mm_xor_ps(
 		_mm_min_ps(
 			requestedBounds,
 			normalizedTextureBounds),
-		xmmword_5F3E20);
+		g_RuiSignMaskLowHalf);
 	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_PS(clippedBounds, 238), RUI_SHUFFLE_PS(clippedBounds, 68))) != 0)
-		return;
+		return true;
 
-	ruiBaseUvStruct uv;
-	uv.assetIndex = assetIndex;
-	uv.assetIndex2 = -1;
-	uv.styleDescriptorIndex = static_cast<int16_t>(static_cast<uint16_t>(batch->styleDescriptorIndex) + styleIndex);
+	RuiBaseUv uv;
+	uv.imageIndex = assetIndex;
+	uv.maskImageIndex = -1;
+	uv.computedStyleIndex = static_cast<int16_t>(static_cast<uint16_t>(batch->computedStyleCount) + styleIndex);
 	uv.flags = combinedFlags;
-	std::memset(&uv.base2, 0, 48);
+	std::memset(&uv.secondaryBasisX, 0, sizeof(uv.secondaryBasisX) * 3);
 
-	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord + 24)));
+	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord.uvScale)));
 	const __m128 textureBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, textureExtent), textureScale);
-	const __m128 ellipseBasis = _mm_mul_ps(inverseBasis, xmmword_5F3E80);
+	const __m128 ellipseBasis = _mm_mul_ps(inverseBasis, g_RuiFloatTwo);
 	const __m128 textureBase = _mm_add_ps(
 		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(originSum, textureExtent), texMins), textureScale),
-		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord + 16))));
-	const __m128 ellipseBase = _mm_sub_ps(_mm_mul_ps(originSum, xmmword_5F3E80), xmmword_5F3E90);
-	uv.base = _mm_movelh_ps(textureBasis, ellipseBasis);
-	uv.xDir = _mm_movehl_ps(ellipseBasis, textureBasis);
-	uv.yDir = _mm_movelh_ps(textureBase, ellipseBase);
+		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord.uvBase))));
+	const __m128 ellipseBase = _mm_sub_ps(_mm_mul_ps(originSum, g_RuiFloatTwo), g_RuiFloatOne);
+	uv.primaryBasisX = _mm_movelh_ps(textureBasis, ellipseBasis);
+	uv.primaryBasisY = _mm_movehl_ps(ellipseBasis, textureBasis);
+	uv.primaryOrigin = _mm_movelh_ps(textureBase, ellipseBase);
 
 	const __m128 packedYBounds = RUI_SHUFFLE_PS(clippedBounds, 125);
 	const __m128 packedXBounds = RUI_SHUFFLE_PS(clippedBounds, 160);
@@ -2183,14 +2083,14 @@ void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
 		vertices1 = RUI_SHUFFLE_PS(vertices1, 78);
 	}
 
-	ruiDrawTriangle triangle;
-	triangle.size = 4;
-	triangle.size_ = 4;
-	_mm_storeu_ps(&triangle.vert[0][0], vertices0);
-	_mm_storeu_ps(&triangle.vert[1][0], vertices1);
+	RuiDrawQuad triangle;
+	triangle.vertexCount = 4;
+	triangle.vertexCapacity = 4;
+	_mm_storeu_ps(&triangle.positions[0][0], vertices0);
+	_mm_storeu_ps(&triangle.positions[1][0], vertices1);
 
-	ruiDrawInfoDataWeapon* drawInfo = ruiData->pvoid_38;
-	ruiDrawInfo_5f4560[drawInfo->type](
+	RuiDrawInfo* drawInfo = rui->drawInfo;
+	return g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
 		drawInfo,
 		&uv,
 		&triangle,
@@ -2198,23 +2098,23 @@ void __fastcall ruiRenderAssetElipse_F7A80_rebuild(
 }
 
 
-void __fastcall ruiRenderAsset_F72F0_rebuild(
-	globals** globals,
-	ruiDataStruct* ruiData,
-	AssetRenderOffsets* assetElement,
-	struct_v3* batch)
+bool __fastcall RuiRenderImageJob(
+	RuiRenderContext* context,
+	RuiInstance* rui,
+	const RuiImageRenderJob* job,
+	RuiDrawBatch* batch)
 {
-	const __int16 styleIndex = assetElement->styleIndex;
-	styleDescriptorsStruct* styleOffsets = &ruiData->header->styleDescriptors[styleIndex];
+	const __int16 styleIndex = job->styleIndex;
+	const RuiStyleDescriptorOffsets* styleOffsets = &rui->header->styleDescriptors[styleIndex];
 
 	auto dataFloat = [&](int offset) -> float
 	{
-		return *reinterpret_cast<const float*>(&ruiData->dataValues[offset]);
+		return *reinterpret_cast<const float*>(&rui->data[offset]);
 	};
 
 	auto dataInt = [&](int offset) -> int
 	{
-		return *reinterpret_cast<const int*>(&ruiData->dataValues[offset]);
+		return *reinterpret_cast<const int*>(&rui->data[offset]);
 	};
 
 	auto dataScalar = [&](int offset) -> __m128
@@ -2222,85 +2122,82 @@ void __fastcall ruiRenderAsset_F72F0_rebuild(
 		return _mm_set_ss(dataFloat(offset));
 	};
 
-	if (dataFloat(styleOffsets->color_alpha) <= 0.0f)
-		return;
+	if (dataFloat(styleOffsets->colorAlpha) <= 0.0f)
+		return true;
 
-	testStruct* transform = &ruiData->v1->m128_3A80[assetElement->transformIndex];
-	const __m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
-	const __m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
+	const RuiTransform* transform = &rui->runtime->transforms[job->transformIndex];
+	const __m128 transformRow0 = transform->rows[0];
+	const __m128 transformRow1 = transform->rows[1];
 	const __m128 determinant = _mm_sub_ps(
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(3, 3, 3, 3)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(0, 0, 0, 0))),
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(2, 2, 2, 2)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(1, 1, 1, 1))));
 	if (_mm_movemask_ps(_mm_cmpeq_ps(_mm_setzero_ps(), determinant)) != 0)
-		return;
+		return true;
 
-	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), g_RuiSignMaskMiddleLanes), determinant);
 	const int orientation = _mm_movemask_ps(determinant) & 2;
-	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, xmmword_5F3DD0), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, g_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
-	const int primaryAssetDescriptorIndex = dataInt(assetElement->assetIndex_0);
+	const int primaryAssetDescriptorIndex = dataInt(job->imageOffset);
 	if (primaryAssetDescriptorIndex == -1)
-		return;
+		return true;
 
-	const auto* primaryAsset = &unk_12A2E508[primaryAssetDescriptorIndex];
-	const __int64 primaryNameHash = reinterpret_cast<__int64>(primaryAsset);
+	const auto* primaryAsset = &g_RuiImageDescriptors[primaryAssetDescriptorIndex];
 	const uint8_t atlasIndex = primaryAsset->atlasIndex;
-	const __int16 assetIndex = primaryAsset->assetIndex;
+	const __int16 assetIndex = primaryAsset->imageIndex;
 	__int16 secondaryAssetIndex = -1;
-	__int16 flags = assetElement->flags | static_cast<uint8_t>(primaryAsset->flags);
+	__int16 flags = job->flags | static_cast<uint8_t>(primaryAsset->flags);
 
-	const int secondaryAssetDescriptorIndex = dataInt(assetElement->assetIndex_1);
+	const int secondaryAssetDescriptorIndex = dataInt(job->maskImageOffset);
 	if (secondaryAssetDescriptorIndex != -1)
 	{
-		const auto* secondaryAsset = &unk_12A2E508[secondaryAssetDescriptorIndex];
+		const auto* secondaryAsset = &g_RuiImageDescriptors[secondaryAssetDescriptorIndex];
 		if (atlasIndex != secondaryAsset->atlasIndex)
-			return;
+			return true;
 
-		secondaryAssetIndex = secondaryAsset->assetIndex;
+		secondaryAssetIndex = secondaryAsset->imageIndex;
 		flags |= static_cast<__int16>(4 * static_cast<uint8_t>(secondaryAsset->flags));
 	}
 
-	uiImageAtlas* imageAtlas = reinterpret_cast<uiImageAtlas*>(
-		reinterpret_cast<uint8_t*>(rpakUIMGAtlases) + 72ULL * atlasIndex);
-	const uint8_t* textureOffsets = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets);
-	const uint8_t* primaryTextureRecord = textureOffsets + 32ULL * static_cast<uint16_t>(assetIndex);
+	RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[atlasIndex];
+	const RuiImageAtlasEntry& primaryTextureRecord = imageAtlas->images[static_cast<uint16_t>(assetIndex)];
 
-	const __m128 mins = _mm_unpacklo_ps(dataScalar(assetElement->mins.x), dataScalar(assetElement->mins.y));
-	const __m128 maxs = _mm_unpacklo_ps(dataScalar(assetElement->maxs.x), dataScalar(assetElement->maxs.y));
-	const __m128 texMinsLo = _mm_unpacklo_ps(dataScalar(assetElement->texMins.x), dataScalar(assetElement->texMins.y));
+	const __m128 mins = _mm_unpacklo_ps(dataScalar(job->boundsMinOffsets.x), dataScalar(job->boundsMinOffsets.y));
+	const __m128 maxs = _mm_unpacklo_ps(dataScalar(job->boundsMaxOffsets.x), dataScalar(job->boundsMaxOffsets.y));
+	const __m128 texMinsLo = _mm_unpacklo_ps(dataScalar(job->uvMinOffsets.x), dataScalar(job->uvMinOffsets.y));
 	__m128 texMins = _mm_movelh_ps(texMinsLo, texMinsLo);
-	const __m128 texMaxsLo = _mm_unpacklo_ps(dataScalar(assetElement->texMaxs.x), dataScalar(assetElement->texMaxs.y));
+	const __m128 texMaxsLo = _mm_unpacklo_ps(dataScalar(job->uvMaxOffsets.x), dataScalar(job->uvMaxOffsets.y));
 	__m128 texMaxs = _mm_movelh_ps(texMaxsLo, texMaxsLo);
-	__m128 geometryBounds = _mm_movelh_ps(_mm_xor_ps(xmmword_5F3DD0, mins), maxs);
+	__m128 geometryBounds = _mm_movelh_ps(_mm_xor_ps(g_RuiSignMaskAll, mins), maxs);
 	__m128 textureExtent = _mm_sub_ps(texMaxs, texMins);
 
-	const __m128 axisMask = xmmword_12A4E830[((static_cast<__int64>(flags) >> 4) & 3)];
-	const __m128 primaryTextureOffset = _mm_loadu_ps(reinterpret_cast<const float*>(primaryTextureRecord));
+	const __m128 axisMask = g_RuiEllipseAxisMasks[((static_cast<__int64>(flags) >> 4) & 3)];
+	const __m128 primaryTextureOffset = _mm_loadu_ps(primaryTextureRecord.bounds);
 	const __m128 normalizedTextureOffset = _mm_div_ps(
-		_mm_sub_ps(primaryTextureOffset, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), xmmword_5F3E20)),
+		_mm_sub_ps(primaryTextureOffset, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), g_RuiSignMaskLowHalf)),
 		_mm_or_ps(
-			_mm_and_ps(_mm_andnot_ps(xmmword_5F3DD0, textureExtent), axisMask),
-			_mm_andnot_ps(axisMask, xmmword_5F3E90)));
-	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureOffset, xmmword_5F3F60)) != 0)
-		return;
+			_mm_and_ps(_mm_andnot_ps(g_RuiSignMaskAll, textureExtent), axisMask),
+			_mm_andnot_ps(axisMask, g_RuiFloatOne)));
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureOffset, g_RuiFloatAbsMask)) != 0)
+		return true;
 
-	__m128i atlasUv = _mm_castps_si128(_mm_xor_ps(_mm_min_ps(geometryBounds, normalizedTextureOffset), xmmword_5F3E20));
+	__m128i atlasUv = _mm_castps_si128(_mm_xor_ps(_mm_min_ps(geometryBounds, normalizedTextureOffset), g_RuiSignMaskLowHalf));
 	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_I32_AS_PS(atlasUv, 238), RUI_SHUFFLE_I32_AS_PS(atlasUv, 68))) != 0)
-		return;
+		return true;
 
-	ruiBaseUvStruct baseUv;
-	baseUv.assetIndex = assetIndex;
-	baseUv.assetIndex2 = secondaryAssetIndex;
+	RuiBaseUv baseUv;
+	baseUv.imageIndex = assetIndex;
+	baseUv.maskImageIndex = secondaryAssetIndex;
 	baseUv.flags = flags;
-	baseUv.styleDescriptorIndex = static_cast<__int16>(styleIndex + batch->styleDescriptorIndex);
+	baseUv.computedStyleIndex = static_cast<__int16>(styleIndex + batch->computedStyleCount);
 
 	const __m128 texturePosition = _mm_add_ps(_mm_mul_ps(originSum, textureExtent), texMins);
-	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(primaryTextureRecord + 24)));
+	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(primaryTextureRecord.uvScale)));
 	const __m128 basisExtent = _mm_mul_ps(inverseBasis, textureExtent);
 	const __m128 primaryBase = _mm_add_ps(
 		_mm_mul_ps(textureScale, texturePosition),
-		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(primaryTextureRecord + 16))));
+		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(primaryTextureRecord.uvBase))));
 	const __m128 primaryBasis = _mm_mul_ps(textureScale, basisExtent);
 
 	__m128 maskBase = _mm_setzero_ps();
@@ -2308,9 +2205,9 @@ void __fastcall ruiRenderAsset_F72F0_rebuild(
 	if (secondaryAssetIndex == -1)
 	{
 		const __m128 minXy = RUI_SHUFFLE_PS(mins, 68);
-		const __m128 spanXy = _mm_max_ps(xmmword_5F3F30, _mm_sub_ps(RUI_SHUFFLE_PS(maxs, 68), minXy));
+		const __m128 spanXy = _mm_max_ps(g_RuiFloatMinNormal, _mm_sub_ps(RUI_SHUFFLE_PS(maxs, 68), minXy));
 		const __m128 spanReciprocal = _mm_rcp_ps(spanXy);
-		const __m128 spanError = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(spanReciprocal, spanXy));
+		const __m128 spanError = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(spanReciprocal, spanXy));
 		const __m128 refinedSpanReciprocal = _mm_add_ps(
 			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(spanError, spanError), spanError), spanReciprocal),
 			spanReciprocal);
@@ -2320,24 +2217,24 @@ void __fastcall ruiRenderAsset_F72F0_rebuild(
 	}
 	else
 	{
-		const uint8_t* secondaryTextureRecord = textureOffsets + 32ULL * static_cast<uint16_t>(secondaryAssetIndex);
-		const __m128 maskRotation = dataScalar(assetElement->maskRotation);
-		const __m128 maskCenter = _mm_unpacklo_ps(dataScalar(assetElement->maskCenter.x), dataScalar(assetElement->maskCenter.y));
-		const __m128 maskSize = _mm_unpacklo_ps(dataScalar(assetElement->maskSize.x), dataScalar(assetElement->maskSize.y));
-		const __m128 maskTranslate = _mm_unpacklo_ps(dataScalar(assetElement->maskTranslate.x), dataScalar(assetElement->maskTranslate.y));
+		const RuiImageAtlasEntry& secondaryTextureRecord = imageAtlas->images[static_cast<uint16_t>(secondaryAssetIndex)];
+		const __m128 maskRotation = dataScalar(job->maskRotationOffset);
+		const __m128 maskCenter = _mm_unpacklo_ps(dataScalar(job->maskCenterOffsets.x), dataScalar(job->maskCenterOffsets.y));
+		const __m128 maskSize = _mm_unpacklo_ps(dataScalar(job->maskScaleOffsets.x), dataScalar(job->maskScaleOffsets.y));
+		const __m128 maskTranslate = _mm_unpacklo_ps(dataScalar(job->maskTranslationOffsets.x), dataScalar(job->maskTranslationOffsets.y));
 
 		const __m128 rotationTurns = _mm_mul_ps(
-			_mm_add_ps(_mm_xor_ps(RUI_SHUFFLE_PS(maskRotation, 0), xmmword_5F3E00), xmmword_5F45D0),
-			xmmword_5F34C0);
+			_mm_add_ps(_mm_xor_ps(RUI_SHUFFLE_PS(maskRotation, 0), g_RuiSignMaskLane2), g_RuiQuarterEndpoints),
+			g_RuiFloatFour);
 		const __m128i rotationQuadrant = _mm_cvtps_epi32(rotationTurns);
 		const __m128 quadrantIsEven = _mm_castsi128_ps(_mm_cmpeq_epi32(
-			_mm_and_si128(_mm_castps_si128(xmmword_5F3460), rotationQuadrant),
+			_mm_and_si128(_mm_castps_si128(g_RuiIntOne), rotationQuadrant),
 			_mm_setzero_si128()));
 		const __m128 rotationFraction = _mm_sub_ps(rotationTurns, _mm_cvtepi32_ps(rotationQuadrant));
 		const __m128 fractionSq = _mm_mul_ps(rotationFraction, rotationFraction);
 
 		const __m128 cosApprox = _mm_sub_ps(
-			xmmword_5F3E90,
+			g_RuiFloatOne,
 			_mm_sub_ps(
 				fractionSq,
 				_mm_mul_ps(
@@ -2345,11 +2242,11 @@ void __fastcall ruiRenderAsset_F72F0_rebuild(
 						_mm_mul_ps(
 							_mm_add_ps(
 								_mm_mul_ps(
-									_mm_add_ps(_mm_mul_ps(xmmword_5F3470, fractionSq), xmmword_5F34F0),
+									_mm_add_ps(_mm_mul_ps(g_RuiCosApproxCoeff3, fractionSq), g_RuiCosApproxCoeff2),
 									fractionSq),
-								xmmword_5F34A0),
+								g_RuiCosApproxCoeff1),
 							fractionSq),
-						xmmword_5F3500),
+						g_RuiCosApproxCoeff0),
 					fractionSq)));
 		const __m128 sinApprox = _mm_add_ps(
 			_mm_mul_ps(
@@ -2357,21 +2254,21 @@ void __fastcall ruiRenderAsset_F72F0_rebuild(
 					_mm_mul_ps(
 						_mm_add_ps(
 							_mm_mul_ps(
-								_mm_add_ps(_mm_mul_ps(xmmword_5F34E0, fractionSq), xmmword_5F3490),
+								_mm_add_ps(_mm_mul_ps(g_RuiSinApproxCoeff3, fractionSq), g_RuiSinApproxCoeff2),
 								fractionSq),
-							xmmword_5F3510),
+							g_RuiSinApproxCoeff1),
 						fractionSq),
-					xmmword_5F34B0),
+					g_RuiSinApproxCoeff0),
 				rotationFraction),
 			rotationFraction);
 		const __m128 quadrantSign = _mm_castsi128_ps(_mm_slli_epi32(
-			_mm_and_si128(_mm_castps_si128(xmmword_5CB2A0), rotationQuadrant),
+			_mm_and_si128(_mm_castps_si128(g_RuiIntTwo), rotationQuadrant),
 			0x1E));
 		const __m128 rotationBasis = _mm_mul_ps(
 			_mm_xor_ps(_mm_or_ps(_mm_andnot_ps(quadrantIsEven, cosApprox), _mm_and_ps(sinApprox, quadrantIsEven)), quadrantSign),
 			_mm_movelh_ps(maskSize, maskSize));
 
-		const __m128 maskTextureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(secondaryTextureRecord + 24)));
+		const __m128 maskTextureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(secondaryTextureRecord.uvScale)));
 		const __m128 maskTextureCenter = _mm_add_ps(_mm_mul_ps(_mm_movelh_ps(maskCenter, maskCenter), textureExtent), texMins);
 		const __m128 rotatedPosition = _mm_mul_ps(RUI_SHUFFLE_PS(_mm_sub_ps(texturePosition, maskTextureCenter), 216), rotationBasis);
 		const __m128 maskTexturePosition = _mm_mul_ps(
@@ -2382,94 +2279,91 @@ void __fastcall ruiRenderAsset_F72F0_rebuild(
 				_mm_mul_ps(RUI_SHUFFLE_PS(rotationBasis, 78), RUI_SHUFFLE_PS(basisExtent, 165)),
 				_mm_mul_ps(RUI_SHUFFLE_PS(basisExtent, 240), rotationBasis)),
 			maskTextureScale);
-		maskBase = _mm_add_ps(maskTexturePosition, _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(secondaryTextureRecord + 16))));
+		maskBase = _mm_add_ps(maskTexturePosition, _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(secondaryTextureRecord.uvBase))));
 	}
 
 	const __m128 zero = _mm_setzero_ps();
-	baseUv.base = _mm_movelh_ps(primaryBasis, maskBasis);
-	baseUv.yDir2 = zero;
-	baseUv.yDir = _mm_movelh_ps(primaryBase, maskBase);
-	baseUv.xDir = _mm_movehl_ps(maskBasis, primaryBasis);
-	baseUv.base2 = zero;
-	baseUv.xDir2 = zero;
+	baseUv.primaryBasisX = _mm_movelh_ps(primaryBasis, maskBasis);
+	baseUv.secondaryOrigin = zero;
+	baseUv.primaryOrigin = _mm_movelh_ps(primaryBase, maskBase);
+	baseUv.primaryBasisY = _mm_movehl_ps(maskBasis, primaryBasis);
+	baseUv.secondaryBasisX = zero;
+	baseUv.secondaryBasisY = zero;
 
-	sub_F9B80_rebuild(
-		*globals,
-		ruiData,
+	return RuiDrawImageAtlasEntry(
+		context->globals,
+		rui,
 		batch,
 		&baseUv,
-		reinterpret_cast<__m128*>(transform),
+		transform,
 		orientation,
-		primaryNameHash,
+		primaryAsset,
 		&atlasUv,
 		&geometryBounds,
 		&texMins,
 		&textureExtent);
-};
+}
 
-DECLARE_HOOK(renderAsset_F72F0, engine.dll + 0xF72F0, [](auto& hook, globals** a1, ruiDataStruct* a2, AssetRenderOffsets* a3, struct_v3* a4)
+DECLARE_HOOK(RuiRenderImageJob, engine.dll + 0xF72F0, [](auto& hook, RuiRenderContext* context, RuiInstance* rui, const RuiImageRenderJob* job, RuiDrawBatch* batch) -> bool
 	{
-		ruiRenderAsset_F72F0_rebuild(a1, a2, a3, a4);
-		//hook.Original(a1, a2, a3, a4);
+		return RuiRenderImageJob(context, rui, job, batch);
 	});
 
 DECLARE_HOOK(
-	ruiUnknown9Func_2,
+	RuiRenderEllipseJob,
 	engine.dll + 0xF7A80,
-	[](auto& hook, globals** a1, ruiDataStruct* a2, EllipseRenderJobOffsets* a3, struct_v3* a4)
+	[](auto& hook, RuiRenderContext* context, RuiInstance* rui, const RuiEllipseRenderJob* job, RuiDrawBatch* batch) -> bool
 	{
-		(void)hook;
-		ruiRenderAssetElipse_F7A80_rebuild(a1, a2, a3, a4);
+		return RuiRenderEllipseJob(context, rui, job, batch);
 	});
 
 
-int __fastcall renderText_F5840_rebuild(
-	ruiRenderList* renderList,
-	ruiDataStruct* ruiData,
-	const TextRenderJobOffsets* textJob,
-	struct_v3* batch)
+bool __fastcall RuiRenderTextJob(
+	RuiRenderContext* context,
+	RuiInstance* rui,
+	const RuiTextRenderJob* job,
+	RuiDrawBatch* batch)
 {
-	struct_v1* runtime = ruiData->v1;
-	const __int64 transformIndex = textJob->transformIndex;
+	RuiRuntimeState* runtime = rui->runtime;
+	const __int64 transformIndex = job->transformIndex;
 	const __m128 transformSize = runtime->transformSizes[transformIndex];
 	if (_mm_movemask_ps(_mm_cmpeq_ps(_mm_setzero_ps(), transformSize)) != 0)
-		return 1;
+		return true;
 
-	testStruct* transform = &runtime->m128_3A80[transformIndex];
-	__m128* transformRows = reinterpret_cast<__m128*>(transform);
-	__m128 transformRow0 = _mm_castsi128_ps(transform->m128_0);
-	__m128 transformRow1 = _mm_castsi128_ps(transform->m128_10);
+	const RuiTransform* transform = &runtime->transforms[transformIndex];
+	const __m128 transformRow0 = transform->rows[0];
+	const __m128 transformRow1 = transform->rows[1];
 	const __m128 determinant = _mm_sub_ps(
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(3, 3, 3, 3)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(0, 0, 0, 0))),
 		_mm_mul_ps(RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(2, 2, 2, 2)), RUI_SHUFFLE_PS(transformRow0, _MM_SHUFFLE(1, 1, 1, 1))));
 	if (_mm_movemask_ps(_mm_cmpeq_ps(determinant, _mm_setzero_ps())) != 0)
-		return 1;
+		return true;
 
-	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), xmmword_5F3E50), determinant);
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), g_RuiSignMaskMiddleLanes), determinant);
 	const int orientation = _mm_movemask_ps(determinant) & 2;
-	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, xmmword_5F3DD0), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, g_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
-	ruiHeader* header = ruiData->header;
-	styleDescriptorsStruct* descriptors = header->styleDescriptors;
-	styleDescriptorsStruct* textStyles[4] = {
-		&descriptors[textJob->styleDescriptorIndices[0]],
-		&descriptors[textJob->styleDescriptorIndices[1]],
-		&descriptors[textJob->styleDescriptorIndices[2]],
-		&descriptors[textJob->styleDescriptorIndices[3]],
+	RuiHeader* header = rui->header;
+	RuiStyleDescriptorOffsets* descriptors = header->styleDescriptors;
+	RuiStyleDescriptorOffsets* textStyles[4] = {
+		&descriptors[job->styleIndices[0]],
+		&descriptors[job->styleIndices[1]],
+		&descriptors[job->styleIndices[2]],
+		&descriptors[job->styleIndices[3]],
 	};
 
 	auto dataFloat = [&](uint16_t offset) -> float
 	{
 		float value;
-		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		std::memcpy(&value, &rui->data[offset], sizeof(value));
 		return value;
 	};
 
 	auto dataText = [&](uint16_t offset) -> char*
 	{
 		char* value;
-		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		std::memcpy(&value, &rui->data[offset], sizeof(value));
 		return value;
 	};
 
@@ -2486,137 +2380,134 @@ int __fastcall renderText_F5840_rebuild(
 	auto refineReciprocal = [](__m128 value) -> __m128
 	{
 		const __m128 reciprocal = _mm_rcp_ps(value);
-		const __m128 error = _mm_sub_ps(xmmword_5F3E90, _mm_mul_ps(reciprocal, value));
+		const __m128 error = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(reciprocal, value));
 		return _mm_add_ps(
 			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(error, error), error), reciprocal),
 			reciprocal);
 	};
 
-	rpakFont* fonts[4] = {
-		rpakFontPointers[textStyles[0]->fontIndex],
-		rpakFontPointers[textStyles[1]->fontIndex],
-		rpakFontPointers[textStyles[2]->fontIndex],
-		rpakFontPointers[textStyles[3]->fontIndex],
+	RuiFont* fonts[4] = {
+		g_RuiFonts[textStyles[0]->fontIndex],
+		g_RuiFonts[textStyles[1]->fontIndex],
+		g_RuiFonts[textStyles[2]->fontIndex],
+		g_RuiFonts[textStyles[3]->fontIndex],
 	};
 
 	const __m128 refinedTransformSizeReciprocal = refineReciprocal(transformSize);
 
 	auto styleTextWidth = [&](int styleIndex) -> float
 	{
-		return dataFloat(textStyles[styleIndex]->textSize) * fonts[styleIndex]->unk_24[0]
-			- dataFloat(textStyles[styleIndex]->uint16_32);
+		return dataFloat(textStyles[styleIndex]->textSize) * fonts[styleIndex]->verticalMetrics[0]
+			- dataFloat(textStyles[styleIndex]->unknown32);
 	};
 
 	const float maximumStyleWidth = maxScalar(
 		maxScalar(styleTextWidth(0), styleTextWidth(1)),
 		maxScalar(styleTextWidth(2), styleTextWidth(3)));
 	float lineY = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * maximumStyleWidth;
-	const float lineSpacing = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * dataFloat(textJob->lineSpacing);
-	const float horizontalAlignScale = refinedTransformSizeReciprocal.m128_f32[0] * dataFloat(textJob->horizontalAlignScale);
+	const float lineSpacing = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255).m128_f32[0] * dataFloat(job->lineSpacingOffset);
+	const float horizontalAlignScale = refinedTransformSizeReciprocal.m128_f32[0] * dataFloat(job->horizontalAlignmentOffset);
 
-	const uint32_t renderJobAddress = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(textJob));
-	const uint32_t renderJobsAddress = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(header->renderJobs));
-	const uint32_t renderJobIndex = (renderJobAddress - renderJobsAddress) >> 4;
-	const unknown2& runtimeJob = runtime->unk2[renderJobIndex];
+	const size_t renderJobIndex =
+		static_cast<size_t>(reinterpret_cast<const uint8_t*>(job) - header->renderJobs) >> 4;
+	const RuiRenderJobState& runtimeJob = runtime->renderJobStates[renderJobIndex];
 
-	// Inline image spans are stored in runtime->gap_28D0 and are rendered before the text glyph pass.
-	const uint8_t inlineImageBegin = runtimeJob.byte_6;
-	const uint8_t inlineImageCount = runtimeJob.byte_7;
+	// Inline image spans are stored in runtime->inlineImages and are rendered before the text glyph pass.
+	const uint8_t inlineImageBegin = runtimeJob.firstInlineImage;
+	const uint8_t inlineImageCount = runtimeJob.inlineImageCount;
 	if (inlineImageCount)
 	{
 		const __m128 scaledTransformSize = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 216);
 		const __m128 lineOffsetVector = RUI_SHUFFLE_PS(_mm_set_ss(lineY), 17);
-		__m128 clipUnit = xmmword_5F4600;
+		__m128 clipUnit = g_RuiHighHalfOne;
 
 		const uint32_t inlineImageEnd = static_cast<uint32_t>(inlineImageBegin) + inlineImageCount;
 		for (uint32_t inlineImageIndex = inlineImageBegin; inlineImageIndex != inlineImageEnd; ++inlineImageIndex)
 		{
-			const auto* inlineImage = reinterpret_cast<const TextInlineImageSpan*>(
-				&runtime->gap_28D0[sizeof(TextInlineImageSpan) * inlineImageIndex]);
-			const auto* assetDescriptor = &unk_12A2E508[inlineImage->assetLookupIndex];
-			const __int16 assetIndex = assetDescriptor->assetIndex;
-			const __int64 nameHash = reinterpret_cast<__int64>(assetDescriptor);
-			uiImageAtlas* imageAtlas = &rpakUIMGAtlases[assetDescriptor->atlasIndex];
+			const RuiInlineImageSpan* inlineImage = &runtime->inlineImages[inlineImageIndex];
+			const auto* assetDescriptor = &g_RuiImageDescriptors[inlineImage->descriptorIndex];
+			const __int16 assetIndex = assetDescriptor->imageIndex;
+			RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[assetDescriptor->atlasIndex];
 
-			const uint8_t* textureRecord = reinterpret_cast<const uint8_t*>(imageAtlas->textureOffsets) + 32LL * assetIndex;
+			const RuiImageAtlasEntry& textureRecord = imageAtlas->images[assetIndex];
 
 			const __m128 imageMin = _mm_mul_ps(
-				_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(inlineImage->mins))),
+				_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(inlineImage->boundsMin))),
 				scaledTransformSize);
 			const __m128 imageExtent = _mm_sub_ps(
 				_mm_mul_ps(
-					_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(inlineImage->maxs))),
+					_mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(inlineImage->boundsMax))),
 					scaledTransformSize),
 				imageMin);
 			const __m128 imageBase = _mm_add_ps(lineOffsetVector, imageMin);
 			const __m128 refinedImageExtentReciprocal = refineReciprocal(imageExtent);
 
-			const __m128 textureOffset = _mm_loadu_ps(reinterpret_cast<const float*>(textureRecord));
-			const __m128 atlasUv = _mm_add_ps(_mm_mul_ps(_mm_xor_ps(textureOffset, xmmword_5F3E20), imageExtent), imageBase);
-			const __m128 atlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord + 24)));
-			const __m128 inlineMaskBase = _mm_xor_ps(_mm_mul_ps(refinedImageExtentReciprocal, imageBase), xmmword_5F3DD0);
+			const __m128 textureOffset = _mm_loadu_ps(textureRecord.bounds);
+			const __m128 atlasUv = _mm_add_ps(_mm_mul_ps(_mm_xor_ps(textureOffset, g_RuiSignMaskLowHalf), imageExtent), imageBase);
+			const __m128 atlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord.uvScale)));
+			const __m128 inlineMaskBase = _mm_xor_ps(_mm_mul_ps(refinedImageExtentReciprocal, imageBase), g_RuiSignMaskAll);
 			const __m128 inlineMaskTransform = _mm_mul_ps(_mm_mul_ps(_mm_sub_ps(originSum, imageBase), refinedImageExtentReciprocal), atlasScale);
 			const __m128 inlineMaskBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, refinedImageExtentReciprocal), atlasScale);
 
-			ruiBaseUvStruct imageUv{};
-			imageUv.assetIndex = assetIndex;
-			imageUv.assetIndex2 = -1;
-			imageUv.styleDescriptorIndex = static_cast<__int16>(
-				batch->styleDescriptorIndex + textJob->styleDescriptorIndices[inlineImage->styleSelector]);
+			RuiBaseUv imageUv{};
+			imageUv.imageIndex = assetIndex;
+			imageUv.maskImageIndex = -1;
+			imageUv.computedStyleIndex = static_cast<__int16>(
+				batch->computedStyleCount + job->styleIndices[inlineImage->styleIndex]);
 			imageUv.flags = 7936;
-			imageUv.yDir = _mm_add_ps(inlineMaskTransform, _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord + 16))));
-			imageUv.base = RUI_SHUFFLE_PS(_mm_castsi128_ps(_mm_castps_si128(inlineMaskBasis)), 68);
-			imageUv.xDir = RUI_SHUFFLE_PS(_mm_castsi128_ps(_mm_castps_si128(inlineMaskBasis)), 238);
-			memset(&imageUv.base2, 0, 48);
+			imageUv.primaryOrigin = _mm_add_ps(inlineMaskTransform, _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord.uvBase))));
+			imageUv.primaryBasisX = RUI_SHUFFLE_PS(_mm_castsi128_ps(_mm_castps_si128(inlineMaskBasis)), 68);
+			imageUv.primaryBasisY = RUI_SHUFFLE_PS(_mm_castsi128_ps(_mm_castps_si128(inlineMaskBasis)), 238);
+			std::memset(&imageUv.secondaryBasisX, 0, sizeof(imageUv.secondaryBasisX) * 3);
 
-			if (!sub_F9B80(
-					reinterpret_cast<__int64>(renderList->globals),
-					reinterpret_cast<__int64>(ruiData),
-					reinterpret_cast<_QWORD*>(batch),
-					reinterpret_cast<__m128*>(&imageUv),
-					reinterpret_cast<const __m128i*>(transformRows),
+			if (!RuiDrawImageAtlasEntry(
+					context->globals,
+					rui,
+					batch,
+					&imageUv,
+					transform,
 					orientation,
-					nameHash,
-					reinterpret_cast<__m128i*>(const_cast<__m128*>(&atlasUv)),
+					assetDescriptor,
+					reinterpret_cast<const __m128i*>(&atlasUv),
 					&clipUnit,
-					const_cast<__m128*>(&inlineMaskBase),
-					const_cast<__m128*>(&refinedImageExtentReciprocal)))
+					&inlineMaskBase,
+					&refinedImageExtentReciprocal))
 			{
-				return 0;
+				return false;
 			}
 		}
 	}
 
 	{
 		const __int64 defaultFontIndex = textStyles[0]->fontIndex;
-		unknownRuiListElement* instances = batch->ruiInstance;
-		const uint8_t fontAtlasIndex = fontIndices[defaultFontIndex];
-		uiFontAtlas* fontAtlas = &uiFontAtlases[fontAtlasIndex];
-		const __int64 instanceIndex = batch->unsigned_int_8;
-		uiFontAtlas* currentFontAtlas = instances[instanceIndex].uiFontAtlas_8;
+		RuiDrawMaterialBatch* instances = batch->materialBatches;
+		const uint8_t fontAtlasIndex = g_RuiFontAtlasIndices[defaultFontIndex];
+		RuiFontAtlas* fontAtlas = &g_RuiFontAtlases[fontAtlasIndex];
+		const __int64 instanceIndex = batch->materialBatchIndex;
+		RuiFontAtlas* currentFontAtlas = instances[instanceIndex].fontAtlas;
 		if (currentFontAtlas != fontAtlas)
 		{
-			if (!currentFontAtlas || instances[instanceIndex].dword_4 == batch->indexBufferSize)
+			if (!currentFontAtlas || instances[instanceIndex].firstIndex == batch->indexBufferSize)
 			{
-				instances[instanceIndex].uiFontAtlas_8 = fontAtlas;
+				instances[instanceIndex].fontAtlas = fontAtlas;
 			}
 			else
 			{
 				const unsigned int nextInstanceIndex = static_cast<unsigned int>(instanceIndex + 1);
-				batch->unsigned_int_8 = nextInstanceIndex;
-				if (nextInstanceIndex != batch->dword_C)
+				batch->materialBatchIndex = nextInstanceIndex;
+				if (nextInstanceIndex != batch->materialBatchCapacity)
 				{
-					instances[instanceIndex].dword_4 = batch->indexBufferSize;
-					instances[instanceIndex + 1].dword_4 = batch->indexBufferSize;
-					instances[instanceIndex + 1].uiFontAtlas_8 = fontAtlas;
-					instances[instanceIndex + 1].dword_0 = instances[instanceIndex].dword_0;
-					instances[instanceIndex + 1].uiImageAtlas_10 = nullptr;
+					instances[instanceIndex].firstIndex = batch->indexBufferSize;
+					instances[instanceIndex + 1].firstIndex = batch->indexBufferSize;
+					instances[instanceIndex + 1].fontAtlas = fontAtlas;
+					instances[instanceIndex + 1].firstVertex = instances[instanceIndex].firstVertex;
+					instances[instanceIndex + 1].imageAtlas = nullptr;
 				}
 			}
 		}
 	}
 
-	char* activeCursor = dataText(textJob->textOffset);
+	char* activeCursor = dataText(job->textOffset);
 	uint32_t styleEscapeCount = 0;
 	uint8_t activeStyle = 0;
 	if (*activeCursor == '`')
@@ -2633,13 +2524,13 @@ int __fastcall renderText_F5840_rebuild(
 		while (*activeCursor == '`');
 	}
 
-	const uint8_t lineBegin = runtimeJob.byte_4;
-	const uint32_t lineEnd = static_cast<uint32_t>(lineBegin) + runtimeJob.byte_5;
-	const float lineHeightScale = runtimeJob.float_0;
+	const uint8_t lineBegin = runtimeJob.firstLine;
+	const uint32_t lineEnd = static_cast<uint32_t>(lineBegin) + runtimeJob.lineCount;
+	const float lineHeightScale = runtimeJob.fittedScale;
 
 	auto lineBreakGlyph = [&](uint32_t lineIndex) -> uint32_t
 	{
-		return *reinterpret_cast<const uint32_t*>(&runtime->float_25C4[3 * lineIndex + 1]);
+		return *reinterpret_cast<const uint32_t*>(&runtime->textLineData[3 * lineIndex + 1]);
 	};
 	uint32_t nextLineGlyph = static_cast<uint32_t>(-1);
 	uint32_t lineCursor = lineBegin;
@@ -2647,12 +2538,12 @@ int __fastcall renderText_F5840_rebuild(
 	if (lineCursor < lineEnd)
 	{
 		nextLineGlyph = lineBreakGlyph(lineCursor);
-		currentAdvance = (transformSize.m128_f32[0] - runtime->float_25C4[3 * lineCursor + 2]) * horizontalAlignScale;
+		currentAdvance = (transformSize.m128_f32[0] - runtime->textLineData[3 * lineCursor + 2]) * horizontalAlignScale;
 		++lineCursor;
 	}
 	float carryAdvance = 0.0f;
 	__m128 correctionData[5];
-	sub_FFAE0(transformRows, reinterpret_cast<const __m128i*>(&header->elementWidth), correctionData);
+		s_BuildEdgeCorrection(transform, &header->elementWidth, correctionData);
 
 	float previousLineMax = 0.0f;
 	const __m128 transformSizeXY = RUI_SHUFFLE_PS(transformSize, 216);
@@ -2661,18 +2552,18 @@ int __fastcall renderText_F5840_rebuild(
 
 	for (;;)
 	{
-		TextGlyphState firstGlyphState{};
-		TextGlyphState lastGlyphState{};
-		TextGlyphState currentGlyphState{};
-		rpakFontGlyph* glyph = nullptr;
-		rpakFont* font = fonts[activeStyle];
+		RuiTextGlyphState firstGlyphState{};
+		RuiTextGlyphState lastGlyphState{};
+		RuiTextGlyphState currentGlyphState{};
+		RuiFontGlyph* glyph = nullptr;
+		RuiFont* font = fonts[activeStyle];
 		auto* styleWords = reinterpret_cast<uint16_t*>(textStyles[activeStyle]);
 		const uint16_t styleDescriptorIndex = static_cast<uint16_t>(
-			batch->styleDescriptorIndex + textJob->styleDescriptorIndices[activeStyle]);
+			batch->computedStyleCount + job->styleIndices[activeStyle]);
 
-		ruiBaseUvStruct glyphUv{};
+		RuiBaseUv glyphUv{};
 		glyphUv.flags = 0;
-		glyphUv.styleDescriptorIndex = styleDescriptorIndex;
+		glyphUv.computedStyleIndex = styleDescriptorIndex;
 
 		const float baselineOffset = maxScalar(dataFloat(styleWords[23]), previousLineMax);
 		__m128 glyphScaleX = _mm_set_ss(lineHeightScale);
@@ -2688,21 +2579,21 @@ int __fastcall renderText_F5840_rebuild(
 		__m128 textHeight = _mm_set_ss(dataFloat(styleWords[19]));
 		__m128 glyphScaleYScreen = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255);
 		glyphScaleYScreen.m128_f32[0] *= glyphScaleY.m128_f32[0];
-		const __m128 outlinePad = _mm_mul_ps(_mm_set1_ps(dataFloat(styleWords[24])), xmmword_5F3EB0);
+		const __m128 outlinePad = _mm_mul_ps(_mm_set1_ps(dataFloat(styleWords[24])), g_RuiFloatHalf);
 		const __m128 textBoundsPad = _mm_max_ps(
-			_mm_add_ps(_mm_mul_ps(_mm_set1_ps(textHeight.m128_f32[0]), xmmword_5F3EB0), _mm_xor_ps(_mm_movelh_ps(styleOffset, styleOffset), xmmword_5F3E20)),
+			_mm_add_ps(_mm_mul_ps(_mm_set1_ps(textHeight.m128_f32[0]), g_RuiFloatHalf), _mm_xor_ps(_mm_movelh_ps(styleOffset, styleOffset), g_RuiSignMaskLowHalf)),
 			outlinePad);
 		textHeight.m128_f32[0] = lineExtra + baselineOffset;
 		const __m128 glyphBoundsOffset = _mm_mul_ps(
-			_mm_xor_ps(_mm_add_ps(textBoundsPad, _mm_set1_ps(textHeight.m128_f32[0])), xmmword_5F3E20),
+			_mm_xor_ps(_mm_add_ps(textBoundsPad, _mm_set1_ps(textHeight.m128_f32[0])), g_RuiSignMaskLowHalf),
 			RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 216));
-		const __m128 fontAtlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(reinterpret_cast<uint8_t*>(font) + 28)));
+		const __m128 fontAtlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(font->atlasScale)));
 		const float glyphBoundsMaxY = glyphBoundsOffset.m128_f32[3];
 		const float glyphBoundsMinY = glyphBoundsOffset.m128_f32[1];
 
-		ruiDrawTriangle tri{};
-		tri.size = 4;
-		tri.size_ = 4;
+		RuiDrawQuad tri{};
+		tri.vertexCount = 4;
+		tri.vertexCapacity = 4;
 
 		uint32_t previousCodepoint = 0;
 		constexpr uint32_t inlineAssetLeadCodepoint = 0xF2000;
@@ -2717,7 +2608,7 @@ int __fastcall renderText_F5840_rebuild(
 			fontAtlasScale);
 		const __m128 glyphBasis = _mm_mul_ps(inverseBasis, glyphUvScale);
 		const __m128 glyphOrigin = _mm_mul_ps(originSum, glyphUvScale);
-		__m128 correctionMask = xmmword_5F4610;
+		__m128 correctionMask = g_RuiHighHalfSignedOne;
 
 		for (;;)
 		{
@@ -2728,7 +2619,7 @@ int __fastcall renderText_F5840_rebuild(
 			{
 				for (;;)
 				{
-					codepoint = readUnicodeCharacter_F2C40(&activeCursor);
+					codepoint = static_cast<int>(s_ReadUnicodeCharacter(&activeCursor));
 					++parsedCount;
 					styleEscapeCount = parsedCount;
 					if (codepoint == '%')
@@ -2757,9 +2648,13 @@ int __fastcall renderText_F5840_rebuild(
 					break;
 
 				char includeScratch[8];
-				char* includeText = reinterpret_cast<char*>(sub_F98F0(ruiData, reinterpret_cast<__int64>(renderList), reinterpret_cast<char**>(&activeCursor), reinterpret_cast<__int64>(includeScratch)));
+				char* includeText = s_ResolveTextEscape(
+					rui,
+					context,
+					&activeCursor,
+					includeScratch);
 				if (!includeText)
-					return 1;
+					return true;
 
 				includeStack[includeDepth++] = activeCursor;
 				activeCursor = includeText;
@@ -2771,7 +2666,7 @@ int __fastcall renderText_F5840_rebuild(
 			const bool controlCode = static_cast<unsigned int>(codepoint - 1) >= 0xEFFFF || codepoint == '`';
 			float glyphAdvance = 0.0f;
 			float currentGlyphX;
-			const rpakFontGlyph* glyphMetrics;
+			const RuiFontGlyph* glyphMetrics;
 			if (controlCode)
 			{
 				currentGlyphX = currentGlyphState.penX;
@@ -2779,24 +2674,24 @@ int __fastcall renderText_F5840_rebuild(
 			}
 			else
 			{
-				const uint32_t glyphIndex = getFontGlyphIndex(font, codepoint);
-				glyph = &font->textures[glyphIndex];
-				int kernIndex = glyph->unk_4;
-				const int kernEnd = glyph[1].unk_4;
+				const uint32_t glyphIndex = static_cast<uint32_t>(s_GetFontGlyphIndex(font, codepoint));
+				glyph = &font->glyphs[glyphIndex];
+				int kernIndex = glyph->firstKerning;
+				const int kernEnd = glyph[1].firstKerning;
 				float kernOffset = 0.0f;
 				if (kernIndex < kernEnd)
 				{
-					UIFont_UNK_t* kernTable = font->unk_58;
+					RuiFontKerning* kernTable = font->kerning;
 					while (static_cast<uint16_t>(kernIndex) < kernEnd &&
-						kernTable[static_cast<uint16_t>(kernIndex)].unk_0 != previousCodepoint)
+						kernTable[static_cast<uint16_t>(kernIndex)].codepoint != previousCodepoint)
 					{
 						kernIndex = static_cast<uint16_t>(kernIndex + 1);
 					}
 					if (static_cast<uint16_t>(kernIndex) < kernEnd)
-						kernOffset = kernTable[static_cast<uint16_t>(kernIndex)].unk_4;
+						kernOffset = kernTable[static_cast<uint16_t>(kernIndex)].offset;
 				}
 				currentGlyphState.glyphIndex = glyphIndex;
-				glyphAdvance = glyphAdvanceScale * glyph->unk_0;
+				glyphAdvance = glyphAdvanceScale * glyph->advance;
 				glyphMetrics = glyph;
 				currentGlyphState.glyph = glyph;
 				currentAdvance += kernOffset * glyphAdvanceScale;
@@ -2813,17 +2708,17 @@ int __fastcall renderText_F5840_rebuild(
 				__m128 drawStart = _mm_set_ss(batchStartX);
 				const __m128 batchUv = _mm_shuffle_ps(drawStart, drawCenter, 0);
 				const __m128 proportionScale = _mm_shuffle_ps(
-					_mm_set_ss(font->proportions[firstGlyph->proportionIndex].scaleBounds),
-					_mm_set_ss(font->proportions[lastGlyph->proportionIndex].scaleBounds),
+					_mm_set_ss(font->proportions[firstGlyph->proportionIndex].boundsScale),
+					_mm_set_ss(font->proportions[lastGlyph->proportionIndex].boundsScale),
 					0);
 
 				__m128 glyphTextureBase = _mm_castsi128_ps(
-					_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&firstGlyph->posBaseX)));
+					_mm_loadl_epi64(reinterpret_cast<const __m128i*>(firstGlyph->uvBase)));
 				glyphTextureBase = _mm_castpd_ps(
-					_mm_loadh_pd(_mm_castps_pd(glyphTextureBase), reinterpret_cast<const double*>(&lastGlyph->posBaseX)));
+					_mm_loadh_pd(_mm_castps_pd(glyphTextureBase), reinterpret_cast<const double*>(lastGlyph->uvBase)));
 				const __m128 glyphXPair = _mm_unpacklo_ps(_mm_set_ss(firstGlyphState.penX), _mm_set_ss(lastGlyphState.penX));
 				const __m128 lineOffsetPair = _mm_unpacklo_ps(_mm_set_ss(lineY), _mm_set_ss(lineY));
-				glyphUv.yDir = _mm_add_ps(
+				glyphUv.primaryOrigin = _mm_add_ps(
 					_mm_mul_ps(
 						_mm_sub_ps(
 							glyphOrigin,
@@ -2832,26 +2727,26 @@ int __fastcall renderText_F5840_rebuild(
 								glyphUvScale)),
 						proportionScale),
 					glyphTextureBase);
-				glyphUv.base = _mm_mul_ps(RUI_SHUFFLE_PS(glyphBasis, 68), proportionScale);
-				glyphUv.yDir2 = RUI_SHUFFLE_PS(proportionScale, 216);
-				glyphUv.xDir = _mm_mul_ps(RUI_SHUFFLE_PS(glyphBasis, 238), proportionScale);
-				memset(&glyphUv.base2, 0, 32);
-				glyphUv.assetIndex = static_cast<__int16>(font->textureIndex + static_cast<__int16>(firstGlyphState.glyphIndex));
-				glyphUv.assetIndex2 = static_cast<__int16>(font->textureIndex + static_cast<__int16>(lastGlyphState.glyphIndex));
+				glyphUv.primaryBasisX = _mm_mul_ps(RUI_SHUFFLE_PS(glyphBasis, 68), proportionScale);
+				glyphUv.secondaryOrigin = RUI_SHUFFLE_PS(proportionScale, 216);
+				glyphUv.primaryBasisY = _mm_mul_ps(RUI_SHUFFLE_PS(glyphBasis, 238), proportionScale);
+				std::memset(&glyphUv.secondaryBasisX, 0, sizeof(glyphUv.secondaryBasisX) * 2);
+				glyphUv.imageIndex = static_cast<__int16>(font->atlasGlyphBase + static_cast<__int16>(firstGlyphState.glyphIndex));
+				glyphUv.maskImageIndex = static_cast<__int16>(font->atlasGlyphBase + static_cast<__int16>(lastGlyphState.glyphIndex));
 
 				const __m128 bounds = _mm_add_ps(
 					_mm_unpacklo_ps(_mm_unpacklo_ps(batchMinY, rightMaxY), _mm_unpacklo_ps(batchMaxY, rightMinY)),
 					_mm_set1_ps(lineY));
-				const __m128i transform0 = _mm_load_si128(reinterpret_cast<const __m128i*>(transformRows));
+				const __m128i transform0 = _mm_castps_si128(transform->rows[0]);
 				alignas(16) __m128 projected[2];
 				projected[0] = _mm_add_ps(
 					_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transform0, 0), batchUv), _mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transform0, 170), bounds)),
-					RUI_SHUFFLE_PS(transformRows[1], 0));
+					RUI_SHUFFLE_PS(transform->rows[1], 0));
 				projected[1] = _mm_add_ps(
 					_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transform0, 85), batchUv), _mm_mul_ps(RUI_SHUFFLE_I32_AS_PS(transform0, 255), bounds)),
-					RUI_SHUFFLE_PS(transformRows[1], 85));
+					RUI_SHUFFLE_PS(transform->rows[1], 85));
 
-				sub_FEF30_2(renderList->globals, ruiData, correctionData, &correctionMask, projected);
+				s_ApplyEdgeCorrection(context->globals, rui, correctionData, &correctionMask, projected);
 
 				__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
 				__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
@@ -2861,16 +2756,16 @@ int __fastcall renderText_F5840_rebuild(
 					quad1 = RUI_SHUFFLE_PS(quad1, 78);
 				}
 
-				_mm_storeu_ps(&tri.vert[0][0], quad0);
-				_mm_storeu_ps(&tri.vert[1][0], quad1);
-				ruiDrawInfoDataWeapon* drawInfo = ruiData->pvoid_38;
-				if (!ruiDrawInfo_5f4560[drawInfo->type](drawInfo, &glyphUv, &tri, batch))
+				_mm_storeu_ps(&tri.positions[0][0], quad0);
+				_mm_storeu_ps(&tri.positions[1][0], quad1);
+				RuiDrawInfo* drawInfo = rui->drawInfo;
+				if (!g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](drawInfo, &glyphUv, &tri, batch))
 					return false;
 
 				batchStartX = drawCenterX;
 				batchMinY = rightMinY;
 				batchMaxY = rightMaxY;
-				correctionMask = _mm_and_ps(correctionMask, *xmmword_12A146B0);
+				correctionMask = _mm_and_ps(correctionMask, g_RuiBlendMaskHighHalf);
 				return true;
 			};
 
@@ -2882,28 +2777,28 @@ int __fastcall renderText_F5840_rebuild(
 					{
 						if (pendingGlyphCount == 1)
 						{
-							correctionMask = _mm_add_ps(correctionMask, xmmword_5F3EE0);
+							correctionMask = _mm_add_ps(correctionMask, g_RuiUnitX);
 							firstGlyphState = lastGlyphState;
 						}
 
 						const auto* firstGlyph = firstGlyphState.glyph;
 						const auto* lastGlyph = lastGlyphState.glyph;
 						pendingGlyphCount = 0;
-						__m128 minY = _mm_set_ss(minScalar(firstGlyph->posMinY, lastGlyph->posMinY));
-						__m128 maxY = _mm_set_ss(maxScalar(firstGlyph->posMaxY, lastGlyph->posMaxY));
-						const float batchEndX = (glyphAdvanceScale * lastGlyph->posMaxX) + lastGlyphState.penX;
-						correctionMask = _mm_add_ps(correctionMask, xmmword_5F3EF0);
+						__m128 minY = _mm_set_ss(minScalar(firstGlyph->boundsMin[1], lastGlyph->boundsMin[1]));
+						__m128 maxY = _mm_set_ss(maxScalar(firstGlyph->boundsMax[1], lastGlyph->boundsMax[1]));
+						const float batchEndX = (glyphAdvanceScale * lastGlyph->boundsMax[0]) + lastGlyphState.penX;
+						correctionMask = _mm_add_ps(correctionMask, g_RuiUnitY);
 						const float drawCenterX = batchEndX + glyphBoundsOffset.m128_f32[2];
 						minY.m128_f32[0] = (minY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMinY;
 						maxY.m128_f32[0] = (maxY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMaxY;
 						if (!submitGlyphBatch(drawCenterX, minY, maxY))
-							return 0;
+						return false;
 					}
 				}
 				else
 				{
-					const float posMinX = glyph->posMinX;
-					if (posMinX == glyph->posMaxX)
+					const float posMinX = glyph->boundsMin[0];
+					if (posMinX == glyph->boundsMax[0])
 					{
 						currentAdvance += glyphAdvance;
 						previousCodepoint = codepoint;
@@ -2915,8 +2810,8 @@ int __fastcall renderText_F5840_rebuild(
 					{
 						__m128 minY = glyphScaleYScreen;
 						__m128 maxY = glyphScaleYScreen;
-						minY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->posMinY) + glyphBoundsMinY;
-						maxY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->posMaxY) + glyphBoundsMaxY;
+						minY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->boundsMin[1]) + glyphBoundsMinY;
+						maxY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->boundsMax[1]) + glyphBoundsMaxY;
 
 						if (pendingGlyphCount)
 						{
@@ -2928,7 +2823,7 @@ int __fastcall renderText_F5840_rebuild(
 							batchMinY = minY;
 							batchMaxY = maxY;
 							batchStartX = (glyphAdvanceScale * posMinX) + glyphBoundsOffset.m128_f32[0] + currentAdvance;
-							correctionMask = _mm_sub_ps(correctionMask, xmmword_5F3EE0);
+							correctionMask = _mm_sub_ps(correctionMask, g_RuiUnitX);
 						}
 
 						++pendingGlyphCount;
@@ -2943,21 +2838,21 @@ int __fastcall renderText_F5840_rebuild(
 					{
 						const auto* firstGlyph = firstGlyphState.glyph;
 						const auto* lastGlyph = lastGlyphState.glyph;
-						__m128 rightMinY = _mm_set_ss(firstGlyph->posMinY);
-						__m128 rightMaxY = _mm_set_ss(firstGlyph->posMaxY);
-						float drawCenterX = (((firstGlyph->posMaxX + glyphMetrics->posMinX) * glyphAdvanceScale)
+						__m128 rightMinY = _mm_set_ss(firstGlyph->boundsMin[1]);
+						__m128 rightMaxY = _mm_set_ss(firstGlyph->boundsMax[1]);
+						float drawCenterX = (((firstGlyph->boundsMax[0] + glyphMetrics->boundsMin[0]) * glyphAdvanceScale)
 							+ (firstGlyphState.penX + currentGlyphX)) * 0.5f;
 						rightMinY.m128_f32[0] =
-							(minScalar(minScalar(rightMinY.m128_f32[0], lastGlyph->posMinY), glyphMetrics->posMinY)
+							(minScalar(minScalar(rightMinY.m128_f32[0], lastGlyph->boundsMin[1]), glyphMetrics->boundsMin[1])
 								* glyphScaleYScreen.m128_f32[0])
 							+ glyphBoundsMinY;
 						rightMaxY.m128_f32[0] =
-							(maxScalar(maxScalar(rightMaxY.m128_f32[0], lastGlyph->posMaxY), glyphMetrics->posMaxY)
+							(maxScalar(maxScalar(rightMaxY.m128_f32[0], lastGlyph->boundsMax[1]), glyphMetrics->boundsMax[1])
 								* glyphScaleYScreen.m128_f32[0])
 							+ glyphBoundsMaxY;
 
 						if (!submitGlyphBatch(drawCenterX, rightMinY, rightMaxY))
-							return 0;
+						return false;
 					}
 				}
 			}
@@ -2968,18 +2863,18 @@ int __fastcall renderText_F5840_rebuild(
 				if (lineCursor >= lineEnd)
 				{
 					nextLineGlyph = static_cast<uint32_t>(-1);
-					currentAdvance = transformSize.m128_f32[0] - runtime->float_25C4[3 * lineEnd];
+					currentAdvance = transformSize.m128_f32[0] - runtime->textLineData[3 * lineEnd];
 				}
 				else
 				{
 					const __int64 lineRecord = 3LL * lineCursor;
 					nextLineGlyph = lineBreakGlyph(lineCursor);
 					++lineCursor;
-					currentAdvance = transformSize.m128_f32[0] - runtime->float_25C4[lineRecord + 2];
+					currentAdvance = transformSize.m128_f32[0] - runtime->textLineData[lineRecord + 2];
 				}
 				currentAdvance *= horizontalAlignScale;
 
-				if (!glyph || glyph->posMinX == glyph->posMaxX)
+				if (!glyph || glyph->boundsMin[0] == glyph->boundsMax[0])
 				{
 					pendingGlyphCount = 0;
 				}
@@ -2987,13 +2882,13 @@ int __fastcall renderText_F5840_rebuild(
 				{
 					currentGlyphState.penX = currentAdvance;
 					pendingGlyphCount = 1;
-					const float posMinX = glyph->posMinX;
+					const float posMinX = glyph->boundsMin[0];
 					const float xOffset = glyphAdvanceScale * posMinX;
 					batchStartX = xOffset + glyphBoundsOffset.m128_f32[0] + currentAdvance;
 					batchMaxY = glyphScaleYScreen;
-					batchMaxY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->posMaxY) + glyphBoundsMaxY;
+					batchMaxY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->boundsMax[1]) + glyphBoundsMaxY;
 					batchMinY = glyphScaleYScreen;
-					batchMinY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->posMinY) + glyphBoundsMinY;
+					batchMinY.m128_f32[0] = (glyphScaleYScreen.m128_f32[0] * glyph->boundsMin[1]) + glyphBoundsMinY;
 				}
 			}
 
@@ -3008,7 +2903,7 @@ int __fastcall renderText_F5840_rebuild(
 			}
 
 			if (!codepoint)
-				return 1;
+				return true;
 
 			if (codepoint == '`')
 				break;
@@ -3029,18 +2924,18 @@ int __fastcall renderText_F5840_rebuild(
 			}
 			else
 			{
-				const auto* unicodeAssetTable = *reinterpret_cast<assetIndexData* const*>(assetIndexData_12A4E510);
+				const auto* unicodeAssetTable = static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entries);
 				const uint16_t unicodeAssetIndex = static_cast<uint16_t>(codepoint);
-				const assetIndexData& unicodeAsset = unicodeAssetTable[unicodeAssetIndex];
-				const __int16 unicodeTextureIndex = unicodeAsset.assetIndex;
+				const RuiImageAssetDescriptor& unicodeAsset = unicodeAssetTable[unicodeAssetIndex];
+				const __int16 unicodeTextureIndex = unicodeAsset.imageIndex;
 				const uint8_t unicodeAtlasIndex = unicodeAsset.atlasIndex;
-				uiImageAtlas* unicodeAtlas = &rpakUIMGAtlases[unicodeAtlasIndex];
-				const uint8_t* unicodeDimensions = reinterpret_cast<const uint8_t*>(unicodeAtlas->textureDimensions) + 4LL * unicodeTextureIndex;
-				const float unicodeWidth = static_cast<float>(*reinterpret_cast<const uint16_t*>(unicodeDimensions));
+				RuiImageAtlas* unicodeAtlas = &g_RuiImageAtlases[unicodeAtlasIndex];
+				const RuiImageDimensions& unicodeDimensions = unicodeAtlas->imageDimensions[unicodeTextureIndex];
+				const float unicodeWidth = static_cast<float>(unicodeDimensions.width);
 
 				if (previousCodepoint == inlineAssetLeadCodepoint)
 				{
-					if (static_cast<uint16_t>(unicodeTextureIndex) >= unicodeAtlas->textureOffsetsCount)
+					if (static_cast<uint16_t>(unicodeTextureIndex) >= unicodeAtlas->nineSliceImageCount)
 					{
 						carryAdvance = 0.0f;
 						previousCodepoint = codepoint;
@@ -3048,18 +2943,17 @@ int __fastcall renderText_F5840_rebuild(
 					}
 					else
 					{
-						const float* unicodeOffset = reinterpret_cast<const float*>(
-							reinterpret_cast<const uint8_t*>(unicodeAtlas->pointer_20) + 32LL * unicodeTextureIndex);
+						const RuiImageAtlasNineSlice& unicodeNineSlice = unicodeAtlas->nineSliceData[unicodeTextureIndex];
 						const float scaledWidth = refinedTransformSizeReciprocal.m128_f32[0] * unicodeWidth;
-						currentAdvance += scaledWidth * unicodeOffset[0];
-						carryAdvance = scaledWidth * unicodeOffset[2];
+						currentAdvance += scaledWidth * unicodeNineSlice.normalizedBounds[0];
+						carryAdvance = scaledWidth * unicodeNineSlice.normalizedBounds[2];
 						previousCodepoint = codepoint;
 						glyph = nullptr;
 					}
 				}
 				else
 				{
-					currentAdvance += (unicodeWidth / static_cast<float>(*reinterpret_cast<const uint16_t*>(unicodeDimensions + 2))) * glyphAdvanceScale;
+					currentAdvance += (unicodeWidth / static_cast<float>(unicodeDimensions.height)) * glyphAdvanceScale;
 					previousCodepoint = codepoint;
 					glyph = nullptr;
 				}
@@ -3068,45 +2962,43 @@ int __fastcall renderText_F5840_rebuild(
 
 		activeStyle = static_cast<uint8_t>(*activeCursor - '0');
 		if (activeStyle >= 4)
-			return 1;
+			return true;
 
 		++activeCursor;
 		previousLineMax = 0.0f;
 	}
 }
 
-DECLARE_HOOK(RenderText, engine.dll + 0xF5840, [](auto& hook, ruiRenderList* a1, ruiDataStruct* a2, const TextRenderJobOffsets* a3, struct_v3* a4) -> int
+DECLARE_HOOK(RuiRenderTextJob, engine.dll + 0xF5840, [](auto& hook, RuiRenderContext* context, RuiInstance* rui, const RuiTextRenderJob* job, RuiDrawBatch* batch) -> bool
 {
-		return renderText_F5840_rebuild(a1, a2, a3, a4);
-		//return hook.Original(a1, a2, a3, a4);
+	return RuiRenderTextJob(context, rui, job, batch);
 });
 
-
-__m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int renderJobOffset)
+__m128 RuiMeasureTextJob(RuiInstance* rui, uint32_t renderJobOffset)
 {
-	struct_v1* runtime = ruiData->v1;
-	const auto* textJob = reinterpret_cast<const TextRenderJobOffsets*>(
-		ruiData->header->renderJobs + static_cast<int32_t>(renderJobOffset));
-	const __int64 includeContext = static_cast<__int64>(runtime->qword_18);
-	styleDescriptorsStruct* descriptors = ruiData->header->styleDescriptors;
-	styleDescriptorsStruct* textStyles[4] = {
-		&descriptors[textJob->styleDescriptorIndices[0]],
-		&descriptors[textJob->styleDescriptorIndices[1]],
-		&descriptors[textJob->styleDescriptorIndices[2]],
-		&descriptors[textJob->styleDescriptorIndices[3]],
+	RuiRuntimeState* runtime = rui->runtime;
+	const auto* job = reinterpret_cast<const RuiTextRenderJob*>(
+		rui->header->renderJobs + renderJobOffset);
+	RuiRenderContext* includeContext = runtime->textContext;
+	RuiStyleDescriptorOffsets* descriptors = rui->header->styleDescriptors;
+	RuiStyleDescriptorOffsets* textStyles[4] = {
+		&descriptors[job->styleIndices[0]],
+		&descriptors[job->styleIndices[1]],
+		&descriptors[job->styleIndices[2]],
+		&descriptors[job->styleIndices[3]],
 	};
 
 	auto dataFloat = [&](uint16_t offset) -> float
 	{
 		float value;
-		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		std::memcpy(&value, &rui->data[offset], sizeof(value));
 		return value;
 	};
 
 	auto dataText = [&](uint16_t offset) -> char*
 	{
 		char* value;
-		std::memcpy(&value, &ruiData->dataValues[offset], sizeof(value));
+		std::memcpy(&value, &rui->data[offset], sizeof(value));
 		return value;
 	};
 
@@ -3120,11 +3012,11 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 		return _mm_cvtss_f32(_mm_min_ss(_mm_set_ss(lhs), _mm_set_ss(rhs)));
 	};
 
-	rpakFont* fonts[4] = {
-		rpakFontPointers[textStyles[0]->fontIndex],
-		rpakFontPointers[textStyles[1]->fontIndex],
-		rpakFontPointers[textStyles[2]->fontIndex],
-		rpakFontPointers[textStyles[3]->fontIndex],
+	RuiFont* fonts[4] = {
+		g_RuiFonts[textStyles[0]->fontIndex],
+		g_RuiFonts[textStyles[1]->fontIndex],
+		g_RuiFonts[textStyles[2]->fontIndex],
+		g_RuiFonts[textStyles[3]->fontIndex],
 	};
 	float textSizes[4];
 	float glyphAdvanceScales[4];
@@ -3133,10 +3025,10 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 	{
 		textSizes[styleIndex] = dataFloat(textStyles[styleIndex]->textSize);
 		glyphAdvanceScales[styleIndex] =
-			textSizes[styleIndex] * dataFloat(textStyles[styleIndex]->stretchXOffset);
+			textSizes[styleIndex] * dataFloat(textStyles[styleIndex]->stretchX);
 		ascents[styleIndex] =
-			(textSizes[styleIndex] * fonts[styleIndex]->unk_24[0])
-			- dataFloat(textStyles[styleIndex]->uint16_32);
+			(textSizes[styleIndex] * fonts[styleIndex]->verticalMetrics[0])
+			- dataFloat(textStyles[styleIndex]->unknown32);
 	}
 
 	const float maximumAscent = maxScalar(
@@ -3146,11 +3038,11 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 		maxScalar(textSizes[0] - ascents[0], textSizes[1] - ascents[1]),
 		maxScalar(textSizes[2] - ascents[2], textSizes[3] - ascents[3]));
 	const float lineHeight = maximumDescent + maximumAscent;
-	const float lineAdvance = dataFloat(textJob->lineSpacing) + lineHeight;
-	const float wrapWidth = dataFloat(textJob->wrapWidth);
+	const float lineAdvance = dataFloat(job->lineSpacingOffset) + lineHeight;
+	const float wrapWidth = dataFloat(job->wrapWidthOffset);
 
-	const uint32_t initialLineCount = runtime->dword_28C8;
-	const uint32_t initialInlineImageCount = runtime->dword_28CC;
+	const uint32_t initialLineCount = runtime->textLineCount;
+	const uint32_t initialInlineImageCount = runtime->inlineImageCount;
 	uint32_t savedInlineImageCount = initialInlineImageCount;
 	uint32_t savedBreakGlyph = 0;
 	float savedLineWidth = 0.0f;
@@ -3163,36 +3055,36 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 	int32_t previousCodepoint = 0;
 	uint32_t activeStyleMask = 0;
 	uint8_t activeStyle = 0;
-	uint8_t previousBreakClass = fonts[0]->textures[0].unk_6;
+	uint8_t previousBreakClass = fonts[0]->glyphs[0].wordBreakClass;
 	bool pendingSpace = false;
 
 	auto appendLineBreak = [&](uint32_t breakGlyph, float width)
 	{
-		const uint32_t lineIndex = runtime->dword_28C8++;
+		const uint32_t lineIndex = runtime->textLineCount++;
 		if (lineIndex >= 64)
 			return;
 
 		std::memcpy(
-			&runtime->float_25C4[3 * lineIndex + 1],
+			&runtime->textLineData[3 * lineIndex + 1],
 			&breakGlyph,
 			sizeof(breakGlyph));
-		runtime->float_25C4[3 * lineIndex + 2] = width;
-		runtime->float_25C4[3 * lineIndex + 3] = 0.0f;
+		runtime->textLineData[3 * lineIndex + 2] = width;
+		runtime->textLineData[3 * lineIndex + 3] = 0.0f;
 	};
 
-	auto* inlineImages = reinterpret_cast<TextInlineImageSpan*>(runtime->gap_28D0);
-	const uiFontAtlas* wordBreakAtlas =
-		&uiFontAtlases[fontIndices[textStyles[0]->fontIndex]];
-	rpakFont* font = fonts[0];
-	TextInlineImageSpan* pendingInlineImage = nullptr;
-	char* cursor = dataText(textJob->textOffset);
+	RuiInlineImageSpan* inlineImages = runtime->inlineImages;
+	const RuiFontAtlas* wordBreakAtlas =
+		&g_RuiFontAtlases[g_RuiFontAtlasIndices[textStyles[0]->fontIndex]];
+	RuiFont* font = fonts[0];
+	RuiInlineImageSpan* pendingInlineImage = nullptr;
+	char* cursor = dataText(job->textOffset);
 	char* includeStack[29] = {};
 	uint32_t includeDepth = 0;
 	char includeScratch[8];
 
 	for (;;)
 	{
-		const int32_t codepoint = static_cast<int32_t>(readUnicodeCharacter_F2C40(&cursor));
+		const int32_t codepoint = static_cast<int32_t>(s_ReadUnicodeCharacter(&cursor));
 		++parsedGlyphCount;
 
 		const bool ordinaryCodepoint =
@@ -3215,11 +3107,11 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 					}
 					else
 					{
-						char* includeText = sub_F98F0(
-							ruiData,
+						char* includeText = s_ResolveTextEscape(
+							rui,
 							includeContext,
 							&cursor,
-							reinterpret_cast<__int64>(includeScratch));
+							includeScratch);
 						if (!includeText)
 							break;
 
@@ -3230,21 +3122,21 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 				}
 			}
 
-			const uint32_t glyphIndex = static_cast<uint32_t>(getFontGlyphIndex(font, codepoint));
-			const rpakFontGlyph* glyph = &font->textures[glyphIndex];
-			uint16_t kernIndex = glyph->unk_4;
-			const uint16_t kernEnd = glyph[1].unk_4;
+			const uint32_t glyphIndex = static_cast<uint32_t>(s_GetFontGlyphIndex(font, codepoint));
+			const RuiFontGlyph* glyph = &font->glyphs[glyphIndex];
+			uint16_t kernIndex = glyph->firstKerning;
+			const uint16_t kernEnd = glyph[1].firstKerning;
 			float kerning = 0.0f;
-			while (kernIndex < kernEnd && font->unk_58[kernIndex].unk_0 != previousCodepoint)
+			while (kernIndex < kernEnd && font->kerning[kernIndex].codepoint != previousCodepoint)
 				++kernIndex;
 			if (kernIndex < kernEnd)
-				kerning = font->unk_58[kernIndex].unk_4;
+				kerning = font->kerning[kernIndex].offset;
 
 			previousCodepoint = codepoint;
 			const float beforeGlyph =
 				(glyphAdvanceScales[activeStyle] * kerning) + currentAdvance;
 			currentAdvance =
-				(glyphAdvanceScales[activeStyle] * glyph->unk_0) + beforeGlyph;
+				(glyphAdvanceScales[activeStyle] * glyph->advance) + beforeGlyph;
 
 			if (pendingInlineImage)
 				continue;
@@ -3259,8 +3151,8 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 			{
 				appendLineBreak(parsedGlyphCount, currentLineWidth);
 				currentAdvance = 0.0f;
-				savedInlineImageCount = runtime->dword_28CC;
-				previousBreakClass = glyph->unk_6;
+				savedInlineImageCount = runtime->inlineImageCount;
+				previousBreakClass = glyph->wordBreakClass;
 				pendingSpace = false;
 				maximumLineWidth = maxScalar(maximumLineWidth, currentLineWidth);
 				verticalOffset += lineAdvance;
@@ -3269,40 +3161,40 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 			}
 
 			const uint32_t breakBitIndex = static_cast<uint32_t>(pendingSpace)
-				+ 2u * (static_cast<uint32_t>(glyph->unk_6)
-					+ static_cast<uint32_t>(previousBreakClass) * wordBreakAtlas->uint16_2);
+				+ 2u * (static_cast<uint32_t>(glyph->wordBreakClass)
+					+ static_cast<uint32_t>(previousBreakClass) * wordBreakAtlas->wordBreakClassCount);
 			const uint8_t breakBit = static_cast<uint8_t>(1u << (breakBitIndex & 7));
-			if ((static_cast<uint8_t>(wordBreakAtlas->qword_18[breakBitIndex >> 3]) & breakBit) != 0)
+			if ((wordBreakAtlas->wordBreakTable[breakBitIndex >> 3] & breakBit) != 0)
 			{
 				savedLineWidth = currentLineWidth;
 				savedBreakGlyph = parsedGlyphCount;
-				savedInlineImageCount = runtime->dword_28CC;
+				savedInlineImageCount = runtime->inlineImageCount;
 				savedBreakX = beforeGlyph;
 			}
 
 			if (currentAdvance > wrapWidth)
 			{
 				for (uint32_t imageIndex = savedInlineImageCount;
-					imageIndex < runtime->dword_28CC;
+					imageIndex < runtime->inlineImageCount;
 					++imageIndex)
 				{
-					TextInlineImageSpan& image = inlineImages[imageIndex];
-					image.mins[0] -= savedBreakX;
-					image.mins[1] += lineAdvance;
-					image.maxs[0] -= savedBreakX;
-					image.maxs[1] += lineAdvance;
+					RuiInlineImageSpan& image = inlineImages[imageIndex];
+					image.boundsMin[0] -= savedBreakX;
+					image.boundsMin[1] += lineAdvance;
+					image.boundsMax[0] -= savedBreakX;
+					image.boundsMax[1] += lineAdvance;
 				}
 
 				appendLineBreak(savedBreakGlyph, savedLineWidth);
 				currentAdvance -= savedBreakX;
 				verticalOffset += lineAdvance;
-				savedInlineImageCount = runtime->dword_28CC;
+				savedInlineImageCount = runtime->inlineImageCount;
 				maximumLineWidth = maxScalar(maximumLineWidth, savedLineWidth);
 			}
 
 			pendingSpace = false;
 			currentLineWidth = currentAdvance;
-			previousBreakClass = glyph->unk_6;
+			previousBreakClass = glyph->wordBreakClass;
 			continue;
 		}
 
@@ -3332,45 +3224,41 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 
 		if ((static_cast<uint32_t>(codepoint) - 0xF0000u) < 0x2000u)
 		{
-			const uint32_t inlineImageIndex = runtime->dword_28CC++;
+			const uint32_t inlineImageIndex = runtime->inlineImageCount++;
 			const uint32_t storageIndex = inlineImageIndex < 64 ? inlineImageIndex : 63;
-			TextInlineImageSpan* image = &inlineImages[storageIndex];
-			image->assetLookupIndex = static_cast<uint16_t>(codepoint);
-			image->styleSelector = activeStyle;
-			image->mins[0] = currentAdvance;
+			RuiInlineImageSpan* image = &inlineImages[storageIndex];
+			image->descriptorIndex = static_cast<uint16_t>(codepoint);
+			image->styleIndex = activeStyle;
+			image->boundsMin[0] = currentAdvance;
 			pendingInlineImage = image;
 			activeStyleMask = 1u << activeStyle;
 
 			const auto* unicodeAssetTable =
-				*reinterpret_cast<assetIndexData* const*>(assetIndexData_12A4E510);
-			const assetIndexData& unicodeAsset =
-				unicodeAssetTable[image->assetLookupIndex];
-			const int16_t textureIndex = unicodeAsset.assetIndex;
-			uiImageAtlas* imageAtlas = &rpakUIMGAtlases[unicodeAsset.atlasIndex];
-			const auto* dimensions = reinterpret_cast<const uint16_t*>(
-				reinterpret_cast<const uint8_t*>(imageAtlas->textureDimensions)
-				+ 4LL * textureIndex);
+				static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entries);
+			const RuiImageAssetDescriptor& unicodeAsset =
+				unicodeAssetTable[image->descriptorIndex];
+			const int16_t textureIndex = unicodeAsset.imageIndex;
+			RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[unicodeAsset.atlasIndex];
+			const RuiImageDimensions& dimensions = imageAtlas->imageDimensions[textureIndex];
 
 			if (previousCodepoint == 0xF2000)
 			{
-				if (static_cast<uint16_t>(textureIndex) < imageAtlas->textureOffsetsCount)
+				if (static_cast<uint16_t>(textureIndex) < imageAtlas->nineSliceImageCount)
 				{
-					const auto* trimRecord = reinterpret_cast<const float*>(
-						reinterpret_cast<const uint8_t*>(imageAtlas->pointer_20)
-						+ 32LL * textureIndex);
+					const RuiImageAtlasNineSlice& trimRecord = imageAtlas->nineSliceData[textureIndex];
 					currentAdvance +=
-						(trimRecord[2] + trimRecord[0]) * static_cast<float>(dimensions[0]);
+						(trimRecord.normalizedBounds[2] + trimRecord.normalizedBounds[0]) * static_cast<float>(dimensions.width);
 				}
 			}
 			else
 			{
 				const float imageMinY = verticalOffset - ascents[activeStyle];
 				const float imageWidth =
-					(static_cast<float>(dimensions[0]) / static_cast<float>(dimensions[1]))
+					(static_cast<float>(dimensions.width) / static_cast<float>(dimensions.height))
 					* glyphAdvanceScales[activeStyle];
-				image->mins[1] = imageMinY;
-				image->maxs[0] = imageWidth + image->mins[0];
-				image->maxs[1] = imageMinY + textSizes[activeStyle];
+				image->boundsMin[1] = imageMinY;
+				image->boundsMax[0] = imageWidth + image->boundsMin[0];
+				image->boundsMax[1] = imageMinY + textSizes[activeStyle];
 				currentAdvance += imageWidth;
 				pendingInlineImage = nullptr;
 			}
@@ -3398,9 +3286,9 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 				imageMaxY = maxScalar(imageMaxY, styleMinY + textSizes[styleIndex]);
 			}
 
-			pendingInlineImage->mins[1] = imageMinY;
-			pendingInlineImage->maxs[0] = currentAdvance;
-			pendingInlineImage->maxs[1] = imageMaxY;
+			pendingInlineImage->boundsMin[1] = imageMinY;
+			pendingInlineImage->boundsMax[0] = currentAdvance;
+			pendingInlineImage->boundsMax[1] = imageMaxY;
 			pendingInlineImage = nullptr;
 			currentLineWidth = currentAdvance;
 			previousBreakClass = 0;
@@ -3410,43 +3298,37 @@ __m128 __fastcall getTextSize_F6980_rebuild(ruiDataStruct* ruiData, unsigned int
 		previousCodepoint = codepoint;
 	}
 
-	const uint32_t finalLineCount = runtime->dword_28C8;
+	const uint32_t finalLineCount = runtime->textLineCount;
 	if (finalLineCount != initialLineCount && finalLineCount <= 64)
-		runtime->float_25C4[3 * finalLineCount] = currentAdvance;
+		runtime->textLineData[3 * finalLineCount] = currentAdvance;
 
 	const float measuredWidth = maxScalar(maximumLineWidth, currentAdvance);
 	const float measuredHeight = verticalOffset + lineHeight;
-	const float targetWidth = dataFloat(textJob->targetWidth);
+	const float targetWidth = dataFloat(job->targetWidthOffset);
 	const float horizontalScale = targetWidth / maxScalar(targetWidth, measuredWidth);
 	const float fittedWidth = horizontalScale * measuredWidth;
 
-	unknown2& runtimeJob = runtime->unk2[renderJobOffset >> 4];
-	runtimeJob.float_0 = horizontalScale;
-	runtimeJob.byte_4 = static_cast<uint8_t>(initialLineCount);
-	runtimeJob.byte_5 = static_cast<uint8_t>(runtime->dword_28C8 - initialLineCount);
-	runtimeJob.byte_6 = static_cast<uint8_t>(initialInlineImageCount);
-	runtimeJob.byte_7 = static_cast<uint8_t>(runtime->dword_28CC - initialInlineImageCount);
+	RuiRenderJobState& runtimeJob = runtime->renderJobStates[renderJobOffset >> 4];
+	runtimeJob.fittedScale = horizontalScale;
+	runtimeJob.firstLine = static_cast<uint8_t>(initialLineCount);
+	runtimeJob.lineCount = static_cast<uint8_t>(runtime->textLineCount - initialLineCount);
+	runtimeJob.firstInlineImage = static_cast<uint8_t>(initialInlineImageCount);
+	runtimeJob.inlineImageCount = static_cast<uint8_t>(runtime->inlineImageCount - initialInlineImageCount);
 
 	return _mm_shuffle_ps(_mm_set_ss(fittedWidth), _mm_set_ss(measuredHeight), 0);
 }
 
-
-
-DECLARE_HOOK(GetTextSize, engine.dll + 0xF6980, [](auto& hook, ruiDataStruct *a1, unsigned int a2) -> __m128
+DECLARE_HOOK(RuiMeasureTextJob, engine.dll + 0xF6980, [](auto& hook, RuiInstance* rui, uint32_t renderJobOffset) -> __m128
 {
-		(void)hook;
-		return getTextSize_F6980_rebuild(a1, a2);
+	return RuiMeasureTextJob(rui, renderJobOffset);
 });
 
-ON_DLL_LOAD("rtech_game.DLL", AtlasRpak, [](CModule module)
+ON_DLL_LOAD("rtech_game.DLL", ImageAtlasRpak, [](CModule module)
 {
-	DISPATCH_MODULE(AtlasTest);
+	DISPATCH_MODULE(ImageAtlas);
 });
 
-
-
-
-ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
+ON_DLL_LOAD("engine.dll", ImageAtlas, [](CModule module)
 {
 	s_RpakHashAligned = module.Offset(0x4305D0).RCast<RpakHashFn>();
 	s_RpakHashUnaligned = module.Offset(0x4305E0).RCast<RpakHashFn>();
@@ -3454,65 +3336,56 @@ ON_DLL_LOAD("engine.dll", AtlasTest, [](CModule module)
 	s_DestroyImageAtlas = module.Offset(0xFC4F0).RCast<DestroyImageAtlasFn>();
 	s_GetAssetDescriptor = module.Offset(0xF3C60).RCast<GetAssetDescriptorFn>();
 
-	// AUTOHOOK_DISPATCH_MODULE(engine.dll)
-	DISPATCH_MODULE(AtlasTest);
-	ruiDrawInfo_5f4560 = module.Offset(0x5F4560).RCast<ruiDrawInfoFunc*>();
-	xmmword_5F3DD0 = *module.Offset(0x5F3DD0).RCast<__m128*>();
-	xmmword_5F3E20 = *module.Offset(0x5F3E20).RCast<__m128*>();
-	xmmword_5F3E50 = *module.Offset(0x5F3E50).RCast<__m128*>();
-	xmmword_5F3E70 = *module.Offset(0x5F3E70).RCast<__m128*>();
-	xmmword_5F3E80 = *module.Offset(0x5F3E80).RCast<__m128*>();
-	xmmword_5F3E90 = *module.Offset(0x5F3E90).RCast<__m128*>();
-	xmmword_5F3EB0 = *module.Offset(0x5F3EB0).RCast<__m128*>();
-	xmmword_5F3EE0 = *module.Offset(0x5F3EE0).RCast<__m128*>();
-	xmmword_5F3EF0 = *module.Offset(0x5F3EF0).RCast<__m128*>();
-	xmmword_5F3F30 = *module.Offset(0x5F3F30).RCast<__m128*>();
-	xmmword_5F3F60 = *module.Offset(0x5F3F60).RCast<__m128*>();
-	xmmword_5F4600 = *module.Offset(0x5F4600).RCast<__m128*>();
-	xmmword_5F4610 = *module.Offset(0x5F4610).RCast<__m128*>();
+	DISPATCH_MODULE(ImageAtlas);
+	g_RuiDrawInfoHandlers = module.Offset(0x5F4560).RCast<RuiDrawInfoHandlerFn*>();
+	g_RuiSignMaskAll = *module.Offset(0x5F3DD0).RCast<__m128*>();
+	g_RuiSignMaskLowHalf = *module.Offset(0x5F3E20).RCast<__m128*>();
+	g_RuiSignMaskMiddleLanes = *module.Offset(0x5F3E50).RCast<__m128*>();
+	g_RuiSignMaskHighHalf = *module.Offset(0x5F3E70).RCast<__m128*>();
+	g_RuiFloatTwo = *module.Offset(0x5F3E80).RCast<__m128*>();
+	g_RuiFloatOne = *module.Offset(0x5F3E90).RCast<__m128*>();
+	g_RuiFloatHalf = *module.Offset(0x5F3EB0).RCast<__m128*>();
+	g_RuiUnitX = *module.Offset(0x5F3EE0).RCast<__m128*>();
+	g_RuiUnitY = *module.Offset(0x5F3EF0).RCast<__m128*>();
+	g_RuiFloatMinNormal = *module.Offset(0x5F3F30).RCast<__m128*>();
+	g_RuiFloatAbsMask = *module.Offset(0x5F3F60).RCast<__m128*>();
+	g_RuiHighHalfOne = *module.Offset(0x5F4600).RCast<__m128*>();
+	g_RuiHighHalfSignedOne = *module.Offset(0x5F4610).RCast<__m128*>();
 
-	xmmword_5CB2A0 = *module.Offset(0x5CB2A0).RCast<__m128*>();
-	xmmword_5F34E0 = *module.Offset(0x5F34E0).RCast<__m128*>();
-	xmmword_5F34B0 = *module.Offset(0x5F34B0).RCast<__m128*>();
-	xmmword_5F3510 = *module.Offset(0x5F3510).RCast<__m128*>();
-	xmmword_5F3490 = *module.Offset(0x5F3490).RCast<__m128*>();
-	xmmword_5F3500 = *module.Offset(0x5F3500).RCast<__m128*>();
-	xmmword_5F34A0 = *module.Offset(0x5F34A0).RCast<__m128*>();
-	xmmword_5F3470 = *module.Offset(0x5F3470).RCast<__m128*>();
-	xmmword_5F34F0 = *module.Offset(0x5F34F0).RCast<__m128*>();
-	xmmword_5F3460 = *module.Offset(0x5F3460).RCast<__m128*>();
-	xmmword_5F3E00 = *module.Offset(0x5F3E00).RCast<__m128*>();
-	xmmword_5F34C0 = *module.Offset(0x5F34C0).RCast<__m128*>();
-	xmmword_5F45D0 = *module.Offset(0x5F45D0).RCast<__m128*>();
+	g_RuiIntTwo = *module.Offset(0x5CB2A0).RCast<__m128*>();
+	g_RuiSinApproxCoeff3 = *module.Offset(0x5F34E0).RCast<__m128*>();
+	g_RuiSinApproxCoeff0 = *module.Offset(0x5F34B0).RCast<__m128*>();
+	g_RuiSinApproxCoeff1 = *module.Offset(0x5F3510).RCast<__m128*>();
+	g_RuiSinApproxCoeff2 = *module.Offset(0x5F3490).RCast<__m128*>();
+	g_RuiCosApproxCoeff0 = *module.Offset(0x5F3500).RCast<__m128*>();
+	g_RuiCosApproxCoeff1 = *module.Offset(0x5F34A0).RCast<__m128*>();
+	g_RuiCosApproxCoeff3 = *module.Offset(0x5F3470).RCast<__m128*>();
+	g_RuiCosApproxCoeff2 = *module.Offset(0x5F34F0).RCast<__m128*>();
+	g_RuiIntOne = *module.Offset(0x5F3460).RCast<__m128*>();
+	g_RuiSignMaskLane2 = *module.Offset(0x5F3E00).RCast<__m128*>();
+	g_RuiFloatFour = *module.Offset(0x5F34C0).RCast<__m128*>();
+	g_RuiQuarterEndpoints = *module.Offset(0x5F45D0).RCast<__m128*>();
 
-	xmmword_12A14650 = *module.Offset(0x12A14650).RCast<__m128*>();
-	xmmword_12A146A0 = *module.Offset(0x12A146A0).RCast<__m128*>();
-	xmmword_12A146B0 = module.Offset(0x12A146B0).RCast<__m128*>();
-	xmmword_12A146D0 = *module.Offset(0x12A146D0).RCast<__m128*>();
-	assetIndexList = module.Offset(0x12A4E508).RCast<struct_a1_2*>();
+	g_RuiBlendMaskLowHalf = *module.Offset(0x12A14650).RCast<__m128*>();
+	g_RuiBlendMaskLane1 = *module.Offset(0x12A146A0).RCast<__m128*>();
+	g_RuiBlendMaskHighHalf = *module.Offset(0x12A146B0).RCast<__m128*>();
+	g_RuiBlendMaskLane0 = *module.Offset(0x12A146D0).RCast<__m128*>();
+	g_RuiImageDescriptorMap = module.Offset(0x12A4E508).RCast<RHashMap*>();
 
-	word_12A2E50C = module.Offset(0x12A2E50C).RCast<short*>();
-	byte_12A2E50E = module.Offset(0x12A2E50E).RCast<uint8_t*>();
-	byte_12A2E50F = module.Offset(0x12A2E50F).RCast<uint8_t*>();
-	uiFontAtlases = module.Offset(0x12A26080).RCast<uiFontAtlas*>(); // font atlas lol
-	unk_12A2E508 = module.Offset(0x12A2E508).RCast<assetIndexData*>();
+	g_RuiFontAtlases = module.Offset(0x12A26080).RCast<RuiFontAtlas*>();
+	g_RuiImageDescriptors = module.Offset(0x12A2E508).RCast<RuiImageAssetDescriptor*>();
 
-	xmmword_12A4E830 = module.Offset(0x12A4E830).RCast<__m128*>();
-	funcs_5F4560 = module.Offset(0x5F4560).RCast<funcs5F4560Type*>();
-	sub_FC0C0 = module.Offset(0xFC0C0).RCast<sub_FC0C0Type>();
-	readUnicodeCharacter_F2C40 = module.Offset(0xF2C40).RCast<readUnicodeCharacter_F2C40Type>();
-	rpakFontPointers = module.Offset(0x12A4E550).RCast<rpakFont**>();
+	g_RuiEllipseAxisMasks = module.Offset(0x12A4E830).RCast<__m128*>();
+	s_BindImageAtlas = module.Offset(0xFC0C0).RCast<BindImageAtlasFn>();
+	s_ReadUnicodeCharacter = module.Offset(0xF2C40).RCast<ReadUnicodeCharacterFn>();
+	g_RuiFonts = module.Offset(0x12A4E550).RCast<RuiFont**>();
 
-	getFontGlyphIndex = module.Offset(0xFAE80).RCast<getFontGlyphIndexType>();
-	getUnicodeCharacter_GPT = module.Offset(0x00F2C40).RCast<getUnicodeCharacter_GPTType>();
-	sub_F98F0 = module.Offset(0xF98F0).RCast<sub_F98F0Type>();
-	sub_F9B80 = module.Offset(0xF9B80).RCast<sub_F9B80Type>();
-	sub_FFAE0 = module.Offset(0xFFAE0).RCast<sub_FFAE0Type>();
-	sub_FEF30 = module.Offset(0xFEF30).RCast<sub_FEF30Type>();
-	sub_FEF30_2 = module.Offset(0xFEF30).RCast<sub_FEF30_2Type>();
-	sub_F3BB0 = module.Offset(0xF3BB0).RCast<sub_F3BB0Type>();
-	sub_F3E30 = module.Offset(0xF3E30).RCast<sub_F3E30Type>();
-	xmmword_5F4740 = module.Offset(0x5F4740).RCast<__m128*>();
-	fontIndices = module.Offset(0x12A4E650).RCast<BYTE*>();
-	assetIndexData_12A4E510 = module.Offset(0x12A4E510).RCast<assetIndexData*>();
+	s_GetFontGlyphIndex = module.Offset(0xFAE80).RCast<GetFontGlyphIndexFn>();
+	s_ResolveTextEscape = module.Offset(0xF98F0).RCast<ResolveTextEscapeFn>();
+	s_BuildEdgeCorrection = module.Offset(0xFFAE0).RCast<BuildEdgeCorrectionFn>();
+	s_ApplyEdgeCorrection = module.Offset(0xFEF30).RCast<ApplyEdgeCorrectionFn>();
+	s_RHashMapInsert = module.Offset(0xF3BB0).RCast<RHashMapInsertFn>();
+	s_RHashMapRemove = module.Offset(0xF3E30).RCast<RHashMapRemoveFn>();
+	g_RuiEdgeCorrectionMasks = module.Offset(0x5F4740).RCast<__m128*>();
+	g_RuiFontAtlasIndices = module.Offset(0x12A4E650).RCast<BYTE*>();
 });

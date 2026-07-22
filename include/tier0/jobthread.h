@@ -1,13 +1,15 @@
 #ifndef JOBTHREAD_H
 #define JOBTHREAD_H
 
+#include <cstdint>
+
 #define JT_JOB_GROUP_BASE_ID 0x3000
 
 typedef uint32_t JobID_t;
 typedef uint8_t JobTypeID_t;
 typedef uint32_t JobAffinity_t;
 
-typedef bool(*JobHelpCallback_t)(__int64, _DWORD*, __int64, _QWORD*);
+typedef bool(*JobHelpCallback_t)(int64_t, uint32_t*, int64_t, uint64_t*);
 
 enum JobPriority_e : uint32_t
 {
@@ -15,10 +17,11 @@ enum JobPriority_e : uint32_t
 
 struct JobFifoLock_s
 {
-	int id;
-	int depth;
-	short tls[64];
+	int32_t id;
+	int32_t depth;
+	int16_t tls[64];
 };
+static_assert(sizeof(JobFifoLock_s) == 0x88);
 
 struct JobContext_s
 {

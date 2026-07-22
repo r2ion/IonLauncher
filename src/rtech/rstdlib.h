@@ -1,15 +1,19 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 struct RFixedArray
 {
-	int index;
-	int slotsLeft;
-	int structSize;
-	int modMask;
-	void* buffer;
+	uint32_t freeHeadToken;
+	uint32_t freeTailIndex;
+	uint32_t elementStride;
+	uint32_t capacity;
+	void* storage;
 };
 
 static_assert(sizeof(RFixedArray) == 0x18);
+static_assert(offsetof(RFixedArray, storage) == 0x10);
 
 
 #pragma pack(push, 4)
