@@ -130,6 +130,7 @@ namespace NS::log
 	std::shared_ptr<spdlog::logger> echo;
 
 	std::shared_ptr<spdlog::logger> NORTHSTAR;
+	std::shared_ptr<spdlog::logger> MILES;
 	std::shared_ptr<spdlog::logger> PLUGINSYS;
 }; // namespace NS::log
 
@@ -326,6 +327,7 @@ void LogSys_InitialiseLogging()
 
 	NS::log::NORTHSTAR = CreateLogger("NORTHSTAR", NS::Colors::NORTHSTAR);
 	spdlog::set_default_logger(NS::log::NORTHSTAR);
+	NS::log::MILES = CreateLogger("MILES", NS::Colors::MILES);
 
 	NS::log::SCRIPT_UI = CreateLogger("SCRIPT UI", NS::Colors::SCRIPT_UI);
 	NS::log::SCRIPT_CL = CreateLogger("SCRIPT CL", NS::Colors::SCRIPT_CL);

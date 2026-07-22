@@ -137,6 +137,7 @@ namespace NS::Colors
 	extern Color FILESYSTEM;
 	extern Color RPAK;
 	extern Color NORTHSTAR;
+	extern Color MILES;
 	extern Color ECHO;
 	extern Color PLUGINSYS;
 	extern Color PLUGIN;

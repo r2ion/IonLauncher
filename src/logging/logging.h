@@ -49,6 +49,7 @@ namespace NS::log
 	extern LoggerPtr echo;
 
 	extern LoggerPtr NORTHSTAR;
+	extern LoggerPtr MILES;
 
 	extern LoggerPtr PLUGINSYS;
 

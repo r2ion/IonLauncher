@@ -8,8 +8,13 @@ set(EOS_LIB "${EOS_SDK_PATH}/Lib/EOSSDK-Win64-Shipping.lib")
 add_library(
     NorthstarDLL SHARED
     "resources.rc"
-    "client/audio.cpp"
-    "client/audio.h"
+    "miles/audio_definition.cpp"
+    "miles/audio_definition_internal.h"
+    "miles/audio_manager.cpp"
+    "miles/audio_runtime.cpp"
+    "miles/audio_runtime.h"
+    "miles/audio_types.h"
+    "miles/audio.h"
     "client/chatcommand.cpp"
     "client/consoleloggingfix.cpp"
     "client/clientauthhooks.cpp"

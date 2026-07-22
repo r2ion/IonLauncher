@@ -12,6 +12,7 @@ namespace NS::Colors
 	Color FILESYSTEM	(0  , 150, 150);
 	Color RPAK			(255, 190, 0  );
 	Color NORTHSTAR		(66 , 72 , 128);
+	Color MILES			(60 , 180, 255);
 	Color ECHO			(150, 150, 159);
 	Color PLUGINSYS		(244, 60 , 14);
 	Color PLUGIN		(244, 106, 14);
