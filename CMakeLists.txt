@@ -199,14 +199,7 @@ CPMAddPackage(
     GITHUB_REPOSITORY Tencent/rapidjson
     GIT_TAG ${RAPIDJSON_GIT_TAG}
 )
-CPMAddPackage(
-    NAME nlohmann_json
-    GITHUB_REPOSITORY nlohmann/json
-    GIT_TAG v3.11.3
-    OPTIONS
-        "JSON_BuildTests OFF"
-        "JSON_Install OFF"
-)
+
 CPMAddPackage(
     NAME cpp-httplib
     GITHUB_REPOSITORY yhirose/cpp-httplib

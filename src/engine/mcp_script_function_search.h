@@ -1,6 +1,6 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <rapidjson/document.h>
 
 #include <string>
 #include <string_view>
@@ -25,7 +25,7 @@ class MCPScriptFunctionSearch final
 
     explicit MCPScriptFunctionSearch(Options options);
 
-    nlohmann::json Execute() const;
+    rapidjson::Document Execute() const;
 
   private:
     struct GameScriptSource

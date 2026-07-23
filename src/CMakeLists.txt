@@ -362,7 +362,6 @@ target_link_libraries(
             libcurl
             NorthstarIncludes
             httplib::httplib
-            nlohmann_json::nlohmann_json
     )
 
 target_precompile_headers(

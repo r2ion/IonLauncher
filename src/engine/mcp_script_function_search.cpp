@@ -4,6 +4,9 @@
 #include "vscript/squirrel/squirrel.h"
 #include "vscript/squirrel/squirreldocumentation.h"
 
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
@@ -233,26 +236,37 @@ std::string MCPScriptFunctionSearch::ContextName(ScriptContext context)
     }
 }
 
-nlohmann::json MCPScriptFunctionSearch::Execute() const
+rapidjson::Document MCPScriptFunctionSearch::Execute() const
 {
-    using json = nlohmann::json;
+    struct FunctionResult
+    {
+        std::string name;
+        std::string signature;
+        std::string description;
+        bool native;
+        std::string definitionPath;
+        size_t definitionLine = 0;
+    };
+
+    struct SourceMatch
+    {
+        std::string path;
+        size_t line;
+        std::string snippet;
+    };
 
     const std::string loweredQuery = ToLowerASCII(m_Options.query);
-    std::unordered_map<std::string, json> matched;
+    std::unordered_map<std::string, FunctionResult> matched;
     for (const SquirrelDocumentation::Function& function : SquirrelDocumentation::GetInstance().GetFunctions(m_Options.context))
     {
         if (!ContainsLowerASCII(function.name, loweredQuery) && !ContainsLowerASCII(function.description, loweredQuery))
             continue;
-        matched.insert_or_assign(ToLowerASCII(function.name), json{
-                                                                  {"name", function.name},
-                                                                  {"signature", function.signature},
-                                                                  {"description", function.description},
-                                                                  {"native", true},
-                                                              });
+        matched.insert_or_assign(ToLowerASCII(function.name),
+                                 FunctionResult{function.name, function.signature, function.description, true, {}, 0});
     }
 
     const std::vector<GameScriptSource> sources = ReadGameScriptSources();
-    json sourceMatches = json::array();
+    std::vector<SourceMatch> sourceMatches;
     bool sourceMatchesTruncated = false;
     for (const GameScriptSource& source : sources)
     {
@@ -268,12 +282,13 @@ nlohmann::json MCPScriptFunctionSearch::Execute() const
             signature.reserve(name.size() + functionArguments.size() + 11);
             signature.append("function ").append(name).push_back('(');
             signature.append(functionArguments).push_back(')');
-            matched.emplace(key, json{
-                                     {"name", std::string(name)},
-                                     {"signature", std::move(signature)},
-                                     {"description", "<script function defined at " + source.path + " line " + std::to_string(line) + ">"},
-                                     {"native", false},
-                                     {"definition", {{"path", source.path}, {"line", line}}},
+            matched.emplace(key, FunctionResult{
+                                     std::string(name),
+                                     std::move(signature),
+                                     "<script function defined at " + source.path + " line " + std::to_string(line) + ">",
+                                     false,
+                                     source.path,
+                                     line,
                                  });
         });
 
@@ -298,7 +313,7 @@ nlohmann::json MCPScriptFunctionSearch::Execute() const
                 std::string snippet(line.substr(0, 240));
                 if (line.size() > 240)
                     snippet.append("...");
-                sourceMatches.push_back({{"path", source.path}, {"line", lineNumber}, {"snippet", std::move(snippet)}});
+                sourceMatches.push_back({source.path, lineNumber, std::move(snippet)});
             }
             if (lineEnd == std::string::npos)
                 break;
@@ -307,45 +322,95 @@ nlohmann::json MCPScriptFunctionSearch::Execute() const
         }
     }
 
-    std::vector<json> results;
+    std::vector<FunctionResult> results;
     results.reserve(matched.size());
     for (auto& entry : matched)
         results.push_back(std::move(entry.second));
-    std::ranges::sort(results, [](const json& left, const json& right)
-    { return left["name"].get_ref<const std::string&>() < right["name"].get_ref<const std::string&>(); });
+    std::ranges::sort(results, [](const FunctionResult& left, const FunctionResult& right) { return left.name < right.name; });
 
     const int total = static_cast<int>(results.size());
     const int start = std::min(m_Options.offset, total);
     const int end = std::min(start + m_Options.limit, total);
-    json pageResults = json::array();
-    for (int index = start; index < end; index++)
-        pageResults.push_back(std::move(results[index]));
     const bool hasMore = end < total;
 
-    json structured = {
-        {"results", std::move(pageResults)},
-        {"count", end - start},
-        {"total", total},
-        {"context", ContextName(m_Options.context)},
-        {"query", m_Options.query},
-        {"gamefs_file_count", sources.size()},
-        {"page", {{"offset", start}, {"limit", m_Options.limit}, {"nextCursor", hasMore ? std::to_string(end) : ""}, {"hasMore", hasMore}}},
-    };
-    if (m_Options.includeSourceMatches)
+    rapidjson::Document response(rapidjson::kObjectType);
+    rapidjson::Document::AllocatorType& allocator = response.GetAllocator();
+    const auto jsonString = [&](std::string_view value)
+    { return rapidjson::Value(value.data(), static_cast<rapidjson::SizeType>(value.size()), allocator); };
+
+    rapidjson::Value pageResults(rapidjson::kArrayType);
+    for (int index = start; index < end; index++)
     {
-        structured["sourceSearch"] = {
-            {"matches", std::move(sourceMatches)},
-            {"limit", m_Options.sourceLimit},
-            {"hasMore", sourceMatchesTruncated},
-            {"caseSensitive", m_Options.sourceCaseSensitive},
-        };
+        const FunctionResult& function = results[index];
+        rapidjson::Value item(rapidjson::kObjectType);
+        item.AddMember("name", jsonString(function.name), allocator);
+        item.AddMember("signature", jsonString(function.signature), allocator);
+        item.AddMember("description", jsonString(function.description), allocator);
+        item.AddMember("native", function.native, allocator);
+        if (!function.native)
+        {
+            rapidjson::Value definition(rapidjson::kObjectType);
+            definition.AddMember("path", jsonString(function.definitionPath), allocator);
+            definition.AddMember("line", static_cast<uint64_t>(function.definitionLine), allocator);
+            item.AddMember("definition", std::move(definition), allocator);
+        }
+        pageResults.PushBack(std::move(item), allocator);
     }
 
-    json content = json::array({{{"type", "text"}, {"text", structured.dump()}}});
-    content.push_back({{"type", "text"}, {"text", "Found " + std::to_string(total) + " functions; returning " + std::to_string(end - start) + "."}});
-    return {
-        {"content", std::move(content)},
-        {"structuredContent", std::move(structured)},
-        {"isError", false},
-    };
+    rapidjson::Value structured(rapidjson::kObjectType);
+    structured.AddMember("results", std::move(pageResults), allocator);
+    structured.AddMember("count", end - start, allocator);
+    structured.AddMember("total", total, allocator);
+    structured.AddMember("context", jsonString(ContextName(m_Options.context)), allocator);
+    structured.AddMember("query", jsonString(m_Options.query), allocator);
+    structured.AddMember("gamefs_file_count", static_cast<uint64_t>(sources.size()), allocator);
+
+    rapidjson::Value page(rapidjson::kObjectType);
+    page.AddMember("offset", start, allocator);
+    page.AddMember("limit", m_Options.limit, allocator);
+    page.AddMember("nextCursor", jsonString(hasMore ? std::to_string(end) : std::string()), allocator);
+    page.AddMember("hasMore", hasMore, allocator);
+    structured.AddMember("page", std::move(page), allocator);
+
+    if (m_Options.includeSourceMatches)
+    {
+        rapidjson::Value matches(rapidjson::kArrayType);
+        for (const SourceMatch& match : sourceMatches)
+        {
+            rapidjson::Value item(rapidjson::kObjectType);
+            item.AddMember("path", jsonString(match.path), allocator);
+            item.AddMember("line", static_cast<uint64_t>(match.line), allocator);
+            item.AddMember("snippet", jsonString(match.snippet), allocator);
+            matches.PushBack(std::move(item), allocator);
+        }
+
+        rapidjson::Value sourceSearch(rapidjson::kObjectType);
+        sourceSearch.AddMember("matches", std::move(matches), allocator);
+        sourceSearch.AddMember("limit", m_Options.sourceLimit, allocator);
+        sourceSearch.AddMember("hasMore", sourceMatchesTruncated, allocator);
+        sourceSearch.AddMember("caseSensitive", m_Options.sourceCaseSensitive, allocator);
+        structured.AddMember("sourceSearch", std::move(sourceSearch), allocator);
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    structured.Accept(writer);
+
+    rapidjson::Value content(rapidjson::kArrayType);
+    rapidjson::Value structuredText(rapidjson::kObjectType);
+    structuredText.AddMember("type", jsonString("text"), allocator);
+    structuredText.AddMember("text", jsonString(std::string_view(buffer.GetString(), buffer.GetSize())), allocator);
+    content.PushBack(std::move(structuredText), allocator);
+
+    rapidjson::Value summary(rapidjson::kObjectType);
+    summary.AddMember("type", jsonString("text"), allocator);
+    summary.AddMember("text",
+                      jsonString("Found " + std::to_string(total) + " functions; returning " + std::to_string(end - start) + "."),
+                      allocator);
+    content.PushBack(std::move(summary), allocator);
+
+    response.AddMember("content", std::move(content), allocator);
+    response.AddMember("structuredContent", std::move(structured), allocator);
+    response.AddMember("isError", false, allocator);
+    return response;
 }
