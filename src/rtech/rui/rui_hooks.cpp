@@ -261,44 +261,75 @@ void UpdateCrosshairPlus(
 	StoreColor(data->color, color);
 	data->whiteImage = api->findImageAsset(rui, "white");
 
-	const float verticalGap = Cvar_ion_crosshair_gap_v->GetFloat();
-	const float verticalLength = Cvar_ion_crosshair_length_v->GetFloat();
-	const float verticalInset = Cvar_ion_crosshair_inset_v->GetFloat();
-	const float verticalThicknessLeft = Cvar_ion_crosshair_thickness_l->GetFloat();
-	const float verticalThicknessRight = Cvar_ion_crosshair_thickness_r->GetFloat();
-	const float horizontalGap = Cvar_ion_crosshair_gap_h->GetFloat();
-	const float horizontalLength = Cvar_ion_crosshair_length_h->GetFloat();
-	const float horizontalInset = horizontalLength * 0.15f;
+    __m128 movX = _mm_set_ss(data->movementX);
+    __m128 movY = _mm_set_ss(data->movementY);
+    __m128 movXY = _mm_unpacklo_ps(movX, movY);
 
-	const float verticalLeft = 0.5f - verticalThicknessLeft;
-	const float verticalRight = 0.5f + verticalThicknessRight;
-	const float verticalInnerLeft = 0.5f - verticalThicknessLeft * 0.5f;
-	const float verticalInnerRight = 0.5f + verticalThicknessRight * 0.5f;
-	const float topNear = 0.5f - verticalGap;
-	const float topFar = topNear - verticalLength;
-	const float bottomNear = 0.5f + verticalGap;
-	const float bottomFar = bottomNear + verticalLength;
-	const float leftFar = 0.5f - horizontalGap - horizontalLength;
-	const float leftNear = 0.5f - horizontalGap;
-	const float rightNear = 0.5f + horizontalGap;
-	const float rightFar = 0.5f + horizontalGap + horizontalLength;
+    // Packs (movX + offX, movY + offY) into a uint64 for qword fields
+    // offX and offY are passed as __m128 scalars (raw hex bits preserved)
+    auto PackXY = [&](uint32_t rawOffX, uint32_t rawOffY) -> uint64_t
+    {
+        __m128 offX, offY;
+        offX.m128_u32[0] = rawOffX;
+        offY.m128_u32[0] = rawOffY;
+        return _mm_add_ps(movXY, _mm_unpacklo_ps(offX, offY)).m128_u64[0];
+    };
 
-	data->topOuterMin = AddMovement(data->movementX, data->movementY, verticalLeft, topFar - spreadY);
-	data->topOuterMax = AddMovement(data->movementX, data->movementY, verticalRight, topNear - spreadY);
-	data->topInnerMin = AddMovement(data->movementX, data->movementY, verticalInnerLeft, topFar + verticalInset - spreadY);
-	data->topInnerMax = AddMovement(data->movementX, data->movementY, verticalInnerRight, topNear - verticalInset - spreadY);
-	data->bottomOuterMin = AddMovement(data->movementX, data->movementY, verticalLeft, bottomNear + spreadY);
-	data->bottomOuterMax = AddMovement(data->movementX, data->movementY, verticalRight, bottomFar + spreadY);
-	data->bottomInnerMin = AddMovement(data->movementX, data->movementY, verticalInnerLeft, bottomNear + verticalInset + spreadY);
-	data->bottomInnerMax = AddMovement(data->movementX, data->movementY, verticalInnerRight, bottomFar - verticalInset + spreadY);
-	data->leftOuterMin = AddMovement(data->movementX, data->movementY, leftFar - spreadX, 0.46504629f);
-	data->leftOuterMax = AddMovement(data->movementX, data->movementY, leftNear - spreadX, 0.50370371f);
-	data->leftInnerMin = AddMovement(data->movementX, data->movementY, leftFar + horizontalInset - spreadX, 0.49814814f);
-	data->leftInnerMax = AddMovement(data->movementX, data->movementY, leftNear - horizontalInset - spreadX, 0.50185186f);
-	data->rightOuterMin = AddMovement(data->movementX, data->movementY, rightNear + spreadX, 0.46504629f);
-	data->rightOuterMax = AddMovement(data->movementX, data->movementY, rightFar + spreadX, 0.50370371f);
-	data->rightInnerMin = AddMovement(data->movementX, data->movementY, rightNear + horizontalInset + spreadX, 0.49814814f);
-	data->rightInnerMax = AddMovement(data->movementX, data->movementY, rightFar - horizontalInset + spreadX, 0.50185186f);
+    // Encode spread-adjusted Y offsets as raw bits for PackXY
+    auto FloatBits = [](float f) -> uint32_t
+    {
+        uint32_t bits;
+        memcpy(&bits, &f, sizeof(bits));
+        return bits;
+    };
+
+    float kGapV = Cvar_ion_crosshair_gap_v->GetFloat();
+    float kLengthV = Cvar_ion_crosshair_length_v->GetFloat();
+    float kInsetV = Cvar_ion_crosshair_inset_v->GetFloat();
+    float kThicknessVL = Cvar_ion_crosshair_thickness_l->GetFloat();
+    float kThicknessVR = Cvar_ion_crosshair_thickness_r->GetFloat();
+    float kGapH = Cvar_ion_crosshair_gap_h->GetFloat();
+    float kLengthH = Cvar_ion_crosshair_length_h->GetFloat();
+    float kInsetH = kLengthH * 0.15f;
+
+    const float Vx_left = 0.5f - kThicknessVL;
+    const float Vx_right = 0.5f + kThicknessVR;
+    const float Vx_left2 = 0.5f - (kThicknessVL * 0.5f);
+    const float Vx_right2 = 0.5f + (kThicknessVR * 0.5f);
+
+    const float Vtop_near = 0.5f - kGapV;
+    const float Vtop_far = Vtop_near - kLengthV;
+    const float Vbot_near = 0.5f + kGapV;
+    const float Vbot_far = Vbot_near + kLengthV;
+
+    const float Hleft_far = 0.5f - kGapH - kLengthH;
+    const float Hleft_near = 0.5f - kGapH;
+    const float Hright_near = 0.5f + kGapH;
+    const float Hright_far = 0.5f + kGapH + kLengthH;
+
+    // Vertical top
+    data->qword38 = PackXY(0x3EFEEEEFu, FloatBits(Vtop_far - spreadY));
+    data->qword40 = PackXY(0x3F008889u, FloatBits(Vtop_near - spreadY));
+    data->qword48 = PackXY(0x3EFF7777u, FloatBits(Vtop_far + kInsetV - spreadY));
+    data->qword50 = PackXY(0x3F004444u, FloatBits(Vtop_near - kInsetV - spreadY));
+
+    // Vertical bottom
+    data->qword58 = PackXY(0x3EFEEEEFu, FloatBits(Vbot_near + spreadY));
+    data->qword60 = PackXY(0x3F008889u, FloatBits(Vbot_far + spreadY));
+    data->qword68 = PackXY(0x3EFF7777u, FloatBits(Vbot_near + kInsetV + spreadY));
+    data->qword70 = PackXY(0x3F004444u, FloatBits(Vbot_far - kInsetV + spreadY));
+
+    // Horizontal left
+    data->qword78 = PackXY(FloatBits(Hleft_far - spreadX), 0x3EFE1A8Cu);
+    data->qword80 = PackXY(FloatBits(Hleft_near - spreadX), 0x3F00F2BAu);
+    data->qword88 = PackXY(FloatBits(Hleft_far + kInsetH - spreadX), 0x3EFF0D46u);
+    data->qword90 = PackXY(FloatBits(Hleft_near - kInsetH - spreadX), 0x3F00795Du);
+
+    // Horizontal right
+    data->qword98 = PackXY(FloatBits(Hright_near + spreadX), 0x3EFE1A8Cu);
+    data->qwordA0 = PackXY(FloatBits(Hright_far + spreadX), 0x3F00F2BAu);
+    data->qwordA8 = PackXY(FloatBits(Hright_near + kInsetH + spreadX), 0x3EFF0D46u);
+    data->qwordB0 = PackXY(FloatBits(Hright_far - kInsetH + spreadX), 0x3F00795Du);
 
 	api->executeTransform(rui, 162);
 }
