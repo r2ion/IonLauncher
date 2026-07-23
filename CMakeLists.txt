@@ -19,7 +19,7 @@ cmake_policy(
 project(
     Northstar
     C
-	#CSharp
+    # CSharp
     CXX
     ASM_MASM
     )
@@ -78,31 +78,26 @@ option(
     ${NS_BUILD_LEGACY_CPP_LAUNCHER_DEFAULT}
     )
 option(
-	NS_GENERATE_VS_LAUNCH_CONFIG
-	"Generate launch.vs.json for Visual Studio debugging configuration"
-	${NS_GENERATE_VS_LAUNCH_CONFIG_DEFAULT}
-	)
-set(
-    NS_LAUNCHER_RUNTIME_IDENTIFIER
+    NS_GENERATE_VS_LAUNCH_CONFIG
+    "Generate launch.vs.json for Visual Studio debugging configuration"
+    ${NS_GENERATE_VS_LAUNCH_CONFIG_DEFAULT}
+    )
+set(NS_LAUNCHER_RUNTIME_IDENTIFIER
     "${NS_LAUNCHER_RUNTIME_IDENTIFIER_DEFAULT}"
-    CACHE STRING
-          "Runtime identifier used when publishing the C# launcher."
+    CACHE STRING "Runtime identifier used when publishing the C# launcher."
     )
 
 set(NS_VERSION_NUMERIC
     "0,0,0,1"
-    CACHE STRING
-          "Windows numeric FILEVERSION/PRODUCTVERSION value (comma separated)."
+    CACHE STRING "Windows numeric FILEVERSION/PRODUCTVERSION value (comma separated)."
     )
 set(NS_VERSION_STRING
     "DEV"
-    CACHE STRING
-          "Windows string FileVersion/ProductVersion value."
+    CACHE STRING "Windows string FileVersion/ProductVersion value."
     )
 set(NS_ION_PATCH
     "0"
-    CACHE STRING
-          "ION patch value for include/ns_version.h."
+    CACHE STRING "ION patch value for include/ns_version.h."
     )
 
 add_compile_definitions(
@@ -203,6 +198,25 @@ CPMAddPackage(
     NAME rapidjson
     GITHUB_REPOSITORY Tencent/rapidjson
     GIT_TAG ${RAPIDJSON_GIT_TAG}
+)
+CPMAddPackage(
+    NAME nlohmann_json
+    GITHUB_REPOSITORY nlohmann/json
+    GIT_TAG v3.11.3
+    OPTIONS
+        "JSON_BuildTests OFF"
+        "JSON_Install OFF"
+)
+CPMAddPackage(
+    NAME cpp-httplib
+    GITHUB_REPOSITORY yhirose/cpp-httplib
+    GIT_TAG v0.18.3
+    OPTIONS
+        "HTTPLIB_INSTALL OFF"
+        "HTTPLIB_TEST OFF"
+        "HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF"
+        "HTTPLIB_USE_ZLIB_IF_AVAILABLE OFF"
+        "HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF"
 )
 CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
 

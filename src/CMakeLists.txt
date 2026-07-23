@@ -1,5 +1,5 @@
 find_package(minhook REQUIRED)
-#find_package(VTFLib REQUIRED)
+# find_package(VTFLib REQUIRED)
 
 set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
 set(EOS_DLL "${EOS_SDK_PATH}/Bin/EOSSDK-Win64-Shipping.dll")
@@ -20,8 +20,8 @@ add_library(
     "client/clientauthhooks.cpp"
     "client/clientnethooks.cpp"
     "client/clientruihooks.cpp"
-	"client/cliententitylist.h"
-	"client/cliententitylist.cpp"
+    "client/cliententitylist.h"
+    "client/cliententitylist.cpp"
     "client/clientvideooverrides.cpp"
     "client/connect.cpp"
     "client/connect.h"
@@ -40,8 +40,8 @@ add_library(
     "client/playersettings.cpp"
     "client/r2client.cpp"
     "client/r2client.h"
-	"client/ckf.h"
-	"client/ckf.cpp"
+    "client/ckf.h"
+    "client/ckf.cpp"
     "client/rejectconnectionfixes.cpp"
     "client/room.h"
     "client/room.cpp"
@@ -96,6 +96,10 @@ add_library(
     "engine/inetchannel.h"
     "engine/netchannel.cpp"
     "engine/netchannel.h"
+    "engine/mcp_script_function_search.cpp"
+    "engine/mcp_script_function_search.h"
+    "engine/mcp_server.cpp"
+    "engine/mcp_server.h"
     "engine/netmessages.cpp"
     "engine/netmessages.h"
     "engine/networkstringtables.cpp"
@@ -130,7 +134,7 @@ add_library(
     "modsystem/compiled/modkeyvalues.cpp"
     "modsystem/compiled/modpdef.cpp"
     "modsystem/compiled/modscriptsrson.cpp"
-	# "modsystem/compiled/vmt_icons.cpp"
+    # "modsystem/compiled/vmt_icons.cpp"
     "modsystem/mod.cpp"
     "modsystem/mod.h"
     "modsystem/modmanager.cpp"
@@ -259,8 +263,8 @@ add_library(
     "util/version.h"
     "util/wininfo.cpp"
     "util/wininfo.h"
-	"util/zstdutils.cpp"
-	"util/zstdutils.h"
+    "util/zstdutils.cpp"
+    "util/zstdutils.h"
     "vpklib/vpkdirectory.cpp"
     "vpklib/vpkdirectory.h"
     "vscript/languages/squirrel_re/include/squirrel.h"
@@ -309,6 +313,8 @@ add_library(
     "vscript/scripts/scriptutility.cpp"
     "vscript/squirrel/squirrel.cpp"
     "vscript/squirrel/squirrel.h"
+    "vscript/squirrel/squirreldocumentation.cpp"
+    "vscript/squirrel/squirreldocumentation.h"
     "vscript/squirrel/squirrelautobind.cpp"
     "vscript/squirrel/squirrelautobind.h"
     "vscript/squirrel/squirrelclasstypes.h"
@@ -323,7 +329,7 @@ add_library(
     "vgui/vgui.cpp"
     "dllmain.cpp"
     "Northstar.def"
-      )
+    )
 
 target_include_directories(
     NorthstarDLL
@@ -338,8 +344,8 @@ target_link_libraries(
     NorthstarDLL
     PRIVATE minhook
             minizip
-			libzstd_static
-			# VTFLib::VTFLib
+            libzstd_static
+            # VTFLib::VTFLib
             ws2_32.lib
             crypt32.lib
             cryptui.lib
@@ -355,6 +361,8 @@ target_link_libraries(
             spdlog
             libcurl
             NorthstarIncludes
+            httplib::httplib
+            nlohmann_json::nlohmann_json
     )
 
 target_precompile_headers(
