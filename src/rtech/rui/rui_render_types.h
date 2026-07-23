@@ -275,6 +275,6 @@ struct RuiBaseUv
 };
 static_assert(sizeof(RuiBaseUv) == 0x68);
 
-using RuiDrawInfoHandlerFn = bool(__fastcall*)(RuiDrawInfo*, const RuiBaseUv*, RuiDrawQuad*, RuiDrawBatch*);
-using BuildEdgeCorrectionFn = void(__fastcall*)(const RuiTransform*, const float*, __m128*);
-using ApplyEdgeCorrectionFn = void(__fastcall*)(RuiGlobalState*, RuiInstance*, const __m128*, const __m128*, __m128*);
+using RuiDrawInfoHandlerFn = bool(*)(RuiDrawInfo*, const RuiBaseUv*, RuiDrawQuad*, RuiDrawBatch*);
+using BuildEdgeCorrectionFn = void(*)(const RuiTransform*, const float*, __m128*);
+using ApplyEdgeCorrectionFn = void(*)(RuiGlobalState*, RuiInstance*, const __m128*, const __m128*, __m128*);

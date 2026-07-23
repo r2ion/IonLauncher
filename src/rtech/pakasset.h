@@ -35,17 +35,17 @@ struct PakAssetShort_s
 // packedStarpakOffset into the upper half before invoking the load callback.
 using PakAssetLoadContext_t = uint64_t;
 
-using PakAssetLoadFn_t = void(__fastcall*)(
+using PakAssetLoadFn_t = void(*)(
 	void* header,
 	void* cpuData,
 	uint64_t starpakOffset,
 	PakAssetLoadContext_t loadContext);
-using PakAssetUnloadFn_t = void(__fastcall*)(void* header);
-using PakAssetReplaceFn_t = void(__fastcall*)(
+using PakAssetUnloadFn_t = void(*)(void* header);
+using PakAssetReplaceFn_t = void(*)(
 	void* boundAsset,
 	const void* newHeader,
 	const void* previousHeader);
-using PakAssetBindingChangeFn_t = void(__fastcall*)(
+using PakAssetBindingChangeFn_t = void(*)(
 	void* boundAsset,
 	const void* newHeader,
 	const void* previousHeader,

@@ -27,6 +27,9 @@ ConVar* Cvar_gauntlet_timer_max_speed_imperial;
 
 float* s_GauntletMaxSpeedMph;
 float* s_GauntletMaxSpeedKph;
+bool s_RuiUiModuleReady;
+bool s_RuiConVarsReady;
+bool s_RuiUiHooksDispatched;
 
 __m128 MakeColor(float red, float green, float blue, float alpha = 1.0f)
 {
@@ -474,7 +477,18 @@ ON_DLL_LOAD("ui(11).dll", RuiUiCallbacks, [](CModule module)
 {
 	s_GauntletMaxSpeedMph = module.Offset(GAUNTLET_MAX_SPEED_MPH).RCast<float*>();
 	s_GauntletMaxSpeedKph = module.Offset(GAUNTLET_MAX_SPEED_KPH).RCast<float*>();
-	DISPATCH_MODULE(RuiHooks);
+	s_RuiUiModuleReady = true;
+	if (s_RuiConVarsReady && !s_RuiUiHooksDispatched)
+	{
+		RuiHooks.DispatchForModule("ui(11).dll");
+		s_RuiUiHooksDispatched = true;
+	}
+})
+
+ON_DLL_LOAD_CLIENT("engine.dll", RuiEngineHooks, [](CModule module)
+{
+	(void)module;
+	RuiHooks.DispatchForModule("engine.dll");
 })
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", RuiConVars, ConVar, [](CModule module)
@@ -516,4 +530,11 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", RuiConVars, ConVar, [](CModule module)
 	Cvar_gauntlet_timer_max_speed_imperial = new ConVar(
 		"gauntlet_timer_max_speed_imperial", "31.1", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Max speed in gauntlet timer (imperial).");
+
+	s_RuiConVarsReady = true;
+	if (s_RuiUiModuleReady && !s_RuiUiHooksDispatched)
+	{
+		RuiHooks.DispatchForModule("ui(11).dll");
+		s_RuiUiHooksDispatched = true;
+	}
 })

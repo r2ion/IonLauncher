@@ -2,175 +2,182 @@
 
 #include <limits>
 
-#define IALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
-
-static constexpr size_t SlabBufferTypeCount = 4;
-
-// Compatibility repair is intentionally bounded. Ordinary compiler alignment
-// mistakes are small; large discrepancies are more likely to be corrupt
-// metadata and must not be converted into an attacker-controlled allocation.
-static constexpr uint64_t MaxSlabRepairBytes = 1ull << 20;
-static constexpr uint64_t MaxTotalSlabRepairBytes = 1ull << 20;
-static constexpr uint64_t MaxUnconditionalSlabRepairBytes = 64ull << 10;
-
-static bool IsPositivePowerOfTwo(const int32_t value)
+bool PakFile::IsPositivePowerOfTwo(const int32_t value)
 {
-    return value > 0 && (value & (value - 1)) == 0;
+	return value > 0 && (value & (value - 1)) == 0;
 }
 
-static bool AlignAndAdvance(size_t& cursor, const size_t alignment, const uint64_t dataSize)
+bool PakFile::AlignAndAdvance(size_t& cursor, const size_t alignment, const uint64_t dataSize)
 {
-    constexpr size_t maxSize = std::numeric_limits<size_t>::max();
-    if (cursor > maxSize - (alignment - 1) || dataSize > maxSize)
-        return false;
+	constexpr size_t maxSize = std::numeric_limits<size_t>::max();
+	if (alignment == 0 || cursor > maxSize - (alignment - 1) || dataSize > maxSize)
+		return false;
 
-    const size_t alignedCursor = IALIGN(cursor, alignment);
-    if (static_cast<size_t>(dataSize) > maxSize - alignedCursor)
-        return false;
+	const size_t alignedCursor = (cursor + alignment - 1) & ~(alignment - 1);
+	if (static_cast<size_t>(dataSize) > maxSize - alignedCursor)
+		return false;
 
-    cursor = alignedCursor + static_cast<size_t>(dataSize);
-    return true;
+	cursor = alignedCursor + static_cast<size_t>(dataSize);
+	return true;
 }
 
-static bool CanRepairSlab(const uint64_t oldDataSize, const uint64_t newDataSize, const PakSlabRepairReport_s& report)
+bool PakFile::CanRepairSlab(
+	const uint64_t oldDataSize,
+	const uint64_t newDataSize,
+	const uint64_t addedBytes)
 {
-    const uint64_t addedBytes = newDataSize - oldDataSize;
-    if (addedBytes > MaxSlabRepairBytes || report.addedBytes > MaxTotalSlabRepairBytes - addedBytes)
-    {
-        return false;
-    }
+	const uint64_t repairBytes = newDataSize - oldDataSize;
+	if (repairBytes > MAX_SLAB_REPAIR_BYTES
+		|| addedBytes > MAX_TOTAL_SLAB_REPAIR_BYTES - repairBytes)
+	{
+		return false;
+	}
 
-    // Permit small alignment-only mistakes regardless of the original slab
-    // size. Larger repairs must also be no more than 25% growth.
-    return addedBytes <= MaxUnconditionalSlabRepairBytes || (oldDataSize != 0 && addedBytes <= oldDataSize / 4);
+	// Permit small alignment-only mistakes regardless of the original slab
+	// size. Larger repairs must also be no more than 25% growth.
+	return repairBytes <= MAX_UNCONDITIONAL_SLAB_REPAIR_BYTES
+		|| (oldDataSize != 0 && repairBytes <= oldDataSize / 4);
 }
 
-static bool ValidateSlabMetadata(const PakFile& pakFile, PakSlabRepairReport_s* const proposedRepairs)
+bool PakFile::ValidateSlabMetadata(
+	uint64_t* const repairedDataSizes,
+	size_t& repairCount,
+	uint64_t& addedBytes) const
 {
-    if (proposedRepairs)
-        *proposedRepairs = {};
+	repairCount = 0;
+	addedBytes = 0;
+	if (header.memSlabCount > PAK_MAX_SEGMENTS || !sections.slabHeaders || !sections.pageHeaders)
+		return false;
 
-    if (pakFile.header.memSlabCount > PAK_MAX_SEGMENTS || !pakFile.sections.slabHeaders || !pakFile.sections.pageHeaders)
-    {
-        return false;
-    }
+	size_t slabNextPageOffsets[PAK_MAX_SEGMENTS] = {};
+	size_t originalSlabBufferSizes[SLAB_BUFFER_TYPE_COUNT] = {};
+	size_t repairedSlabBufferSizes[SLAB_BUFFER_TYPE_COUNT] = {};
 
-    size_t slabNextPageOffsets[PAK_MAX_SEGMENTS] = {};
-    size_t originalSlabBufferSizes[SlabBufferTypeCount] = {};
-    size_t repairedSlabBufferSizes[SlabBufferTypeCount] = {};
+	for (size_t slabIndex = 0; slabIndex < header.memSlabCount; ++slabIndex)
+	{
+		const RPakSlabHeader_s& slabHeader = sections.slabHeaders[slabIndex];
+		if (!IsPositivePowerOfTwo(slabHeader.alignment))
+			return false;
+		if (repairedDataSizes)
+			repairedDataSizes[slabIndex] = slabHeader.dataSize;
+	}
 
-    for (size_t slabIndex = 0; slabIndex < pakFile.header.memSlabCount; ++slabIndex)
-    {
-        if (!IsPositivePowerOfTwo(pakFile.sections.slabHeaders[slabIndex].alignment))
-            return false;
-    }
+	for (size_t pageIndex = 0; pageIndex < header.memPageCount; ++pageIndex)
+	{
+		const RPakPageHeader_s& pageHeader = sections.pageHeaders[pageIndex];
+		if (pageHeader.slabIndex < 0 || pageHeader.slabIndex >= header.memSlabCount
+			|| !IsPositivePowerOfTwo(pageHeader.alignment) || pageHeader.dataSize < 0)
+		{
+			return false;
+		}
 
-    for (size_t i = 0; i < pakFile.header.memPageCount; ++i)
-    {
-        const RPakPageHeader_s& pageHeader = pakFile.sections.pageHeaders[i];
-        if (pageHeader.slabIndex < 0 || pageHeader.slabIndex >= pakFile.header.memSlabCount || !IsPositivePowerOfTwo(pageHeader.alignment) ||
-            pageHeader.dataSize < 0)
-        {
-            return false;
-        }
+		const size_t slabIndex = static_cast<size_t>(pageHeader.slabIndex);
+		const RPakSlabHeader_s& slabHeader = sections.slabHeaders[slabIndex];
+		const size_t bufferType = static_cast<uint32_t>(slabHeader.flags) & (SLAB_BUFFER_TYPE_COUNT - 1);
+		if (bufferType != 0 && pageHeader.alignment > slabHeader.alignment)
+			return false;
 
-        const size_t slabIndex = static_cast<size_t>(pageHeader.slabIndex);
-        const RPakSlabHeader_s& slabHeader = pakFile.sections.slabHeaders[slabIndex];
-        const size_t bufferType = static_cast<uint32_t>(slabHeader.flags) & (SlabBufferTypeCount - 1);
-        if (bufferType != 0 && pageHeader.alignment > slabHeader.alignment)
-            return false;
+		if (!AlignAndAdvance(
+			slabNextPageOffsets[slabIndex],
+			static_cast<size_t>(pageHeader.alignment),
+			static_cast<uint64_t>(pageHeader.dataSize)))
+		{
+			return false;
+		}
+	}
 
-        if (!AlignAndAdvance(slabNextPageOffsets[slabIndex], static_cast<size_t>(pageHeader.alignment), static_cast<uint64_t>(pageHeader.dataSize)))
-        {
-            return false;
-        }
-    }
+	for (size_t slabIndex = 0; slabIndex < header.memSlabCount; ++slabIndex)
+	{
+		const RPakSlabHeader_s& slabHeader = sections.slabHeaders[slabIndex];
+		const size_t bufferType = static_cast<uint32_t>(slabHeader.flags) & (SLAB_BUFFER_TYPE_COUNT - 1);
+		if (!AlignAndAdvance(
+			originalSlabBufferSizes[bufferType],
+			static_cast<size_t>(slabHeader.alignment),
+			slabHeader.dataSize))
+		{
+			return false;
+		}
 
-    for (size_t slabIndex = 0; slabIndex < pakFile.header.memSlabCount; ++slabIndex)
-    {
-        const RPakSlabHeader_s& slabHeader = pakFile.sections.slabHeaders[slabIndex];
-        const size_t bufferType = static_cast<uint32_t>(slabHeader.flags) & (SlabBufferTypeCount - 1);
-        if (!AlignAndAdvance(originalSlabBufferSizes[bufferType], static_cast<size_t>(slabHeader.alignment), slabHeader.dataSize))
-        {
-            return false;
-        }
+		uint64_t effectiveDataSize = slabHeader.dataSize;
+		const uint64_t requiredDataSize = slabNextPageOffsets[slabIndex];
+		if (effectiveDataSize < requiredDataSize)
+		{
+			// Type zero is populated from asset header sizes rather than this slab
+			// declaration. Enlarging dataSize would not affect its allocation.
+			if (!repairedDataSizes || bufferType == 0
+				|| !CanRepairSlab(effectiveDataSize, requiredDataSize, addedBytes))
+			{
+				return false;
+			}
 
-        uint64_t effectiveDataSize = slabHeader.dataSize;
-        const uint64_t requiredDataSize = slabNextPageOffsets[slabIndex];
+			repairedDataSizes[slabIndex] = requiredDataSize;
+			++repairCount;
+			addedBytes += requiredDataSize - effectiveDataSize;
+			effectiveDataSize = requiredDataSize;
+		}
 
-        if (effectiveDataSize < requiredDataSize)
-        {
-            // Type zero is populated from asset header sizes rather than this slab
-            // declaration. Enlarging dataSize would not affect its allocation.
-            if (!proposedRepairs || bufferType == 0 || !CanRepairSlab(effectiveDataSize, requiredDataSize, *proposedRepairs))
-            {
-                return false;
-            }
+		if (!AlignAndAdvance(
+			repairedSlabBufferSizes[bufferType],
+			static_cast<size_t>(slabHeader.alignment),
+			effectiveDataSize))
+		{
+			return false;
+		}
+	}
 
-            PakSlabRepair_s& repair = proposedRepairs->repairs[proposedRepairs->repairCount++];
-            repair.slabIndex = slabIndex;
-            repair.bufferType = static_cast<uint32_t>(bufferType);
-            repair.oldDataSize = effectiveDataSize;
-            repair.newDataSize = requiredDataSize;
-            proposedRepairs->addedBytes += requiredDataSize - effectiveDataSize;
-            effectiveDataSize = requiredDataSize;
-        }
+	uint64_t allocationGrowthBytes = 0;
+	for (size_t bufferType = 0; bufferType < SLAB_BUFFER_TYPE_COUNT; ++bufferType)
+	{
+		if (repairedSlabBufferSizes[bufferType] < originalSlabBufferSizes[bufferType])
+			return false;
 
-        if (!AlignAndAdvance(repairedSlabBufferSizes[bufferType], static_cast<size_t>(slabHeader.alignment), effectiveDataSize))
-        {
-            return false;
-        }
-    }
+		const uint64_t allocationGrowth = repairedSlabBufferSizes[bufferType]
+			- originalSlabBufferSizes[bufferType];
+		if (allocationGrowth > MAX_TOTAL_SLAB_REPAIR_BYTES
+			|| allocationGrowthBytes > MAX_TOTAL_SLAB_REPAIR_BYTES - allocationGrowth)
+		{
+			return false;
+		}
+		allocationGrowthBytes += allocationGrowth;
+	}
 
-    if (proposedRepairs)
-    {
-        for (size_t bufferType = 0; bufferType < SlabBufferTypeCount; ++bufferType)
-        {
-            if (repairedSlabBufferSizes[bufferType] < originalSlabBufferSizes[bufferType])
-                return false;
-
-            const uint64_t allocationGrowth = repairedSlabBufferSizes[bufferType] - originalSlabBufferSizes[bufferType];
-            if (allocationGrowth > MaxTotalSlabRepairBytes || proposedRepairs->allocationGrowthBytes > MaxTotalSlabRepairBytes - allocationGrowth)
-            {
-                return false;
-            }
-
-            proposedRepairs->allocationGrowthBytes += allocationGrowth;
-        }
-    }
-
-    return true;
+	return true;
 }
 
 bool PakFile::IsValid() const
 {
-    return ValidateSlabMetadata(*this, nullptr);
+	size_t repairCount = 0;
+	uint64_t addedBytes = 0;
+	return ValidateSlabMetadata(nullptr, repairCount, addedBytes);
 }
 
-bool PakFile::ValidateAndRepairSlabMetadata(PakSlabRepairReport_s& report)
+bool PakFile::ValidateAndRepairSlabMetadata(size_t& repairCount, uint64_t& addedBytes)
 {
-    PakSlabRepairReport_s proposedRepairs = {};
-    if (!ValidateSlabMetadata(*this, &proposedRepairs))
-        return false;
+	repairCount = 0;
+	addedBytes = 0;
+	uint64_t repairedDataSizes[PAK_MAX_SEGMENTS] = {};
+	size_t proposedRepairCount = 0;
+	uint64_t proposedAddedBytes = 0;
+	if (!ValidateSlabMetadata(repairedDataSizes, proposedRepairCount, proposedAddedBytes))
+		return false;
 
-    for (size_t i = 0; i < proposedRepairs.repairCount; ++i)
-    {
-        const PakSlabRepair_s& repair = proposedRepairs.repairs[i];
-        sections.slabHeaders[repair.slabIndex].dataSize = repair.newDataSize;
-    }
+	uint64_t originalDataSizes[PAK_MAX_SEGMENTS] = {};
+	for (size_t slabIndex = 0; slabIndex < header.memSlabCount; ++slabIndex)
+	{
+		originalDataSizes[slabIndex] = sections.slabHeaders[slabIndex].dataSize;
+		sections.slabHeaders[slabIndex].dataSize = repairedDataSizes[slabIndex];
+	}
 
-    // Keep this transactional even though the proposal pass used the same
-    // checks. If a future validation rule is added, never leave a partial repair.
-    if (!IsValid())
-    {
-        for (size_t i = 0; i < proposedRepairs.repairCount; ++i)
-        {
-            const PakSlabRepair_s& repair = proposedRepairs.repairs[i];
-            sections.slabHeaders[repair.slabIndex].dataSize = repair.oldDataSize;
-        }
-        return false;
-    }
+	// Keep this transactional even though the proposal pass used the same
+	// checks. If a future validation rule is added, never leave a partial repair.
+	if (!IsValid())
+	{
+		for (size_t slabIndex = 0; slabIndex < header.memSlabCount; ++slabIndex)
+			sections.slabHeaders[slabIndex].dataSize = originalDataSizes[slabIndex];
+		return false;
+	}
 
-    report = proposedRepairs;
-    return true;
+	repairCount = proposedRepairCount;
+	addedBytes = proposedAddedBytes;
+	return true;
 }

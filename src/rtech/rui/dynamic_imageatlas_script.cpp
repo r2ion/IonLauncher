@@ -3,38 +3,31 @@
 
 #include <charconv>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
-
-namespace
-{
-bool ParseTextureGuid(const char* text, uint64_t& textureGuid)
-{
-	if (!text)
-		return false;
-
-	std::string_view value(text);
-	if (value.starts_with("0x") || value.starts_with("0X"))
-		value.remove_prefix(2);
-	if (value.empty() || value.size() > 16)
-		return false;
-
-	const auto result = std::from_chars(value.data(), value.data() + value.size(), textureGuid, 16);
-	return result.ec == std::errc() && result.ptr == value.data() + value.size();
-}
-}
 
 ADD_SQFUNC(
 	"int",
 	NS_CreateImageAtlas,
 	"string textureGUID, string jsonData",
-	"Creates a runtime RUI image atlas for a loaded TXTR GUID and returns its handle.",
+	"Creates a runtime RUI image atlas for a loaded TXTR GUID. Keep the TXTR loaded until the handle is destroyed.",
 	ScriptContext::UI | ScriptContext::CLIENT)
 {
 	const char* textureGuidText = g_pSquirrel[context]->getstring(sqvm, 1);
 	const char* jsonData = g_pSquirrel[context]->getstring(sqvm, 2);
+	std::string_view textureGuidValue(textureGuidText ? textureGuidText : "");
+	if (textureGuidValue.starts_with("0x") || textureGuidValue.starts_with("0X"))
+		textureGuidValue.remove_prefix(2);
+
 	uint64_t textureGuid = 0;
-	if (!ParseTextureGuid(textureGuidText, textureGuid))
+	const auto parseResult = std::from_chars(
+		textureGuidValue.data(),
+		textureGuidValue.data() + textureGuidValue.size(),
+		textureGuid,
+		16);
+	if (textureGuidValue.empty() || textureGuidValue.size() > 16
+		|| parseResult.ec != std::errc() || parseResult.ptr != textureGuidValue.data() + textureGuidValue.size())
 	{
 		g_pSquirrel[context]->raiseerror(
 			sqvm,
@@ -43,8 +36,8 @@ ADD_SQFUNC(
 	}
 
 	std::string errorMessage;
-	const std::optional<int32_t> atlasHandle =
-		RuiDynamicImageAtlas_Create(textureGuid, jsonData, errorMessage);
+	const std::optional<CDynamicImageAtlas::Handle> atlasHandle =
+		CDynamicImageAtlas::Create(textureGuid, jsonData, errorMessage);
 	if (!atlasHandle)
 	{
 		g_pSquirrel[context]->raiseerror(
@@ -65,6 +58,6 @@ ADD_SQFUNC(
 	ScriptContext::UI | ScriptContext::CLIENT)
 {
 	const int32_t atlasHandle = g_pSquirrel[context]->getinteger(sqvm, 1);
-	g_pSquirrel[context]->pushbool(sqvm, RuiDynamicImageAtlas_Destroy(atlasHandle));
+	g_pSquirrel[context]->pushbool(sqvm, CDynamicImageAtlas::Destroy(atlasHandle));
 	return SQRESULT_NOTNULL;
 }

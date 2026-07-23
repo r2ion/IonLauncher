@@ -1,10 +1,54 @@
-#include "rtech/rui/rui_internal.h"
+#include "rtech/rui/render.h"
+#include "rtech/rui/imageatlas.h"
+#include "rtech/rui/rui_core_types.h"
+#include "rtech/rui/rui_render_types.h"
+#include "rtech/rui/rui_runtime_types.h"
+#include "tier0/module.h"
 
 #include <cstdint>
 #include <cstring>
 #include <immintrin.h>
 
+#define RUI_SHUFFLE_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(value), imm))
+#define RUI_SHUFFLE_I32_AS_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32((value), imm))
+
 DECLARE_MODULE(RuiRenderHooks)
+
+static RuiDrawInfoHandlerFn* s_RuiDrawInfoHandlers;
+static __m128* s_RuiEllipseAxisMasks;
+static __m128* s_RuiEdgeCorrectionMasks;
+
+static BindImageAtlasFn s_BindImageAtlas;
+static BuildEdgeCorrectionFn s_BuildEdgeCorrection;
+static ApplyEdgeCorrectionFn s_ApplyEdgeCorrection;
+
+static __m128 s_RuiSignMaskAll;
+static __m128 s_RuiSignMaskLowHalf;
+static __m128 s_RuiSignMaskMiddleLanes;
+static __m128 s_RuiSignMaskHighHalf;
+static __m128 s_RuiSignMaskLane2;
+static __m128 s_RuiFloatTwo;
+static __m128 s_RuiFloatOne;
+static __m128 s_RuiFloatFour;
+static __m128 s_RuiFloatMinNormal;
+static __m128 s_RuiFloatAbsMask;
+static __m128 s_RuiHighHalfOne;
+static __m128 s_RuiQuarterEndpoints;
+static __m128 s_RuiIntOne;
+static __m128 s_RuiIntTwo;
+
+static __m128 s_RuiBlendMaskLowHalf;
+static __m128 s_RuiBlendMaskLane0;
+static __m128 s_RuiBlendMaskLane1;
+
+static __m128 s_RuiSinApproxCoeff0;
+static __m128 s_RuiSinApproxCoeff1;
+static __m128 s_RuiSinApproxCoeff2;
+static __m128 s_RuiSinApproxCoeff3;
+static __m128 s_RuiCosApproxCoeff0;
+static __m128 s_RuiCosApproxCoeff1;
+static __m128 s_RuiCosApproxCoeff2;
+static __m128 s_RuiCosApproxCoeff3;
 
 bool RuiDrawImageAtlasEntry(
 	RuiGlobalState* globalState,
@@ -22,7 +66,9 @@ bool RuiDrawImageAtlasEntry(
 	const uint32_t materialBatchIndex = batch->materialBatchIndex;
 	RuiDrawMaterialBatch* materialBatches = batch->materialBatches;
 	const uint8_t atlasIndex = descriptor->atlasIndex;
-	RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[atlasIndex];
+	RuiImageAtlas* imageAtlas = CImageAtlas::GetAtlas(atlasIndex);
+	if (!imageAtlas)
+		return true;
 
 	if (materialBatches[materialBatchIndex].imageAtlas != imageAtlas)
 	{
@@ -63,7 +109,7 @@ bool RuiDrawImageAtlasEntry(
 	auto submitDraw = [&]() -> bool
 	{
 		RuiDrawInfo* drawInfo = rui->drawInfo;
-		return g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
+		return s_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
 			drawInfo,
 			&drawUv,
 			&quad,
@@ -137,7 +183,7 @@ bool RuiDrawImageAtlasEntry(
 			RUI_SHUFFLE_PS(transform->rows[1], 85));
 
 		if (correctionMask) {
-			s_ApplyEdgeCorrection(globalState, rui, correctionData, &g_RuiEdgeCorrectionMasks[correctionMask], projected);
+			s_ApplyEdgeCorrection(globalState, rui, correctionData, &s_RuiEdgeCorrectionMasks[correctionMask], projected);
 		}
 		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
 		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
@@ -151,7 +197,7 @@ bool RuiDrawImageAtlasEntry(
 		_mm_storeu_ps(&quad.positions[1][0], quad1);
 
 		RuiDrawInfo* drawInfo = rui->drawInfo;
-		return g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
+		return s_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
 			drawInfo,
 			baseUv,
 			&quad,
@@ -161,17 +207,17 @@ bool RuiDrawImageAtlasEntry(
 	const __m128 atlasRect = _mm_loadu_ps(atlasRecord.normalizedBounds);
 
 	const __m128 reciprocalScale = _mm_rcp_ps(*viewportScale);
-	const __m128 reciprocalScaleError = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(reciprocalScale, *viewportScale));
+	const __m128 reciprocalScaleError = _mm_sub_ps(s_RuiFloatOne, _mm_mul_ps(reciprocalScale, *viewportScale));
 	const __m128 refinedReciprocalScale = _mm_add_ps(
 		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(reciprocalScaleError, reciprocalScaleError), reciprocalScaleError), reciprocalScale),
 		reciprocalScale);
 
 	const __m128 canvasSize = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&rui->canvasWidth)));
 
-	const __m128 flippedAtlasRect = _mm_xor_ps(atlasRect, g_RuiSignMaskHighHalf);
-	const __m128 atlasMin = _mm_and_ps(atlasRect, g_RuiBlendMaskLowHalf);
+	const __m128 flippedAtlasRect = _mm_xor_ps(atlasRect, s_RuiSignMaskHighHalf);
+	const __m128 atlasMin = _mm_and_ps(atlasRect, s_RuiBlendMaskLowHalf);
 	const __m128 atlasExtent = _mm_add_ps(RUI_SHUFFLE_PS(atlasRect, 238), flippedAtlasRect);
-	const __m128 inverseAtlasExtent = _mm_sub_ps(g_RuiFloatOne, atlasExtent);
+	const __m128 inverseAtlasExtent = _mm_sub_ps(s_RuiFloatOne, atlasExtent);
 
 	const __m128 projectedCanvas =
 		_mm_mul_ps(_mm_mul_ps(_mm_unpacklo_ps(canvasSize, canvasSize), RUI_SHUFFLE_PS(transform->rows[0], 216)), refinedReciprocalScale);
@@ -184,19 +230,19 @@ bool RuiDrawImageAtlasEntry(
 
 	const __m128 availableExtent = _mm_sub_ps(edgeSize, atlasExtent);
 	const __m128 availableExtentReciprocal = _mm_rcp_ps(availableExtent);
-	const __m128 availableExtentError = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(availableExtentReciprocal, availableExtent));
+	const __m128 availableExtentError = _mm_sub_ps(s_RuiFloatOne, _mm_mul_ps(availableExtentReciprocal, availableExtent));
 	const __m128 refinedAvailableExtentReciprocal = _mm_add_ps(
 		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(availableExtentError, availableExtentError), availableExtentError), availableExtentReciprocal),
 		availableExtentReciprocal);
 
-	const __m128 edgeScale = _mm_movelh_ps(edgeSize, g_RuiFloatOne);
+	const __m128 edgeScale = _mm_movelh_ps(edgeSize, s_RuiFloatOne);
 	const __m128 outerYDir = _mm_mul_ps(edgeScale, baseUv->primaryOrigin);
 	const __m128 outerXDir = _mm_mul_ps(edgeScale, baseUv->primaryBasisY);
-	const __m128 edgeYDir = _mm_add_ps(_mm_sub_ps(g_RuiFloatOne, edgeScale), outerYDir);
+	const __m128 edgeYDir = _mm_add_ps(_mm_sub_ps(s_RuiFloatOne, edgeScale), outerYDir);
 	const __m128 outerBase = _mm_mul_ps(edgeScale, baseUv->primaryBasisX);
 
 	const __m128 innerScale =
-		_mm_movelh_ps(_mm_mul_ps(_mm_mul_ps(inverseAtlasExtent, edgeSize), refinedAvailableExtentReciprocal), g_RuiFloatOne);
+		_mm_movelh_ps(_mm_mul_ps(_mm_mul_ps(inverseAtlasExtent, edgeSize), refinedAvailableExtentReciprocal), s_RuiFloatOne);
 	const __m128 innerBase = _mm_mul_ps(innerScale, baseUv->primaryBasisX);
 	const __m128 innerXDir = _mm_mul_ps(innerScale, baseUv->primaryBasisY);
 	const __m128 innerYDir = _mm_add_ps(
@@ -205,15 +251,15 @@ bool RuiDrawImageAtlasEntry(
 
 	const __m128 atlasStep = _mm_mul_ps(
 		_mm_sub_ps(
-			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(refinedAvailableExtentReciprocal, 238), flippedAtlasRect), g_RuiHighHalfOne), *uvBias),
+			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(refinedAvailableExtentReciprocal, 238), flippedAtlasRect), s_RuiHighHalfOne), *uvBias),
 		refinedReciprocalScale);
 	const __m128 atlasStepShuffled = RUI_SHUFFLE_PS(atlasStep, 216);
 	const __m128 atlasUvBase = RUI_SHUFFLE_I32_AS_PS(*atlasUv, 216);
 	const __m128 uvHigh = _mm_unpackhi_ps(atlasUvBase, atlasStepShuffled);
 	const __m128 uvLow = _mm_unpacklo_ps(atlasUvBase, atlasStepShuffled);
 
-	int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, g_RuiSignMaskLowHalf)));
-	int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), g_RuiSignMaskLowHalf)));
+	int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, s_RuiSignMaskLowHalf)));
+	int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), s_RuiSignMaskLowHalf)));
 
 	auto blendByMask = [](__m128 keep, __m128 replace, __m128 mask)
 	{ return _mm_or_ps(_mm_andnot_ps(mask, keep), _mm_and_ps(replace, mask)); };
@@ -224,7 +270,7 @@ bool RuiDrawImageAtlasEntry(
 	if ((clipMaskX & 3) == 0 && !drawPiece(
 									RUI_SHUFFLE_PS(uvHigh, 20),
 									RUI_SHUFFLE_PS(uvLow, 80),
-									&g_RuiEdgeCorrectionMasks[correctionMask & 5],
+									&s_RuiEdgeCorrectionMasks[correctionMask & 5],
 									false,
 									outerBase,
 									outerXDir,
@@ -236,11 +282,11 @@ bool RuiDrawImageAtlasEntry(
 	if ((clipMaskY_5 | (clipMaskX & 2)) || drawPiece(
 											   RUI_SHUFFLE_PS(uvHigh, 20),
 											   RUI_SHUFFLE_PS(uvLow, 245),
-											   &g_RuiEdgeCorrectionMasks[correctionMask & 4],
+											   &s_RuiEdgeCorrectionMasks[correctionMask & 4],
 											   true,
-											   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane0),
-											   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane0),
-											   blendByMask(outerYDir, innerYDir, g_RuiBlendMaskLane0)))
+											   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane0),
+											   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane0),
+											   blendByMask(outerYDir, innerYDir, s_RuiBlendMaskLane0)))
 	{
 		// The corresponding piece is visible only when neither clipped axis rejects it.
 		if ((clipMaskX & 6) == 0)
@@ -248,11 +294,11 @@ bool RuiDrawImageAtlasEntry(
 			if (!drawPiece(
 					RUI_SHUFFLE_PS(uvHigh, 20),
 					RUI_SHUFFLE_PS(uvLow, 175),
-					&g_RuiEdgeCorrectionMasks[correctionMask & 6],
+					&s_RuiEdgeCorrectionMasks[correctionMask & 6],
 					false,
 					outerBase,
 					outerXDir,
-					blendByMask(outerYDir, edgeYDir, g_RuiBlendMaskLane0)))
+					blendByMask(outerYDir, edgeYDir, s_RuiBlendMaskLane0)))
 			{
 				return false;
 			}
@@ -261,11 +307,11 @@ bool RuiDrawImageAtlasEntry(
 		if ((clipMaskY_A | (clipMaskX & 1)) || drawPiece(
 												   RUI_SHUFFLE_PS(uvHigh, 125),
 												   RUI_SHUFFLE_PS(uvLow, 80),
-												   &g_RuiEdgeCorrectionMasks[correctionMask & 1],
+												   &s_RuiEdgeCorrectionMasks[correctionMask & 1],
 												   false,
-												   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane1),
-												   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane1),
-												   blendByMask(outerYDir, innerYDir, g_RuiBlendMaskLane1)))
+												   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane1),
+												   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane1),
+												   blendByMask(outerYDir, innerYDir, s_RuiBlendMaskLane1)))
 
 		{
 			if (clipMaskY ||
@@ -274,20 +320,20 @@ bool RuiDrawImageAtlasEntry(
 				if ((clipMaskY_A | (clipMaskX & 4)) || drawPiece(
 														   RUI_SHUFFLE_PS(uvHigh, 125),
 														   RUI_SHUFFLE_PS(uvLow, 175),
-														   &g_RuiEdgeCorrectionMasks[correctionMask & 2],
+														   &s_RuiEdgeCorrectionMasks[correctionMask & 2],
 														   false,
-														   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane1),
-														   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane1),
-														   blendByMask(edgeYDir, innerYDir, g_RuiBlendMaskLane1)))
+														   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane1),
+														   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane1),
+														   blendByMask(edgeYDir, innerYDir, s_RuiBlendMaskLane1)))
 				{
 					if ((clipMaskX & 9) == 0 && !drawPiece(
 													RUI_SHUFFLE_PS(uvHigh, 235),
 													RUI_SHUFFLE_PS(uvLow, 80),
-													&g_RuiEdgeCorrectionMasks[correctionMask & 9],
+													&s_RuiEdgeCorrectionMasks[correctionMask & 9],
 													true,
 													outerBase,
 													outerXDir,
-											blendByMask(outerYDir, edgeYDir, g_RuiBlendMaskLane1)))
+											blendByMask(outerYDir, edgeYDir, s_RuiBlendMaskLane1)))
 					{
 						return false;
 					}
@@ -295,18 +341,18 @@ bool RuiDrawImageAtlasEntry(
 					if ((clipMaskY_5 | (clipMaskX & 8)) || drawPiece(
 															   RUI_SHUFFLE_PS(uvHigh, 235),
 															   RUI_SHUFFLE_PS(uvLow, 245),
-															   &g_RuiEdgeCorrectionMasks[correctionMask & 8],
+															   &s_RuiEdgeCorrectionMasks[correctionMask & 8],
 															   false,
-															   blendByMask(outerBase, innerBase, g_RuiBlendMaskLane0),
-															   blendByMask(outerXDir, innerXDir, g_RuiBlendMaskLane0),
-															   blendByMask(edgeYDir, innerYDir, g_RuiBlendMaskLane0)))
+															   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane0),
+															   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane0),
+															   blendByMask(edgeYDir, innerYDir, s_RuiBlendMaskLane0)))
 					{
 						if ((clipMaskX & 0xC) == 0)
 						{
 							return drawPiece(
 								RUI_SHUFFLE_PS(uvHigh, 235),
 								RUI_SHUFFLE_PS(uvLow, 175),
-								&g_RuiEdgeCorrectionMasks[correctionMask & 0xA],
+								&s_RuiEdgeCorrectionMasks[correctionMask & 0xA],
 								true,
 								outerBase,
 								outerXDir,
@@ -357,7 +403,7 @@ DECLARE_HOOK(RuiDrawImageAtlasEntry, engine.dll + 0xF9B80, [](auto& hook,
 			atlasUv, clipThreshold, uvBias, viewportScale);
 	});
 
-bool __fastcall RuiRenderEllipseJob(
+static bool RuiRenderEllipseJob(
 	RuiRenderContext* context,
 	RuiInstance* rui,
 	const RuiEllipseRenderJob* job,
@@ -401,17 +447,20 @@ bool __fastcall RuiRenderEllipseJob(
 		return true;
 
 	const int orientation = _mm_movemask_ps(determinant) & 2;
-	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), g_RuiSignMaskMiddleLanes), determinant);
-	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, g_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), s_RuiSignMaskMiddleLanes), determinant);
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, s_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
 	const int32_t assetDescriptorIndex = dataInt(job->imageOffset);
 	if (assetDescriptorIndex == -1)
 		return true;
 
-	const RuiImageAssetDescriptor& asset = g_RuiImageDescriptors[assetDescriptorIndex];
-	const int16_t assetIndex = asset.imageIndex;
-	const int16_t combinedFlags = static_cast<int16_t>(job->flags | asset.flags);
+	const RuiImageAssetDescriptor* asset = CImageAtlas::GetAssetDescriptor(assetDescriptorIndex);
+	if (!asset)
+		return true;
+
+	const int16_t assetIndex = asset->imageIndex;
+	const int16_t combinedFlags = static_cast<int16_t>(job->flags | asset->flags);
 
 	const __m128 mins = _mm_unpacklo_ps(dataScalar(job->boundsMinOffsets.x), dataScalar(job->boundsMinOffsets.y));
 	const __m128 maxs = _mm_unpacklo_ps(dataScalar(job->boundsMaxOffsets.x), dataScalar(job->boundsMaxOffsets.y));
@@ -430,15 +479,21 @@ bool __fastcall RuiRenderEllipseJob(
 	if (minimumTransformExtent <= 0.0f)
 		return true;
 
-	RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[asset.atlasIndex];
+	RuiImageAtlas* imageAtlas = CImageAtlas::GetAtlas(asset->atlasIndex);
+	if (!imageAtlas || !imageAtlas->images || assetIndex < 0
+		|| static_cast<uint16_t>(assetIndex) >= imageAtlas->imageCount)
+	{
+		return true;
+	}
+
 	if (!s_BindImageAtlas(batch, imageAtlas))
 		return false;
 
 	const RuiImageAtlasEntry& textureRecord = imageAtlas->images[assetIndex];
 
-	const __m128 textureExtent = _mm_max_ps(_mm_sub_ps(texMaxs, texMins), g_RuiFloatMinNormal);
+	const __m128 textureExtent = _mm_max_ps(_mm_sub_ps(texMaxs, texMins), s_RuiFloatMinNormal);
 	const unsigned int axisMaskIndex = (static_cast<uint16_t>(combinedFlags) >> 4) & 3;
-	const __m128 axisMask = g_RuiEllipseAxisMasks[axisMaskIndex];
+	const __m128 axisMask = s_RuiEllipseAxisMasks[axisMaskIndex];
 	const float stretchCorrectionX = ((transformHeight * edgeSoftness) * (texMaxX - texMinX)) / transformWidth;
 	const float stretchCorrectionY = (texMaxY - texMinY) * edgeSoftness;
 	const __m128 stretchCorrection = _mm_setr_ps(stretchCorrectionX, stretchCorrectionY, stretchCorrectionX, stretchCorrectionY);
@@ -446,20 +501,20 @@ bool __fastcall RuiRenderEllipseJob(
 	const __m128 textureBounds = _mm_loadu_ps(textureRecord.pixelBounds);
 	const __m128 normalizedTextureBounds = _mm_div_ps(
 		_mm_add_ps(
-			_mm_sub_ps(textureBounds, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), g_RuiSignMaskLowHalf)),
+			_mm_sub_ps(textureBounds, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), s_RuiSignMaskLowHalf)),
 			stretchCorrection),
 		_mm_or_ps(
-			_mm_and_ps(_mm_andnot_ps(g_RuiSignMaskAll, textureExtent), axisMask),
-			_mm_andnot_ps(axisMask, g_RuiFloatOne)));
-	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureBounds, g_RuiFloatAbsMask)) != 0)
+			_mm_and_ps(_mm_andnot_ps(s_RuiSignMaskAll, textureExtent), axisMask),
+			_mm_andnot_ps(axisMask, s_RuiFloatOne)));
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureBounds, s_RuiFloatAbsMask)) != 0)
 		return true;
 
-	const __m128 requestedBounds = _mm_movelh_ps(_mm_xor_ps(mins, g_RuiSignMaskAll), maxs);
+	const __m128 requestedBounds = _mm_movelh_ps(_mm_xor_ps(mins, s_RuiSignMaskAll), maxs);
 	const __m128 clippedBounds = _mm_xor_ps(
 		_mm_min_ps(
 			requestedBounds,
 			normalizedTextureBounds),
-		g_RuiSignMaskLowHalf);
+		s_RuiSignMaskLowHalf);
 	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_PS(clippedBounds, 238), RUI_SHUFFLE_PS(clippedBounds, 68))) != 0)
 		return true;
 
@@ -472,11 +527,11 @@ bool __fastcall RuiRenderEllipseJob(
 
 	const __m128 textureScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord.uvScale)));
 	const __m128 textureBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, textureExtent), textureScale);
-	const __m128 ellipseBasis = _mm_mul_ps(inverseBasis, g_RuiFloatTwo);
+	const __m128 ellipseBasis = _mm_mul_ps(inverseBasis, s_RuiFloatTwo);
 	const __m128 textureBase = _mm_add_ps(
 		_mm_mul_ps(_mm_add_ps(_mm_mul_ps(originSum, textureExtent), texMins), textureScale),
 		_mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(textureRecord.uvBase))));
-	const __m128 ellipseBase = _mm_sub_ps(_mm_mul_ps(originSum, g_RuiFloatTwo), g_RuiFloatOne);
+	const __m128 ellipseBase = _mm_sub_ps(_mm_mul_ps(originSum, s_RuiFloatTwo), s_RuiFloatOne);
 	uv.primaryBasisX = _mm_movelh_ps(textureBasis, ellipseBasis);
 	uv.primaryBasisY = _mm_movehl_ps(ellipseBasis, textureBasis);
 	uv.primaryOrigin = _mm_movelh_ps(textureBase, ellipseBase);
@@ -505,7 +560,7 @@ bool __fastcall RuiRenderEllipseJob(
 	_mm_storeu_ps(&triangle.positions[1][0], vertices1);
 
 	RuiDrawInfo* drawInfo = rui->drawInfo;
-	return g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
+	return s_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
 		drawInfo,
 		&uv,
 		&triangle,
@@ -514,7 +569,7 @@ bool __fastcall RuiRenderEllipseJob(
 
 
 
-bool RuiRenderImageJob(
+static bool RuiRenderImageJob(
 	RuiRenderContext* context,
 	RuiInstance* rui,
 	const RuiImageRenderJob* job,
@@ -550,25 +605,34 @@ bool RuiRenderImageJob(
 	if (_mm_movemask_ps(_mm_cmpeq_ps(_mm_setzero_ps(), determinant)) != 0)
 		return true;
 
-	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), g_RuiSignMaskMiddleLanes), determinant);
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), s_RuiSignMaskMiddleLanes), determinant);
 	const int orientation = _mm_movemask_ps(determinant) & 2;
-	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, g_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, s_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
 	const int primaryAssetDescriptorIndex = dataInt(job->imageOffset);
 	if (primaryAssetDescriptorIndex == -1)
 		return true;
 
-	const auto* primaryAsset = &g_RuiImageDescriptors[primaryAssetDescriptorIndex];
+	const auto* primaryAsset = CImageAtlas::GetAssetDescriptor(primaryAssetDescriptorIndex);
+	if (!primaryAsset)
+		return true;
+
 	const uint8_t atlasIndex = primaryAsset->atlasIndex;
 	const int16_t assetIndex = primaryAsset->imageIndex;
+	if (atlasIndex >= RUI_IMAGE_ATLAS_CAPACITY || assetIndex < 0)
+		return true;
+
 	int16_t secondaryAssetIndex = -1;
 	uint16_t flags = job->flags | static_cast<uint8_t>(primaryAsset->flags);
 
 	const int secondaryAssetDescriptorIndex = dataInt(job->maskImageOffset);
 	if (secondaryAssetDescriptorIndex != -1)
 	{
-		const auto* secondaryAsset = &g_RuiImageDescriptors[secondaryAssetDescriptorIndex];
+		const auto* secondaryAsset = CImageAtlas::GetAssetDescriptor(secondaryAssetDescriptorIndex);
+		if (!secondaryAsset)
+			return true;
+
 		if (atlasIndex != secondaryAsset->atlasIndex)
 			return true;
 
@@ -576,7 +640,15 @@ bool RuiRenderImageJob(
 		flags |= static_cast<uint16_t>(4 * static_cast<uint8_t>(secondaryAsset->flags));
 	}
 
-	RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[atlasIndex];
+	RuiImageAtlas* imageAtlas = CImageAtlas::GetAtlas(atlasIndex);
+	if (!imageAtlas || !imageAtlas->images || static_cast<uint16_t>(assetIndex) >= imageAtlas->imageCount
+		|| (secondaryAssetIndex != -1
+			&& (secondaryAssetIndex < 0
+				|| static_cast<uint16_t>(secondaryAssetIndex) >= imageAtlas->imageCount)))
+	{
+		return true;
+	}
+
 	const RuiImageAtlasEntry& primaryTextureRecord = imageAtlas->images[static_cast<uint16_t>(assetIndex)];
 
 	const __m128 mins = _mm_unpacklo_ps(dataScalar(job->boundsMinOffsets.x), dataScalar(job->boundsMinOffsets.y));
@@ -585,20 +657,20 @@ bool RuiRenderImageJob(
 	__m128 texMins = _mm_movelh_ps(texMinsLo, texMinsLo);
 	const __m128 texMaxsLo = _mm_unpacklo_ps(dataScalar(job->uvMaxOffsets.x), dataScalar(job->uvMaxOffsets.y));
 	__m128 texMaxs = _mm_movelh_ps(texMaxsLo, texMaxsLo);
-	__m128 geometryBounds = _mm_movelh_ps(_mm_xor_ps(g_RuiSignMaskAll, mins), maxs);
+	__m128 geometryBounds = _mm_movelh_ps(_mm_xor_ps(s_RuiSignMaskAll, mins), maxs);
 	__m128 textureExtent = _mm_sub_ps(texMaxs, texMins);
 
-	const __m128 axisMask = g_RuiEllipseAxisMasks[(flags >> 4) & 3];
+	const __m128 axisMask = s_RuiEllipseAxisMasks[(flags >> 4) & 3];
 	const __m128 primaryTextureOffset = _mm_loadu_ps(primaryTextureRecord.pixelBounds);
 	const __m128 normalizedTextureOffset = _mm_div_ps(
-		_mm_sub_ps(primaryTextureOffset, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), g_RuiSignMaskLowHalf)),
+		_mm_sub_ps(primaryTextureOffset, _mm_xor_ps(_mm_and_ps(_mm_min_ps(texMins, texMaxs), axisMask), s_RuiSignMaskLowHalf)),
 		_mm_or_ps(
-			_mm_and_ps(_mm_andnot_ps(g_RuiSignMaskAll, textureExtent), axisMask),
-			_mm_andnot_ps(axisMask, g_RuiFloatOne)));
-	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureOffset, g_RuiFloatAbsMask)) != 0)
+			_mm_and_ps(_mm_andnot_ps(s_RuiSignMaskAll, textureExtent), axisMask),
+			_mm_andnot_ps(axisMask, s_RuiFloatOne)));
+	if (_mm_movemask_ps(_mm_cmplt_ps(normalizedTextureOffset, s_RuiFloatAbsMask)) != 0)
 		return true;
 
-	__m128i atlasUv = _mm_castps_si128(_mm_xor_ps(_mm_min_ps(geometryBounds, normalizedTextureOffset), g_RuiSignMaskLowHalf));
+	__m128i atlasUv = _mm_castps_si128(_mm_xor_ps(_mm_min_ps(geometryBounds, normalizedTextureOffset), s_RuiSignMaskLowHalf));
 	if (_mm_movemask_ps(_mm_cmple_ps(RUI_SHUFFLE_I32_AS_PS(atlasUv, 238), RUI_SHUFFLE_I32_AS_PS(atlasUv, 68))) != 0)
 		return true;
 
@@ -621,9 +693,9 @@ bool RuiRenderImageJob(
 	if (secondaryAssetIndex == -1)
 	{
 		const __m128 minXy = RUI_SHUFFLE_PS(mins, 68);
-		const __m128 spanXy = _mm_max_ps(g_RuiFloatMinNormal, _mm_sub_ps(RUI_SHUFFLE_PS(maxs, 68), minXy));
+		const __m128 spanXy = _mm_max_ps(s_RuiFloatMinNormal, _mm_sub_ps(RUI_SHUFFLE_PS(maxs, 68), minXy));
 		const __m128 spanReciprocal = _mm_rcp_ps(spanXy);
-		const __m128 spanError = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(spanReciprocal, spanXy));
+		const __m128 spanError = _mm_sub_ps(s_RuiFloatOne, _mm_mul_ps(spanReciprocal, spanXy));
 		const __m128 refinedSpanReciprocal = _mm_add_ps(
 			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(spanError, spanError), spanError), spanReciprocal),
 			spanReciprocal);
@@ -640,17 +712,17 @@ bool RuiRenderImageJob(
 		const __m128 maskTranslate = _mm_unpacklo_ps(dataScalar(job->maskTranslationOffsets.x), dataScalar(job->maskTranslationOffsets.y));
 
 		const __m128 rotationTurns = _mm_mul_ps(
-			_mm_add_ps(_mm_xor_ps(RUI_SHUFFLE_PS(maskRotation, 0), g_RuiSignMaskLane2), g_RuiQuarterEndpoints),
-			g_RuiFloatFour);
+			_mm_add_ps(_mm_xor_ps(RUI_SHUFFLE_PS(maskRotation, 0), s_RuiSignMaskLane2), s_RuiQuarterEndpoints),
+			s_RuiFloatFour);
 		const __m128i rotationQuadrant = _mm_cvtps_epi32(rotationTurns);
 		const __m128 quadrantIsEven = _mm_castsi128_ps(_mm_cmpeq_epi32(
-			_mm_and_si128(_mm_castps_si128(g_RuiIntOne), rotationQuadrant),
+			_mm_and_si128(_mm_castps_si128(s_RuiIntOne), rotationQuadrant),
 			_mm_setzero_si128()));
 		const __m128 rotationFraction = _mm_sub_ps(rotationTurns, _mm_cvtepi32_ps(rotationQuadrant));
 		const __m128 fractionSq = _mm_mul_ps(rotationFraction, rotationFraction);
 
 		const __m128 cosApprox = _mm_sub_ps(
-			g_RuiFloatOne,
+			s_RuiFloatOne,
 			_mm_sub_ps(
 				fractionSq,
 				_mm_mul_ps(
@@ -658,11 +730,11 @@ bool RuiRenderImageJob(
 						_mm_mul_ps(
 							_mm_add_ps(
 								_mm_mul_ps(
-									_mm_add_ps(_mm_mul_ps(g_RuiCosApproxCoeff3, fractionSq), g_RuiCosApproxCoeff2),
+									_mm_add_ps(_mm_mul_ps(s_RuiCosApproxCoeff3, fractionSq), s_RuiCosApproxCoeff2),
 									fractionSq),
-								g_RuiCosApproxCoeff1),
+								s_RuiCosApproxCoeff1),
 							fractionSq),
-						g_RuiCosApproxCoeff0),
+						s_RuiCosApproxCoeff0),
 					fractionSq)));
 		const __m128 sinApprox = _mm_add_ps(
 			_mm_mul_ps(
@@ -670,15 +742,15 @@ bool RuiRenderImageJob(
 					_mm_mul_ps(
 						_mm_add_ps(
 							_mm_mul_ps(
-								_mm_add_ps(_mm_mul_ps(g_RuiSinApproxCoeff3, fractionSq), g_RuiSinApproxCoeff2),
+								_mm_add_ps(_mm_mul_ps(s_RuiSinApproxCoeff3, fractionSq), s_RuiSinApproxCoeff2),
 								fractionSq),
-							g_RuiSinApproxCoeff1),
+							s_RuiSinApproxCoeff1),
 						fractionSq),
-					g_RuiSinApproxCoeff0),
+					s_RuiSinApproxCoeff0),
 				rotationFraction),
 			rotationFraction);
 		const __m128 quadrantSign = _mm_castsi128_ps(_mm_slli_epi32(
-			_mm_and_si128(_mm_castps_si128(g_RuiIntTwo), rotationQuadrant),
+			_mm_and_si128(_mm_castps_si128(s_RuiIntTwo), rotationQuadrant),
 			0x1E));
 		const __m128 rotationBasis = _mm_mul_ps(
 			_mm_xor_ps(_mm_or_ps(_mm_andnot_ps(quadrantIsEven, cosApprox), _mm_and_ps(sinApprox, quadrantIsEven)), quadrantSign),
@@ -733,7 +805,42 @@ DECLARE_HOOK(
 	return RuiRenderEllipseJob(context, rui, job, batch);
 });
 
-void RuiRender_DispatchHooks()
+ON_DLL_LOAD("engine.dll", RuiRender, [](CModule module)
 {
+	s_RuiDrawInfoHandlers = module.Offset(0x5F4560).RCast<RuiDrawInfoHandlerFn*>();
+	s_RuiSignMaskAll = *module.Offset(0x5F3DD0).RCast<__m128*>();
+	s_RuiSignMaskLowHalf = *module.Offset(0x5F3E20).RCast<__m128*>();
+	s_RuiSignMaskMiddleLanes = *module.Offset(0x5F3E50).RCast<__m128*>();
+	s_RuiSignMaskHighHalf = *module.Offset(0x5F3E70).RCast<__m128*>();
+	s_RuiFloatTwo = *module.Offset(0x5F3E80).RCast<__m128*>();
+	s_RuiFloatOne = *module.Offset(0x5F3E90).RCast<__m128*>();
+	s_RuiFloatMinNormal = *module.Offset(0x5F3F30).RCast<__m128*>();
+	s_RuiFloatAbsMask = *module.Offset(0x5F3F60).RCast<__m128*>();
+	s_RuiHighHalfOne = *module.Offset(0x5F4600).RCast<__m128*>();
+
+	s_RuiIntTwo = *module.Offset(0x5CB2A0).RCast<__m128*>();
+	s_RuiSinApproxCoeff3 = *module.Offset(0x5F34E0).RCast<__m128*>();
+	s_RuiSinApproxCoeff0 = *module.Offset(0x5F34B0).RCast<__m128*>();
+	s_RuiSinApproxCoeff1 = *module.Offset(0x5F3510).RCast<__m128*>();
+	s_RuiSinApproxCoeff2 = *module.Offset(0x5F3490).RCast<__m128*>();
+	s_RuiCosApproxCoeff0 = *module.Offset(0x5F3500).RCast<__m128*>();
+	s_RuiCosApproxCoeff1 = *module.Offset(0x5F34A0).RCast<__m128*>();
+	s_RuiCosApproxCoeff3 = *module.Offset(0x5F3470).RCast<__m128*>();
+	s_RuiCosApproxCoeff2 = *module.Offset(0x5F34F0).RCast<__m128*>();
+	s_RuiIntOne = *module.Offset(0x5F3460).RCast<__m128*>();
+	s_RuiSignMaskLane2 = *module.Offset(0x5F3E00).RCast<__m128*>();
+	s_RuiFloatFour = *module.Offset(0x5F34C0).RCast<__m128*>();
+	s_RuiQuarterEndpoints = *module.Offset(0x5F45D0).RCast<__m128*>();
+
+	s_RuiBlendMaskLowHalf = *module.Offset(0x12A14650).RCast<__m128*>();
+	s_RuiBlendMaskLane1 = *module.Offset(0x12A146A0).RCast<__m128*>();
+	s_RuiBlendMaskLane0 = *module.Offset(0x12A146D0).RCast<__m128*>();
+
+	s_RuiEllipseAxisMasks = module.Offset(0x12A4E830).RCast<__m128*>();
+	s_BindImageAtlas = module.Offset(0xFC0C0).RCast<BindImageAtlasFn>();
+	s_BuildEdgeCorrection = module.Offset(0xFFAE0).RCast<BuildEdgeCorrectionFn>();
+	s_ApplyEdgeCorrection = module.Offset(0xFEF30).RCast<ApplyEdgeCorrectionFn>();
+	s_RuiEdgeCorrectionMasks = module.Offset(0x5F4740).RCast<__m128*>();
+
 	DISPATCH_MODULE(RuiRenderHooks);
-}
+})

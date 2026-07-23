@@ -160,22 +160,6 @@ struct RPakPageHeader_s
 	int32_t dataSize;
 };
 
-struct PakSlabRepair_s
-{
-	size_t slabIndex;
-	uint32_t bufferType;
-	uint64_t oldDataSize;
-	uint64_t newDataSize;
-};
-
-struct PakSlabRepairReport_s
-{
-	size_t repairCount;
-	uint64_t addedBytes;
-	uint64_t allocationGrowthBytes;
-	PakSlabRepair_s repairs[PAK_MAX_SEGMENTS];
-};
-
 struct RPakPagePtr_s
 {
 	uint32_t pageIndex;
@@ -304,7 +288,7 @@ struct PakPatchFuncs_s
 struct PakFile
 {
 	bool IsValid() const;
-	bool ValidateAndRepairSlabMetadata(PakSlabRepairReport_s& report);
+	bool ValidateAndRepairSlabMetadata(size_t& repairCount, uint64_t& addedBytes);
 	inline uint16_t GetPageCount() const
 	{
 		return header.memPageCount;
@@ -366,6 +350,20 @@ struct PakFile
 	uint64_t assetTypeWriteOffsets[16];
 	const char* filename;
 	RPakHeaderV7_s header;
+
+private:
+	static constexpr size_t SLAB_BUFFER_TYPE_COUNT = 4;
+	static constexpr uint64_t MAX_SLAB_REPAIR_BYTES = 1ull << 20;
+	static constexpr uint64_t MAX_TOTAL_SLAB_REPAIR_BYTES = 1ull << 20;
+	static constexpr uint64_t MAX_UNCONDITIONAL_SLAB_REPAIR_BYTES = 64ull << 10;
+
+	static bool IsPositivePowerOfTwo(int32_t value);
+	static bool AlignAndAdvance(size_t& cursor, size_t alignment, uint64_t dataSize);
+	static bool CanRepairSlab(uint64_t oldDataSize, uint64_t newDataSize, uint64_t addedBytes);
+	bool ValidateSlabMetadata(
+		uint64_t* repairedDataSizes,
+		size_t& repairCount,
+		uint64_t& addedBytes) const;
 };
 
 static_assert(sizeof(PakFile) == 0x6E8);

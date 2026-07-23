@@ -69,9 +69,13 @@ static constexpr uint8_t RUI_DYNAMIC_IMAGE_ATLAS_LAST = RUI_IMAGE_ATLAS_CAPACITY
 static_assert(RUI_DYNAMIC_IMAGE_ATLAS_FIRST < RUI_IMAGE_ATLAS_CAPACITY);
 static_assert(RUI_IMAGE_ATLAS_CAPACITY <= UINT8_MAX);
 static_assert(sizeof(RuiImageAtlas) == 0x48);
+static_assert(offsetof(RuiImageAtlas, imageCount) == 0xC);
 static_assert(offsetof(RuiImageAtlas, images) == 0x10);
 static_assert(offsetof(RuiImageAtlas, nineSliceData) == 0x20);
 static_assert(offsetof(RuiImageAtlas, imageNameRecords) == 0x28);
+static_assert(offsetof(RuiImageAtlas, texture) == 0x38);
+static_assert(offsetof(RuiImageAtlas, gpuRecordBuffer) == 0x40);
+static_assert(offsetof(RuiImageAtlas, reserved44) == 0x44);
 
 struct RuiImageAssetDescriptor
 {
@@ -82,4 +86,4 @@ struct RuiImageAssetDescriptor
 };
 static_assert(sizeof(RuiImageAssetDescriptor) == 0x8);
 
-using BindImageAtlasFn = bool(__fastcall*)(RuiDrawBatch*, RuiImageAtlas*);
+using BindImageAtlasFn = bool(*)(RuiDrawBatch*, RuiImageAtlas*);

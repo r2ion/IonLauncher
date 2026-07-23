@@ -1,12 +1,43 @@
-#include "rtech/rui/rui_internal.h"
+#include "rtech/rui/render.h"
+#include "rtech/rui/imageatlas.h"
+#include "rtech/rui/rui_core_types.h"
+#include "rtech/rui/rui_runtime_types.h"
+#include "rtech/rui/rui_text_types.h"
+#include "tier0/module.h"
 
 #include <cstdint>
 #include <cstring>
 #include <immintrin.h>
 
+#define RUI_SHUFFLE_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(value), imm))
+#define RUI_SHUFFLE_I32_AS_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32((value), imm))
+
 DECLARE_MODULE(RuiTextHooks)
 
-bool __fastcall RuiRenderTextJob(
+static RuiFontAtlas* s_RuiFontAtlases;
+static RuiFont** s_RuiFonts;
+static uint8_t* s_RuiFontAtlasIndices;
+static __m128* s_RuiEdgeCorrectionMasks;
+static RuiDrawInfoHandlerFn* s_RuiDrawInfoHandlers;
+
+static ReadUnicodeCharacterFn s_ReadUnicodeCharacter;
+static GetFontGlyphIndexFn s_GetFontGlyphIndex;
+static ResolveTextEscapeFn s_ResolveTextEscape;
+static BuildEdgeCorrectionFn s_BuildEdgeCorrection;
+static ApplyEdgeCorrectionFn s_ApplyEdgeCorrection;
+
+static __m128 s_RuiSignMaskAll;
+static __m128 s_RuiSignMaskLowHalf;
+static __m128 s_RuiSignMaskMiddleLanes;
+static __m128 s_RuiFloatOne;
+static __m128 s_RuiFloatHalf;
+static __m128 s_RuiUnitX;
+static __m128 s_RuiUnitY;
+static __m128 s_RuiHighHalfOne;
+static __m128 s_RuiHighHalfSignedOne;
+static __m128 s_RuiBlendMaskHighHalf;
+
+static bool RuiRenderTextJob(
 	RuiRenderContext* context,
 	RuiInstance* rui,
 	const RuiTextRenderJob* job,
@@ -27,9 +58,9 @@ bool __fastcall RuiRenderTextJob(
 	if (_mm_movemask_ps(_mm_cmpeq_ps(determinant, _mm_setzero_ps())) != 0)
 		return true;
 
-	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), g_RuiSignMaskMiddleLanes), determinant);
+	const __m128 inverseBasis = _mm_div_ps(_mm_xor_ps(RUI_SHUFFLE_PS(transformRow0, 39), s_RuiSignMaskMiddleLanes), determinant);
 	const int orientation = _mm_movemask_ps(determinant) & 2;
-	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, g_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
+	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, s_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
 	RuiHeader* header = rui->header;
@@ -68,17 +99,17 @@ bool __fastcall RuiRenderTextJob(
 	auto refineReciprocal = [](__m128 value) -> __m128
 	{
 		const __m128 reciprocal = _mm_rcp_ps(value);
-		const __m128 error = _mm_sub_ps(g_RuiFloatOne, _mm_mul_ps(reciprocal, value));
+		const __m128 error = _mm_sub_ps(s_RuiFloatOne, _mm_mul_ps(reciprocal, value));
 		return _mm_add_ps(
 			_mm_mul_ps(_mm_add_ps(_mm_mul_ps(error, error), error), reciprocal),
 			reciprocal);
 	};
 
 	RuiFont* fonts[4] = {
-		g_RuiFonts[textStyles[0]->fontIndex],
-		g_RuiFonts[textStyles[1]->fontIndex],
-		g_RuiFonts[textStyles[2]->fontIndex],
-		g_RuiFonts[textStyles[3]->fontIndex],
+		s_RuiFonts[textStyles[0]->fontIndex],
+		s_RuiFonts[textStyles[1]->fontIndex],
+		s_RuiFonts[textStyles[2]->fontIndex],
+		s_RuiFonts[textStyles[3]->fontIndex],
 	};
 
 	const __m128 refinedTransformSizeReciprocal = refineReciprocal(transformSize);
@@ -107,15 +138,23 @@ bool __fastcall RuiRenderTextJob(
 	{
 		const __m128 scaledTransformSize = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 216);
 		const __m128 lineOffsetVector = RUI_SHUFFLE_PS(_mm_set_ss(lineY), 17);
-		__m128 clipUnit = g_RuiHighHalfOne;
+		__m128 clipUnit = s_RuiHighHalfOne;
 
 		const uint32_t inlineImageEnd = static_cast<uint32_t>(inlineImageBegin) + inlineImageCount;
 		for (uint32_t inlineImageIndex = inlineImageBegin; inlineImageIndex != inlineImageEnd; ++inlineImageIndex)
 		{
 			const RuiInlineImageSpan* inlineImage = &runtime->inlineImages[inlineImageIndex];
-			const auto* assetDescriptor = &g_RuiImageDescriptors[inlineImage->descriptorIndex];
+			const auto* assetDescriptor = CImageAtlas::GetAssetDescriptor(inlineImage->descriptorIndex);
+			if (!assetDescriptor)
+				continue;
+
 			const int16_t assetIndex = assetDescriptor->imageIndex;
-			RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[assetDescriptor->atlasIndex];
+			RuiImageAtlas* imageAtlas = CImageAtlas::GetAtlas(assetDescriptor->atlasIndex);
+			if (!imageAtlas || !imageAtlas->images || assetIndex < 0
+				|| static_cast<uint16_t>(assetIndex) >= imageAtlas->imageCount)
+			{
+				continue;
+			}
 
 			const RuiImageAtlasEntry& textureRecord = imageAtlas->images[assetIndex];
 
@@ -131,9 +170,9 @@ bool __fastcall RuiRenderTextJob(
 			const __m128 refinedImageExtentReciprocal = refineReciprocal(imageExtent);
 
 			const __m128 textureOffset = _mm_loadu_ps(textureRecord.pixelBounds);
-			const __m128 atlasUv = _mm_add_ps(_mm_mul_ps(_mm_xor_ps(textureOffset, g_RuiSignMaskLowHalf), imageExtent), imageBase);
+			const __m128 atlasUv = _mm_add_ps(_mm_mul_ps(_mm_xor_ps(textureOffset, s_RuiSignMaskLowHalf), imageExtent), imageBase);
 			const __m128 atlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(textureRecord.uvScale)));
-			const __m128 inlineMaskBase = _mm_xor_ps(_mm_mul_ps(refinedImageExtentReciprocal, imageBase), g_RuiSignMaskAll);
+			const __m128 inlineMaskBase = _mm_xor_ps(_mm_mul_ps(refinedImageExtentReciprocal, imageBase), s_RuiSignMaskAll);
 			const __m128 inlineMaskTransform = _mm_mul_ps(_mm_mul_ps(_mm_sub_ps(originSum, imageBase), refinedImageExtentReciprocal), atlasScale);
 			const __m128 inlineMaskBasis = _mm_mul_ps(_mm_mul_ps(inverseBasis, refinedImageExtentReciprocal), atlasScale);
 
@@ -169,8 +208,8 @@ bool __fastcall RuiRenderTextJob(
 	{
 		const uint16_t defaultFontIndex = textStyles[0]->fontIndex;
 		RuiDrawMaterialBatch* materialBatches = batch->materialBatches;
-		const uint8_t fontAtlasIndex = g_RuiFontAtlasIndices[defaultFontIndex];
-		RuiFontAtlas* fontAtlas = &g_RuiFontAtlases[fontAtlasIndex];
+		const uint8_t fontAtlasIndex = s_RuiFontAtlasIndices[defaultFontIndex];
+		RuiFontAtlas* fontAtlas = &s_RuiFontAtlases[fontAtlasIndex];
 		const uint32_t materialBatchIndex = batch->materialBatchIndex;
 		RuiFontAtlas* currentFontAtlas = materialBatches[materialBatchIndex].fontAtlas;
 		if (currentFontAtlas != fontAtlas)
@@ -274,13 +313,13 @@ bool __fastcall RuiRenderTextJob(
 		__m128 textHeight = _mm_set_ss(dataFloat(style.shadowFilterWidth));
 		__m128 glyphScaleYScreen = RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 255);
 		glyphScaleYScreen.m128_f32[0] *= glyphScaleY.m128_f32[0];
-		const __m128 symmetricEffectHalfWidth = _mm_mul_ps(_mm_set1_ps(dataFloat(style.filterWidth)), g_RuiFloatHalf);
+		const __m128 symmetricEffectHalfWidth = _mm_mul_ps(_mm_set1_ps(dataFloat(style.filterWidth)), s_RuiFloatHalf);
 		const __m128 effectBoundsPadding = _mm_max_ps(
-			_mm_add_ps(_mm_mul_ps(_mm_set1_ps(textHeight.m128_f32[0]), g_RuiFloatHalf), _mm_xor_ps(_mm_movelh_ps(styleOffset, styleOffset), g_RuiSignMaskLowHalf)),
+			_mm_add_ps(_mm_mul_ps(_mm_set1_ps(textHeight.m128_f32[0]), s_RuiFloatHalf), _mm_xor_ps(_mm_movelh_ps(styleOffset, styleOffset), s_RuiSignMaskLowHalf)),
 			symmetricEffectHalfWidth);
 		textHeight.m128_f32[0] = lineExtra + baselineOffset;
 		const __m128 glyphBoundsOffset = _mm_mul_ps(
-			_mm_xor_ps(_mm_add_ps(effectBoundsPadding, _mm_set1_ps(textHeight.m128_f32[0])), g_RuiSignMaskLowHalf),
+			_mm_xor_ps(_mm_add_ps(effectBoundsPadding, _mm_set1_ps(textHeight.m128_f32[0])), s_RuiSignMaskLowHalf),
 			RUI_SHUFFLE_PS(refinedTransformSizeReciprocal, 216));
 		const __m128 fontAtlasScale = _mm_castpd_ps(_mm_loaddup_pd(reinterpret_cast<const double*>(font->atlasScale)));
 		const float glyphBoundsMaxY = glyphBoundsOffset.m128_f32[3];
@@ -303,7 +342,7 @@ bool __fastcall RuiRenderTextJob(
 			fontAtlasScale);
 		const __m128 glyphBasis = _mm_mul_ps(inverseBasis, glyphUvScale);
 		const __m128 glyphOrigin = _mm_mul_ps(originSum, glyphUvScale);
-		__m128 correctionMask = g_RuiHighHalfSignedOne;
+		__m128 correctionMask = s_RuiHighHalfSignedOne;
 
 		for (;;)
 		{
@@ -454,13 +493,13 @@ bool __fastcall RuiRenderTextJob(
 				_mm_storeu_ps(&tri.positions[0][0], quad0);
 				_mm_storeu_ps(&tri.positions[1][0], quad1);
 				RuiDrawInfo* drawInfo = rui->drawInfo;
-				if (!g_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](drawInfo, &glyphUv, &tri, batch))
+				if (!s_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](drawInfo, &glyphUv, &tri, batch))
 					return false;
 
 				batchStartX = drawCenterX;
 				batchMinY = rightMinY;
 				batchMaxY = rightMaxY;
-				correctionMask = _mm_and_ps(correctionMask, g_RuiBlendMaskHighHalf);
+				correctionMask = _mm_and_ps(correctionMask, s_RuiBlendMaskHighHalf);
 				return true;
 			};
 
@@ -472,7 +511,7 @@ bool __fastcall RuiRenderTextJob(
 					{
 						if (pendingGlyphCount == 1)
 						{
-							correctionMask = _mm_add_ps(correctionMask, g_RuiUnitX);
+							correctionMask = _mm_add_ps(correctionMask, s_RuiUnitX);
 							firstGlyphState = lastGlyphState;
 						}
 
@@ -482,7 +521,7 @@ bool __fastcall RuiRenderTextJob(
 						__m128 minY = _mm_set_ss(minScalar(firstGlyph->boundsMin[1], lastGlyph->boundsMin[1]));
 						__m128 maxY = _mm_set_ss(maxScalar(firstGlyph->boundsMax[1], lastGlyph->boundsMax[1]));
 						const float batchEndX = (glyphAdvanceScale * lastGlyph->boundsMax[0]) + lastGlyphState.penX;
-						correctionMask = _mm_add_ps(correctionMask, g_RuiUnitY);
+						correctionMask = _mm_add_ps(correctionMask, s_RuiUnitY);
 						const float drawCenterX = batchEndX + glyphBoundsOffset.m128_f32[2];
 						minY.m128_f32[0] = (minY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMinY;
 						maxY.m128_f32[0] = (maxY.m128_f32[0] * glyphScaleYScreen.m128_f32[0]) + glyphBoundsMaxY;
@@ -519,7 +558,7 @@ bool __fastcall RuiRenderTextJob(
 							batchMinY = minY;
 							batchMaxY = maxY;
 							batchStartX = (glyphAdvanceScale * posMinX) + glyphBoundsOffset.m128_f32[0] + currentAdvance;
-							correctionMask = _mm_sub_ps(correctionMask, g_RuiUnitX);
+							correctionMask = _mm_sub_ps(correctionMask, s_RuiUnitX);
 						}
 
 						++pendingGlyphCount;
@@ -619,13 +658,21 @@ bool __fastcall RuiRenderTextJob(
 			}
 			else
 			{
-				const auto* unicodeAssetTable =
-					static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entryStorage);
 				const uint16_t unicodeAssetIndex = static_cast<uint16_t>(codepoint);
-				const RuiImageAssetDescriptor& unicodeAsset = unicodeAssetTable[unicodeAssetIndex];
-				const int16_t unicodeTextureIndex = unicodeAsset.imageIndex;
-				const uint8_t unicodeAtlasIndex = unicodeAsset.atlasIndex;
-				RuiImageAtlas* unicodeAtlas = &g_RuiImageAtlases[unicodeAtlasIndex];
+				const RuiImageAssetDescriptor* unicodeAsset =
+					CImageAtlas::GetAssetDescriptor(unicodeAssetIndex);
+				if (!unicodeAsset)
+					continue;
+
+				const int16_t unicodeTextureIndex = unicodeAsset->imageIndex;
+				const uint8_t unicodeAtlasIndex = unicodeAsset->atlasIndex;
+				RuiImageAtlas* unicodeAtlas = CImageAtlas::GetAtlas(unicodeAtlasIndex);
+				if (!unicodeAtlas || !unicodeAtlas->imageDimensions || unicodeTextureIndex < 0
+					|| static_cast<uint16_t>(unicodeTextureIndex) >= unicodeAtlas->imageCount)
+				{
+					continue;
+				}
+
 				const RuiImageDimensions& unicodeDimensions = unicodeAtlas->imageDimensions[unicodeTextureIndex];
 				const float unicodeWidth = static_cast<float>(unicodeDimensions.width);
 
@@ -670,7 +717,7 @@ DECLARE_HOOK(RuiRenderTextJob, engine.dll + 0xF5840, [](auto& hook, RuiRenderCon
 	return RuiRenderTextJob(context, rui, job, batch);
 });
 
-__m128 __fastcall RuiMeasureTextJob(RuiInstance* rui, uint32_t renderJobOffset)
+static __m128 RuiMeasureTextJob(RuiInstance* rui, uint32_t renderJobOffset)
 {
 	RuiRuntimeState* runtime = rui->runtime;
 	const auto* job = reinterpret_cast<const RuiTextRenderJob*>(
@@ -709,10 +756,10 @@ __m128 __fastcall RuiMeasureTextJob(RuiInstance* rui, uint32_t renderJobOffset)
 	};
 
 	RuiFont* fonts[4] = {
-		g_RuiFonts[textStyles[0]->fontIndex],
-		g_RuiFonts[textStyles[1]->fontIndex],
-		g_RuiFonts[textStyles[2]->fontIndex],
-		g_RuiFonts[textStyles[3]->fontIndex],
+		s_RuiFonts[textStyles[0]->fontIndex],
+		s_RuiFonts[textStyles[1]->fontIndex],
+		s_RuiFonts[textStyles[2]->fontIndex],
+		s_RuiFonts[textStyles[3]->fontIndex],
 	};
 	float textSizes[4];
 	float glyphAdvanceScales[4];
@@ -767,7 +814,7 @@ __m128 __fastcall RuiMeasureTextJob(RuiInstance* rui, uint32_t renderJobOffset)
 
 	RuiInlineImageSpan* inlineImages = runtime->inlineImages;
 	const RuiFontAtlas* wordBreakAtlas =
-		&g_RuiFontAtlases[g_RuiFontAtlasIndices[textStyles[0]->fontIndex]];
+		&s_RuiFontAtlases[s_RuiFontAtlasIndices[textStyles[0]->fontIndex]];
 	RuiFont* font = fonts[0];
 	RuiInlineImageSpan* pendingInlineImage = nullptr;
 	char* cursor = dataText(job->textOffset);
@@ -926,12 +973,19 @@ __m128 __fastcall RuiMeasureTextJob(RuiInstance* rui, uint32_t renderJobOffset)
 			pendingInlineImage = image;
 			activeStyleMask = 1u << activeStyle;
 
-			const auto* unicodeAssetTable =
-				static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entryStorage);
-			const RuiImageAssetDescriptor& unicodeAsset =
-				unicodeAssetTable[image->descriptorIndex];
-			const int16_t textureIndex = unicodeAsset.imageIndex;
-			RuiImageAtlas* imageAtlas = &g_RuiImageAtlases[unicodeAsset.atlasIndex];
+			const RuiImageAssetDescriptor* unicodeAsset =
+				CImageAtlas::GetAssetDescriptor(image->descriptorIndex);
+			if (!unicodeAsset)
+				continue;
+
+			const int16_t textureIndex = unicodeAsset->imageIndex;
+			RuiImageAtlas* imageAtlas = CImageAtlas::GetAtlas(unicodeAsset->atlasIndex);
+			if (!imageAtlas || !imageAtlas->imageDimensions || textureIndex < 0
+				|| static_cast<uint16_t>(textureIndex) >= imageAtlas->imageCount)
+			{
+				continue;
+			}
+
 			const RuiImageDimensions& dimensions = imageAtlas->imageDimensions[textureIndex];
 
 			if (previousCodepoint == 0xF2000)
@@ -1016,7 +1070,29 @@ DECLARE_HOOK(RuiMeasureTextJob, engine.dll + 0xF6980, [](auto& hook, RuiInstance
 	return RuiMeasureTextJob(rui, renderJobOffset);
 });
 
-void RuiText_DispatchHooks()
+ON_DLL_LOAD("engine.dll", RuiText, [](CModule module)
 {
+	s_RuiDrawInfoHandlers = module.Offset(0x5F4560).RCast<RuiDrawInfoHandlerFn*>();
+	s_RuiSignMaskAll = *module.Offset(0x5F3DD0).RCast<__m128*>();
+	s_RuiSignMaskLowHalf = *module.Offset(0x5F3E20).RCast<__m128*>();
+	s_RuiSignMaskMiddleLanes = *module.Offset(0x5F3E50).RCast<__m128*>();
+	s_RuiFloatOne = *module.Offset(0x5F3E90).RCast<__m128*>();
+	s_RuiFloatHalf = *module.Offset(0x5F3EB0).RCast<__m128*>();
+	s_RuiUnitX = *module.Offset(0x5F3EE0).RCast<__m128*>();
+	s_RuiUnitY = *module.Offset(0x5F3EF0).RCast<__m128*>();
+	s_RuiHighHalfOne = *module.Offset(0x5F4600).RCast<__m128*>();
+	s_RuiHighHalfSignedOne = *module.Offset(0x5F4610).RCast<__m128*>();
+	s_RuiBlendMaskHighHalf = *module.Offset(0x12A146B0).RCast<__m128*>();
+
+	s_RuiFontAtlases = module.Offset(0x12A26080).RCast<RuiFontAtlas*>();
+	s_ReadUnicodeCharacter = module.Offset(0xF2C40).RCast<ReadUnicodeCharacterFn>();
+	s_RuiFonts = module.Offset(0x12A4E550).RCast<RuiFont**>();
+	s_GetFontGlyphIndex = module.Offset(0xFAE80).RCast<GetFontGlyphIndexFn>();
+	s_ResolveTextEscape = module.Offset(0xF98F0).RCast<ResolveTextEscapeFn>();
+	s_BuildEdgeCorrection = module.Offset(0xFFAE0).RCast<BuildEdgeCorrectionFn>();
+	s_ApplyEdgeCorrection = module.Offset(0xFEF30).RCast<ApplyEdgeCorrectionFn>();
+	s_RuiEdgeCorrectionMasks = module.Offset(0x5F4740).RCast<__m128*>();
+	s_RuiFontAtlasIndices = module.Offset(0x12A4E650).RCast<BYTE*>();
+
 	DISPATCH_MODULE(RuiTextHooks);
-}
+})

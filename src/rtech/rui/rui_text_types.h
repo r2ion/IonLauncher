@@ -133,6 +133,6 @@ static_assert(offsetof(RuiFont, ascentFraction) == 0x24);
 static_assert(offsetof(RuiFont, unknown28) == 0x28);
 static_assert(offsetof(RuiFont, atlasGlyphBase) == 0x2C);
 
-using ReadUnicodeCharacterFn = uint32_t(__fastcall*)(char**);
-using GetFontGlyphIndexFn = uint64_t(__fastcall*)(RuiFont*, int32_t);
-using ResolveTextEscapeFn = char*(__fastcall*)(RuiInstance*, RuiRenderContext*, char**, char*);
+using ReadUnicodeCharacterFn = uint32_t(*)(char**);
+using GetFontGlyphIndexFn = uint64_t(*)(RuiFont*, int32_t);
+using ResolveTextEscapeFn = char*(*)(RuiInstance*, RuiRenderContext*, char**, char*);

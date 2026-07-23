@@ -16,38 +16,38 @@ class vgui_BaseRichText_vtable
 public:
 	char unknown1[1880];
 
-	void(__fastcall* InsertChar)(vgui_BaseRichText* self, wchar_t ch);
+	void(* InsertChar)(vgui_BaseRichText* self, wchar_t ch);
 
 	// yes these are swapped from the Source 2013 code, who knows why
-	void(__fastcall* InsertStringWide)(vgui_BaseRichText* self, const wchar_t* wszText);
-	void(__fastcall* InsertStringAnsi)(vgui_BaseRichText* self, const char* text);
+	void(* InsertStringWide)(vgui_BaseRichText* self, const wchar_t* wszText);
+	void(* InsertStringAnsi)(vgui_BaseRichText* self, const char* text);
 
-	void(__fastcall* SelectNone)(vgui_BaseRichText* self);
-	void(__fastcall* SelectAllText)(vgui_BaseRichText* self);
-	void(__fastcall* SelectNoText)(vgui_BaseRichText* self);
-	void(__fastcall* CutSelected)(vgui_BaseRichText* self);
-	void(__fastcall* CopySelected)(vgui_BaseRichText* self);
-	void(__fastcall* SetPanelInteractive)(vgui_BaseRichText* self, bool bInteractive);
-	void(__fastcall* SetUnusedScrollbarInvisible)(vgui_BaseRichText* self, bool bInvis);
+	void(* SelectNone)(vgui_BaseRichText* self);
+	void(* SelectAllText)(vgui_BaseRichText* self);
+	void(* SelectNoText)(vgui_BaseRichText* self);
+	void(* CutSelected)(vgui_BaseRichText* self);
+	void(* CopySelected)(vgui_BaseRichText* self);
+	void(* SetPanelInteractive)(vgui_BaseRichText* self, bool bInteractive);
+	void(* SetUnusedScrollbarInvisible)(vgui_BaseRichText* self, bool bInvis);
 
 	void* unknown2;
 
-	void(__fastcall* GotoTextStart)(vgui_BaseRichText* self);
-	void(__fastcall* GotoTextEnd)(vgui_BaseRichText* self);
+	void(* GotoTextStart)(vgui_BaseRichText* self);
+	void(* GotoTextEnd)(vgui_BaseRichText* self);
 
 	void* unknown3[3];
 
-	void(__fastcall* SetVerticalScrollbar)(vgui_BaseRichText* self, bool state);
-	void(__fastcall* SetMaximumCharCount)(vgui_BaseRichText* self, int maxChars);
-	void(__fastcall* InsertColorChange)(vgui_BaseRichText* self, Color col);
-	void(__fastcall* InsertIndentChange)(vgui_BaseRichText* self, int pixelsIndent);
-	void(__fastcall* InsertClickableTextStart)(vgui_BaseRichText* self, const char* pchClickAction);
-	void(__fastcall* InsertClickableTextEnd)(vgui_BaseRichText* self);
-	void(__fastcall* InsertPossibleURLString)(vgui_BaseRichText* self, const char* text, Color URLTextColor, Color normalTextColor);
-	void(__fastcall* InsertFade)(vgui_BaseRichText* self, float flSustain, float flLength);
-	void(__fastcall* ResetAllFades)(vgui_BaseRichText* self, bool bHold, bool bOnlyExpired, float flNewSustain);
-	void(__fastcall* SetToFullHeight)(vgui_BaseRichText* self);
-	int(__fastcall* GetNumLines)(vgui_BaseRichText* self);
+	void(* SetVerticalScrollbar)(vgui_BaseRichText* self, bool state);
+	void(* SetMaximumCharCount)(vgui_BaseRichText* self, int maxChars);
+	void(* InsertColorChange)(vgui_BaseRichText* self, Color col);
+	void(* InsertIndentChange)(vgui_BaseRichText* self, int pixelsIndent);
+	void(* InsertClickableTextStart)(vgui_BaseRichText* self, const char* pchClickAction);
+	void(* InsertClickableTextEnd)(vgui_BaseRichText* self);
+	void(* InsertPossibleURLString)(vgui_BaseRichText* self, const char* text, Color URLTextColor, Color normalTextColor);
+	void(* InsertFade)(vgui_BaseRichText* self, float flSustain, float flLength);
+	void(* ResetAllFades)(vgui_BaseRichText* self, bool bHold, bool bOnlyExpired, float flNewSustain);
+	void(* SetToFullHeight)(vgui_BaseRichText* self);
+	int(* GetNumLines)(vgui_BaseRichText* self);
 };
 
 class CGameSettings

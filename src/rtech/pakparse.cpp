@@ -1026,9 +1026,9 @@ static bool Pak_ReadFile_Custom(PakFile* const pak)
 
 
 
-using Pak_ReadFile_t = bool(__fastcall*)(PakFile* pak);
+using Pak_ReadFile_t = bool(*)(PakFile* pak);
 Pak_ReadFile_t pPak_ReadFile = nullptr;
-HOOK(v_Pak_ReadFile, o_Pak_ReadFile, bool, __fastcall, (PakFile* pak))
+HOOK(v_Pak_ReadFile, o_Pak_ReadFile, bool, HOOKSYS_CALLCONV, (PakFile* pak))
 {
 	// Pak_LoadPendingPak seeds the first patch/decode step at this call site.
 	if (reinterpret_cast<uint64_t>(_ReturnAddress()) == rtechBaseAddr + 0xA618)
@@ -1038,16 +1038,16 @@ HOOK(v_Pak_ReadFile, o_Pak_ReadFile, bool, __fastcall, (PakFile* pak))
 	return Pak_ReadFile_Custom(pak);
 }
 
-using Pak_FixupPointersAndQueueAssets_t = void(__fastcall*)(PakFile* pak);
+using Pak_FixupPointersAndQueueAssets_t = void(*)(PakFile* pak);
 Pak_FixupPointersAndQueueAssets_t pPak_FixupPointersAndQueueAssets = nullptr;
-HOOK(v_Pak_FixupPointersAndQueueAssets, o_Pak_FixupPointersAndQueueAssets, void, __fastcall, (PakFile* pakFile))
+HOOK(v_Pak_FixupPointersAndQueueAssets, o_Pak_FixupPointersAndQueueAssets, void, HOOKSYS_CALLCONV, (PakFile* pakFile))
 {
 	o_Pak_FixupPointersAndQueueAssets(pakFile);
 }
 
-using Pak_LoadPak_t = bool(__fastcall*)(PakLoadedInfo_s* pak);
+using Pak_LoadPak_t = bool(*)(PakLoadedInfo_s* pak);
 Pak_LoadPak_t pPak_LoadPak = nullptr;
-HOOK(v_Pak_LoadPak, o_Pak_LoadPak, bool, __fastcall, (PakLoadedInfo_s* pak))
+HOOK(v_Pak_LoadPak, o_Pak_LoadPak, bool, HOOKSYS_CALLCONV, (PakLoadedInfo_s* pak))
 {
 	return o_Pak_LoadPak(pak);
 }

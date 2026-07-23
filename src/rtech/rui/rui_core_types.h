@@ -13,7 +13,7 @@ struct RuiStyleDescriptorOffsets;
 
 using RuiImageHandle = int32_t;
 
-using RuiUpdateCallback_t = void(__fastcall*)(
+using RuiUpdateCallback_t = void(*)(
 	const RuiFunctionTable_t* api,
 	RuiGlobalState* globals,
 	RuiInstance* rui,
@@ -178,15 +178,15 @@ static_assert(offsetof(RuiInstance, drawInfo) == 0x38);
 
 struct RuiFunctionTable_t
 {
-	void(__fastcall* setHidden)(RuiInstance* rui);
-	void(__fastcall* setNoRender)(RuiInstance* rui);
-	void(__fastcall* setErrorWithReason)(RuiInstance* rui, const char* reason);
-	__m128* (__fastcall* getTransformSizes)(RuiInstance* rui);
-	__m128(__fastcall* measureTextJob)(RuiInstance* rui, uint32_t renderJobOffset);
-	__m128(__fastcall* normalizeTransformRange)(RuiInstance* rui, uint32_t firstTransform, uint32_t endTransform);
-	void(__fastcall* executeTransform)(RuiInstance* rui, uint32_t endOffset);
+	void(*setHidden)(RuiInstance* rui);
+	void(*setNoRender)(RuiInstance* rui);
+	void(*setErrorWithReason)(RuiInstance* rui, const char* reason);
+	__m128* (*getTransformSizes)(RuiInstance* rui);
+	__m128(*measureTextJob)(RuiInstance* rui, uint32_t renderJobOffset);
+	__m128(*normalizeTransformRange)(RuiInstance* rui, uint32_t firstTransform, uint32_t endTransform);
+	void(*executeTransform)(RuiInstance* rui, uint32_t endOffset);
 	const char* (*format)(RuiInstance* rui, const char* format, ...);
-	const char* (__fastcall* localize)(
+	const char* (*localize)(
 		RuiInstance* rui,
 		const char* key,
 		uint64_t arg0,
@@ -194,17 +194,17 @@ struct RuiFunctionTable_t
 		uint64_t arg2,
 		uint64_t arg3,
 		uint64_t arg4);
-	const char* (__fastcall* toUppercase)(RuiInstance* rui, const char* text);
-	__m128(__fastcall* srgbToLinear)(const __m128* srgb);
-	__m128(__fastcall* buildSinCosVector)(float angle);
-	float(__fastcall* randomFloat)(RuiInstance* rui);
-	__m128(__fastcall* unproject)(const RuiInstance* rui, const __m128* screenToWorld, const __m128* screenPoint);
-	__m128(__fastcall* computeAspectCompensationExtents)(const RuiInstance* rui);
-	RuiImageHandle(__fastcall* findImageAsset)(RuiInstance* rui, const char* imageName);
-	const char* (__fastcall* encodeCodepoint)(RuiInstance* rui, int32_t codepoint);
-	float(__fastcall* evaluateFloat)(RuiInstance* rui, uint32_t mappingIndex, float position);
-	__m128(__fastcall* evaluateFloat2)(RuiInstance* rui, uint32_t mappingIndex, float position);
-	__m128(__fastcall* evaluateFloat3)(RuiInstance* rui, uint32_t mappingIndex, float position);
-	__m128(__fastcall* evaluateFloat4)(RuiInstance* rui, uint32_t mappingIndex, float position);
+	const char* (*toUppercase)(RuiInstance* rui, const char* text);
+	__m128(*srgbToLinear)(const __m128* srgb);
+	__m128(*buildSinCosVector)(float angle);
+	float(*randomFloat)(RuiInstance* rui);
+	__m128(*unproject)(const RuiInstance* rui, const __m128* screenToWorld, const __m128* screenPoint);
+	__m128(*computeAspectCompensationExtents)(const RuiInstance* rui);
+	RuiImageHandle(*findImageAsset)(RuiInstance* rui, const char* imageName);
+	const char* (*encodeCodepoint)(RuiInstance* rui, int32_t codepoint);
+	float(*evaluateFloat)(RuiInstance* rui, uint32_t mappingIndex, float position);
+	__m128(*evaluateFloat2)(RuiInstance* rui, uint32_t mappingIndex, float position);
+	__m128(*evaluateFloat3)(RuiInstance* rui, uint32_t mappingIndex, float position);
+	__m128(*evaluateFloat4)(RuiInstance* rui, uint32_t mappingIndex, float position);
 };
 static_assert(sizeof(RuiFunctionTable_t) == 0xA8);

@@ -26,22 +26,13 @@ static __int64 (**o_pCModelLoader_UnreferenceAllModels)(/*CModelLoader*/ void* a
 static char* (*o_pLoadlevelLoadscreen)(const char* levelName) = nullptr;
 static unsigned int (*o_pGetPakPatchNumber)(const char* pPakPath) = nullptr;
 
-using PakFifoLockFn = void(__fastcall*)(JobFifoLock_s* lock);
-using PakReadFileFn = bool(__fastcall*)(PakFile* pakFile);
+using PakFifoLockFn = void(*)(JobFifoLock_s* lock);
+using PakReadFileFn = bool(*)(PakFile* pakFile);
 static PakFifoLockFn s_AcquirePakFifoLockOrHelp = nullptr;
 static PakFifoLockFn s_ReleasePakFifoLock = nullptr;
 static PakReadFileFn s_PakReadFile = nullptr;
 
-struct PakFailureState_s
-{
-	std::mutex m_Mutex;
-	std::vector<PakHandle_t> m_UnsafeLoadedPaks;
-	std::vector<PakHandle_t> m_SafeFailedPaks;
-};
-
-static PakFailureState_s s_PakFailureState;
-
-static bool HasAllocatedSlab(const PakLoadedInfo_s& info)
+bool PakLoadManager::HasAllocatedSlab(const PakLoadedInfo_s& info)
 {
 	for (void* const slabBuffer : info.slabBuffers)
 	{
@@ -52,38 +43,37 @@ static bool HasAllocatedSlab(const PakLoadedInfo_s& info)
 	return false;
 }
 
-static void MarkUnsafeLoadedPak(const PakHandle_t handle)
+void PakLoadManager::TrackFailedPak(const PakLoadedInfo_s& info)
 {
-	std::scoped_lock lock(s_PakFailureState.m_Mutex);
-	if (std::find(s_PakFailureState.m_UnsafeLoadedPaks.begin(), s_PakFailureState.m_UnsafeLoadedPaks.end(), handle) ==
-		s_PakFailureState.m_UnsafeLoadedPaks.end())
-		s_PakFailureState.m_UnsafeLoadedPaks.push_back(handle);
+	std::scoped_lock lock(m_failureMutex);
+	if (HasAllocatedSlab(info))
+	{
+		std::erase(m_safeFailedPaks, info.handle);
+		if (std::find(m_unsafeLoadedPaks.begin(), m_unsafeLoadedPaks.end(), info.handle) == m_unsafeLoadedPaks.end())
+			m_unsafeLoadedPaks.push_back(info.handle);
+		return;
+	}
+
+	if (std::find(m_unsafeLoadedPaks.begin(), m_unsafeLoadedPaks.end(), info.handle) == m_unsafeLoadedPaks.end()
+		&& std::find(m_safeFailedPaks.begin(), m_safeFailedPaks.end(), info.handle) == m_safeFailedPaks.end())
+	{
+		m_safeFailedPaks.push_back(info.handle);
+	}
 }
 
-static void MarkSafeFailedPak(const PakHandle_t handle)
+bool PakLoadManager::IsSafeFailedPak(const PakHandle_t handle) const
 {
-	std::scoped_lock lock(s_PakFailureState.m_Mutex);
-	if (std::find(s_PakFailureState.m_SafeFailedPaks.begin(), s_PakFailureState.m_SafeFailedPaks.end(), handle) ==
-		s_PakFailureState.m_SafeFailedPaks.end())
-		s_PakFailureState.m_SafeFailedPaks.push_back(handle);
+	std::scoped_lock lock(m_failureMutex);
+	return std::find(m_safeFailedPaks.begin(), m_safeFailedPaks.end(), handle) != m_safeFailedPaks.end();
 }
 
-static bool IsSafeFailedPak(const PakHandle_t handle)
+void PakLoadManager::ForgetSafeFailedPak(const PakHandle_t handle)
 {
-	std::scoped_lock lock(s_PakFailureState.m_Mutex);
-	return std::find(s_PakFailureState.m_SafeFailedPaks.begin(), s_PakFailureState.m_SafeFailedPaks.end(), handle) !=
-		s_PakFailureState.m_SafeFailedPaks.end();
+	std::scoped_lock lock(m_failureMutex);
+	std::erase(m_safeFailedPaks, handle);
 }
 
-static void ForgetSafeFailedPak(const PakHandle_t handle)
-{
-	std::scoped_lock lock(s_PakFailureState.m_Mutex);
-	const auto failed = std::find(s_PakFailureState.m_SafeFailedPaks.begin(), s_PakFailureState.m_SafeFailedPaks.end(), handle);
-	if (failed != s_PakFailureState.m_SafeFailedPaks.end())
-		s_PakFailureState.m_SafeFailedPaks.erase(failed);
-}
-
-static bool HasActivePakTransactionsLocked(const PakGlobalState_s& pakGlobals)
+bool PakLoadManager::HasActivePakTransactionsLocked(const PakGlobalState_s& pakGlobals) const
 {
 	for (size_t i = 0; i < PAK_MAX_LOADED_PAKS; ++i)
 	{
@@ -103,17 +93,16 @@ static bool HasActivePakTransactionsLocked(const PakGlobalState_s& pakGlobals)
 	return false;
 }
 
-bool Pak_IsUnsafeLoadedPak(const PakHandle_t handle)
+bool PakLoadManager::IsUnsafeLoadedPak(const PakHandle_t handle) const
 {
-	std::scoped_lock lock(s_PakFailureState.m_Mutex);
-	return std::find(s_PakFailureState.m_UnsafeLoadedPaks.begin(), s_PakFailureState.m_UnsafeLoadedPaks.end(), handle) !=
-		s_PakFailureState.m_UnsafeLoadedPaks.end();
+	std::scoped_lock lock(m_failureMutex);
+	return std::find(m_unsafeLoadedPaks.begin(), m_unsafeLoadedPaks.end(), handle) != m_unsafeLoadedPaks.end();
 }
 
-bool Pak_HasUnsafeLoadedPaks()
+bool PakLoadManager::HasUnsafeLoadedPaks() const
 {
-	std::scoped_lock lock(s_PakFailureState.m_Mutex);
-	return !s_PakFailureState.m_UnsafeLoadedPaks.empty();
+	std::scoped_lock lock(m_failureMutex);
+	return !m_unsafeLoadedPaks.empty();
 }
 
 bool PakLoadManager::TryAcquireIdlePakLock() const
@@ -181,7 +170,7 @@ void PakLoadManager::TrackModPaks(Mod& mod)
 		auto existing = std::find_if(m_modPaks.begin(), m_modPaks.end(), [&](const ModPak_t& trackedPak)
 		{
 			return trackedPak.m_path == pak.m_path && trackedPak.m_handle != PAK_INVALID_HANDLE &&
-				Pak_IsUnsafeLoadedPak(trackedPak.m_handle);
+				IsUnsafeLoadedPak(trackedPak.m_handle);
 		});
 		if (existing != m_modPaks.end())
 		{
@@ -210,7 +199,7 @@ void PakLoadManager::CleanUpUnloadedPaks()
 // Unloads all paks that are marked for unload.
 void PakLoadManager::UnloadMarkedPaks()
 {
-	if (Pak_HasUnsafeLoadedPaks())
+	if (HasUnsafeLoadedPaks())
 		return;
 
 	++m_reentranceCounter;
@@ -224,12 +213,12 @@ void PakLoadManager::UnloadMarkedPaks()
 		if (modPak.m_handle == PAK_INVALID_HANDLE || !modPak.m_markedForDelete)
 			continue;
 
-		if (Pak_IsUnsafeLoadedPak(modPak.m_handle))
+		if (IsUnsafeLoadedPak(modPak.m_handle))
 			continue;
 
 		const PakHandle_t handle = modPak.m_handle;
 		g_pakLoadApi->UnloadAndWait(handle, *o_pCleanMaterialSystemStuff);
-		if (Pak_HasUnsafeLoadedPaks())
+		if (HasUnsafeLoadedPaks())
 		{
 			modPak.m_handle = handle;
 			continue;
@@ -261,7 +250,7 @@ void PakLoadManager::LoadModPaksForMap(const char* mapName)
 // Unloads all modded map paks.
 void PakLoadManager::UnloadModPaks()
 {
-	if (Pak_HasUnsafeLoadedPaks())
+	if (HasUnsafeLoadedPaks())
 		return;
 
 	++m_reentranceCounter;
@@ -277,14 +266,14 @@ void PakLoadManager::UnloadModPaks()
 			if (*it != modPak.m_pathHash)
 				continue;
 
-			if (Pak_IsUnsafeLoadedPak(modPak.m_handle))
+			if (IsUnsafeLoadedPak(modPak.m_handle))
 			{
 				break;
 			}
 
 			const PakHandle_t handle = modPak.m_handle;
 			g_pakLoadApi->UnloadAndWait(handle, *o_pCleanMaterialSystemStuff);
-			if (Pak_HasUnsafeLoadedPaks())
+			if (HasUnsafeLoadedPaks())
 			{
 				modPak.m_handle = handle;
 				break;
@@ -298,14 +287,14 @@ void PakLoadManager::UnloadModPaks()
 
 	// If this has happened, we may have leaked a pak?
 	// It basically means that none of the entries in m_modPaks matched the hash in m_mapPaks so we didn't end up unloading it
-	if (!Pak_HasUnsafeLoadedPaks())
+	if (!HasUnsafeLoadedPaks())
 		assert_msg(m_mapPaks.size() == 0, "Not all map paks were unloaded?");
 }
 
 // Called after a Pak was loaded.
 void PakLoadManager::OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle_t resultingHandle)
 {
-	RuiDynamicImageAtlas_OnPakLoaded(resultingPath, resultingHandle);
+	CDynamicImageAtlas::OnPakLoaded(resultingPath, resultingHandle);
 
 	if (IsVanillaCall())
 	{
@@ -316,29 +305,89 @@ void PakLoadManager::OnPakLoaded(std::string& originalPath, std::string& resulti
 	LoadDependentPaks(resultingPath, resultingHandle);
 }
 
-// Called before a Pak was unloaded.
-void PakLoadManager::OnPakUnloading(PakHandle_t handle)
+void PakLoadManager::OnPakLoadFailed(const PakLoadedInfo_s& info)
 {
-	RuiDynamicImageAtlas_OnPakUnloading(handle);
+	TrackFailedPak(info);
+}
 
-	UnloadDependentPaks(handle);
-
-	if (IsVanillaCall())
+// Performs the reversible pre-unload work shared by public UnloadAndWait calls
+// and native callers that enter through BeginUnload directly. Root atlas and
+// manager bookkeeping stay intact until CommitPakUnload runs under the FIFO.
+bool PakLoadManager::PreparePakUnload(PakHandle_t handle)
+{
+	PakLoadedInfo_s* info = nullptr;
+	if (PakGlobalState_s* const pakGlobals = Pak_GetGlobals())
 	{
-		// remove entry from loaded vanilla rpaks
-		auto fnRemovePredicate = [handle](std::pair<std::string, PakHandle_t>& pair) -> bool { return pair.second == handle; };
-
-		m_vanillaPaks.erase(std::remove_if(m_vanillaPaks.begin(), m_vanillaPaks.end(), fnRemovePredicate), m_vanillaPaks.end());
-
-		// no need to handle aliasing here, if vanilla wants it gone, it's gone
+		PakLoadedInfo_s& candidate = pakGlobals->loadedPaks[handle & PAK_MAX_LOADED_PAKS_MASK];
+		if (candidate.handle == handle)
+		{
+			info = &candidate;
+			if (info->status == PAK_STATUS_ERROR)
+				TrackFailedPak(*info);
+		}
 	}
 
-	// set handle of the mod pak (if any) that has this handle for proper tracking
+	if (HasUnsafeLoadedPaks())
+		return false;
+
+	UnloadDependentPaks(handle);
+	// A dependent unload can discover allocated slabs and promote the process to
+	// quarantine. In that case the root pak is still resident, so leave all of
+	// its atlas and manager bookkeeping intact.
+	if (HasUnsafeLoadedPaks())
+		return false;
+
+	// Native ERROR cleanup only reaches Pak_Free while the original load-FIFO
+	// entry is still pending. If Finalise already consumed that entry, queue a
+	// normal empty unload instead. No asset was populated before slab setup, so
+	// assetCount must be zero before Pak_UnloadInternal sees the synthetic state.
+	if (info && IsSafeFailedPak(handle) && info->status == PAK_STATUS_ERROR && !info->pakFile)
+	{
+		info->assetCount = 0;
+		info->status = PAK_STATUS_LOADED;
+	}
+
+	return true;
+}
+
+void PakLoadManager::CommitPakUnload(PakHandle_t handle)
+{
+	// Pak_UnloadInternal invokes this under the native FIFO lock, after the final
+	// quarantine gate and immediately before native asset teardown.
+	CDynamicImageAtlas::OnPakUnloading(handle);
+
+	std::erase_if(m_vanillaPaks, [handle](const auto& pak)
+	{
+		return pak.second == handle;
+	});
+
 	for (auto& modPak : m_modPaks)
 	{
 		if (modPak.m_handle == handle)
 			modPak.m_handle = PAK_INVALID_HANDLE;
 	}
+}
+
+void PakLoadManager::OnPakUnloadQueued(PakHandle_t handle)
+{
+	PakGlobalState_s* const pakGlobals = Pak_GetGlobals();
+	if (!pakGlobals)
+		return;
+
+	const PakLoadedInfo_s& info = pakGlobals->loadedPaks[handle & PAK_MAX_LOADED_PAKS_MASK];
+	// LOAD_PENDING is removed from the requested-handle FIFO without entering
+	// Pak_UnloadInternal or Pak_Free. No pak resources exist yet, so finish its
+	// manager-side cancellation here after native invalidation succeeds.
+	if (info.handle == handle && info.status == PAK_STATUS_LOAD_PENDING)
+		CommitPakUnload(handle);
+
+	if (IsSafeFailedPak(handle) && (info.handle != handle || info.status != PAK_STATUS_ERROR))
+		ForgetSafeFailedPak(handle);
+}
+
+void PakLoadManager::OnPakFreed(PakHandle_t handle)
+{
+	ForgetSafeFailedPak(handle);
 }
 
 static uint32 Pak_GetPatchIndexForPak(const char* const pakName)
@@ -464,24 +513,36 @@ void PakLoadManager::LoadDependentPaks(std::string& path, PakHandle_t handle)
 // Unloads Paks that depend on this Pak.
 void PakLoadManager::UnloadDependentPaks(PakHandle_t handle)
 {
-	if (Pak_HasUnsafeLoadedPaks())
+	if (HasUnsafeLoadedPaks())
 		return;
 
 	++m_reentranceCounter;
 	const ScopeGuard guard([&]() { --m_reentranceCounter; });
 
-	auto fnRemovePredicate = [&](std::pair<PakHandle_t, size_t>& pair) -> bool
+	// Detach these records before calling UnloadAndWait. A dependent pak may have
+	// dependencies of its own, and its BeginUnload hook recursively enters this
+	// method; iterating m_dependentPaks during that recursion would be invalidated.
+	std::vector<size_t> dependentPathHashes;
+	for (const auto& [ownerHandle, pathHash] : m_dependentPaks)
 	{
-		if (pair.first != handle)
-			return false;
+		if (ownerHandle == handle)
+			dependentPathHashes.push_back(pathHash);
+	}
+	std::erase_if(m_dependentPaks, [handle](const auto& dependency)
+	{
+		return dependency.first == handle;
+	});
+
+	for (const size_t pathHash : dependentPathHashes)
+	{
 		bool unloadedAll = true;
 
 		for (auto& modPak : m_modPaks)
 		{
-			if (modPak.m_pathHash != pair.second || modPak.m_handle == PAK_INVALID_HANDLE)
+			if (modPak.m_pathHash != pathHash || modPak.m_handle == PAK_INVALID_HANDLE)
 				continue;
 
-			if (Pak_IsUnsafeLoadedPak(modPak.m_handle))
+			if (IsUnsafeLoadedPak(modPak.m_handle))
 			{
 				unloadedAll = false;
 				continue;
@@ -490,7 +551,7 @@ void PakLoadManager::UnloadDependentPaks(PakHandle_t handle)
 			// unload pak
 			const PakHandle_t dependentHandle = modPak.m_handle;
 			g_pakLoadApi->UnloadAndWait(dependentHandle, *o_pCleanMaterialSystemStuff);
-			if (Pak_HasUnsafeLoadedPaks())
+			if (HasUnsafeLoadedPaks())
 			{
 				modPak.m_handle = dependentHandle;
 				unloadedAll = false;
@@ -499,9 +560,9 @@ void PakLoadManager::UnloadDependentPaks(PakHandle_t handle)
 			modPak.m_handle = PAK_INVALID_HANDLE;
 		}
 
-		return unloadedAll;
-	};
-	m_dependentPaks.erase(std::remove_if(m_dependentPaks.begin(), m_dependentPaks.end(), fnRemovePredicate), m_dependentPaks.end());
+		if (!unloadedAll)
+			m_dependentPaks.emplace_back(handle, pathHash);
+	}
 }
 
 // Handles aliases for rpaks defined in rpak.json, effectively redirecting an rpak load to a different path.
@@ -527,7 +588,7 @@ static void HandlePakAliases(std::string& originalPath)
 DECLARE_HOOK(LoadMapRpaks, engine.dll + 0x15A8C0, [](auto& hook, char* mapPath) -> bool
 {
 	NOTE_UNUSED(hook);
-	if (Pak_HasUnsafeLoadedPaks())
+	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
 		return false;
 	const bool forceModelReload = g_pPakLoadManager->GetForceReloadOnMapLoad();
 
@@ -636,10 +697,11 @@ DECLARE_HOOK(Pak_AllocateEmptyPak, rtech_game.DLL + 0xB0F0, [](auto& hook, const
 
 DECLARE_HOOK(Pak_UnloadAndWait, rtech_game.DLL + 0xB280, [](auto& hook, PakHandle_t nPakHandle, PakLoadFuncs_s::Callback_t callback)
 {
-	if (Pak_HasUnsafeLoadedPaks())
+	// Native UnloadAndWait enters Pak_BeginUnload, whose hook owns the one-shot
+	// manager and atlas transition. This outer hook only gates known quarantine.
+	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
 		return;
 
-	g_pPakLoadManager->OnPakUnloading(nPakHandle);
 	PakGlobalState_s* pakGlobals = Pak_GetGlobals();
 	if (!pakGlobals)
 	{
@@ -753,19 +815,20 @@ DECLARE_HOOK(Pak_RunRePak, rtech_game.DLL + 0xA9F0, [](auto& hook, PakLoadedInfo
 	if (pakFile->copyBytesRemaining != 0 && !s_PakReadFile(pakFile))
 		return false;
 
-	PakSlabRepairReport_s repairReport = {};
-	if (!pakFile->ValidateAndRepairSlabMetadata(repairReport))
+	size_t repairedSlabCount = 0;
+	uint64_t addedSlabBytes = 0;
+	if (!pakFile->ValidateAndRepairSlabMetadata(repairedSlabCount, addedSlabBytes))
 	{
 		NS::log::rpak->error("Rejecting invalid Rpak before slab allocation: {}", info->filename ? info->filename : "<unknown>");
-		MarkSafeFailedPak(info->handle);
+		g_pPakLoadManager->OnPakLoadFailed(*info);
 		info->status = PAK_STATUS_ERROR;
 		return false;
 	}
 
-	if (repairReport.repairCount != 0)
+	if (repairedSlabCount != 0)
 		NS::log::rpak->warn(
-			"Repaired {} Rpak slab entries in {} (+{} bytes)", repairReport.repairCount,
-			info->filename ? info->filename : "<unknown>", repairReport.addedBytes);
+			"Repaired {} Rpak slab entries in {} (+{} bytes)", repairedSlabCount,
+			info->filename ? info->filename : "<unknown>", addedSlabBytes);
 
 	return hook.Original(info);
 })
@@ -774,7 +837,7 @@ DECLARE_HOOK(Pak_UnloadInternal, rtech_game.DLL + 0x8B40, [](auto& hook, PakHand
 {
 	// This function runs under the native FIFO lock. Once corruption has been
 	// quarantined, do not invoke asset/material unload callbacks for any pack.
-	if (Pak_HasUnsafeLoadedPaks())
+	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
 	{
 		if (PakGlobalState_s* const pakGlobals = Pak_GetGlobals())
 		{
@@ -785,6 +848,7 @@ DECLARE_HOOK(Pak_UnloadInternal, rtech_game.DLL + 0x8B40, [](auto& hook, PakHand
 		return;
 	}
 
+	g_pPakLoadManager->CommitPakUnload(handle);
 	hook.Original(handle);
 })
 
@@ -792,45 +856,25 @@ DECLARE_HOOK(Pak_Free, rtech_game.DLL + 0x8900, [](auto& hook, PakHandle_t handl
 {
 	// Pak_Free also runs under the FIFO lock and is the last authoritative gate
 	// before allocator-owned slab buffers are released.
-	if (Pak_HasUnsafeLoadedPaks())
+	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
 		return;
 
+	// Early load cancellation reaches Pak_Free without Pak_UnloadInternal. The
+	// commit is deliberately idempotent so the normal unload path can repeat it.
+	g_pPakLoadManager->CommitPakUnload(handle);
 	hook.Original(handle);
+	g_pPakLoadManager->OnPakFreed(handle);
 })
 
 DECLARE_HOOK(Pak_BeginUnload, rtech_game.DLL + 0xB1B0, [](auto& hook, PakHandle_t handle)
 {
-	PakLoadedInfo_s* info = nullptr;
-	bool isSafeFailure = false;
-	if (PakGlobalState_s* const pakGlobals = Pak_GetGlobals())
-	{
-		info = &pakGlobals->loadedPaks[handle & PAK_MAX_LOADED_PAKS_MASK];
-		if (info->handle == handle && info->status == PAK_STATUS_ERROR && HasAllocatedSlab(*info))
-			MarkUnsafeLoadedPak(handle);
-
-		isSafeFailure = info->handle == handle && IsSafeFailedPak(handle);
-	}
-
-	// Pak_WaitForLoadCompletion calls Pak_BeginUnload directly, bypassing the
-	// public UnloadAndWait hook. Stop that path too once slab corruption may have
-	// occurred, otherwise the pending FIFO entry can still reach Pak_Free.
-	if (Pak_HasUnsafeLoadedPaks())
+	// Pak_WaitForLoadCompletion can enter here directly, bypassing the public
+	// UnloadAndWait hook, so both paths share the manager-owned transition.
+	if (!g_pPakLoadManager->PreparePakUnload(handle))
 		return;
 
-	// Native ERROR cleanup only reaches Pak_Free while the original load-FIFO
-	// entry is still pending. If Finalise already consumed that entry, queue a
-	// normal empty unload instead. No asset was populated before slab setup, so
-	// assetCount must be zero before Pak_UnloadInternal sees the synthetic state.
-	if (isSafeFailure && info->status == PAK_STATUS_ERROR && !info->pakFile)
-	{
-		info->assetCount = 0;
-		info->status = PAK_STATUS_LOADED;
-	}
-
 	hook.Original(handle);
-
-	if (isSafeFailure && info->status != PAK_STATUS_ERROR)
-		ForgetSafeFailedPak(handle);
+	g_pPakLoadManager->OnPakUnloadQueued(handle);
 })
 
 DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo_s* info)
@@ -853,16 +897,13 @@ DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo
 		// No slab means no page data or assets could have been populated. Once a
 		// slab exists, malformed offsets may already have overwritten allocator
 		// metadata, so freeing anything in-process is unsafe.
-		if (HasAllocatedSlab(*info))
-			MarkUnsafeLoadedPak(info->handle);
-		else
-			MarkSafeFailedPak(info->handle);
+		g_pPakLoadManager->OnPakLoadFailed(*info);
 	}
 
 	hook.Original(info);
 
 	if (handle != PAK_INVALID_HANDLE && info && info->status == PAK_STATUS_LOADED)
-		RuiDynamicImageAtlas_OnPakLoadCompleted(handle);
+		CDynamicImageAtlas::OnPakLoadCompleted(handle);
 })
 
 ON_DLL_LOAD("engine.dll", RpakFilesystem, [](CModule module)

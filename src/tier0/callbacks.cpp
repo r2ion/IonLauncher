@@ -223,6 +223,7 @@ void CallbackManager::CallDllLoadCallbacks(const char* moduleName, HMODULE modul
 	auto& calledTags = GetCalledCallbackTags();
 	CModule cModule(moduleHandle);
 	NOTE_UNUSED(cModule);
+	const std::string loadedModuleName = fs::path(moduleName).filename().string();
 
 	while (true)
 	{
@@ -230,7 +231,10 @@ void CallbackManager::CallDllLoadCallbacks(const char* moduleName, HMODULE modul
 
 		for (auto& callbackStruct : GetDllLoadCallbacks())
 		{
-			if (!callbackStruct.called && fs::path(moduleName).filename() == fs::path(callbackStruct.dll).filename())
+			const std::string callbackModuleName =
+				fs::path(callbackStruct.dll).filename().string();
+			if (!callbackStruct.called
+				&& _stricmp(loadedModuleName.c_str(), callbackModuleName.c_str()) == 0)
 			{
 				bool shouldContinue = false;
 

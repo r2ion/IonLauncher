@@ -1,79 +1,200 @@
-#include "rtech/rui/imageatlas_internal.h"
-#include "rtech/rui/dynamic_imageatlas.h"
-#include "rtech/rui/rui_internal.h"
-#include "rtech/pakfilesystem.h"
+#include "rtech/rui/imageatlas.h"
 #include "rtech/paktools.h"
+#include "rtech/rstdlib.h"
 
+#include <array>
 #include <climits>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 
 DECLARE_MODULE(RuiImageAtlasHooks)
 
-namespace
-{
-using CreateImageAtlasGpuBufferFn = uint32_t(__fastcall*)(
-	RuiImageAtlas* atlas,
-	const RuiImageAtlasGpuRecord* records);
-using DestroyImageAtlasGpuBufferFn = void(__fastcall*)(RuiImageAtlas* atlas);
-using FindImageAssetDescriptorFn = RuiImageAssetDescriptor*(__fastcall*)(
-	RHashMapU32* hashMap,
-	uint32_t nameHash);
-using RpakHashFn = uint64_t(__fastcall*)(const char* path);
+bool CImageAtlas::s_LoaderConfigured = false;
+CImageAtlas::CreateGpuBufferFn CImageAtlas::s_CreateGpuBuffer = nullptr;
+CImageAtlas::DestroyGpuBufferFn CImageAtlas::s_DestroyGpuBuffer = nullptr;
+CImageAtlas::FindDescriptorFn CImageAtlas::s_FindDescriptor = nullptr;
+CImageAtlas::FindOrReserveDescriptorFn CImageAtlas::s_FindOrReserveDescriptor = nullptr;
+CImageAtlas::RemoveDescriptorFn CImageAtlas::s_RemoveDescriptor = nullptr;
+CImageAtlas::PakStringToGuidFn CImageAtlas::s_PakStringToGuidAligned = nullptr;
+CImageAtlas::PakStringToGuidFn CImageAtlas::s_PakStringToGuidUnaligned = nullptr;
+RHashMapU32* CImageAtlas::s_DescriptorMap = nullptr;
+RuiImageAtlas CImageAtlas::s_Atlases[RUI_IMAGE_ATLAS_CAPACITY]{};
+std::mutex* const CImageAtlas::s_AtlasSlotMutex = new std::mutex;
+std::array<bool, RUI_IMAGE_ATLAS_CAPACITY>* const CImageAtlas::s_OwnedAtlasSlots =
+	new std::array<bool, RUI_IMAGE_ATLAS_CAPACITY>{};
 
-bool s_ImageAtlasLoaderConfigured = false;
-CreateImageAtlasGpuBufferFn s_CreateImageAtlasGpuBuffer = nullptr;
-DestroyImageAtlasGpuBufferFn s_DestroyImageAtlasGpuBuffer = nullptr;
-FindImageAssetDescriptorFn s_FindImageAssetDescriptor = nullptr;
-RHashMapU32FindOrReserveUnlockedFn s_RHashMapFindOrReserveUnlocked = nullptr;
-RHashMapU32RemoveExistingFn s_RHashMapRemoveExisting = nullptr;
-RpakHashFn s_RpakHashAligned = nullptr;
-RpakHashFn s_RpakHashUnaligned = nullptr;
-
-void __fastcall RuiImageAtlas_ReplaceBoundAsset(
-	RuiImageAtlas* destination,
-	const RuiImageAtlas* source,
-	const RuiImageAtlas* previous)
+std::optional<uint8_t> CImageAtlas::ReserveAtlasSlot()
 {
-	if (previous)
+	std::lock_guard<std::mutex> lock(*s_AtlasSlotMutex);
+	for (int atlasIndex = RUI_DYNAMIC_IMAGE_ATLAS_LAST; atlasIndex >= RUI_DYNAMIC_IMAGE_ATLAS_FIRST; --atlasIndex)
 	{
-		for (uint16_t imageIndex = 0; imageIndex < previous->imageCount; ++imageIndex)
-			RuiImageAtlas_RemoveExistingDescriptor(previous->imageNameRecords[imageIndex].nameHash);
+		if ((*s_OwnedAtlasSlots)[atlasIndex])
+			continue;
+
+		(*s_OwnedAtlasSlots)[atlasIndex] = true;
+		return static_cast<uint8_t>(atlasIndex);
 	}
 
-	if (!source)
+	return std::nullopt;
+}
+
+void CImageAtlas::ReleaseAtlasSlot(uint8_t atlasIndex)
+{
+	if (atlasIndex < RUI_DYNAMIC_IMAGE_ATLAS_FIRST || atlasIndex > RUI_DYNAMIC_IMAGE_ATLAS_LAST)
 		return;
 
-	*destination = *source;
+	std::lock_guard<std::mutex> lock(*s_AtlasSlotMutex);
+	(*s_OwnedAtlasSlots)[atlasIndex] = false;
+}
+
+RuiImageAssetDescriptor* CImageAtlas::FindDescriptor(uint32_t nameHash)
+{
+	if (!s_DescriptorMap || !s_FindDescriptor)
+		return nullptr;
+
+	return s_FindDescriptor(s_DescriptorMap, nameHash);
+}
+
+RuiImageAssetDescriptor* CImageAtlas::FindOrReserveDescriptor(
+	uint32_t nameHash,
+	uint8_t* reservedNewEntry)
+{
+	if (!s_DescriptorMap || !s_FindOrReserveDescriptor)
+		return nullptr;
+
+	return static_cast<RuiImageAssetDescriptor*>(
+		s_FindOrReserveDescriptor(s_DescriptorMap, nameHash, reservedNewEntry));
+}
+
+bool CImageAtlas::HasFreeDescriptor()
+{
+	return s_DescriptorMap
+		&& (s_DescriptorMap->freeListHead != s_DescriptorMap->nextUnusedIndex
+			|| s_DescriptorMap->nextUnusedIndex < s_DescriptorMap->bucketPairCount);
+}
+
+void CImageAtlas::CommitReservedDescriptor()
+{
+	s_DescriptorMap->bucketEntryIndices[s_DescriptorMap->pendingBucketIndex]
+		= static_cast<int32_t>(s_DescriptorMap->pendingEntryIndex);
+	++s_DescriptorMap->liveEntryCount;
+}
+
+uint32_t* CImageAtlas::RemoveDescriptor(uint32_t nameHash)
+{
+	if (!s_DescriptorMap || !s_RemoveDescriptor)
+		return nullptr;
+
+	return s_RemoveDescriptor(s_DescriptorMap, nameHash);
+}
+
+void CImageAtlas::ReplaceBoundAsset(
+	void* boundAsset,
+	const void* newHeader,
+	const void* previousHeader)
+{
+	auto* destination = static_cast<RuiImageAtlas*>(boundAsset);
+	const auto* source = static_cast<const RuiImageAtlas*>(newHeader);
+	const auto* previous = static_cast<const RuiImageAtlas*>(previousHeader);
+	if (!destination)
+		return;
 
 	// The native replacement callback derives the descriptor atlas index from
 	// the engine's 20-slot atlas array. The uimg binding below redirects storage
 	// to this extended array, so its callback must use the same storage base.
 	const uintptr_t destinationOffset = reinterpret_cast<uintptr_t>(destination)
-		- reinterpret_cast<uintptr_t>(g_RuiImageAtlases);
-	if (destinationOffset >= sizeof(g_RuiImageAtlases)
+		- reinterpret_cast<uintptr_t>(s_Atlases);
+	if (destinationOffset >= sizeof(s_Atlases)
 		|| destinationOffset % sizeof(RuiImageAtlas) != 0)
 	{
+		if (source)
+			*destination = *source;
 		return;
 	}
 
 	const uint8_t atlasIndex = static_cast<uint8_t>(destinationOffset / sizeof(RuiImageAtlas));
-	AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
-	for (uint16_t imageIndex = 0; imageIndex < source->imageCount; ++imageIndex)
+	if (!s_DescriptorMap)
 	{
-		const RuiImageAtlasNameRecord& nameRecord = source->imageNameRecords[imageIndex];
-		uint8_t reservedNewEntry = 0;
-		RuiImageAssetDescriptor* descriptor =
-			RuiImageAtlas_FindOrReserveDescriptorUnlocked(nameRecord.nameHash, &reservedNewEntry);
-
-		descriptor->nameHash = nameRecord.nameHash;
-		descriptor->imageIndex = static_cast<int16_t>(imageIndex);
-		descriptor->atlasIndex = atlasIndex;
-		descriptor->flags = static_cast<uint8_t>(nameRecord.flags);
-		RuiImageAtlas_CommitReservedDescriptor();
+		if (source)
+			*destination = *source;
+		return;
 	}
-	ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
+
+	// Removal and publication form one descriptor-map transaction. Only remove
+	// records still owned by this slot: a later atlas may already have replaced
+	// the same hash, and unloading the older asset must not erase that winner.
+	bool descriptorTableFull = false;
+	AcquireSRWLockExclusive(&s_DescriptorMap->lock);
+	if (previous && previous->imageNameRecords)
+	{
+		for (uint16_t imageIndex = 0; imageIndex < previous->imageCount; ++imageIndex)
+		{
+			const uint32_t nameHash = previous->imageNameRecords[imageIndex].nameHash;
+			const RuiImageAssetDescriptor* descriptor = FindDescriptor(nameHash);
+			if (descriptor && descriptor->nameHash == nameHash
+				&& descriptor->imageIndex == static_cast<int16_t>(imageIndex)
+				&& descriptor->atlasIndex == atlasIndex)
+			{
+				RemoveDescriptor(nameHash);
+			}
+		}
+	}
+
+	if (source)
+	{
+		*destination = *source;
+		if (source->imageNameRecords)
+		{
+			for (uint16_t imageIndex = 0; imageIndex < source->imageCount; ++imageIndex)
+			{
+				const RuiImageAtlasNameRecord& nameRecord = source->imageNameRecords[imageIndex];
+				uint8_t reservedNewEntry = 0;
+				RuiImageAssetDescriptor* descriptor = FindDescriptor(nameRecord.nameHash);
+				if (!descriptor)
+				{
+					if (!HasFreeDescriptor())
+					{
+						descriptorTableFull = true;
+						continue;
+					}
+
+					descriptor = FindOrReserveDescriptor(
+						nameRecord.nameHash,
+						&reservedNewEntry);
+				}
+				if (!descriptor)
+					continue;
+
+				descriptor->nameHash = nameRecord.nameHash;
+				descriptor->imageIndex = static_cast<int16_t>(imageIndex);
+				descriptor->atlasIndex = atlasIndex;
+				descriptor->flags = static_cast<uint8_t>(nameRecord.flags);
+				if (reservedNewEntry)
+					CommitReservedDescriptor();
+			}
+		}
+	}
+	ReleaseSRWLockExclusive(&s_DescriptorMap->lock);
+	if (descriptorTableFull)
+	{
+		spdlog::error(
+			"RUI image descriptor table is full while publishing native atlas {}",
+			atlasIndex);
+	}
 }
+
+void CImageAtlas::ConfigureAssetBinding(PakAssetBinding_s* binding)
+{
+	if (!binding || std::memcmp(binding->type, "uimg", sizeof(binding->type)) != 0)
+		return;
+
+	// Native atlases use the lower range. The upper range is reserved for
+	// runtime wrappers around ordinary texture assets.
+	binding->assetCapacity = RUI_DYNAMIC_IMAGE_ATLAS_FIRST;
+	binding->assetStorage = s_Atlases;
+	binding->replaceAssetFunc = ReplaceBoundAsset;
+	s_LoaderConfigured = true;
 }
 
 DECLARE_HOOK(
@@ -81,116 +202,336 @@ DECLARE_HOOK(
 	rtech_game.DLL + 0x7BE0,
 	[](auto& hook, PakAssetBinding_s* binding, JobPriority_e priority, uint32_t affinity) -> JobTypeID_t
 	{
-		if (std::memcmp(binding->type, "uimg", sizeof(binding->type)) == 0)
-		{
-			// Native atlases use the lower range. The upper range is reserved for
-			// runtime wrappers around ordinary texture assets.
-			binding->assetCapacity = RUI_DYNAMIC_IMAGE_ATLAS_FIRST;
-			binding->assetStorage = g_RuiImageAtlases;
-			binding->replaceAssetFunc = reinterpret_cast<PakAssetReplaceFn_t>(
-				RuiImageAtlas_ReplaceBoundAsset);
-			s_ImageAtlasLoaderConfigured = true;
-		}
-
+		CImageAtlas::ConfigureAssetBinding(binding);
 		return hook.Original(binding, priority, affinity);
 	})
 
-DECLARE_HOOK(Rui_FindImageAsset, engine.dll + 0xF8000,
-	[](auto& hook, RuiInstance* rui, const char* imagePath) -> RuiImageHandle
-	{
-		RuiDynamicImageAtlas_TryRegisterImage(imagePath);
-		return hook.Original(rui, imagePath);
-	})
-
-bool RuiImageAtlas_AreRuntimeBindingsReady()
+bool CImageAtlas::AreRuntimeBindingsReady()
 {
-	return s_ImageAtlasLoaderConfigured && g_RuiImageDescriptorMap
-		&& s_CreateImageAtlasGpuBuffer && s_DestroyImageAtlasGpuBuffer
-		&& s_FindImageAssetDescriptor && s_RHashMapFindOrReserveUnlocked
-		&& s_RHashMapRemoveExisting;
+	return GetModuleHandleW(L"engine.dll") && s_LoaderConfigured && s_DescriptorMap
+		&& s_CreateGpuBuffer && s_DestroyGpuBuffer && s_FindDescriptor
+		&& s_FindOrReserveDescriptor && s_RemoveDescriptor;
 }
 
-uint64_t RuiImageAtlas_HashAssetPath(const char* path)
+uint64_t CImageAtlas::HashAssetPath(const char* path)
 {
 	if (!path)
 		return 0;
 
-	RpakHashFn hashFunction = (reinterpret_cast<uintptr_t>(path) & 3)
-		? s_RpakHashUnaligned
-		: s_RpakHashAligned;
+	PakStringToGuidFn hashFunction = (reinterpret_cast<uintptr_t>(path) & 3)
+		? s_PakStringToGuidUnaligned
+		: s_PakStringToGuidAligned;
 	return hashFunction ? hashFunction(path) : Pak_StringToGuid(path);
 }
 
-RuiImageAssetDescriptor* RuiImageAtlas_FindAssetDescriptor(uint32_t nameHash)
+uint32_t CImageAtlas::HashImagePath(const char* path)
 {
-	if (!g_RuiImageDescriptorMap || !s_FindImageAssetDescriptor)
+	const uint64_t guid = HashAssetPath(path);
+	return static_cast<uint32_t>(guid) ^ static_cast<uint32_t>(guid >> 32);
+}
+
+const RuiImageAssetDescriptor* CImageAtlas::FindAssetDescriptor(uint32_t nameHash)
+{
+	return FindDescriptor(nameHash);
+}
+
+const RuiImageAssetDescriptor* CImageAtlas::GetAssetDescriptor(int32_t descriptorIndex) noexcept
+{
+	if (!s_DescriptorMap || !s_DescriptorMap->entryStorage || descriptorIndex < 0
+		|| static_cast<uint32_t>(descriptorIndex) >= s_DescriptorMap->bucketPairCount)
+	{
 		return nullptr;
+	}
 
-	return s_FindImageAssetDescriptor(g_RuiImageDescriptorMap, nameHash);
+	return &static_cast<const RuiImageAssetDescriptor*>(
+		s_DescriptorMap->entryStorage)[descriptorIndex];
 }
 
-RuiImageAssetDescriptor* RuiImageAtlas_FindOrReserveDescriptorUnlocked(
-	uint32_t nameHash,
-	uint8_t* reservedNewEntry)
+RuiImageAtlas* CImageAtlas::GetAtlas(uint8_t atlasIndex) noexcept
 {
-	if (!g_RuiImageDescriptorMap || !s_RHashMapFindOrReserveUnlocked)
-		return nullptr;
-
-	return static_cast<RuiImageAssetDescriptor*>(
-		s_RHashMapFindOrReserveUnlocked(g_RuiImageDescriptorMap, nameHash, reservedNewEntry));
+	return atlasIndex < RUI_IMAGE_ATLAS_CAPACITY ? &s_Atlases[atlasIndex] : nullptr;
 }
 
-bool RuiImageAtlas_HasFreeDescriptor()
+CImageAtlas::~CImageAtlas()
 {
-	return g_RuiImageDescriptorMap
-		&& (g_RuiImageDescriptorMap->freeListHead != g_RuiImageDescriptorMap->nextUnusedIndex
-			|| g_RuiImageDescriptorMap->nextUnusedIndex < g_RuiImageDescriptorMap->bucketPairCount);
+	Destroy();
 }
 
-void RuiImageAtlas_CommitReservedDescriptor()
+bool CImageAtlas::DescriptorStillOwned(size_t imageIndex) const
 {
-	g_RuiImageDescriptorMap->bucketEntryIndices[g_RuiImageDescriptorMap->pendingBucketIndex]
-		= static_cast<int32_t>(g_RuiImageDescriptorMap->pendingEntryIndex);
-	++g_RuiImageDescriptorMap->liveEntryCount;
+	if (!m_AtlasIndex || imageIndex >= m_Descriptors.size() || imageIndex >= m_NameRecords.size())
+		return false;
+
+	const RuiImageAssetDescriptor* descriptor = m_Descriptors[imageIndex];
+	const uint32_t nameHash = m_NameRecords[imageIndex].nameHash;
+	return descriptor && FindDescriptor(nameHash) == descriptor
+		&& descriptor->nameHash == nameHash
+		&& descriptor->imageIndex == static_cast<int16_t>(imageIndex)
+		&& descriptor->atlasIndex == *m_AtlasIndex;
 }
 
-uint32_t* RuiImageAtlas_RemoveExistingDescriptor(uint32_t nameHash)
+void CImageAtlas::UnregisterDescriptors()
 {
-	if (!g_RuiImageDescriptorMap || !s_RHashMapRemoveExisting)
-		return nullptr;
+	if (!AreRuntimeBindingsReady() || !m_AtlasIndex)
+	{
+		m_Descriptors.clear();
+		return;
+	}
 
-	return s_RHashMapRemoveExisting(g_RuiImageDescriptorMap, nameHash);
+	AcquireSRWLockExclusive(&s_DescriptorMap->lock);
+	for (size_t imageIndex = 0; imageIndex < m_Descriptors.size(); ++imageIndex)
+	{
+		if (DescriptorStillOwned(imageIndex))
+			RemoveDescriptor(m_NameRecords[imageIndex].nameHash);
+	}
+	ReleaseSRWLockExclusive(&s_DescriptorMap->lock);
+	m_Descriptors.clear();
 }
 
-uint32_t RuiImageAtlas_CreateGpuBuffer(
-	RuiImageAtlas* atlas,
-	const RuiImageAtlasGpuRecord* records)
+bool CImageAtlas::EnsureRegistered()
 {
-	return s_CreateImageAtlasGpuBuffer
-		? s_CreateImageAtlasGpuBuffer(atlas, records)
-		: UINT_MAX;
+	if (!AreRuntimeBindingsReady() || !m_AtlasIndex)
+		return false;
+
+	// Reserve scratch space before taking the engine's non-RAII SRW lock so no
+	// allocation or logging can throw while the lock is held.
+	std::vector<size_t> registeredImages;
+	registeredImages.reserve(m_NameRecords.size());
+	std::vector<uint32_t> failedHashes;
+	failedHashes.reserve(m_NameRecords.size());
+	bool descriptorTableFull = false;
+	bool ownsDescriptor = false;
+
+	AcquireSRWLockExclusive(&s_DescriptorMap->lock);
+	for (size_t imageIndex = 0; imageIndex < m_Descriptors.size(); ++imageIndex)
+	{
+		if (m_Descriptors[imageIndex] && !DescriptorStillOwned(imageIndex))
+			m_Descriptors[imageIndex] = nullptr;
+		if (m_Descriptors[imageIndex])
+			ownsDescriptor = true;
+	}
+
+	for (size_t imageIndex = 0; imageIndex < m_NameRecords.size(); ++imageIndex)
+	{
+		const RuiImageAtlasNameRecord& nameRecord = m_NameRecords[imageIndex];
+		if (FindDescriptor(nameRecord.nameHash))
+			continue;
+
+		if (!HasFreeDescriptor())
+		{
+			descriptorTableFull = true;
+			break;
+		}
+
+		uint8_t reservedNewEntry = 0;
+		RuiImageAssetDescriptor* descriptor =
+			FindOrReserveDescriptor(nameRecord.nameHash, &reservedNewEntry);
+		if (!descriptor || !reservedNewEntry)
+		{
+			failedHashes.push_back(nameRecord.nameHash);
+			continue;
+		}
+
+		descriptor->nameHash = nameRecord.nameHash;
+		descriptor->imageIndex = static_cast<int16_t>(imageIndex);
+		descriptor->atlasIndex = *m_AtlasIndex;
+		descriptor->flags = static_cast<uint8_t>(nameRecord.flags);
+		CommitReservedDescriptor();
+		m_Descriptors[imageIndex] = descriptor;
+
+		if (FindDescriptor(nameRecord.nameHash) != descriptor)
+		{
+			failedHashes.push_back(nameRecord.nameHash);
+			continue;
+		}
+
+		ownsDescriptor = true;
+		registeredImages.push_back(imageIndex);
+	}
+	ReleaseSRWLockExclusive(&s_DescriptorMap->lock);
+
+	if (descriptorTableFull)
+	{
+		spdlog::error(
+			"RUI image descriptor table is full while publishing runtime atlas {}",
+			*m_AtlasIndex);
+	}
+	for (const uint32_t nameHash : failedHashes)
+		spdlog::error("RUI image descriptor insertion failed for hash 0x{:08X}", nameHash);
+	for (const size_t imageIndex : registeredImages)
+	{
+		spdlog::info(
+			"Registered RUI image hash 0x{:08X} in runtime atlas {} at index {}",
+			m_NameRecords[imageIndex].nameHash,
+			*m_AtlasIndex,
+			imageIndex);
+	}
+
+	return ownsDescriptor;
 }
 
-void RuiImageAtlas_DestroyGpuBuffer(RuiImageAtlas* atlas)
+bool CImageAtlas::Create(
+	uint16_t width,
+	uint16_t height,
+	void* texture,
+	std::span<const Image> images)
 {
-	if (s_DestroyImageAtlasGpuBuffer)
-		s_DestroyImageAtlasGpuBuffer(atlas);
+	if (m_AtlasIndex || !AreRuntimeBindingsReady() || !texture || width == 0 || height == 0
+		|| images.empty() || images.size() > INT16_MAX)
+	{
+		return false;
+	}
+
+	for (const Image& image : images)
+	{
+		const uint64_t maxX = static_cast<uint64_t>(image.m_PosX) + image.m_Width;
+		const uint64_t maxY = static_cast<uint64_t>(image.m_PosY) + image.m_Height;
+		if (image.m_Width == 0 || image.m_Height == 0
+			|| maxX > width || maxY > height)
+		{
+			return false;
+		}
+	}
+
+	m_AtlasEntries.resize(images.size());
+	m_ImageDimensions.resize(images.size());
+	m_GpuRecords.resize(images.size());
+	m_NameRecords.resize(images.size());
+	m_Descriptors.assign(images.size(), nullptr);
+
+	const float inverseWidth = 1.0f / static_cast<float>(width);
+	const float inverseHeight = 1.0f / static_cast<float>(height);
+	for (size_t imageIndex = 0; imageIndex < images.size(); ++imageIndex)
+	{
+		const Image& image = images[imageIndex];
+		RuiImageAtlasEntry& atlasEntry = m_AtlasEntries[imageIndex];
+		atlasEntry.pixelBounds[0] = 0.0f;
+		atlasEntry.pixelBounds[1] = 0.0f;
+		atlasEntry.pixelBounds[2] = static_cast<float>(image.m_Width);
+		atlasEntry.pixelBounds[3] = static_cast<float>(image.m_Height);
+		atlasEntry.uvBase[0] = static_cast<float>(image.m_PosX) * inverseWidth;
+		atlasEntry.uvBase[1] = static_cast<float>(image.m_PosY) * inverseHeight;
+		atlasEntry.uvScale[0] = inverseWidth;
+		atlasEntry.uvScale[1] = inverseHeight;
+
+		m_ImageDimensions[imageIndex] = {
+			static_cast<uint16_t>(image.m_Width),
+			static_cast<uint16_t>(image.m_Height)};
+
+		RuiImageAtlasGpuRecord& gpuRecord = m_GpuRecords[imageIndex];
+		gpuRecord.uvMin[0] = atlasEntry.uvBase[0];
+		gpuRecord.uvMin[1] = atlasEntry.uvBase[1];
+		gpuRecord.uvSize[0] = static_cast<float>(image.m_Width) * inverseWidth;
+		gpuRecord.uvSize[1] = static_cast<float>(image.m_Height) * inverseHeight;
+
+		RuiImageAtlasNameRecord& nameRecord = m_NameRecords[imageIndex];
+		nameRecord.nameHash = image.m_NameHash;
+		nameRecord.flags = image.m_Flags;
+		nameRecord.nameOffset = 0;
+	}
+
+	const std::optional<uint8_t> atlasIndex = ReserveAtlasSlot();
+	if (!atlasIndex)
+	{
+		m_AtlasEntries.clear();
+		m_ImageDimensions.clear();
+		m_GpuRecords.clear();
+		m_NameRecords.clear();
+		m_Descriptors.clear();
+		return false;
+	}
+
+	RuiImageAtlas& atlas = s_Atlases[*atlasIndex];
+	atlas = {};
+	atlas.inverseWidth = inverseWidth;
+	atlas.inverseHeight = inverseHeight;
+	atlas.width = width;
+	atlas.height = height;
+	atlas.imageCount = static_cast<uint16_t>(images.size());
+	atlas.nineSliceImageCount = 0;
+	atlas.images = m_AtlasEntries.data();
+	atlas.imageDimensions = m_ImageDimensions.data();
+	atlas.nineSliceData = nullptr;
+	atlas.imageNameRecords = m_NameRecords.data();
+	atlas.imageNames = nullptr;
+	atlas.texture = texture;
+	atlas.gpuRecordBuffer = UINT_MAX;
+
+	const uint32_t gpuRecordBuffer = s_CreateGpuBuffer(&atlas, m_GpuRecords.data());
+	if (gpuRecordBuffer == UINT_MAX || atlas.gpuRecordBuffer != gpuRecordBuffer)
+	{
+		atlas = {};
+		m_AtlasEntries.clear();
+		m_ImageDimensions.clear();
+		m_GpuRecords.clear();
+		m_NameRecords.clear();
+		m_Descriptors.clear();
+		ReleaseAtlasSlot(*atlasIndex);
+		return false;
+	}
+
+	m_AtlasIndex = *atlasIndex;
+	if (!EnsureRegistered())
+	{
+		Destroy();
+		return false;
+	}
+
+	return true;
 }
 
-void RuiImageAtlas_OnEngineLoaded(CModule module)
+void CImageAtlas::Destroy()
 {
-	s_RpakHashAligned = module.Offset(0x4305D0).RCast<RpakHashFn>();
-	s_RpakHashUnaligned = module.Offset(0x4305E0).RCast<RpakHashFn>();
-	s_CreateImageAtlasGpuBuffer = module.Offset(0xFBF60).RCast<CreateImageAtlasGpuBufferFn>();
-	s_DestroyImageAtlasGpuBuffer = module.Offset(0xFC4F0).RCast<DestroyImageAtlasGpuBufferFn>();
-	s_FindImageAssetDescriptor = module.Offset(0xF3C60).RCast<FindImageAssetDescriptorFn>();
-	s_RHashMapFindOrReserveUnlocked = module.Offset(0xF3BB0).RCast<RHashMapU32FindOrReserveUnlockedFn>();
-	s_RHashMapRemoveExisting = module.Offset(0xF3E30).RCast<RHashMapU32RemoveExistingFn>();
+	if (!m_AtlasIndex)
+		return;
 
-	RuiImageAtlasHooks.DispatchForModule("engine.dll");
+	const uint8_t atlasIndex = *m_AtlasIndex;
+	UnregisterDescriptors();
+	RuiImageAtlas& atlas = s_Atlases[atlasIndex];
+	if (atlas.gpuRecordBuffer != UINT_MAX && s_DestroyGpuBuffer
+		&& GetModuleHandleW(L"engine.dll"))
+	{
+		s_DestroyGpuBuffer(&atlas);
+	}
+	atlas = {};
+
+	m_AtlasIndex.reset();
+	m_AtlasEntries.clear();
+	m_ImageDimensions.clear();
+	m_GpuRecords.clear();
+	m_NameRecords.clear();
+	ReleaseAtlasSlot(atlasIndex);
 }
 
-void RuiImageAtlas_DispatchRtechHooks()
+bool CImageAtlas::IsResident() const noexcept
 {
-	RuiImageAtlasHooks.DispatchForModule("rtech_game.dll");
+	return m_AtlasIndex.has_value();
 }
+
+std::optional<uint8_t> CImageAtlas::GetAtlasIndex() const noexcept
+{
+	return m_AtlasIndex;
+}
+
+void CImageAtlas::OnEngineLoaded(CModule module)
+{
+	s_DescriptorMap = module.Offset(0x12A4E508).RCast<RHashMapU32*>();
+	s_PakStringToGuidAligned = module.Offset(0x4305D0).RCast<PakStringToGuidFn>();
+	s_PakStringToGuidUnaligned = module.Offset(0x4305E0).RCast<PakStringToGuidFn>();
+	s_CreateGpuBuffer = module.Offset(0xFBF60).RCast<CreateGpuBufferFn>();
+	s_DestroyGpuBuffer = module.Offset(0xFC4F0).RCast<DestroyGpuBufferFn>();
+	s_FindDescriptor = module.Offset(0xF3C60).RCast<FindDescriptorFn>();
+	s_FindOrReserveDescriptor = module.Offset(0xF3BB0).RCast<FindOrReserveDescriptorFn>();
+	s_RemoveDescriptor = module.Offset(0xF3E30).RCast<RemoveDescriptorFn>();
+}
+
+ON_DLL_LOAD("engine.dll", RuiImageAtlasEngine, [](CModule module)
+{
+	CImageAtlas::OnEngineLoaded(module);
+})
+
+ON_DLL_LOAD("rtech_game.DLL", RuiImageAtlasRtech, [](CModule module)
+{
+	(void)module;
+	DISPATCH_MODULE(RuiImageAtlasHooks);
+})

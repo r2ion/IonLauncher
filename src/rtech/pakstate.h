@@ -30,8 +30,8 @@ enum PakStatus_e : int
 
 struct PakAllocator_s
 {
-	void* (__fastcall* allocate)(void* allocator, uint64_t size, uint64_t alignment);
-	void (__fastcall* release)(void* allocator, void* memory);
+	void* (*allocate)(void* allocator, uint64_t size, uint64_t alignment);
+	void (*release)(void* allocator, void* memory);
 };
 
 struct PakLoadedInfo_s
@@ -127,9 +127,3 @@ static_assert(offsetof(PakGlobalState_s, lock) == 0x395F88);
 static_assert(offsetof(PakGlobalState_s, currentLoadedPaks) == 0x395FC0);
 
 extern PakGlobalState_s* g_pakGlobalState;
-
-// A pack detected only after its slab storage was populated may already have
-// corrupted allocator state. Such packs remain resident and make targeted
-// model/material teardown unsafe until the process is restarted.
-bool Pak_IsUnsafeLoadedPak(PakHandle_t handle);
-bool Pak_HasUnsafeLoadedPaks();

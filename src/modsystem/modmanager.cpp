@@ -983,7 +983,7 @@ void ModManager::RunModelReload()
             g_pPakLoadManager->ReleasePakLock();
     });
 
-    if (Pak_HasUnsafeLoadedPaks())
+    if (g_pPakLoadManager && g_pPakLoadManager->HasUnsafeLoadedPaks())
     {
         m_bModelReloadPending = false;
         return;

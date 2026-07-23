@@ -2,6 +2,7 @@
 
 #include "rtech/pakstate.h"
 
+#include <mutex>
 #include <regex>
 
 struct ModPak_t
@@ -44,9 +45,16 @@ public:
 	// On success, the native Rpak FIFO lock remains held until ReleasePakLock.
 	bool TryAcquireIdlePakLock() const;
 	void ReleasePakLock() const;
+	// A failed pak with populated slabs may have corrupted allocator state. Keep
+	// it resident and block targeted model/material teardown until restart.
+	bool HasUnsafeLoadedPaks() const;
 
 	void OnPakLoaded(std::string& originalPath, std::string& resultingPath, PakHandle_t resultingHandle);
-	void OnPakUnloading(PakHandle_t handle);
+	void OnPakLoadFailed(const PakLoadedInfo_s& info);
+	bool PreparePakUnload(PakHandle_t handle);
+	void CommitPakUnload(PakHandle_t handle);
+	void OnPakUnloadQueued(PakHandle_t handle);
+	void OnPakFreed(PakHandle_t handle);
 
 	void FixupPakPath(std::string& path);
 
@@ -57,6 +65,12 @@ public:
 	std::vector<PakHandle_t> GetPakHandles() { std::vector<PakHandle_t> handles; for (auto& modPak : m_modPaks) { if (modPak.m_handle != PAK_INVALID_HANDLE) handles.push_back(modPak.m_handle); } return handles; }
 
 private:
+	static bool HasAllocatedSlab(const PakLoadedInfo_s& info);
+	bool IsUnsafeLoadedPak(PakHandle_t handle) const;
+	void TrackFailedPak(const PakLoadedInfo_s& info);
+	bool IsSafeFailedPak(PakHandle_t handle) const;
+	void ForgetSafeFailedPak(PakHandle_t handle);
+	bool HasActivePakTransactionsLocked(const PakGlobalState_s& pakGlobals) const;
 	void LoadDependentPaks(std::string& path, PakHandle_t handle);
 	void UnloadDependentPaks(PakHandle_t handle);
 
@@ -77,6 +91,10 @@ private:
 	// Used to track if the current hook call is a vanilla call or not.
 	// When loading/unloading a mod Pak, increment this before doing so, and decrement afterwards.
 	int m_reentranceCounter = 0;
+
+	mutable std::mutex m_failureMutex;
+	std::vector<PakHandle_t> m_unsafeLoadedPaks;
+	std::vector<PakHandle_t> m_safeFailedPaks;
 };
 
 extern PakLoadManager* g_pPakLoadManager;
@@ -84,46 +102,54 @@ extern PakLoadManager* g_pPakLoadManager;
 struct PakLoadFuncs_s
 {
 	using Callback_t = void(*)();
-	using AsyncReadCallback_t = void(__fastcall*)(void* context, uint8_t status, const char* errorText);
+	using AsyncReadCallback_t = void(*)(void* context, uint8_t status, const char* errorText);
 
-	void (__fastcall* InitRpakSystem)();
-	JobTypeID_t (__fastcall* RegisterAssetBindingType)(PakAssetBinding_s*, JobPriority_e, uint32_t);
+	void (*InitRpakSystem)();
+	JobTypeID_t (*RegisterAssetBindingType)(PakAssetBinding_s*, JobPriority_e, uint32_t);
 	uint64_t reserved10;
-	PakHandle_t (__fastcall* AllocateEmptyPak)(const char*, PakAllocator_s*, int);
-	PakHandle_t (__fastcall* AllocAndLoadPak)(const char*, PakAllocator_s*, int, Callback_t, Callback_t);
-	void (__fastcall* BeginUnload)(PakHandle_t);
-	void (__fastcall* UnloadAndWait)(PakHandle_t, Callback_t);
+	PakHandle_t (*AllocateEmptyPak)(const char*, PakAllocator_s*, int);
+	PakHandle_t (*AllocAndLoadPak)(const char*, PakAllocator_s*, int, Callback_t, Callback_t);
+	void (*BeginUnload)(PakHandle_t);
+	void (*UnloadAndWait)(PakHandle_t, Callback_t);
 	uint64_t reserved38;
-	void (__fastcall* PumpLoadJobs)(Callback_t);
-	bool (__fastcall* WaitForLoadCompletion)(PakHandle_t, Callback_t, Callback_t);
-	void (__fastcall* WaitForUnloadCompletion)(PakHandle_t, Callback_t);
-	FARPROC (__fastcall* GetModuleProcAddress)(PakHandle_t, const char*);
-	char* (__fastcall* GetAssetBinding)(PakGuid_t);
-	char* (__fastcall* GetAssetBindingFromFlag)(uint8_t);
+	void (*PumpLoadJobs)(Callback_t);
+	bool (*WaitForLoadCompletion)(PakHandle_t, Callback_t, Callback_t);
+	void (*WaitForUnloadCompletion)(PakHandle_t, Callback_t);
+	FARPROC (*GetModuleProcAddress)(PakHandle_t, const char*);
+	char* (*GetAssetBinding)(PakGuid_t);
+	char* (*GetAssetBindingFromFlag)(uint8_t);
 	uint64_t reserved70;
-	PakGuid_t (__fastcall* GetLoadedAsset)(int, int);
-	void (__fastcall* LinkAssetBinding)(int, int, __int64);
-	void (__fastcall* UnlinkAssetBinding)(int, int, __int64);
-	PakHandle_t (__fastcall* GetStreamingFileHandle)(__int64);
+	PakGuid_t (*GetLoadedAsset)(int, int);
+	void (*LinkAssetBinding)(
+		uint32_t assetAddress,
+		uint32_t extension,
+		PakAssetBindingLink_s* link);
+	void (*UnlinkAssetBinding)(
+		uint32_t assetAddress,
+		uint32_t extension,
+		PakAssetBindingLink_s* link);
+	PakHandle_t (*GetStreamingFileHandle)(__int64);
 	uint64_t reserved98;
 	uint64_t reservedA0;
 	uint64_t reservedA8;
 	uint64_t reservedB0;
 	uint64_t reservedB8;
-	PakHandle_t (__fastcall* OpenFile)(const char*, uint64_t*);
-	void (__fastcall* ReleaseFileHandle)(PakHandle_t);
-	void (__fastcall* AddRefFileHandle)(PakHandle_t);
-	int (__fastcall* QueueAsyncRead)(PakHandle_t, uint64_t, uint64_t, void*, int);
-	int (__fastcall* QueueAsyncReadEx)(PakHandle_t, uint64_t, uint64_t, void*, AsyncReadCallback_t, void*, int);
-	uint8_t (__fastcall* PollAsyncRead)(uint8_t, uint64_t*, const char**);
-	uint8_t (__fastcall* WaitAsyncRead)(uint8_t, uint64_t*, const char**);
-	uint8_t (__fastcall* CancelAndWaitAsyncRead)(uint8_t);
-	void (__fastcall* CancelAsyncRead)(uint8_t);
-	HANDLE (__fastcall* GetWorkerThreadHandle)(HANDLE*);
+	PakHandle_t (*OpenFile)(const char*, uint64_t*);
+	void (*ReleaseFileHandle)(PakHandle_t);
+	void (*AddRefFileHandle)(PakHandle_t);
+	int (*QueueAsyncRead)(PakHandle_t, uint64_t, uint64_t, void*, int);
+	int (*QueueAsyncReadEx)(PakHandle_t, uint64_t, uint64_t, void*, AsyncReadCallback_t, void*, int);
+	uint8_t (*PollAsyncRead)(uint8_t, uint64_t*, const char**);
+	uint8_t (*WaitAsyncRead)(uint8_t, uint64_t*, const char**);
+	uint8_t (*CancelAndWaitAsyncRead)(uint8_t);
+	void (*CancelAsyncRead)(uint8_t);
+	HANDLE (*GetWorkerThreadHandle)(HANDLE*);
 };
 static_assert(sizeof(PakLoadFuncs_s) == 0x110);
 static_assert(offsetof(PakLoadFuncs_s, AllocateEmptyPak) == 0x18);
 static_assert(offsetof(PakLoadFuncs_s, UnloadAndWait) == 0x30);
+static_assert(offsetof(PakLoadFuncs_s, LinkAssetBinding) == 0x80);
+static_assert(offsetof(PakLoadFuncs_s, UnlinkAssetBinding) == 0x88);
 static_assert(offsetof(PakLoadFuncs_s, OpenFile) == 0xC0);
 static_assert(offsetof(PakLoadFuncs_s, GetWorkerThreadHandle) == 0x108);
 
