@@ -235,6 +235,7 @@ add_library(
     "shared/exploit_fixes/exploitfixes_utf8parser.cpp"
     "shared/exploit_fixes/ns_limits.cpp"
     "shared/exploit_fixes/ns_limits.h"
+    "shared/weapon_reparse.cpp"
     "shared/keyvalues.cpp"
     "shared/keyvalues.h"
     "shared/maxplayers.cpp"
@@ -379,7 +380,6 @@ target_link_libraries(
             webp
             NorthstarIncludes
             httplib::httplib
-            nlohmann_json::nlohmann_json
     )
 
 target_precompile_headers(

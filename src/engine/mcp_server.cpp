@@ -13,6 +13,9 @@
 #include "vscript/squirrel/squirrel.h"
 
 #include <httplib.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <spdlog/sinks/base_sink.h>
 
 #include <algorithm>
@@ -26,6 +29,78 @@
 
 namespace MCPServer
 {
+namespace
+{
+using JSONAllocator = rapidjson::Document::AllocatorType;
+
+rapidjson::Value MakeJSONString(std::string_view value, JSONAllocator& allocator)
+{
+    return rapidjson::Value(value.data(), static_cast<rapidjson::SizeType>(value.size()), allocator);
+}
+
+void AddStringMember(rapidjson::Value& object, const char* name, std::string_view value, JSONAllocator& allocator)
+{
+    object.AddMember(rapidjson::Value(name, allocator), MakeJSONString(value, allocator), allocator);
+}
+
+void AddValueMember(rapidjson::Value& object, const char* name, const rapidjson::Value& value, JSONAllocator& allocator)
+{
+    rapidjson::Value copy;
+    copy.CopyFrom(value, allocator);
+    object.AddMember(rapidjson::Value(name, allocator), std::move(copy), allocator);
+}
+
+const rapidjson::Value* FindMember(const rapidjson::Value& object, const char* name)
+{
+    if (!object.IsObject())
+        return nullptr;
+    const auto member = object.FindMember(name);
+    return member == object.MemberEnd() ? nullptr : &member->value;
+}
+
+std::string GetString(const rapidjson::Value& object, const char* name)
+{
+    const rapidjson::Value* value = FindMember(object, name);
+    if (!value || !value->IsString())
+        throw std::runtime_error(std::string("Missing required string: ") + name);
+    return std::string(value->GetString(), value->GetStringLength());
+}
+
+std::string GetStringOr(const rapidjson::Value& object, const char* name, std::string_view defaultValue)
+{
+    const rapidjson::Value* value = FindMember(object, name);
+    if (!value || !value->IsString())
+        return std::string(defaultValue);
+    return std::string(value->GetString(), value->GetStringLength());
+}
+
+bool GetBoolOr(const rapidjson::Value& object, const char* name, bool defaultValue)
+{
+    const rapidjson::Value* value = FindMember(object, name);
+    return value && value->IsBool() ? value->GetBool() : defaultValue;
+}
+
+std::string SerializeJSON(const rapidjson::Value& value)
+{
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    value.Accept(writer);
+    return std::string(buffer.GetString(), buffer.GetSize());
+}
+
+JSONDocument ParseJSON(std::string_view text)
+{
+    JSONDocument document;
+    document.Parse(text.data(), text.size());
+    if (document.HasParseError())
+    {
+        throw std::runtime_error(std::string("JSON parse error at offset ") + std::to_string(document.GetErrorOffset()) + ": " +
+                                 rapidjson::GetParseError_En(document.GetParseError()));
+    }
+    return document;
+}
+} // namespace
+
 class Server::LogCaptureSink final : public spdlog::sinks::base_sink<std::mutex>
 {
 protected:
@@ -133,19 +208,26 @@ void Server::QueueConsoleText(const std::string& text)
     Cbuf_AddText(Cbuf_GetCurrentPlayer(), text.c_str(), cmd_source_t::kCommandSrcCode);
 }
 
-int Server::BoundedInteger(const json& object, const char* name, int defaultValue, int minimum, int maximum)
+int Server::BoundedInteger(const JSONValue& object, const char* name, int defaultValue, int minimum, int maximum)
 {
-    if (!object.contains(name) || !object[name].is_number_integer())
+    const JSONValue* value = FindMember(object, name);
+    if (!value || !value->IsInt())
         return defaultValue;
-    return std::clamp(object[name].get<int>(), minimum, maximum);
+    return std::clamp(value->GetInt(), minimum, maximum);
 }
 
-json Server::MakeToolResult(std::string text, bool isError)
+JSONDocument Server::MakeToolResult(std::string text, bool isError)
 {
-    return {
-        {"content", json::array({{{"type", "text"}, {"text", std::move(text)}}})},
-        {"isError", isError},
-    };
+    JSONDocument result(rapidjson::kObjectType);
+    JSONAllocator& allocator = result.GetAllocator();
+    rapidjson::Value content(rapidjson::kArrayType);
+    rapidjson::Value item(rapidjson::kObjectType);
+    AddStringMember(item, "type", "text", allocator);
+    AddStringMember(item, "text", text, allocator);
+    content.PushBack(std::move(item), allocator);
+    result.AddMember("content", std::move(content), allocator);
+    result.AddMember("isError", isError, allocator);
+    return result;
 }
 
 void Server::EngineTaskQueue::Resolve()
@@ -177,14 +259,14 @@ void Server::EngineTaskQueue::Resolve()
     }
 }
 
-json Server::EngineTaskQueue::RunAndWait(std::function<json()> function, std::chrono::milliseconds timeout)
+JSONDocument Server::EngineTaskQueue::RunAndWait(std::function<JSONDocument()> function, std::chrono::milliseconds timeout)
 {
     if (ThreadInMainThread())
         return function();
 
     auto task = std::make_shared<Task>();
     task->function = std::move(function);
-    std::future<json> result = task->promise.get_future();
+    std::future<JSONDocument> result = task->promise.get_future();
     {
         std::scoped_lock lock(m_Mutex);
         if (m_Tasks.size() >= TASK_LIMIT)
@@ -209,7 +291,7 @@ json Server::EngineTaskQueue::RunAndWait(std::function<json()> function, std::ch
     return result.get();
 }
 
-json Server::RunOnEngineThreadAndWait(std::function<json()> function, std::chrono::milliseconds timeout)
+JSONDocument Server::RunOnEngineThreadAndWait(std::function<JSONDocument()> function, std::chrono::milliseconds timeout)
 {
     return m_EngineTasks.RunAndWait(std::move(function), timeout);
 }
@@ -291,56 +373,68 @@ Server& Server::GetInstance()
     return *instance;
 }
 
-json Server::CreateErrorResponse(int code, std::string message, const json& id) const
+JSONDocument Server::CreateErrorResponse(int code, std::string message, const JSONValue* id) const
 {
-    json response = {
-        {"jsonrpc", "2.0"},
-        {"error", {{"code", code}, {"message", std::move(message)}}},
-    };
-    if (!id.is_null())
-        response["id"] = id;
+    JSONDocument response(rapidjson::kObjectType);
+    JSONAllocator& allocator = response.GetAllocator();
+    AddStringMember(response, "jsonrpc", "2.0", allocator);
+    rapidjson::Value error(rapidjson::kObjectType);
+    error.AddMember("code", code, allocator);
+    AddStringMember(error, "message", message, allocator);
+    response.AddMember("error", std::move(error), allocator);
+    if (id && !id->IsNull())
+        AddValueMember(response, "id", *id, allocator);
     return response;
 }
 
-json Server::CreateSuccessResponse(json result, const json& id) const
+JSONDocument Server::CreateSuccessResponse(JSONDocument result, const JSONValue& id) const
 {
-    return {{"jsonrpc", "2.0"}, {"id", id}, {"result", std::move(result)}};
+    JSONDocument response(rapidjson::kObjectType);
+    JSONAllocator& allocator = response.GetAllocator();
+    AddStringMember(response, "jsonrpc", "2.0", allocator);
+    AddValueMember(response, "id", id, allocator);
+    AddValueMember(response, "result", result, allocator);
+    return response;
 }
 
-json Server::HandleMessage(const json& message)
+JSONDocument Server::HandleMessage(const JSONValue& message)
 {
     std::scoped_lock lock(m_RequestMutex);
-    if (!message.is_object() || message.value("jsonrpc", "") != "2.0")
+    if (!message.IsObject() || GetStringOr(message, "jsonrpc", "") != "2.0")
         return CreateErrorResponse(-32600, "Invalid Request: missing or invalid jsonrpc field");
-    if (!message.contains("method") || !message["method"].is_string())
+    const JSONValue* method = FindMember(message, "method");
+    if (!method || !method->IsString())
     {
-        if (message.contains("id"))
-            return CreateErrorResponse(-32600, "Invalid Request: server does not accept responses", message["id"]);
-        return nullptr;
+        if (const JSONValue* id = FindMember(message, "id"))
+            return CreateErrorResponse(-32600, "Invalid Request: server does not accept responses", id);
+        return JSONDocument();
     }
-    return message.contains("id") ? HandleRequest(message) : HandleNotification(message);
+    return FindMember(message, "id") ? HandleRequest(message) : HandleNotification(message);
 }
 
-json Server::HandleRequest(const json& request)
+JSONDocument Server::HandleRequest(const JSONValue& request)
 {
-    const json& id = request["id"];
-    if (id.is_null())
-        return CreateErrorResponse(-32600, "Invalid Request: id must not be null");
+    const JSONValue* id = FindMember(request, "id");
+    if (!id || id->IsNull())
+        return CreateErrorResponse(-32600, "Invalid Request: id must not be null", id);
 
     try
     {
-        const std::string method = request["method"].get<std::string>();
-        const json params = request.value("params", json::object());
+        const std::string method = GetString(request, "method");
+        JSONDocument emptyParams(rapidjson::kObjectType);
+        const JSONValue* params = FindMember(request, "params");
+        if (!params)
+            params = &emptyParams;
         if (method == "initialize")
-            return CreateSuccessResponse(HandleInitialize(params), id);
+            return CreateSuccessResponse(HandleInitialize(*params), *id);
         if (method == "ping")
-            return CreateSuccessResponse(json::object(), id);
+            return CreateSuccessResponse(JSONDocument(rapidjson::kObjectType), *id);
         if (!m_Initialized.load())
             return CreateErrorResponse(-32002, "Server not initialized", id);
         if (method == "tools/list")
-            return CreateSuccessResponse(HandleToolsList(params), id);
+            return CreateSuccessResponse(HandleToolsList(*params), *id);
         if (method == "tools/call")
-            return CreateSuccessResponse(HandleToolsCall(params), id);
+            return CreateSuccessResponse(HandleToolsCall(*params), *id);
         return CreateErrorResponse(-32601, "Method not found: " + method, id);
     }
     catch (const std::exception& error)
@@ -349,11 +443,11 @@ json Server::HandleRequest(const json& request)
     }
 }
 
-json Server::HandleNotification(const json& notification)
+JSONDocument Server::HandleNotification(const JSONValue& notification)
 {
     try
     {
-        const std::string method = notification["method"].get<std::string>();
+        const std::string method = GetString(notification, "method");
         if (method == "notifications/initialized" || method == "initialized")
             m_Initialized.store(true);
     }
@@ -361,10 +455,10 @@ json Server::HandleNotification(const json& notification)
     {
         spdlog::warn("Failed handling MCP notification: {}", error.what());
     }
-    return nullptr;
+    return JSONDocument();
 }
 
-json Server::HandleInitialize(const json& params)
+JSONDocument Server::HandleInitialize(const JSONValue& params)
 {
     NOTE_UNUSED(params);
     {
@@ -372,150 +466,181 @@ json Server::HandleInitialize(const json& params)
         m_SessionId = GenerateGuid();
     }
     m_Initialized.store(true);
-    return {
-        {"protocolVersion", PROTOCOL_VERSION},
-        {"capabilities", {{"tools", {{"listChanged", false}}}}},
-        {"serverInfo", {{"name", "northstar-mcp-server"}, {"version", "1.0.0"}}},
-    };
+    JSONDocument result(rapidjson::kObjectType);
+    JSONAllocator& allocator = result.GetAllocator();
+    AddStringMember(result, "protocolVersion", PROTOCOL_VERSION, allocator);
+
+    rapidjson::Value capabilities(rapidjson::kObjectType);
+    rapidjson::Value tools(rapidjson::kObjectType);
+    tools.AddMember("listChanged", false, allocator);
+    capabilities.AddMember("tools", std::move(tools), allocator);
+    result.AddMember("capabilities", std::move(capabilities), allocator);
+
+    rapidjson::Value serverInfo(rapidjson::kObjectType);
+    AddStringMember(serverInfo, "name", "northstar-mcp-server", allocator);
+    AddStringMember(serverInfo, "version", "1.0.0", allocator);
+    result.AddMember("serverInfo", std::move(serverInfo), allocator);
+    return result;
 }
 
 std::vector<Server::Tool> Server::GetAvailableTools() const
 {
-    return {
-        {
-            "execute_squirrel",
-            "Execute Squirrel Script",
-            "Execute Squirrel code in the server, client, or UI VM.",
-            {
-                {"type", "object"},
-                {"properties",
-                 {
-                     {"script", {{"type", "string"}, {"description", "Squirrel code to execute."}}},
-                     {"context", {{"type", "string"}, {"enum", {"server", "client", "ui"}}, {"default", "server"}}},
-                     {"capture_output", {{"type", "boolean"}, {"default", true}}},
-                 }},
-                {"required", {"script"}},
+    std::vector<Tool> tools;
+    tools.push_back({
+        "execute_squirrel",
+        "Execute Squirrel Script",
+        "Execute Squirrel code in the server, client, or UI VM.",
+        ParseJSON(R"({
+            "type":"object",
+            "properties":{
+                "script":{"type":"string","description":"Squirrel code to execute."},
+                "context":{"type":"string","enum":["server","client","ui"],"default":"server"},
+                "capture_output":{"type":"boolean","default":true}
             },
-        },
-        {
-            "execute_console_command",
-            "Execute Console Command",
-            "Execute a command through the game engine command buffer.",
-            {
-                {"type", "object"},
-                {"properties",
-                 {
-                     {"command", {{"type", "string"}, {"description", "Console command to execute."}}},
-                     {"capture_output", {{"type", "boolean"}, {"default", true}}},
-                 }},
-                {"required", {"command"}},
+            "required":["script"]
+        })"),
+    });
+    tools.push_back({
+        "execute_console_command",
+        "Execute Console Command",
+        "Execute a command through the game engine command buffer.",
+        ParseJSON(R"({
+            "type":"object",
+            "properties":{
+                "command":{"type":"string","description":"Console command to execute."},
+                "capture_output":{"type":"boolean","default":true}
             },
-        },
-        {
-            "get_game_state",
-            "Get Game State",
-            "Return connection, map, and dedicated-server state from the engine.",
-            {{"type", "object"}, {"properties", json::object()}},
-        },
-        {
-            "search_script_functions",
-            "Search Script Functions",
-            "Search captured native registrations and GameFS-backed .nut/.gnut source definitions.",
-            {
-                {"type", "object"},
-                {"properties",
-                 {
-                     {"query", {{"type", "string"}, {"description", "Case-insensitive function name or description query."}}},
-                     {"context", {{"type", "string"}, {"enum", {"server", "client", "ui"}}, {"default", "server"}}},
-                     {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 500}, {"default", 50}}},
-                     {"offset", {{"type", "integer"}, {"minimum", 0}, {"default", 0}}},
-                     {"cursor", {{"type", "string"}}},
-                     {"include_source_matches", {{"type", "boolean"}, {"default", false}}},
-                     {"source_match_limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 200}, {"default", 25}}},
-                     {"source_case_sensitive", {{"type", "boolean"}, {"default", false}}},
-                 }},
-                {"required", {"query"}},
+            "required":["command"]
+        })"),
+    });
+    tools.push_back({
+        "get_game_state",
+        "Get Game State",
+        "Return connection, map, and dedicated-server state from the engine.",
+        ParseJSON(R"({"type":"object","properties":{}})"),
+    });
+    tools.push_back({
+        "search_script_functions",
+        "Search Script Functions",
+        "Search captured native registrations and GameFS-backed .nut/.gnut source definitions.",
+        ParseJSON(R"({
+            "type":"object",
+            "properties":{
+                "query":{"type":"string","description":"Case-insensitive function name or description query."},
+                "context":{"type":"string","enum":["server","client","ui"],"default":"server"},
+                "limit":{"type":"integer","minimum":1,"maximum":500,"default":50},
+                "offset":{"type":"integer","minimum":0,"default":0},
+                "cursor":{"type":"string"},
+                "include_source_matches":{"type":"boolean","default":false},
+                "source_match_limit":{"type":"integer","minimum":1,"maximum":200,"default":25},
+                "source_case_sensitive":{"type":"boolean","default":false}
             },
-        },
-        {
-            "get_console_log",
-            "Get Console Log",
-            "Return the latest 50 lines from Northstar's existing spdlog ring buffer.",
-            {{"type", "object"}, {"properties", json::object()}},
-        },
-    };
+            "required":["query"]
+        })"),
+    });
+    tools.push_back({
+        "get_console_log",
+        "Get Console Log",
+        "Return the latest 50 lines from Northstar's existing spdlog ring buffer.",
+        ParseJSON(R"({"type":"object","properties":{}})"),
+    });
+    return tools;
 }
 
-json Server::HandleToolsList(const json& params) const
+JSONDocument Server::HandleToolsList(const JSONValue& params) const
 {
     NOTE_UNUSED(params);
-    json tools = json::array();
+    JSONDocument result(rapidjson::kObjectType);
+    JSONAllocator& allocator = result.GetAllocator();
+    rapidjson::Value tools(rapidjson::kArrayType);
     for (const Tool& tool : GetAvailableTools())
     {
-        tools.push_back({{"name", tool.name}, {"title", tool.title}, {"description", tool.description}, {"inputSchema", tool.inputSchema}});
+        rapidjson::Value item(rapidjson::kObjectType);
+        AddStringMember(item, "name", tool.name, allocator);
+        AddStringMember(item, "title", tool.title, allocator);
+        AddStringMember(item, "description", tool.description, allocator);
+        AddValueMember(item, "inputSchema", tool.inputSchema, allocator);
+        tools.PushBack(std::move(item), allocator);
     }
-    return {{"tools", std::move(tools)}};
+    result.AddMember("tools", std::move(tools), allocator);
+    return result;
 }
 
-json Server::HandleToolsCall(const json& params)
+JSONDocument Server::HandleToolsCall(const JSONValue& params)
 {
-    if (!params.contains("name") || !params["name"].is_string())
-        throw std::runtime_error("Missing required parameter: name");
-    const std::string name = params["name"].get<std::string>();
-    const json arguments = params.value("arguments", json::object());
+    const std::string name = GetString(params, "name");
+    JSONDocument emptyArguments(rapidjson::kObjectType);
+    const JSONValue* arguments = FindMember(params, "arguments");
+    if (!arguments)
+        arguments = &emptyArguments;
     if (name == "execute_squirrel")
-        return ExecuteSquirrelScript(arguments);
+        return ExecuteSquirrelScript(*arguments);
     if (name == "execute_console_command")
-        return ExecuteConsoleCommand(arguments);
+        return ExecuteConsoleCommand(*arguments);
     if (name == "get_game_state")
-        return GetGameState(arguments);
+        return GetGameState(*arguments);
     if (name == "search_script_functions")
-        return SearchScriptFunctions(arguments);
+        return SearchScriptFunctions(*arguments);
     if (name == "get_console_log")
-        return GetConsoleLog(arguments);
+        return GetConsoleLog(*arguments);
     throw std::runtime_error("Unknown tool: " + name);
 }
 
-json Server::ExecuteSquirrelScript(const json& arguments)
+JSONDocument Server::ExecuteSquirrelScript(const JSONValue& arguments)
 {
-    if (!arguments.contains("script") || !arguments["script"].is_string())
-        throw std::runtime_error("Missing required argument: script");
-
-    const std::string script = arguments["script"].get<std::string>();
-    const std::string contextName = arguments.value("context", "server");
+    const std::string script = GetString(arguments, "script");
+    const std::string contextName = GetStringOr(arguments, "context", "server");
     const std::optional<ScriptContext> context = ParseContext(contextName);
     if (!context)
         return MakeToolResult("Invalid context. Expected server, client, or ui.", true);
-    const bool capture = arguments.value("capture_output", true);
-	const std::string guid = GenerateGuid();
-	const std::string deferredScript = MakeDeferredSquirrelScript(script, guid);
-	const std::string runtimeErrorMarker = "[MCP-RUNTIME-ERROR:" + guid + "]";
+    const bool capture = GetBoolOr(arguments, "capture_output", true);
+
+    std::string guid;
+    std::string deferredScript;
+    std::string runtimeErrorMarker;
+    if (capture)
+    {
+        guid = GenerateGuid();
+        deferredScript = MakeDeferredSquirrelScript(script, guid);
+        runtimeErrorMarker = "[MCP-RUNTIME-ERROR:" + guid + "]";
+
         m_OutputCapture.Start(guid);
         QueueConsoleText(MakeEchoCommand("[MCP-START:" + guid + "]"));
+    }
 
-	json execution;
+    JSONDocument execution;
     try
     {
         execution = RunOnEngineThreadAndWait([this, script, deferredScript, selectedContext = *context]
         {
             if (IsDedicatedServer() && selectedContext != ScriptContext::SERVER)
-                return json{{"success", false}, {"error", "client and UI VMs do not exist on a dedicated server"}};
+            {
+                JSONDocument response(rapidjson::kObjectType);
+                response.AddMember("success", false, response.GetAllocator());
+                AddStringMember(response, "error", "client and UI VMs do not exist on a dedicated server", response.GetAllocator());
+                return response;
+            }
 
 			std::scoped_lock lock(m_SquirrelExecutionMutex);
 
             SquirrelManager* manager = g_pSquirrel[selectedContext];
             if (!manager || !manager->m_pSQVM || !manager->m_pSQVM->sqvm)
-                return json{{"success", false}, {"error", "requested Squirrel VM is unavailable"}};
-
+            {
+                JSONDocument response(rapidjson::kObjectType);
+                response.AddMember("success", false, response.GetAllocator());
+                AddStringMember(response, "error", "requested Squirrel VM is unavailable", response.GetAllocator());
+                return response;
+            }
             const SquirrelExecutionResult result = manager->ExecuteCode(deferredScript.c_str(), script.c_str());
-            json response = {
-                {"success", result.Succeeded()},
-                {"compile_result", static_cast<int>(result.compileResult)},
-            };
+            JSONDocument response(rapidjson::kObjectType);
+            JSONAllocator& allocator = response.GetAllocator();
+            response.AddMember("success", result.Succeeded(), allocator);
+            response.AddMember("compile_result", static_cast<int>(result.compileResult), allocator);
             if (result.called)
-                response["call_result"] = static_cast<int>(result.callResult);
+                response.AddMember("call_result", static_cast<int>(result.callResult), allocator);
             if (!result.Succeeded())
-                response["error"] = result.compileResult == SQRESULT_ERROR ? "script compilation failed" : "script execution failed";
+                AddStringMember(response, "error",
+                                result.compileResult == SQRESULT_ERROR ? "script compilation failed" : "script execution failed", allocator);
             return response;
         });
     }
@@ -548,21 +673,27 @@ json Server::ExecuteSquirrelScript(const json& arguments)
             output.append("[MCP] Output capture timed out.\n");
     }
     else
-        output = execution.value("success", false) ? "Script executed successfully." : execution.value("error", "Script execution failed.");
+        output = GetBoolOr(execution, "success", false) ? "Script executed successfully."
+                                                       : GetStringOr(execution, "error", "Script execution failed.");
 
-    return {
-        {"content", json::array({{{"type", "text"}, {"text", std::move(output)}}})},
-        {"structuredContent", execution},
-        {"isError", !execution.value("success", false)},
-    };
+    const bool success = GetBoolOr(execution, "success", false);
+    JSONDocument response(rapidjson::kObjectType);
+    JSONAllocator& allocator = response.GetAllocator();
+    rapidjson::Value content(rapidjson::kArrayType);
+    rapidjson::Value item(rapidjson::kObjectType);
+    AddStringMember(item, "type", "text", allocator);
+    AddStringMember(item, "text", output, allocator);
+    content.PushBack(std::move(item), allocator);
+    response.AddMember("content", std::move(content), allocator);
+    AddValueMember(response, "structuredContent", execution, allocator);
+    response.AddMember("isError", !success, allocator);
+    return response;
 }
 
-json Server::ExecuteConsoleCommand(const json& arguments)
+JSONDocument Server::ExecuteConsoleCommand(const JSONValue& arguments)
 {
-    if (!arguments.contains("command") || !arguments["command"].is_string())
-        throw std::runtime_error("Missing required argument: command");
-    const std::string command = arguments["command"].get<std::string>();
-    const bool capture = arguments.value("capture_output", true);
+    const std::string command = GetString(arguments, "command");
+    const bool capture = GetBoolOr(arguments, "capture_output", true);
 
     std::string guid;
     if (capture)
@@ -575,7 +706,7 @@ json Server::ExecuteConsoleCommand(const json& arguments)
     try
     {
         QueueConsoleText(AppendNewline(command));
-        RunOnEngineThreadAndWait([] { return json::object(); });
+        RunOnEngineThreadAndWait([] { return JSONDocument(rapidjson::kObjectType); });
     }
     catch (...)
     {
@@ -597,13 +728,19 @@ json Server::ExecuteConsoleCommand(const json& arguments)
             output.append("[MCP] Output capture timed out.\n");
     }
 
-    return {
-        {"content", json::array({{{"type", "text"}, {"text", std::move(output)}}})},
-        {"isError", false},
-    };
+    JSONDocument response(rapidjson::kObjectType);
+    JSONAllocator& allocator = response.GetAllocator();
+    rapidjson::Value content(rapidjson::kArrayType);
+    rapidjson::Value item(rapidjson::kObjectType);
+    AddStringMember(item, "type", "text", allocator);
+    AddStringMember(item, "text", output, allocator);
+    content.PushBack(std::move(item), allocator);
+    response.AddMember("content", std::move(content), allocator);
+    response.AddMember("isError", false, allocator);
+    return response;
 }
 
-json Server::GetGameState(const json& arguments)
+JSONDocument Server::GetGameState(const JSONValue& arguments)
 {
     NOTE_UNUSED(arguments);
     return RunOnEngineThreadAndWait([]
@@ -635,9 +772,6 @@ json Server::GetGameState(const json& arguments)
             }
         }
 
-        json state = {
-            {"in_game", inGame}, {"connected", connected}, {"is_dedicated", dedicated}, {"signon_state", signonState}, {"current_map", map},
-        };
         std::ostringstream text;
         text << "Game State:\n"
              << "  In Game: " << (inGame ? "Yes" : "No") << '\n'
@@ -646,27 +780,39 @@ json Server::GetGameState(const json& arguments)
         if (!map.empty())
             text << "  Current Map: " << map << '\n';
 
-        return json{
-            {"content", json::array({{{"type", "text"}, {"text", text.str()}}})},
-            {"structuredContent", std::move(state)},
-            {"isError", false},
-        };
+        JSONDocument response(rapidjson::kObjectType);
+        JSONAllocator& allocator = response.GetAllocator();
+
+        rapidjson::Value content(rapidjson::kArrayType);
+        rapidjson::Value item(rapidjson::kObjectType);
+        AddStringMember(item, "type", "text", allocator);
+        AddStringMember(item, "text", text.str(), allocator);
+        content.PushBack(std::move(item), allocator);
+        response.AddMember("content", std::move(content), allocator);
+
+        rapidjson::Value state(rapidjson::kObjectType);
+        state.AddMember("in_game", inGame, allocator);
+        state.AddMember("connected", connected, allocator);
+        state.AddMember("is_dedicated", dedicated, allocator);
+        state.AddMember("signon_state", signonState, allocator);
+        AddStringMember(state, "current_map", map, allocator);
+        response.AddMember("structuredContent", std::move(state), allocator);
+        response.AddMember("isError", false, allocator);
+        return response;
     });
 }
 
-json Server::SearchScriptFunctions(const json& arguments)
+JSONDocument Server::SearchScriptFunctions(const JSONValue& arguments)
 {
-    if (!arguments.contains("query") || !arguments["query"].is_string())
-        throw std::runtime_error("Missing required argument: query");
-
-    const std::optional<ScriptContext> context = ParseContext(arguments.value("context", "server"));
+    const std::string query = GetString(arguments, "query");
+    const std::optional<ScriptContext> context = ParseContext(GetStringOr(arguments, "context", "server"));
     if (!context)
         return MakeToolResult("Invalid context. Expected server, client, or ui.", true);
 
     int offset = BoundedInteger(arguments, "offset", 0, 0, INT_MAX);
-    if (arguments.contains("cursor") && arguments["cursor"].is_string())
+    if (const JSONValue* cursorValue = FindMember(arguments, "cursor"); cursorValue && cursorValue->IsString())
     {
-        const std::string cursor = arguments["cursor"].get<std::string>();
+        const std::string cursor(cursorValue->GetString(), cursorValue->GetStringLength());
         int parsed = 0;
         const auto [end, error] = std::from_chars(cursor.data(), cursor.data() + cursor.size(), parsed);
         if (error == std::errc() && end == cursor.data() + cursor.size() && parsed >= 0)
@@ -674,18 +820,18 @@ json Server::SearchScriptFunctions(const json& arguments)
     }
 
     MCPScriptFunctionSearch::Options options;
-    options.query = arguments["query"].get<std::string>();
+    options.query = query;
     options.context = *context;
     options.limit = BoundedInteger(arguments, "limit", 50, 1, 500);
     options.offset = offset;
     options.sourceLimit = BoundedInteger(arguments, "source_match_limit", 25, 1, 200);
-    options.includeSourceMatches = arguments.value("include_source_matches", false);
-    options.sourceCaseSensitive = arguments.value("source_case_sensitive", false);
+    options.includeSourceMatches = GetBoolOr(arguments, "include_source_matches", false);
+    options.sourceCaseSensitive = GetBoolOr(arguments, "source_case_sensitive", false);
 
     return RunOnEngineThreadAndWait([search = MCPScriptFunctionSearch(std::move(options))] { return search.Execute(); }, std::chrono::seconds(60));
 }
 
-json Server::GetConsoleLog(const json& arguments) const
+JSONDocument Server::GetConsoleLog(const JSONValue& arguments) const
 {
     NOTE_UNUSED(arguments);
     const std::vector<std::string> lines = NS::log::GetRecentLogLines(50);
@@ -698,11 +844,26 @@ json Server::GetConsoleLog(const json& arguments) const
         for (const std::string& line : lines)
             text << line << '\n';
     }
-    return {
-        {"content", json::array({{{"type", "text"}, {"text", text.str()}}})},
-        {"structuredContent", {{"requested_line_count", 50}, {"returned_line_count", lines.size()}, {"lines", lines}}},
-        {"isError", false},
-    };
+    JSONDocument response(rapidjson::kObjectType);
+    JSONAllocator& allocator = response.GetAllocator();
+
+    rapidjson::Value content(rapidjson::kArrayType);
+    rapidjson::Value item(rapidjson::kObjectType);
+    AddStringMember(item, "type", "text", allocator);
+    AddStringMember(item, "text", text.str(), allocator);
+    content.PushBack(std::move(item), allocator);
+    response.AddMember("content", std::move(content), allocator);
+
+    rapidjson::Value structured(rapidjson::kObjectType);
+    structured.AddMember("requested_line_count", 50, allocator);
+    structured.AddMember("returned_line_count", static_cast<uint64_t>(lines.size()), allocator);
+    rapidjson::Value jsonLines(rapidjson::kArrayType);
+    for (const std::string& line : lines)
+        jsonLines.PushBack(MakeJSONString(line, allocator), allocator);
+    structured.AddMember("lines", std::move(jsonLines), allocator);
+    response.AddMember("structuredContent", std::move(structured), allocator);
+    response.AddMember("isError", false, allocator);
+    return response;
 }
 
 void Server::CaptureLogLine(std::string_view line)
@@ -732,10 +893,18 @@ void Server::SetupHTTPRoutes()
             return;
         }
 
+        JSONDocument message;
+        message.Parse(request.body.data(), request.body.size());
+        if (message.HasParseError())
+        {
+            response.status = 400;
+            response.set_content(SerializeJSON(CreateErrorResponse(-32700, "Parse error")), "application/json");
+            return;
+        }
+
         try
         {
-            const json message = json::parse(request.body);
-            const bool initialize = message.is_object() && message.value("method", "") == "initialize";
+            const bool initialize = message.IsObject() && GetStringOr(message, "method", "") == "initialize";
             if (!initialize)
             {
                 std::scoped_lock lock(m_SessionMutex);
@@ -756,28 +925,23 @@ void Server::SetupHTTPRoutes()
                 }
             }
 
-            json result = HandleMessage(message);
-            if (result.is_null())
+            JSONDocument result = HandleMessage(message);
+            if (result.IsNull())
             {
                 response.status = 202;
                 return;
             }
-            response.set_content(result.dump(), "application/json");
+            response.set_content(SerializeJSON(result), "application/json");
             if (initialize)
             {
                 std::scoped_lock lock(m_SessionMutex);
                 response.set_header("Mcp-Session-Id", m_SessionId);
             }
         }
-        catch (const json::parse_error&)
-        {
-            response.status = 400;
-            response.set_content(CreateErrorResponse(-32700, "Parse error").dump(), "application/json");
-        }
         catch (const std::exception& error)
         {
             response.status = 500;
-            response.set_content(CreateErrorResponse(-32603, error.what()).dump(), "application/json");
+            response.set_content(SerializeJSON(CreateErrorResponse(-32603, error.what())), "application/json");
         }
     });
 
@@ -791,13 +955,13 @@ void Server::SetupHTTPRoutes()
 
     m_HTTPServer->Get("/health", [this](const httplib::Request&, httplib::Response& response)
     {
-        json status = {
-            {"status", "ok"},
-            {"service", "Northstar MCP Server"},
-            {"transport", "http"},
-            {"port", m_Port},
-        };
-        response.set_content(status.dump(), "application/json");
+        JSONDocument status(rapidjson::kObjectType);
+        JSONAllocator& allocator = status.GetAllocator();
+        AddStringMember(status, "status", "ok", allocator);
+        AddStringMember(status, "service", "Northstar MCP Server", allocator);
+        AddStringMember(status, "transport", "http", allocator);
+        status.AddMember("port", m_Port, allocator);
+        response.set_content(SerializeJSON(status), "application/json");
     });
 }
 

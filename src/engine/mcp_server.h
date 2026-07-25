@@ -1,6 +1,6 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <rapidjson/document.h>
 
 #include <atomic>
 #include <chrono>
@@ -26,7 +26,8 @@ enum class ScriptContext : int;
 
 namespace MCPServer
 {
-using json = nlohmann::json;
+using JSONDocument = rapidjson::Document;
+using JSONValue = rapidjson::Value;
 
 class Server final
 {
@@ -47,20 +48,20 @@ class Server final
         std::string name;
         std::string title;
         std::string description;
-        json inputSchema;
+        JSONDocument inputSchema;
     };
 
     class EngineTaskQueue final
     {
       public:
-        json RunAndWait(std::function<json()> function, std::chrono::milliseconds timeout = std::chrono::seconds(30));
+        JSONDocument RunAndWait(std::function<JSONDocument()> function, std::chrono::milliseconds timeout = std::chrono::seconds(30));
         void Resolve();
 
       private:
         struct Task
         {
-            std::function<json()> function;
-            std::promise<json> promise;
+            std::function<JSONDocument()> function;
+            std::promise<JSONDocument> promise;
             std::atomic_bool cancelled = false;
         };
 
@@ -115,27 +116,29 @@ class Server final
 	static std::string MakeEchoCommand(std::string_view marker);
     static std::string AppendNewline(std::string command);
     static void QueueConsoleText(const std::string& text);
-    static int BoundedInteger(const json& object, const char* name, int defaultValue, int minimum, int maximum);
-    static json MakeToolResult(std::string text, bool isError);
+    static int BoundedInteger(const JSONValue& object, const char* name, int defaultValue, int minimum, int maximum);
+    static JSONDocument MakeToolResult(std::string text, bool isError);
 
-    json RunOnEngineThreadAndWait(std::function<json()> function, std::chrono::milliseconds timeout = std::chrono::seconds(30));
-    json HandleMessage(const json& message);
-    json HandleRequest(const json& request);
-    json HandleNotification(const json& notification);
-    json HandleInitialize(const json& params);
-    json HandleToolsList(const json& params) const;
-    json HandleToolsCall(const json& params);
+    JSONDocument RunOnEngineThreadAndWait(std::function<JSONDocument()> function,
+                                          std::chrono::milliseconds timeout = std::chrono::seconds(30));
+    JSONDocument HandleMessage(const JSONValue& message);
+    JSONDocument HandleRequest(const JSONValue& request);
+    JSONDocument HandleNotification(const JSONValue& notification);
+    JSONDocument HandleInitialize(const JSONValue& params);
+    JSONDocument HandleToolsList(const JSONValue& params) const;
+    JSONDocument HandleToolsCall(const JSONValue& params);
 
-    json ExecuteSquirrelScript(const json& arguments);
-    json ExecuteConsoleCommand(const json& arguments);
-    json GetGameState(const json& arguments);
-    json SearchScriptFunctions(const json& arguments);
-    json GetConsoleLog(const json& arguments) const;
+    JSONDocument ExecuteSquirrelScript(const JSONValue& arguments);
+    JSONDocument ExecuteConsoleCommand(const JSONValue& arguments);
+    JSONDocument GetGameState(const JSONValue& arguments);
+    JSONDocument SearchScriptFunctions(const JSONValue& arguments);
+    JSONDocument GetConsoleLog(const JSONValue& arguments) const;
 
     std::vector<Tool> GetAvailableTools() const;
-    json CreateErrorResponse(int code, std::string message, const json& id = nullptr) const;
-    json CreateSuccessResponse(json result, const json& id) const;
-	void SetupHTTPRoutes();
+
+    JSONDocument CreateErrorResponse(int code, std::string message, const JSONValue* id = nullptr) const;
+    JSONDocument CreateSuccessResponse(JSONDocument result, const JSONValue& id) const;
+    void SetupHTTPRoutes();
 
 	std::once_flag m_InitializeOnce;
 	std::mutex m_SquirrelExecutionMutex;

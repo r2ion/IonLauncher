@@ -1199,7 +1199,8 @@ bool ModManager::GetModVPKModelSource(const fs::path& path, std::string& vpkPath
 
 void ModManager::CompileAssetsForFile(const char* filename)
 {
-    size_t fileHash = STR_HASH(NormaliseModFilePath(fs::path(filename)));
+    const std::string normalisedPath = NormaliseModFilePath(fs::path(filename));
+    size_t fileHash = STR_HASH(normalisedPath);
 
     for (auto& file : m_CompiledAssetFiles)
     {
@@ -1207,6 +1208,10 @@ void ModManager::CompileAssetsForFile(const char* filename)
         {
             TryChangeoverKeyValues(filename, file.second);
 
+            // weapon_reparse removes weapon paths from m_CompiledFiles to
+            // invalidate the filesystem cache. The generated wrapper and all
+            // of its #base files are still valid, so reactivate the full set.
+            RegisterCompiledKeyValuesFiles(filename, file.second);
             return;
         }
     }
@@ -1266,6 +1271,12 @@ void ConCommand_reload_mods(const CCommand& args)
     g_pModManager->ReloadMods();
 }
 
+void ConCommand_dump_compiled_keyvalues(const CCommand& args)
+{
+    NOTE_UNUSED(args);
+    g_pModManager->DumpCompiledKeyValues();
+}
+
 fs::path GetModFolderPath()
 {
     return fs::path(GetNorthstarPrefix()) / MOD_FOLDER_SUFFIX;
@@ -1287,11 +1298,14 @@ fs::path GetModIconPath()
     return fs::path(GetNorthstarPrefix()) / MOD_ICONS_SUFFIX;
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer), [](CModule module)
+ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer, EngineKeyValues), [](CModule module)
 {
     g_pModManager = new ModManager(module);
 	if (const std::optional<uint64_t> pendingUriInstall = CModShellExtension::Get().TakePendingWorkshopInstall())
 		CModInstallService::Get().Request(ModInstallAction::Replace, *pendingUriInstall);
 
-	RegisterConCommand("reload_mods", ConCommand_reload_mods, "reloads mods", FCVAR_NONE);
+    RegisterConCommand("reload_mods", ConCommand_reload_mods, "reloads mods", FCVAR_NONE);
+    RegisterConCommand(
+        "ns_dump_compiled_keyvalues", ConCommand_dump_compiled_keyvalues,
+        "Writes compiled KeyValues with all #base files applied to runtime/compiled_keyvalues_dump.", FCVAR_DONTRECORD);
 })
