@@ -54,21 +54,34 @@ static constexpr int operator|(int first, ScriptContext second)
     return first + (1 << static_cast<int>(second));
 }
 
-const char* GetContextName(ScriptContext context);
-const char* GetContextName_Short(ScriptContext context);
-eSQReturnType SQReturnTypeFromString(const char* pReturnType);
-const char* SQTypeNameFromID(const int iTypeId);
-
-ScriptContext ScriptContextFromString(std::string string);
-
-namespace NS::log
+class CSquirrelContext final
 {
-std::shared_ptr<spdlog::logger> squirrel_logger(ScriptContext context);
-}; // namespace NS::log
+public:
+	static const char* GetName(ScriptContext context)
+	{
+		switch (context)
+		{
+		case ScriptContext::CLIENT:
+			return "CLIENT";
+		case ScriptContext::SERVER:
+			return "SERVER";
+		case ScriptContext::UI:
+			return "UI";
+		default:
+			return "UNKNOWN";
+		}
+	}
+
+	static std::shared_ptr<spdlog::logger> GetLogger(ScriptContext context);
+};
+
+eSQReturnType SQReturnTypeFromString(const char* pReturnType);
+const char* SQTypeNameFromID(int type);
+ScriptContext ScriptContextFromString(std::string string);
 
 struct SquirrelExecutionResult
 {
-    SQRESULT compileResult = SQRESULT_ERROR;
+	SQRESULT compileResult = SQRESULT_ERROR;
     SQRESULT callResult = SQRESULT_ERROR;
     bool called = false;
 
@@ -80,10 +93,10 @@ struct SquirrelExecutionResult
 
 class SquirrelManager
 {
-  protected:
+protected:
     std::vector<SQFuncRegistration*> m_funcRegistrations;
 
-  public:
+public:
     ScriptContext m_context;
     std::shared_ptr<spdlog::logger> m_logger;
     CSquirrelVM* m_pSQVM;
@@ -92,20 +105,20 @@ class SquirrelManager
 
     bool m_bFatalCompilationErrors = false;
 
-  public:
+public:
     SquirrelManager(ScriptContext context)
     {
         m_pSQVM = nullptr;
         m_context = context;
-        m_logger = NS::log::squirrel_logger(m_context);
-    }
+		m_logger = CSquirrelContext::GetLogger(m_context);
+	}
     std::shared_ptr<spdlog::logger> logger;
     CHudScriptElement* rootHudScriptElement = nullptr;
 
     void VMCreated(CSquirrelVM* newSqvm);
     void VMDestroyed();
-    SquirrelExecutionResult ExecuteCode(const char* code);
-    void AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func);
+    SquirrelExecutionResult ExecuteCode(const char* code, const char* logCode = nullptr);
+	void AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func);
     SQRESULT setupfunc(const SQChar* funcname);
     void AddFuncOverride(std::string name, SQFunction func);
     void ProcessMessageBuffer();
@@ -379,7 +392,7 @@ class SquirrelManager
         // This is useful for things like threads and plugins, which do not run on the main thread
         if (!m_pSQVM || !m_pSQVM->sqvm)
         {
-            spdlog::error("AsyncCall {} was called on context {} while VM was not initialized.", funcname, GetContextName(m_context));
+            spdlog::error("AsyncCall {} was called on context {} while VM was not initialized.", funcname, CSquirrelContext::GetName(m_context));
             return SquirrelMessage();
         }
         FunctionVector functionVector;
@@ -395,7 +408,7 @@ class SquirrelManager
         // This is useful for things like threads and plugins, which do not run on the main thread
         if (!m_pSQVM || !m_pSQVM->sqvm)
         {
-            spdlog::error("AsyncCall {} was called on context {} while VM was not initialized.", funcname, GetContextName(m_context));
+            spdlog::error("AsyncCall {} was called on context {} while VM was not initialized.", funcname, CSquirrelContext::GetName(m_context));
             return SquirrelMessage();
         }
         FunctionVector functionVector = {};
@@ -413,7 +426,7 @@ class SquirrelManager
 
         if (!m_pSQVM || !m_pSQVM->sqvm)
         {
-            spdlog::error("{} was called on context {} while VM was not initialized.", __FUNCTION__, GetContextName(m_context));
+            spdlog::error("{} was called on context {} while VM was not initialized.", __FUNCTION__, CSquirrelContext::GetName(m_context));
             return SQRESULT_ERROR;
         }
 
@@ -437,7 +450,7 @@ class SquirrelManager
         // If you want to call into squirrel asynchronously, use `schedule_call` instead
         if (!m_pSQVM || !m_pSQVM->sqvm)
         {
-            spdlog::error("{} was called on context {} while VM was not initialized.", __FUNCTION__, GetContextName(m_context));
+            spdlog::error("{} was called on context {} while VM was not initialized.", __FUNCTION__, CSquirrelContext::GetName(m_context));
             return SQRESULT_ERROR;
         }
         SQObject functionobj{};

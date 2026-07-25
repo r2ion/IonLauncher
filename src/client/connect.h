@@ -41,6 +41,15 @@ public:
 	};
 
 private:
+	struct WorkshopSelection
+	{
+		std::string m_Name;
+		std::string m_Version;
+		ModDownloader::ModWorkshopAlternative m_Alternative;
+	};
+
+	static bool HasRequiredModVersion(std::string_view name, std::string_view version);
+
 	eConnectionMode m_eCurrentMode = eConnectionMode::Direct;
 	eConnectionMode m_eLastMode = eConnectionMode::Direct;
 	bool m_bRetrying = false; // if we're retrying we need to check if we should use connectWithKey

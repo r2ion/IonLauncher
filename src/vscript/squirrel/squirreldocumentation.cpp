@@ -51,7 +51,7 @@ void SquirrelDocumentation::BeginVM(ScriptContext context)
         return;
 
     std::scoped_lock lock(m_Mutex);
-    m_Functions[*index].clear();
+	m_VMFunctions[*index].clear();
 }
 
 void SquirrelDocumentation::RegisterFunction(ScriptContext context, const SQFuncRegistration& registration)
@@ -67,7 +67,33 @@ void SquirrelDocumentation::RegisterFunction(ScriptContext context, const SQFunc
     };
 
     std::scoped_lock lock(m_Mutex);
-    m_Functions[*index].insert_or_assign(NormalizeName(registration.squirrelFuncName), std::move(function));
+	m_VMFunctions[*index].insert_or_assign(NormalizeName(registration.squirrelFuncName), std::move(function));
+}
+
+void SquirrelDocumentation::RegisterStaticFunctions(ScriptContext context, const SQFuncRegistration* registrations, size_t count)
+{
+	const std::optional<size_t> index = GetContextIndex(context);
+	if (!index || !registrations)
+		return;
+
+	std::scoped_lock lock(m_Mutex);
+	auto& functions = m_StaticFunctions[*index];
+	for (size_t registrationIndex = 0; registrationIndex < count; registrationIndex++)
+	{
+		const SQFuncRegistration& registration = registrations[registrationIndex];
+		if (!registration.squirrelFuncName || !*registration.squirrelFuncName)
+			continue;
+
+		Function function{
+		    registration.squirrelFuncName,
+		    BuildSignature(registration),
+		    registration.helpText ? registration.helpText : "",
+		};
+		const std::string normalizedName = NormalizeName(registration.squirrelFuncName);
+		const auto existing = functions.find(normalizedName);
+		if (existing == functions.end() || (existing->second.description.empty() && !function.description.empty()))
+			functions.insert_or_assign(normalizedName, std::move(function));
+	}
 }
 
 std::vector<SquirrelDocumentation::Function> SquirrelDocumentation::GetFunctions(ScriptContext context) const
@@ -79,8 +105,15 @@ std::vector<SquirrelDocumentation::Function> SquirrelDocumentation::GetFunctions
     std::vector<Function> functions;
     {
         std::scoped_lock lock(m_Mutex);
-        functions.reserve(m_Functions[*index].size());
-        for (const auto& entry : m_Functions[*index])
+		const auto& staticFunctions = m_StaticFunctions[*index];
+		const auto& vmFunctions = m_VMFunctions[*index];
+		functions.reserve(staticFunctions.size() + vmFunctions.size());
+        for (const auto& [name, function] : staticFunctions)
+		{
+			if (!vmFunctions.contains(name))
+				functions.push_back(function);
+		}
+		for (const auto& entry : vmFunctions)
             functions.push_back(entry.second);
     }
 

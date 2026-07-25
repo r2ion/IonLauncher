@@ -8,9 +8,8 @@
 #include <string>
 #include <cstdint>
 #include "cmaterialglue.h"
+#include "materialsystem/dx11_device.h"
 #include "rtech/pakfilesystem.h"
-static ID3D11DeviceContext** DeviceContext;
-static ID3D11Device** D3D11Device_14E8DD0;
 
 struct Ns_Constant_Buffer
 {
@@ -41,7 +40,8 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 	auto subResult = hook.Original(a1, a2, a3, internal_logic_material); // IMPORTANT DO NOT REPLACE, NEEDS TO RUN BEFORE ANYTHING ELSE HAPPENS IN SHADEREXECUTE
 
-	if (!DeviceContext || !D3D11Device_14E8DD0 || !*DeviceContext || !*D3D11Device_14E8DD0)
+	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
+	if (!dx11)
 		return subResult;
 
 	//bind textures to slots if existing
@@ -67,7 +67,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 			if (!TextureSRV)
 				continue;
 
-			(*DeviceContext)->PSSetShaderResources(slot, 1, &TextureSRV);
+			dx11.m_pContext->PSSetShaderResources(slot, 1, &TextureSRV);
 
 		}
 	}
@@ -86,7 +86,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 		static ID3D11Buffer* resource = nullptr;
 		if (!resource)
 		{
-			if (HRESULT res = (*D3D11Device_14E8DD0)->CreateBuffer(&desc, 0, &resource); !SUCCEEDED(res))
+			if (HRESULT res = dx11.m_pDevice->CreateBuffer(&desc, nullptr, &resource); !SUCCEEDED(res))
 			{
 				spdlog::error("Failed to create buffer {:X}", (uint32_t)res);
 				return subResult;
@@ -94,7 +94,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 		}
 
 		D3D11_MAPPED_SUBRESOURCE mappedSubResource;
-		if (!SUCCEEDED((*DeviceContext)->Map(resource, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSubResource)))
+		if (!SUCCEEDED(dx11.m_pContext->Map(resource, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSubResource)))
 		{
 			spdlog::error("failed to map data");
 			return subResult;
@@ -106,8 +106,8 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 		memcpy(pData, &NSCustomBuffersPerMaterial[internal_logic_material->guid], sizeof(Ns_Constant_Buffer));
 
-		(*DeviceContext)->Unmap(resource, 0);
-		(*DeviceContext)->PSSetConstantBuffers(4, 1, &resource);
+		dx11.m_pContext->Unmap(resource, 0);
+		dx11.m_pContext->PSSetConstantBuffers(4, 1, &resource);
 	}
 	return subResult;
 })
@@ -291,9 +291,6 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module)
 {
-	DeviceContext = module.Offset(0x14E8DD8).RCast<ID3D11DeviceContext**>();
-	D3D11Device_14E8DD0 = module.Offset(0x14E8DD0).RCast<ID3D11Device**>();
-
 	DISPATCH_MODULE(NSCustomDXBufferHooks)
 
 	auto clientUpdateCustomDXBuffer = NSUpdateCustomDXBufferForGUID<ScriptContext::CLIENT>;

@@ -323,6 +323,16 @@ void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAu
 	}
 }
 
+bool ConnectionManager::HasRequiredModVersion(std::string_view name, std::string_view version)
+{
+	for (const Mod& existingMod : g_pModManager->m_LoadedMods)
+	{
+		if (existingMod.Name == name && (existingMod.IsCoreMod() || existingMod.Version == version))
+			return true;
+	}
+	return false;
+}
+
 void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 {
 	int unverifiedModCount = g_pModDownloader->GetTotalServerRequestedMods();
@@ -334,56 +344,16 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 
 	for (const auto& mod : unverifiedMods)
 	{
-		bool found = false;
-
-		for (auto& existingMod : g_pModManager->m_LoadedMods)
-		{
-			if (existingMod.Name == mod.name)
-			{
-				if (existingMod.IsCoreMod())
-				{
-					found = true;
-					break;
-				}
-
-				if (existingMod.Version == mod.version)
-				{
-					found = true;
-					break;
-				}
-			}
-		}
-
-		if (!found)
+		if (!HasRequiredModVersion(mod.name, mod.version))
 		{
 			needToDownloadMods = true;
 			break;
 		}
 	}
 
-	for (RemoteModInfo& mod : info->requiredMods)
+	for (const RemoteModInfo& mod : info->requiredMods)
 	{
-		bool found = false;
-
-		for (auto& existingMod : g_pModManager->m_LoadedMods)
-		{
-			if (existingMod.Name == mod.Name)
-			{
-				if (existingMod.IsCoreMod())
-				{
-					found = true;
-					break;
-				}
-
-				if (existingMod.Version == mod.Version)
-				{
-					found = true;
-					break;
-				}
-			}
-		}
-
-		if (!found)
+		if (!HasRequiredModVersion(mod.Name, mod.Version))
 		{
 			needToDownloadMods = true;
 			break;
@@ -405,37 +375,61 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 		RETURN_IF_CANCELLED()
 	}
 
+	std::vector<WorkshopSelection> workshopSelections;
+	for (const ModDownloader::modentry_s& mod : unverifiedMods)
+	{
+		if (HasRequiredModVersion(mod.name, mod.version))
+			continue;
+
+		const std::optional<ModDownloader::ModWorkshopAlternative> alternative = g_pModDownloader->FindModWorkshopAlternative(mod);
+		if (!alternative)
+			continue;
+
+		g_pModDownloader->ResetDownloadSourceChoice();
+		if (!g_pModDownloader->NotifyChooseDownloadSource(mod, *alternative))
+			continue;
+		while (g_pModDownloader->GetDownloadSourceChoice() == ModDownloader::ModDownloadSourceChoice::NotDecided && !IsCancelled())
+			Sleep(100);
+
+		if (g_pModDownloader->GetDownloadSourceChoice() == ModDownloader::ModDownloadSourceChoice::Cancelled)
+			Interrupt();
+		RETURN_IF_CANCELLED()
+
+		if (g_pModDownloader->GetDownloadSourceChoice() == ModDownloader::ModDownloadSourceChoice::ModWorkshop)
+			workshopSelections.push_back({mod.name, mod.version, *alternative});
+	}
+
 	g_pModDownloader->NotifyDownloadStarted();
 
 	for (const auto& mod : info->requiredMods)
 	{
 		UpdateMessage("#DOWNLOADING_MOD_TEXT", mod.Name, mod.Version);
 
-		bool found = false;
+		if (HasRequiredModVersion(mod.Name, mod.Version))
+			continue;
 
-		for (auto& existingMod : g_pModManager->m_LoadedMods)
+		const WorkshopSelection* workshopSelection = nullptr;
+
+		for (const WorkshopSelection& selection : workshopSelections)
 		{
-			if (existingMod.Name == mod.Name)
-			{
-				if (existingMod.IsCoreMod())
+			if (selection.m_Name == mod.Name && selection.m_Version == mod.Version)
 				{
-					found = true;
-					break;
-				}
-
-				if (existingMod.Version == mod.Version)
-				{
-					found = true;
+				workshopSelection = &selection;
 					break;
 				}
 			}
+		if (workshopSelection)
+		{
+			spdlog::info("Installing ModWorkshop mod {} for server requirement {} v{}", workshopSelection->m_Alternative.modId, mod.Name,
+			             mod.Version);
+			g_pModDownloader->DownloadModWorkshop({.name = mod.Name, .version = mod.Version, .platform = ModSource::Thunderstore},
+			                                      workshopSelection->m_Alternative);
 		}
-
-		if (found)
-			continue;
-
-		spdlog::info("Auto-downloading mod {} version {}", mod.Name, mod.Version);
+		else
+		{
+			spdlog::info("Auto-downloading mod {} version {}", mod.Name, mod.Version);
 		g_pModDownloader->DownloadMod(mod.Name, mod.Version);
+		}
 		m_bDownloadedMods = true;
 
 		while (!IsCancelled())

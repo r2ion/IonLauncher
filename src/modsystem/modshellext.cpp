@@ -1,19 +1,17 @@
 #include "modshellext.h"
 
-#include <string_view>
-#include <windows.h>
-
-#include <spdlog/spdlog.h>
-
-#include "modsystem/moddownloader.h"
+#include "modsystem/modinstaller.h"
+#include "modsystem/modmanager.h"
 #include "modsystem/platform/modworkshop.h"
 
-static const char* kModShellPipeName = "\\\\.\\pipe\\NorthstarUriPipe";
-static std::optional<std::string> s_PendingWorkshopId;
+#include <Windows.h>
+#include <spdlog/spdlog.h>
 
-std::optional<std::string> Mod_FindUriArgument(std::string_view commandLine, std::string_view schemePrefix)
+#include <thread>
+
+std::optional<std::string> CModShellExtension::FindUriArgument(std::string_view commandLine, std::string_view schemePrefix)
 {
-	size_t start = commandLine.find(schemePrefix);
+	const size_t start = commandLine.find(schemePrefix);
 	if (start == std::string_view::npos)
 		return std::nullopt;
 
@@ -21,41 +19,37 @@ std::optional<std::string> Mod_FindUriArgument(std::string_view commandLine, std
 	if (end == std::string_view::npos)
 		end = commandLine.size();
 
-	std::string uri = std::string(commandLine.substr(start, end - start));
+	std::string uri(commandLine.substr(start, end - start));
 	if (!uri.empty() && uri.back() == '"')
 		uri.pop_back();
 
 	return uri;
 }
 
-void HandleModShellExtensionUri(const std::string& uri)
+void CModShellExtension::HandleUri(std::string_view uri)
 {
-	if (auto modId = ModWorkshop_TryParseInstallId(uri))
+	if (const std::optional<uint64_t> modId = CModWorkshopClient::TryParseInstallId(uri))
 	{
 		spdlog::info("Received ModWorkshop install URI. Mod ID: {}", *modId);
-		if (g_pModDownloader)
-			g_pModDownloader->QueueWorkshopDownload(*modId);
-		else
-			Mod_StorePendingWorkshopDownload(*modId);
+		if (!g_pModManager)
+			StorePendingWorkshopInstall(*modId);
+		else if (!CModInstallService::Get().Request(ModInstallAction::Replace, *modId))
+			spdlog::warn("A ModWorkshop operation is already active; URI install {} was not queued", *modId);
 		return;
 	}
 
 	spdlog::warn("Unhandled r2ns URI: {}", uri);
 }
 
-std::optional<std::string> Mod_TryGetUriFromCommandLine()
+std::optional<std::string> CModShellExtension::GetCommandLineUri() const
 {
-	const char* cmdLine = GetCommandLineA();
-	if (!cmdLine)
-		return std::nullopt;
-
-	return Mod_FindUriArgument(std::string_view(cmdLine), "r2ns://");
+	const char* commandLine = GetCommandLineA();
+	return commandLine ? FindUriArgument(commandLine, "r2ns://") : std::nullopt;
 }
 
-bool Mod_ForwardUriToRunningInstance(const std::string& uri)
+bool CModShellExtension::ForwardToRunningInstance(std::string_view uri) const
 {
-	HANDLE pipe = CreateFileA(
-		kModShellPipeName,
+	const HANDLE pipe = CreateFileA(PIPE_NAME.data(),
 		GENERIC_WRITE,
 		0,
 		nullptr,
@@ -67,18 +61,17 @@ bool Mod_ForwardUriToRunningInstance(const std::string& uri)
 		return false;
 
 	DWORD written = 0;
-	BOOL ok = WriteFile(pipe, uri.c_str(), static_cast<DWORD>(uri.size()), &written, nullptr);
+	const BOOL succeeded = WriteFile(pipe, uri.data(), static_cast<DWORD>(uri.size()), &written, nullptr);
 	CloseHandle(pipe);
 
-	return ok && written == uri.size();
+	return succeeded && written == uri.size();
 }
 
-static DWORD WINAPI Mod_PipeServerThread(LPVOID)
+void CModShellExtension::RunUriServer()
 {
 	for (;;)
 	{
-		HANDLE pipe = CreateNamedPipeA(
-			kModShellPipeName,
+		const HANDLE pipe = CreateNamedPipeA(PIPE_NAME.data(),
 			PIPE_ACCESS_INBOUND,
 			PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
 			1,
@@ -88,18 +81,15 @@ static DWORD WINAPI Mod_PipeServerThread(LPVOID)
 			nullptr);
 
 		if (pipe == INVALID_HANDLE_VALUE)
-			return 0;
+			return;
 
-		BOOL connected = ConnectNamedPipe(pipe, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+		const BOOL connected = ConnectNamedPipe(pipe, nullptr) ? TRUE : GetLastError() == ERROR_PIPE_CONNECTED;
 		if (connected)
 		{
 			char buffer[4096] = {};
-			DWORD read = 0;
-			if (ReadFile(pipe, buffer, sizeof(buffer) - 1, &read, nullptr) && read > 0)
-			{
-				buffer[read] = '\0';
-				HandleModShellExtensionUri(std::string(buffer));
-			}
+			DWORD bytesRead = 0;
+			if (ReadFile(pipe, buffer, sizeof(buffer) - 1, &bytesRead, nullptr) && bytesRead > 0)
+				HandleUri(std::string_view(buffer, bytesRead));
 		}
 
 		DisconnectNamedPipe(pipe);
@@ -107,35 +97,24 @@ static DWORD WINAPI Mod_PipeServerThread(LPVOID)
 	}
 }
 
-void Mod_StartUriServer()
+void CModShellExtension::StartUriServer()
 {
-	DWORD threadId = 0;
-	HANDLE thread = CreateThread(nullptr, 0, Mod_PipeServerThread, nullptr, 0, &threadId);
-	if (thread)
-		CloseHandle(thread);
+	std::thread(&CModShellExtension::RunUriServer, this).detach();
 }
 
-void HandleModShellExtension()
+void CModShellExtension::StorePendingWorkshopInstall(uint64_t id)
 {
-	auto uri = Mod_TryGetUriFromCommandLine();
-	if (!uri)
+	if (id == 0)
 		return;
-
-	HandleModShellExtensionUri(*uri);
+	std::scoped_lock lock(m_PendingWorkshopMutex);
+	m_PendingWorkshopId = id;
 }
 
-void Mod_StorePendingWorkshopDownload(const std::string& id)
+std::optional<uint64_t> CModShellExtension::TakePendingWorkshopInstall()
 {
-	if (!id.empty())
-		s_PendingWorkshopId = id;
-}
+	std::scoped_lock lock(m_PendingWorkshopMutex);
 
-std::optional<std::string> Mod_TakePendingWorkshopDownload()
-{
-	if (!s_PendingWorkshopId)
-		return std::nullopt;
-
-	std::optional<std::string> value = std::move(s_PendingWorkshopId);
-	s_PendingWorkshopId.reset();
-	return value;
+	std::optional<uint64_t> id = m_PendingWorkshopId;
+	m_PendingWorkshopId.reset();
+	return id;
 }

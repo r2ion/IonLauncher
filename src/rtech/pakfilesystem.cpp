@@ -186,21 +186,24 @@ void PakLoadManager::TrackModPaks(Mod& mod)
 	}
 }
 
+bool PakLoadManager::ShouldRemoveUnloadedPak(const ModPak_t& pak)
+{
+	return pak.m_markedForDelete && pak.m_handle == PAK_INVALID_HANDLE;
+}
+
 // Untracks all paks that aren't currently loaded and are marked for unload.
 void PakLoadManager::CleanUpUnloadedPaks()
 {
-	auto fnRemovePredicate = [](ModPak_t& pak) -> bool {
-			return pak.m_markedForDelete && pak.m_handle == PAK_INVALID_HANDLE;
-		};
-
-	m_modPaks.erase(std::remove_if(m_modPaks.begin(), m_modPaks.end(), fnRemovePredicate), m_modPaks.end());
+	std::erase_if(m_modPaks, ShouldRemoveUnloadedPak);
 }
 
 // Unloads all paks that are marked for unload.
-void PakLoadManager::UnloadMarkedPaks()
+bool PakLoadManager::UnloadMarkedPaks()
 {
 	if (HasUnsafeLoadedPaks())
-		return;
+		return false;
+
+	bool unloadedAll = true;
 
 	++m_reentranceCounter;
 	const ScopeGuard guard([&]() { --m_reentranceCounter; });
@@ -214,17 +217,23 @@ void PakLoadManager::UnloadMarkedPaks()
 			continue;
 
 		if (IsUnsafeLoadedPak(modPak.m_handle))
+		{
+			unloadedAll = false;
 			continue;
+		}
 
 		const PakHandle_t handle = modPak.m_handle;
 		g_pakLoadApi->UnloadAndWait(handle, *o_pCleanMaterialSystemStuff);
 		if (HasUnsafeLoadedPaks())
 		{
 			modPak.m_handle = handle;
+			unloadedAll = false;
 			continue;
 		}
 		modPak.m_handle = PAK_INVALID_HANDLE;
+		std::erase(m_mapPaks, modPak.m_pathHash);
 	}
+	return unloadedAll;
 }
 
 // Loads all modded paks for the given map.

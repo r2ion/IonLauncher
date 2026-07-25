@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <regex>
+#include <span>
 #include "mod.h"
 #include "tier0/vanilla.h"
 
@@ -41,7 +42,8 @@ class ModManager
 {
 private:
 	bool m_bHasLoadedMods = false;
-	bool m_bHasEnabledModsCfg;
+	bool m_bHasEnabledModsCfg = false;
+	bool m_bRuntimeUnloadedForFilesystemMutation = false;
 	rapidjson_document m_EnabledModsCfg;
 	std::string cfgPath;
 	int manifestoVersion = 0;
@@ -52,12 +54,15 @@ private:
 	mutable std::mutex m_ModelReloadMutex;
 	bool m_bModelReloadPending = false;
 	void* m_pModelLoader = nullptr;
+	std::unordered_map<std::string, bool> m_EnabledStateOverrides;
 	void (*m_pFlushModelByName)(void* pModelLoader, const char* pModelPath) = nullptr;
 
 	void LoadMods();
-	void UnloadMods();
+	bool UnloadMods(bool unloadRpaksNow);
 	void RunModelReload();
 	void RegisterLooseModelReloadPath(const fs::path& path);
+	static std::string PackagePathKey(const fs::path& path);
+	static bool IsPathAtOrBelow(const fs::path& path, const fs::path& root);
 	std::string NormaliseModelLookupPath(const fs::path& path) const;
 	std::vector<std::string> GetModelReloadPaths() const;
 	void MarkModelsReloaded(const std::unordered_set<std::string>& failedPaths);
@@ -134,7 +139,11 @@ private:
 public:
 	explicit ModManager(const CModule& engineModule);
 	void ReloadMods();
+	bool UnloadModsForFilesystemMutation();
 	void RequestModelReload();
+	std::unordered_map<std::string, bool> CaptureEnabledStatesForPackages(std::span<const fs::path> packageRoots) const;
+	void ReloadModsWithEnabledStates(std::unordered_map<std::string, bool> enabledStates);
+	bool HasLoadedPackageMods(const fs::path& packageRoot, std::span<const std::string> expectedModNames) const;
 	void RegisterMountedVPKModels(const ModVPKEntry& vpkEntry);
 	bool IsModModelFile(const fs::path& path) const;
 	bool GetModVPKModelSource(const fs::path& path, std::string& vpkPath) const;

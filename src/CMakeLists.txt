@@ -126,6 +126,8 @@ add_library(
     "logging/sourceconsole.cpp"
     "logging/sourceconsole.h"
     "materialsystem/nscustomdxbuffer.cpp"
+    "materialsystem/dx11_device.cpp"
+    "materialsystem/dx11_device.h"
     "masterserver/masterserver.cpp"
     "masterserver/masterserver.h"
     "modsystem/moddownloader.h"
@@ -139,6 +141,8 @@ add_library(
     "modsystem/mod.h"
     "modsystem/modmanager.cpp"
     "modsystem/modmanager.h"
+    "modsystem/modinstaller.cpp"
+    "modsystem/modinstaller.h"
     "modsystem/modsavefiles.cpp"
     "modsystem/modsavefiles.h"
     "modsystem/modshellext.cpp"
@@ -149,6 +153,10 @@ add_library(
     "modsystem/platform/thunderstore.h"
     "modsystem/platform/modworkshop.cpp"
     "modsystem/platform/modworkshop.h"
+    "modsystem/modworkshop_inventory.cpp"
+    "modsystem/modworkshop_inventory.h"
+    "modsystem/modworkshop_service.cpp"
+    "modsystem/modworkshop_service.h"
     "plugins/interfaces/interface.h"
     "plugins/interfaces/interface.cpp"
     "plugins/interfaces/sys/ISys.h"
@@ -177,6 +185,10 @@ add_library(
     "rtech/rui/dynamic_imageatlas_script.cpp"
     "rtech/rui/imageatlas.cpp"
     "rtech/rui/imageatlas.h"
+    "rtech/rui/workshop_thumbnail_atlas.cpp"
+    "rtech/rui/workshop_thumbnail_atlas.h"
+    "rtech/rui/workshop_thumbnail_service.cpp"
+    "rtech/rui/workshop_thumbnail_service.h"
     "rtech/rui/rui_hooks.cpp"
     "rtech/rui/render.cpp"
     "rtech/rui/render.h"
@@ -294,6 +306,8 @@ add_library(
     "vscript/scripts/client/scriptinputevents.cpp"
     "vscript/scripts/client/scriptmainmenupromos.cpp"
     "vscript/scripts/client/scriptmodmenu.cpp"
+    "vscript/scripts/client/scriptmodworkshop.cpp"
+    "vscript/scripts/client/scriptmodworkshop_api.cpp"
     "vscript/scripts/client/scriptoriginauth.cpp"
     "vscript/scripts/client/scriptserverbrowser.cpp"
     "vscript/scripts/client/scriptservertoclientstringcommand.cpp"
@@ -349,6 +363,8 @@ target_link_libraries(
             ws2_32.lib
             crypt32.lib
             cryptui.lib
+            ole32.lib
+            windowscodecs.lib
             dbghelp.lib
             wldap32.lib
             normaliz.lib
@@ -360,6 +376,7 @@ target_link_libraries(
             ${EOS_LIB}
             spdlog
             libcurl
+            webp
             NorthstarIncludes
             httplib::httplib
             nlohmann_json::nlohmann_json

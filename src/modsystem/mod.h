@@ -1,5 +1,8 @@
 #pragma once
 
+#include <regex>
+#include <string_view>
+
 class Mod;
 
 struct ModConVar
@@ -90,6 +93,8 @@ public:
 	bool m_bWasReadSuccessfully = false;
 	fs::path m_ModDirectory;
 	ModSource m_Source = ModSource::Unmanaged;
+	fs::path m_PackageDirectory;
+	std::optional<std::string> m_ManagedId;
 
 	// mod.json stuff:
 
@@ -139,21 +144,14 @@ public:
 public:
 	Mod(fs::path modPath, const char* jsonBuf);
 	bool IsRemote() const { return m_Source == ModSource::Remote; }
-    bool IsCoreMod()
-    {
-        static const std::array<std::string_view, 4> coreMods = {
-            "Northstar.Client",
-            "Northstar.Coop",
-            "Northstar.CustomServers",
-            "Northstar.Custom"
-        };
-
-        return std::find(
-            coreMods.begin(),
-            coreMods.end(),
-            std::string_view{Name}
-        ) != coreMods.end();
-    }
+	static bool IsCoreModName(std::string_view name)
+	{
+		return name == "Northstar.Client" || name == "Northstar.Coop" || name == "Northstar.CustomServers" || name == "Northstar.Custom";
+	}
+	bool IsCoreMod() const
+	{
+		return IsCoreModName(Name);
+	}
 
 private:
 	static bool IsPathUnder(const fs::path& candidate, const fs::path& root);

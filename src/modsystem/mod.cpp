@@ -17,7 +17,7 @@ ModSource Mod::ResolveModSourceFromPath(const fs::path& modDir)
 	if (IsPathUnder(modDir, GetRemoteModFolderPath()))
 		return ModSource::Remote;
 	if (IsPathUnder(modDir, GetPackageFolderPath()))
-		return Mod_GetManagedSourceForPath(modDir);
+		return CModPlatform::GetManagedSourceForPath(modDir);
 	if (IsPathUnder(modDir, GetModFolderPath()))
 		return ModSource::Unmanaged;
 	return ModSource::Unknown;
@@ -110,6 +110,10 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 	ParseInitScript(modJson);
 
 	m_Source = ResolveModSourceFromPath(m_ModDirectory);
+	if (const std::optional<fs::path> packageRoot = CModPlatform::FindContainingPackageRoot(m_ModDirectory))
+		m_PackageDirectory = *packageRoot;
+	if (m_Source == ModSource::ModWorkshop)
+		m_ManagedId = CModPlatform::TryReadManagedId(m_ModDirectory, m_Source);
 
 	m_bWasReadSuccessfully = true;
 }

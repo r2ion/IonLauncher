@@ -9,6 +9,7 @@
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
 #include "logging/logging.h"
+#include "tier0/frametask.h"
 #include "vscript/squirrel/squirrel.h"
 
 #include <httplib.h>
@@ -27,7 +28,7 @@ namespace MCPServer
 {
 class Server::LogCaptureSink final : public spdlog::sinks::base_sink<std::mutex>
 {
-  protected:
+protected:
     void sink_it_(const spdlog::details::log_msg& message) override
     {
         spdlog::memory_buf_t formatted;
@@ -95,10 +96,39 @@ std::string Server::AppendNewline(std::string command)
         command.push_back('\n');
     return command;
 }
+std::string Server::MakeDeferredSquirrelScript(std::string_view script, std::string_view guid)
+{
+	std::string identifier;
+	identifier.reserve(guid.size());
+	for (const char character : guid)
+	{
+		if (std::isalnum(static_cast<unsigned char>(character)))
+			identifier.push_back(character);
+	}
+
+	const std::string userFunction = "__mcp_user_" + identifier;
+	const std::string runnerFunction = "__mcp_runner_" + identifier;
+	std::string deferred;
+	deferred.reserve(script.size() + guid.size() * 2 + userFunction.size() + runnerFunction.size() * 2 + 256);
+	deferred.append("void functionref() ").append(userFunction).append(" = void function()\n{\n");
+	deferred.append(script).append("\n}\n");
+	deferred.append("void functionref() ").append(runnerFunction).append(" = void function() : ( ").append(userFunction).append(" )\n{\n");
+	deferred.append("\tWaitFrame()\n\ttry\n\t{\n\t\t").append(userFunction).append("()\n\t}\n");
+	deferred.append("\tcatch ( error )\n\t{\n\t\tprintt( \"[MCP-\" + \"RUNTIME-ERROR:").append(guid).append("]\", error )\n\t}\n");
+	deferred.append("\tprintt( \"[MCP-\" + \"END:").append(guid).append("]\" )\n}\n");
+	deferred.append("thread ").append(runnerFunction).append("()\n");
+	return deferred;
+}
 
 void Server::QueueConsoleText(const std::string& text)
 {
-    if (!Cbuf_AddText || !Cbuf_GetCurrentPlayer)
+	if (!ThreadInMainThread())
+	{
+		g_TaskQueue.Dispatch([text] { QueueConsoleText(text); });
+		return;
+	}
+
+	if (!Cbuf_AddText || !Cbuf_GetCurrentPlayer)
         throw std::runtime_error("engine command buffer is unavailable");
     Cbuf_AddText(Cbuf_GetCurrentPlayer(), text.c_str(), cmd_source_t::kCommandSrcCode);
 }
@@ -164,7 +194,7 @@ json Server::EngineTaskQueue::RunAndWait(std::function<json()> function, std::ch
 
     try
     {
-        Server::QueueConsoleText("mcp_resolve_engine_tasks\n");
+        Server::QueueConsoleText("mcp_resolve_tasks_internal\n");
     }
     catch (...)
     {
@@ -457,28 +487,27 @@ json Server::ExecuteSquirrelScript(const json& arguments)
     if (!context)
         return MakeToolResult("Invalid context. Expected server, client, or ui.", true);
     const bool capture = arguments.value("capture_output", true);
-
-    std::string guid;
-    if (capture)
-    {
-        guid = GenerateGuid();
+	const std::string guid = GenerateGuid();
+	const std::string deferredScript = MakeDeferredSquirrelScript(script, guid);
+	const std::string runtimeErrorMarker = "[MCP-RUNTIME-ERROR:" + guid + "]";
         m_OutputCapture.Start(guid);
         QueueConsoleText(MakeEchoCommand("[MCP-START:" + guid + "]"));
-    }
 
-    json execution;
+	json execution;
     try
     {
-        execution = RunOnEngineThreadAndWait([script, selectedContext = *context]
+        execution = RunOnEngineThreadAndWait([this, script, deferredScript, selectedContext = *context]
         {
             if (IsDedicatedServer() && selectedContext != ScriptContext::SERVER)
                 return json{{"success", false}, {"error", "client and UI VMs do not exist on a dedicated server"}};
+
+			std::scoped_lock lock(m_SquirrelExecutionMutex);
 
             SquirrelManager* manager = g_pSquirrel[selectedContext];
             if (!manager || !manager->m_pSQVM || !manager->m_pSQVM->sqvm)
                 return json{{"success", false}, {"error", "requested Squirrel VM is unavailable"}};
 
-            const SquirrelExecutionResult result = manager->ExecuteCode(script.c_str());
+            const SquirrelExecutionResult result = manager->ExecuteCode(deferredScript.c_str(), script.c_str());
             json response = {
                 {"success", result.Succeeded()},
                 {"compile_result", static_cast<int>(result.compileResult)},
@@ -492,19 +521,29 @@ json Server::ExecuteSquirrelScript(const json& arguments)
     }
     catch (...)
     {
-        if (capture)
-            m_OutputCapture.Stop();
+		m_OutputCapture.Stop();
         throw;
     }
 
-    std::string output;
-    if (capture)
-    {
-        QueueConsoleText(MakeEchoCommand("[MCP-END:" + guid + "]"));
+	if (!execution.value("success", false))
+		QueueConsoleText(MakeEchoCommand("[MCP-END:" + guid + "]"));
         const bool complete = m_OutputCapture.WaitForCompletion(guid, CAPTURE_TIMEOUT);
-        for (const std::string& line : m_OutputCapture.TakeLines())
+	const std::vector<std::string> lines = m_OutputCapture.TakeLines();
+	m_OutputCapture.Stop();
+
+	const bool runtimeFailed =
+	    std::ranges::any_of(lines, [&runtimeErrorMarker](const std::string& line) { return line.find(runtimeErrorMarker) != std::string::npos; });
+	if (runtimeFailed)
+	{
+		execution["success"] = false;
+		execution["error"] = "script execution failed";
+	}
+
+	std::string output;
+	if (capture)
+	{
+		for (const std::string& line : lines)
             output.append(line).push_back('\n');
-        m_OutputCapture.Stop();
         if (!complete)
             output.append("[MCP] Output capture timed out.\n");
     }
@@ -869,8 +908,7 @@ void Server::ResolveEngineTasksCommand(const CCommand& command)
 
 void Server::Initialize()
 {
-    static std::once_flag once;
-    std::call_once(once, []
+	std::call_once(m_InitializeOnce, []
     {
         auto captureSink = std::make_shared<LogCaptureSink>();
         captureSink->set_pattern("[%n] %v");
@@ -879,7 +917,7 @@ void Server::Initialize()
         RegisterConCommand("mcp_start_http", StartHTTPCommand, "Start the loopback MCP HTTP server (optional: port).", FCVAR_NONE);
         RegisterConCommand("mcp_stop", StopCommand, "Stop the MCP HTTP server.", FCVAR_NONE);
         RegisterConCommand("mcp_status", StatusCommand, "Report MCP HTTP server status.", FCVAR_NONE);
-        RegisterConCommand("mcp_resolve_engine_tasks", ResolveEngineTasksCommand, "Run queued MCP work on the engine thread.", FCVAR_HIDDEN);
+        RegisterConCommand("mcp_resolve_tasks_internal", ResolveEngineTasksCommand, "", FCVAR_HIDDEN);
     });
 }
 

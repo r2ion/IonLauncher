@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -12,7 +13,7 @@ struct SQFuncRegistration;
 
 class SquirrelDocumentation final
 {
-  public:
+public:
     struct Function
     {
         std::string name;
@@ -24,9 +25,10 @@ class SquirrelDocumentation final
 
     void BeginVM(ScriptContext context);
     void RegisterFunction(ScriptContext context, const SQFuncRegistration& registration);
-    std::vector<Function> GetFunctions(ScriptContext context) const;
+	void RegisterStaticFunctions(ScriptContext context, const SQFuncRegistration* registrations, size_t count);
+	std::vector<Function> GetFunctions(ScriptContext context) const;
 
-  private:
+private:
     static constexpr size_t CONTEXT_COUNT = 3;
 
     SquirrelDocumentation() = default;
@@ -36,5 +38,6 @@ class SquirrelDocumentation final
     static std::string BuildSignature(const SQFuncRegistration& registration);
 
     mutable std::mutex m_Mutex;
-    std::array<std::unordered_map<std::string, Function>, CONTEXT_COUNT> m_Functions;
+    std::array<std::unordered_map<std::string, Function>, CONTEXT_COUNT> m_StaticFunctions;
+	std::array<std::unordered_map<std::string, Function>, CONTEXT_COUNT> m_VMFunctions;
 };

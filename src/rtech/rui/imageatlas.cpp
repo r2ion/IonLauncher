@@ -295,8 +295,6 @@ bool CImageAtlas::EnsureRegistered()
 
 	// Reserve scratch space before taking the engine's non-RAII SRW lock so no
 	// allocation or logging can throw while the lock is held.
-	std::vector<size_t> registeredImages;
-	registeredImages.reserve(m_NameRecords.size());
 	std::vector<uint32_t> failedHashes;
 	failedHashes.reserve(m_NameRecords.size());
 	bool descriptorTableFull = false;
@@ -346,7 +344,6 @@ bool CImageAtlas::EnsureRegistered()
 		}
 
 		ownsDescriptor = true;
-		registeredImages.push_back(imageIndex);
 	}
 	ReleaseSRWLockExclusive(&s_DescriptorMap->lock);
 
@@ -358,14 +355,6 @@ bool CImageAtlas::EnsureRegistered()
 	}
 	for (const uint32_t nameHash : failedHashes)
 		spdlog::error("RUI image descriptor insertion failed for hash 0x{:08X}", nameHash);
-	for (const size_t imageIndex : registeredImages)
-	{
-		spdlog::info(
-			"Registered RUI image hash 0x{:08X} in runtime atlas {} at index {}",
-			m_NameRecords[imageIndex].nameHash,
-			*m_AtlasIndex,
-			imageIndex);
-	}
 
 	return ownsDescriptor;
 }
@@ -405,22 +394,22 @@ bool CImageAtlas::Create(
 	{
 		const Image& image = images[imageIndex];
 		RuiImageAtlasEntry& atlasEntry = m_AtlasEntries[imageIndex];
-		atlasEntry.pixelBounds[0] = 0.0f;
-		atlasEntry.pixelBounds[1] = 0.0f;
-		atlasEntry.pixelBounds[2] = static_cast<float>(image.m_Width);
-		atlasEntry.pixelBounds[3] = static_cast<float>(image.m_Height);
-		atlasEntry.uvBase[0] = static_cast<float>(image.m_PosX) * inverseWidth;
-		atlasEntry.uvBase[1] = static_cast<float>(image.m_PosY) * inverseHeight;
-		atlasEntry.uvScale[0] = inverseWidth;
-		atlasEntry.uvScale[1] = inverseHeight;
+		atlasEntry.pixelBounds[0] = -0.0f;
+		atlasEntry.pixelBounds[1] = -0.0f;
+		atlasEntry.pixelBounds[2] = 1.0f;
+		atlasEntry.pixelBounds[3] = 1.0f;
+		atlasEntry.uvBase[0] = 0.0f;
+		atlasEntry.uvBase[1] = 0.0f;
+		atlasEntry.uvScale[0] = 1.0f;
+		atlasEntry.uvScale[1] = 1.0f;
 
 		m_ImageDimensions[imageIndex] = {
 			static_cast<uint16_t>(image.m_Width),
 			static_cast<uint16_t>(image.m_Height)};
 
 		RuiImageAtlasGpuRecord& gpuRecord = m_GpuRecords[imageIndex];
-		gpuRecord.uvMin[0] = atlasEntry.uvBase[0];
-		gpuRecord.uvMin[1] = atlasEntry.uvBase[1];
+		gpuRecord.uvMin[0] = static_cast<float>(image.m_PosX) * inverseWidth;
+		gpuRecord.uvMin[1] = static_cast<float>(image.m_PosY) * inverseHeight;
 		gpuRecord.uvSize[0] = static_cast<float>(image.m_Width) * inverseWidth;
 		gpuRecord.uvSize[1] = static_cast<float>(image.m_Height) * inverseHeight;
 

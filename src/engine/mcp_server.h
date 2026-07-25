@@ -111,7 +111,8 @@ class Server final
     static std::string ToLowerASCII(std::string_view value);
     static std::optional<ScriptContext> ParseContext(std::string_view value);
     static std::string GenerateGuid();
-    static std::string MakeEchoCommand(std::string_view marker);
+	static std::string MakeDeferredSquirrelScript(std::string_view script, std::string_view guid);
+	static std::string MakeEchoCommand(std::string_view marker);
     static std::string AppendNewline(std::string command);
     static void QueueConsoleText(const std::string& text);
     static int BoundedInteger(const json& object, const char* name, int defaultValue, int minimum, int maximum);
@@ -134,10 +135,12 @@ class Server final
     std::vector<Tool> GetAvailableTools() const;
     json CreateErrorResponse(int code, std::string message, const json& id = nullptr) const;
     json CreateSuccessResponse(json result, const json& id) const;
-    void SetupHTTPRoutes();
+	void SetupHTTPRoutes();
 
-    EngineTaskQueue m_EngineTasks;
-    ConsoleOutputCapture m_OutputCapture;
+	std::once_flag m_InitializeOnce;
+	std::mutex m_SquirrelExecutionMutex;
+	EngineTaskQueue m_EngineTasks;
+	ConsoleOutputCapture m_OutputCapture;
     std::atomic_bool m_Running = false;
     std::atomic_bool m_Initialized = false;
     std::atomic_bool m_Stopping = false;

@@ -8,7 +8,10 @@
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
 #include "miles/audio.h"
+#include "modsystem/modinstaller.h"
 #include "modsystem/modshellext.h"
+#include "modsystem/modworkshop_inventory.h"
+#include "modsystem/modworkshop_service.h"
 #include "rtech/pakfilesystem.h"
 #include "rtech/pakstate.h"
 #include "tier0/frametask.h"
@@ -20,6 +23,7 @@
 #include "rapidjson/error/en.h"
 #include "rapidjson/ostreamwrapper.h"
 #include "rapidjson/prettywriter.h"
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -32,8 +36,33 @@ enum class ModelReloadType_t : uint32_t
 {
     LodChanged = 0,
     Everything,
-    RefreshModels,
-    Async,
+	RefreshModels,
+	Async,
+};
+
+class CModDirectoryCollector final
+{
+public:
+	CModDirectoryCollector(std::vector<fs::path>& directories, const fs::path& legacyRoot)
+	    : m_Directories(directories), m_LegacyRoot(legacyRoot.string())
+	{
+	}
+
+	void Add(const fs::path& directory)
+	{
+		const std::string path = directory.string();
+		if (!m_WarnedAboutLegacyRoot && path.starts_with(m_LegacyRoot))
+		{
+			spdlog::warn("Loading mods from legacy directory '{}'. This path is deprecated; move mods into the packages directory.", m_LegacyRoot);
+			m_WarnedAboutLegacyRoot = true;
+		}
+		m_Directories.push_back(directory);
+	}
+
+private:
+	std::vector<fs::path>& m_Directories;
+	std::string m_LegacyRoot;
+	bool m_WarnedAboutLegacyRoot = false;
 };
 
 static constexpr int CModelLoader_RetouchModelsVTableIndex = 23;
@@ -44,9 +73,7 @@ ModManager::ModManager(const CModule& engineModule)
     m_pFlushModelByName = engineModule.Offset(0xCEF30).RCast<decltype(m_pFlushModelByName)>();
     cfgPath = GetNorthstarPrefix() + "/enabledmods.json";
 
-    HandleModShellExtension();
-
-    // precaculated string hashes
+	// precaculated string hashes
     // note: use backslashes for these, since we use lexically_normal for file paths which uses them
     m_hScriptsRsonHash = STR_HASH("scripts\\vscripts\\scripts.rson");
     m_hPdefHash =
@@ -76,7 +103,7 @@ template <ScriptContext context> void ModConCommandCallback_Internal(std::string
     }
     else
     {
-        spdlog::warn("ConCommand `{}` was called while the associated Squirrel VM `{}` was unloaded", name, GetContextName(context));
+        spdlog::warn("ConCommand `{}` was called while the associated Squirrel VM `{}` was unloaded", name, CSquirrelContext::GetName(context));
     }
 }
 
@@ -142,13 +169,100 @@ void ModManager::ReloadMods()
     RunInMainThread([this]() { LoadMods(); });
 }
 
+bool ModManager::UnloadModsForFilesystemMutation()
+{
+	if (!m_bHasLoadedMods)
+		return true;
+
+	const bool unloaded = UnloadMods(true);
+	m_bRuntimeUnloadedForFilesystemMutation = true;
+	if (!unloaded)
+		LoadMods();
+	return unloaded;
+}
+
+std::string ModManager::PackagePathKey(const fs::path& path)
+{
+	std::error_code error;
+	std::string key = fs::absolute(path, error).lexically_normal().generic_string();
+	if (error)
+		key = path.lexically_normal().generic_string();
+	std::ranges::transform(key, key.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+	return key;
+}
+
+bool ModManager::IsPathAtOrBelow(const fs::path& path, const fs::path& root)
+{
+	const std::string pathValue = PackagePathKey(path);
+	std::string rootValue = PackagePathKey(root);
+	if (pathValue == rootValue)
+		return true;
+	if (!rootValue.ends_with('/'))
+		rootValue.push_back('/');
+	return pathValue.starts_with(rootValue);
+}
+
+std::unordered_map<std::string, bool> ModManager::CaptureEnabledStatesForPackages(std::span<const fs::path> packageRoots) const
+{
+	std::unordered_map<std::string, bool> states;
+	for (const Mod& mod : m_LoadedMods)
+	{
+		for (const fs::path& root : packageRoots)
+		{
+			const bool belongsToPackage =
+			    IsPathAtOrBelow(mod.m_ModDirectory, root) ||
+			                              (!mod.m_PackageDirectory.empty() && PackagePathKey(mod.m_PackageDirectory) == PackagePathKey(root));
+			if (belongsToPackage)
+			{
+				states.insert_or_assign(mod.Name, mod.m_bEnabled);
+				break;
+			}
+		}
+	}
+	return states;
+}
+
+void ModManager::ReloadModsWithEnabledStates(std::unordered_map<std::string, bool> enabledStates)
+{
+	m_EnabledStateOverrides = std::move(enabledStates);
+	LoadMods();
+	m_EnabledStateOverrides.clear();
+}
+
+bool ModManager::HasLoadedPackageMods(const fs::path& packageRoot, std::span<const std::string> expectedModNames) const
+{
+	const fs::path normalizedRoot = packageRoot.lexically_normal();
+	for (const std::string& expectedName : expectedModNames)
+	{
+		bool found = false;
+		for (const Mod& mod : m_LoadedMods)
+		{
+			if (mod.Name == expectedName && mod.m_PackageDirectory.lexically_normal() == normalizedRoot)
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+			return false;
+	}
+	return true;
+}
+
 void ModManager::LoadMods()
 {
     const bool wasLoaded = m_bHasLoadedMods;
-    if (wasLoaded)
-        UnloadMods();
+    if (m_bRuntimeUnloadedForFilesystemMutation)
+	{
+		m_bRuntimeUnloadedForFilesystemMutation = false;
+	}
+	else if (wasLoaded && !UnloadMods(false))
+	{
+		spdlog::error("Could not reload mods because the current mod assets did not unload cleanly");
+		return;
+	}
 
-    // Find all mods from disk
+	// Find all mods from disk
     DiscoverMods();
 
     m_CompiledFiles.clear();
@@ -456,12 +570,14 @@ void ModManager::LoadMods()
         RequestModelReload();
 }
 
-void ModManager::UnloadMods()
+bool ModManager::UnloadMods(bool unloadRpaksNow)
 {
     // clean up stuff from mods before we unload
     m_DependencyConstants.clear();
 
-    RemoveModSearchPaths();
+	bool unloadedAll = RemoveModSearchPaths();
+	if (!unloadedAll)
+		spdlog::warn("Failed removing mod filesystem search paths");
 
     std::unordered_set<std::string> staleVPKModelFiles;
 
@@ -469,12 +585,13 @@ void ModManager::UnloadMods()
     {
         for (const ModVPKEntry& vpkEntry : mod.Vpks)
         {
-            if (mod.m_bEnabled && !vpkEntry.m_bAutoLoad)
-                continue;
-
-            staleVPKModelFiles.insert(vpkEntry.m_ModelPaths.begin(), vpkEntry.m_ModelPaths.end());
-            UnmountVPKDirect(vpkEntry.m_sVpkPath.c_str());
-        }
+			staleVPKModelFiles.insert(vpkEntry.m_ModelPaths.begin(), vpkEntry.m_ModelPaths.end());
+			if (IsVPKMounted(vpkEntry.m_sVpkPath.c_str()) && !UnmountVPKDirect(vpkEntry.m_sVpkPath.c_str()))
+			{
+				spdlog::warn("Failed unmounting mod VPK '{}'", vpkEntry.m_sVpkPath);
+				unloadedAll = false;
+			}
+		}
     }
 
     // Enabled paths are rediscovered below; retain old paths for cache eviction.
@@ -496,9 +613,20 @@ void ModManager::UnloadMods()
 
     g_ModAudioManager.Clear();
     if (g_pPakLoadManager != nullptr)
-        g_pPakLoadManager->UnloadAllModPaks();
+	{
+		g_pPakLoadManager->UnloadAllModPaks();
+		if (unloadRpaksNow)
+		{
+			if (!g_pPakLoadManager->UnloadMarkedPaks())
+			{
+				spdlog::warn("Failed unloading one or more mod RPaks");
+				unloadedAll = false;
+			}
+			g_pPakLoadManager->CleanUpUnloadedPaks();
+		}
+	}
 
-    if (!m_bHasEnabledModsCfg)
+	if (!m_bHasEnabledModsCfg)
         m_EnabledModsCfg.SetObject();
 
     for (Mod& mod : m_LoadedMods)
@@ -515,30 +643,19 @@ void ModManager::UnloadMods()
 
     // do we need to dealloc individual entries in m_loadedMods? idk, rework
     m_LoadedMods.clear();
+	return unloadedAll;
 }
 
 void ModManager::SearchFilesystemForMods()
 {
     std::vector<fs::path> modDirs;
     m_LoadedMods.clear();
-    bool warnedLegacyModsDir = false;
 
     // get mod directories
     fs::path classicPath = GetModFolderPath();
     fs::path remotePath = GetRemoteModFolderPath();
     fs::path packagesPath = GetPackageFolderPath();
-
-    auto addModDir = [&](const fs::path& dirPath)
-    {
-        const std::string dirPathStr = dirPath.string();
-        const std::string legacyModsPath = classicPath.string();
-        if (!warnedLegacyModsDir && dirPathStr.rfind(legacyModsPath, 0) == 0)
-        {
-            spdlog::warn("Loading mods from legacy directory '{}'. This path is deprecated; move mods into the packages directory.", legacyModsPath);
-            warnedLegacyModsDir = true;
-        }
-        modDirs.push_back(dirPath);
-    };
+	CModDirectoryCollector collector(modDirs, classicPath);
 
     for (const fs::path& searchPath : {classicPath, remotePath, packagesPath})
     {
@@ -549,7 +666,7 @@ void ModManager::SearchFilesystemForMods()
         for (fs::directory_entry dir : fs::directory_iterator(searchPath, ec))
         {
             if (!ec && fs::exists(dir.path() / "mod.json"))
-                addModDir(dir.path());
+				collector.Add(dir.path());
         }
     }
 
@@ -576,7 +693,7 @@ void ModManager::SearchFilesystemForMods()
             for (fs::directory_entry subDir : fs::directory_iterator(modsDir, ec))
             {
                 if (!ec && fs::exists(subDir.path() / "mod.json"))
-                    addModDir(subDir.path());
+					collector.Add(subDir.path());
             }
         }
     }
@@ -639,7 +756,12 @@ void ModManager::SearchFilesystemForMods()
         else
             mod.m_bEnabled = true;
 
-        if (mod.m_bWasReadSuccessfully)
+        if (const auto forced = m_EnabledStateOverrides.find(mod.Name); forced != m_EnabledStateOverrides.end())
+		{
+			mod.m_bEnabled = forced->second;
+		}
+
+		if (mod.m_bWasReadSuccessfully)
         {
             if (mod.m_bEnabled)
                 spdlog::info("'{}' loaded successfully, version {}", mod.Name, mod.Version);
@@ -869,6 +991,9 @@ void ModManager::DiscoverMods()
         rapidjson::PrettyWriter<rapidjson::OStreamWrapper> writer(writeStreamWrapper);
         m_EnabledModsCfg.Accept(writer);
     }
+	CModWorkshopInventory::Get().RefreshLocal();
+	if (!IsDedicatedServer())
+		CModWorkshopService::Get().RefreshTrackedMods(true);
 }
 
 void ModManager::BuildModInfo()
@@ -1165,6 +1290,8 @@ fs::path GetModIconPath()
 ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer), [](CModule module)
 {
     g_pModManager = new ModManager(module);
+	if (const std::optional<uint64_t> pendingUriInstall = CModShellExtension::Get().TakePendingWorkshopInstall())
+		CModInstallService::Get().Request(ModInstallAction::Replace, *pendingUriInstall);
 
-    RegisterConCommand("reload_mods", ConCommand_reload_mods, "reloads mods", FCVAR_NONE);
+	RegisterConCommand("reload_mods", ConCommand_reload_mods, "reloads mods", FCVAR_NONE);
 })

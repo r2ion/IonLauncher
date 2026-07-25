@@ -32,7 +32,7 @@ public:
 	void TrackModPaks(Mod& mod);
 
 	void CleanUpUnloadedPaks();
-	void UnloadMarkedPaks();
+	bool UnloadMarkedPaks();
 
 	void LoadModPaksForMap(const char* mapName);
 	void UnloadModPaks();
@@ -66,6 +66,7 @@ public:
 
 private:
 	static bool HasAllocatedSlab(const PakLoadedInfo_s& info);
+	static bool ShouldRemoveUnloadedPak(const ModPak_t& pak);
 	bool IsUnsafeLoadedPak(PakHandle_t handle) const;
 	void TrackFailedPak(const PakLoadedInfo_s& info);
 	bool IsSafeFailedPak(PakHandle_t handle) const;

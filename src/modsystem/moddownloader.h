@@ -32,6 +32,22 @@ public:
 		std::string checksum;
 	};
 
+	struct ModWorkshopAlternative
+	{
+		uint64_t modId = 0;
+		uint64_t selectedFileId = 0;
+		std::string name;
+		std::string version;
+	};
+
+	enum class ModDownloadSourceChoice
+	{
+		NotDecided,
+		Thunderstore,
+		ModWorkshop,
+		Cancelled,
+	};
+
 private:
 	const char* VERIFICATION_FLAG = "-disablemodverification";
 	const char* CUSTOM_MODS_URL_FLAG = "-customverifiedurl=";
@@ -43,17 +59,18 @@ private:
 	bool m_bIsListeningForServerMods = false;
 	std::vector<modentry_s> m_ServerRequestedMods;
 	int m_iTotalServerRequestedMods = 0;
-	std::optional<std::string> m_PendingWorkshopId;
-	bool m_bDownloadReady = false;
 	bool m_bDownloadCallbacksActive = false;
 	std::atomic_bool m_bDownloadThreadRunning {false};
+	std::atomic<uint64_t> m_WorkshopOperationGeneration{0};
+	std::atomic<ModDownloadSourceChoice> m_SourceChoice{ModDownloadSourceChoice::NotDecided};
+
+	static std::string NormalizeModWorkshopName(std::string_view value);
+	static std::string ModWorkshopSearchName(std::string_view modName);
 
 	ModSource ResolvePlatform(std::string input)
 	{
 		if (input.compare("thunderstore") == 0)
-		{
 			return ModSource::Thunderstore;
-		}
 		if (input.compare("modworkshop") == 0)
 		{
 			return ModSource::ModWorkshop;
@@ -106,15 +123,9 @@ private:
 	bool IsModLegit(fs::path modPath, std::string_view expectedChecksum);
 	void ExtractMod(fs::path modPath, fs::path destinationPath, ModSource platform);
 	std::string GetModArchiveName(std::string url);
-	std::string SanitizeFolderComponent(std::string value);
 
 	void ParseSchemaDocument();
-	bool BuildThunderstoreDownload(
-		const std::string& dependencyName,
-		const std::string& dependencyUrl,
-		PendingModDownload& outDownload);
 	bool DownloadModInternal(const PendingModDownload& download);
-	bool IsModInstalled(std::string_view modName) const;
 	bool StartDownloadThread(
 		std::string modName,
 		std::string modVersion,
@@ -153,14 +164,34 @@ public:
 		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", modCount, serverName.c_str());
 	}
 
+	bool NotifyChooseDownloadSource(const modentry_s& requested, const ModWorkshopAlternative& alternative)
+	{
+		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
+			return false;
+		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ChooseModDownloadSource", requested.name.c_str(), requested.version.c_str(),
+		                                          alternative.name.c_str());
+		return true;
+	}
+
+	void ResetDownloadSourceChoice()
+	{
+		m_SourceChoice.store(ModDownloadSourceChoice::NotDecided);
+	}
+	void SetDownloadSourceChoice(ModDownloadSourceChoice choice)
+	{
+		m_SourceChoice.store(choice);
+	}
+	ModDownloadSourceChoice GetDownloadSourceChoice() const
+	{
+		return m_SourceChoice.load();
+	}
+	std::optional<ModWorkshopAlternative> FindModWorkshopAlternative(const modentry_s& requested) const;
+	bool DownloadModWorkshop(const modentry_s& requested, const ModWorkshopAlternative& alternative);
+
 	void FetchModsListFromAPI();
 	bool IsModAuthorized(std::string_view modName, std::string_view modVersion);
 	void DownloadMod(std::string modName, std::string modVersion);
-	void SetDownloadReady(bool ready);
-	bool IsDownloadReady() const { return m_bDownloadReady; }
 	bool IsDownloadThreadRunning() const { return m_bDownloadThreadRunning.load(); }
-	void QueueWorkshopDownload(std::string id);
-	bool StartPendingWorkshopDownload();
 	bool IsDownloadInProgress() const
 	{
 		return modState.state < ModInstallState::DONE;
@@ -170,7 +201,7 @@ public:
 	{
 		// Initial states
 		MANIFEST_FETCHING,
-		CHECKING_DETAILS, // fetching platform specific details i.e thunderstore or modworkshop info
+		CHECKING_DETAILS, // fetching platform-specific download details
 
 		// Normal installation process
 		DOWNLOADING,

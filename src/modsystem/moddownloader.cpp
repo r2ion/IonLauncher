@@ -4,11 +4,11 @@
 #include "config/profile.h"
 #include "engine/r2engine.h"
 #include "core/tier0.h"
+#include "modsystem/modinstaller.h"
+#include "modsystem/modworkshop_inventory.h"
 #include "modsystem/platform/modworkshop.h"
 #include "modsystem/platform/modplatform.h"
 #include "modsystem/platform/thunderstore.h"
-#include "modsystem/modshellext.h"
-
 #include <rapidjson/fwd.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/error/en.h>
@@ -24,10 +24,57 @@
 #include <winternl.h>
 #include <fstream>
 #include <cctype>
+#include <limits>
 
 ConVar* Cvar_allow_mod_auto_download = nullptr;
 
 ModDownloader* g_pModDownloader = nullptr;
+
+std::string ModDownloader::NormalizeModWorkshopName(std::string_view value)
+{
+	std::string normalized;
+	normalized.reserve(value.size());
+	for (const unsigned char character : value)
+	{
+		if (std::isalnum(character))
+			normalized.push_back(static_cast<char>(std::tolower(character)));
+	}
+	return normalized;
+}
+
+std::string ModDownloader::ModWorkshopSearchName(std::string_view modName)
+{
+	const size_t separator = modName.find_last_of("./\\");
+	if (separator != std::string_view::npos)
+		modName.remove_prefix(separator + 1);
+
+	std::string search;
+	search.reserve(modName.size() + 8);
+	for (size_t index = 0; index < modName.size(); ++index)
+	{
+		const unsigned char character = static_cast<unsigned char>(modName[index]);
+		if (!std::isalnum(character))
+		{
+			if (!search.empty() && search.back() != ' ')
+				search.push_back(' ');
+			continue;
+		}
+		if (index > 0 && std::isupper(character))
+		{
+			const unsigned char previous = static_cast<unsigned char>(modName[index - 1]);
+			const unsigned char next = index + 1 < modName.size() ? static_cast<unsigned char>(modName[index + 1]) : 0;
+			if ((std::islower(previous) || std::isdigit(previous)) || (std::isupper(previous) && next != 0 && std::islower(next)))
+			{
+				if (!search.empty() && search.back() != ' ')
+					search.push_back(' ');
+			}
+		}
+		search.push_back(static_cast<char>(character));
+	}
+	while (!search.empty() && search.back() == ' ')
+		search.pop_back();
+	return search;
+}
 
 ModDownloader::ModDownloader()
 {
@@ -61,9 +108,142 @@ ModDownloader::ModDownloader()
 		spdlog::info("Custom verified mods URL not found in command line arguments, using default URL.");
 		modsListUrl = strdup(DEFAULT_MODS_LIST_URL);
 	}
+}
 
-	if (auto pending = Mod_TakePendingWorkshopDownload())
-		QueueWorkshopDownload(*pending);
+std::optional<ModDownloader::ModWorkshopAlternative> ModDownloader::FindModWorkshopAlternative(const modentry_s& requested) const
+{
+	if (requested.platform != ModSource::Thunderstore)
+		return std::nullopt;
+
+	CModWorkshopClient client;
+	ModWorkshopError error;
+	uint64_t gameId = 0;
+	if (!client.ResolveGameId("titanfall-2", gameId, error))
+	{
+		spdlog::warn("Could not check ModWorkshop for {} v{}: {}", requested.name, requested.version, error.message);
+		return std::nullopt;
+	}
+
+	const std::string searchName = ModWorkshopSearchName(requested.name);
+	ModWorkshopListQuery query;
+	query.gameId = gameId;
+	query.search = searchName;
+	query.sort = "best_match";
+	query.limit = 50;
+
+	ModWorkshopPage page;
+	if (!client.ListMods(query, page, error))
+	{
+		spdlog::warn("Could not search ModWorkshop for {} v{}: {}", requested.name, requested.version, error.message);
+		return std::nullopt;
+	}
+
+	const std::string expectedName = NormalizeModWorkshopName(searchName);
+	for (const ModWorkshopCatalogEntry& entry : page.entries)
+	{
+		if (NormalizeModWorkshopName(entry.name) != expectedName)
+			continue;
+
+		ModWorkshopDetails details;
+		if (!client.GetMod(entry.id, details, error))
+		{
+			spdlog::warn("Could not inspect ModWorkshop alternative {} for {} v{}: {}", entry.id, requested.name, requested.version, error.message);
+			continue;
+		}
+		if (!details.approved || details.suspended || details.disableModManagers || !details.hasDownload || !details.selectedFile ||
+		    (!details.selectedFile->type.empty() && details.selectedFile->type != "zip") || details.selectedFile->downloadUrl.empty() ||
+		    details.selectedFile->version != requested.version)
+		{
+			continue;
+		}
+
+		spdlog::info("Found ModWorkshop alternative {} ('{}') for {} v{}", details.id, details.name, requested.name, requested.version);
+		return ModWorkshopAlternative{
+		    .modId = details.id,
+		    .selectedFileId = details.selectedFile->id,
+		    .name = details.name,
+		    .version = details.selectedFile->version,
+		};
+	}
+
+	return std::nullopt;
+}
+
+bool ModDownloader::DownloadModWorkshop(const modentry_s& requested, const ModWorkshopAlternative& alternative)
+{
+	modState = {
+	    .state = CHECKING_DETAILS,
+	    .name = requested.name,
+	    .version = requested.version,
+	};
+
+	CModInstallService& service = CModInstallService::Get();
+	const std::optional<ModWorkshopTrackedPackage> installed = CModWorkshopInventory::Get().FindPackage(alternative.modId);
+	const ModInstallAction action = installed && installed->installedState ? ModInstallAction::Update : ModInstallAction::Install;
+	if (!service.Request(action, alternative.modId, alternative.selectedFileId))
+	{
+		modState.state = MOD_FETCHING_FAILED;
+		return false;
+	}
+
+	const std::shared_ptr<const ModInstallOperationSnapshot> initial = service.GetSnapshot();
+	if (!initial || initial->generation == 0)
+	{
+		modState.state = MOD_FETCHING_FAILED;
+		return false;
+	}
+
+	const uint64_t generation = initial->generation;
+	m_WorkshopOperationGeneration.store(generation);
+	ScopeGuard clearWorkshopOperation([this] { m_WorkshopOperationGeneration.store(0); });
+
+	while (true)
+	{
+		if (modState.state == ABORTED)
+			service.Cancel();
+
+		const std::shared_ptr<const ModInstallOperationSnapshot> operation = service.GetSnapshot();
+		if (!operation || operation->generation != generation)
+		{
+			modState.state = MOD_FETCHING_FAILED;
+			return false;
+		}
+
+		modState.name = requested.name;
+		modState.version = requested.version;
+		modState.progress = static_cast<int>(std::min<uint64_t>(operation->progress, std::numeric_limits<int>::max()));
+		modState.total = static_cast<int>(std::min<uint64_t>(operation->total, std::numeric_limits<int>::max()));
+		modState.ratio = operation->ratio;
+
+		switch (operation->state)
+		{
+		case ModInstallOperationState::Done:
+			modState.state = DONE;
+			return true;
+		case ModInstallOperationState::Cancelled:
+			modState.state = ABORTED;
+			return false;
+		case ModInstallOperationState::Failed:
+			spdlog::error("ModWorkshop install for {} v{} failed: {}", requested.name, requested.version, operation->message);
+			modState.state = MOD_FETCHING_FAILED;
+			return false;
+		case ModInstallOperationState::Downloading:
+			modState.state = DOWNLOADING;
+			break;
+		case ModInstallOperationState::Validating:
+			modState.state = CHECKSUMING;
+			break;
+		case ModInstallOperationState::Staging:
+		case ModInstallOperationState::Committing:
+		case ModInstallOperationState::Reloading:
+			modState.state = EXTRACTING;
+			break;
+		default:
+			modState.state = CHECKING_DETAILS;
+			break;
+		}
+		Sleep(50);
+	}
 }
 
 size_t WriteToString(void* ptr, size_t size, size_t count, void* stream)
@@ -86,8 +266,6 @@ void ModDownloader::FetchModsListFromAPI()
 
 			// Empty verified mods manifesto
 			verifiedMods = {};
-
-			curl_global_init(CURL_GLOBAL_ALL);
 			easyhandle = curl_easy_init();
 			std::string readBuffer;
 
@@ -199,7 +377,7 @@ std::string ModDownloader::GetModArchiveName(std::string url)
 	std::string name = fs::path(url).filename().generic_string();
 	std::string::size_type charIndex = name.find("?");
 
-	// Thunderstore format
+	// URLs without query parameters use their filename directly.
 	if (std::string::npos == charIndex)
 	{
 		return name;
@@ -207,68 +385,6 @@ std::string ModDownloader::GetModArchiveName(std::string url)
 
 	// ModWorkshop format (removing the "?filename=" part)
 	return name.substr(charIndex + 10);
-}
-
-std::string ModDownloader::SanitizeFolderComponent(std::string value)
-{
-	for (char& c : value)
-	{
-		if (c == ' ' || c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
-			c = '_';
-		else if (std::iscntrl(static_cast<unsigned char>(c)))
-			c = '_';
-	}
-
-	if (value.empty())
-		value = "Unknown";
-
-	return value;
-}
-
-bool ModDownloader::BuildThunderstoreDownload(
-	const std::string& dependencyName,
-	const std::string& dependencyUrl,
-	PendingModDownload& outDownload)
-{
-	std::string namespaceName;
-	std::string packageName;
-	if (!Thunderstore_ParsePackageUrl(dependencyUrl, namespaceName, packageName))
-	{
-		spdlog::error("Unsupported offsite dependency URL '{}', aborting install.", dependencyUrl);
-		return false;
-	}
-
-	ThunderstorePackageDetails tsDetails;
-	if (!Thunderstore_FetchPackageDetails(namespaceName, packageName, tsDetails))
-	{
-		spdlog::error("Failed fetching Thunderstore details for dependency '{}' ({}), aborting install.", dependencyName, dependencyUrl);
-		return false;
-	}
-
-	std::string depName = !tsDetails.name.empty() ? tsDetails.name : dependencyName;
-	if (depName.empty() || tsDetails.version.empty() || tsDetails.downloadUrl.empty())
-	{
-		spdlog::error("Thunderstore dependency details missing fields for '{}', aborting install.", dependencyUrl);
-		return false;
-	}
-
-	std::string folderName = SanitizeFolderComponent(tsDetails.namespaceName) + "-" +
-		SanitizeFolderComponent(depName) + "-" +
-		SanitizeFolderComponent(tsDetails.version);
-
-	VerifiedModVersion depVersion = {};
-	depVersion.platform = ModSource::Thunderstore;
-	depVersion.checksum = "";
-	depVersion.downloadLink = tsDetails.downloadUrl;
-
-	outDownload = {
-		.name = depName,
-		.version = tsDetails.version,
-		.versionInfo = depVersion,
-		.destinationDir = GetPackageFolderPath() / folderName,
-		.managedId = tsDetails.namespaceName + " " + depName};
-
-	return true;
 }
 
 std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_view modName, VerifiedModVersion version)
@@ -684,7 +800,7 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 	}
 	else if (platform == ModSource::ModWorkshop)
 	{
-		if (auto foundRootDir = ModWorkshop_FindRootDir(file, gi))
+		if (auto foundRootDir = CModWorkshopClient::FindRootDir(file, gi))
 			rootDir = *foundRootDir;
 	}
 
@@ -834,23 +950,9 @@ bool ModDownloader::DownloadModInternal(const PendingModDownload& download)
 	ExtractMod(archiveLocation, modDirectory, download.versionInfo.platform);
 
 	if (download.managedId && modState.state == DONE)
-		Mod_WriteManagedMarker(modDirectory, download.versionInfo.platform, *download.managedId);
+		CModPlatform::WriteManagedMarker(modDirectory, download.versionInfo.platform, *download.managedId);
 
 	return modState.state == DONE;
-}
-
-bool ModDownloader::IsModInstalled(std::string_view modName) const
-{
-	if (!g_pModManager)
-		return false;
-
-	for (const auto& mod : g_pModManager->m_LoadedMods)
-	{
-		if (mod.Name == modName)
-			return true;
-	}
-
-	return false;
 }
 
 bool ModDownloader::StartDownloadThread(
@@ -903,181 +1005,11 @@ bool ModDownloader::StartDownloadThread(
 	return true;
 }
 
-void ModDownloader::QueueWorkshopDownload(std::string id)
-{
-	if (id.empty())
-		return;
-
-	m_PendingWorkshopId = std::move(id);
-
-	if (!m_bDownloadReady)
-	{
-		spdlog::info("Mod download readiness not set; enabling to handle ModWorkshop install.");
-		SetDownloadReady(true);
-		return;
-	}
-
-	if (m_bDownloadReady && !IsDownloadInProgress())
-		StartPendingWorkshopDownload();
-}
-
-void ModDownloader::SetDownloadReady(bool ready)
-{
-	m_bDownloadReady = ready;
-	if (m_bDownloadReady && !IsDownloadInProgress())
-		StartPendingWorkshopDownload();
-}
-
-bool ModDownloader::StartPendingWorkshopDownload()
-{
-	if (IsDownloadInProgress())
-		return false;
-
-	if (!m_bDownloadReady)
-		return false;
-
-	if (!m_PendingWorkshopId)
-		return false;
-
-	std::string id = std::move(*m_PendingWorkshopId);
-	m_PendingWorkshopId.reset();
-	NotifyDownloadStarted();
-	modState.state = CHECKING_DETAILS;
-	modState.name = "";
-	modState.version = "";
-	modState.progress = 0;
-	modState.total = 0;
-	modState.ratio = 0.0f;
-	bool startedDownloadThread = false;
-	ScopeGuard callbackCleanup(
-		[&]
-		{
-			if (!startedDownloadThread)
-				NotifyDownloadStopped();
-		});
-
-	ModWorkshopDetails details;
-	if (!ModWorkshop_FetchDetails(id, details))
-	{
-		spdlog::error("Failed to fetch ModWorkshop details for id {}", id);
-		modState.state = MOD_FETCHING_FAILED;
-		return false;
-	}
-
-	if (details.version.empty() || details.name.empty() || details.downloadUrl.empty())
-	{
-		modState.state = MOD_FETCHING_FAILED;
-		return false;
-	}
-
-	modState.name = details.name;
-	modState.version = details.version;
-
-	std::vector<PendingModDownload> dependencyDownloads;
-	bool hasInvalidDependency = false;
-	for (const auto& dependency : details.dependencies)
-	{
-		if (dependency.optional)
-			continue;
-
-		if (!dependency.name.empty() && IsModInstalled(dependency.name))
-			continue;
-
-		if (dependency.offsite)
-		{
-			modState.state = CHECKING_DETAILS;
-			modState.name = !dependency.name.empty() ? dependency.name : dependency.url;
-			modState.version.clear();
-			modState.progress = 0;
-			modState.total = 0;
-			modState.ratio = 0.0f;
-
-			PendingModDownload depDownload;
-			if (!BuildThunderstoreDownload(dependency.name, dependency.url, depDownload))
-			{
-				hasInvalidDependency = true;
-				break;
-			}
-
-			modState.name = depDownload.name;
-			modState.version = depDownload.version;
-			dependencyDownloads.push_back(std::move(depDownload));
-		}
-		else
-		{
-			if (!dependency.modId)
-			{
-				spdlog::error("Dependency '{}' is missing a ModWorkshop id, aborting install.", dependency.name);
-				hasInvalidDependency = true;
-				break;
-			}
-
-			modState.state = CHECKING_DETAILS;
-			modState.name = !dependency.name.empty() ? dependency.name : *dependency.modId;
-			modState.version.clear();
-			modState.progress = 0;
-			modState.total = 0;
-			modState.ratio = 0.0f;
-
-			ModWorkshopDetails depDetails;
-			if (!ModWorkshop_FetchDetails(*dependency.modId, depDetails))
-			{
-				spdlog::error("Failed fetching ModWorkshop details for dependency id {}, aborting install.", *dependency.modId);
-				hasInvalidDependency = true;
-				break;
-			}
-
-			if (depDetails.version.empty() || depDetails.name.empty() || depDetails.downloadUrl.empty())
-			{
-				spdlog::error("Dependency details missing fields for id {}, aborting install.", *dependency.modId);
-				hasInvalidDependency = true;
-				break;
-			}
-
-			modState.name = depDetails.name;
-			modState.version = depDetails.version;
-
-			std::string folderName = SanitizeFolderComponent(depDetails.author) + "-" +
-				SanitizeFolderComponent(depDetails.name) + "-" +
-				SanitizeFolderComponent(depDetails.version);
-
-			VerifiedModVersion depVersion = {};
-			depVersion.platform = ModSource::ModWorkshop;
-			depVersion.checksum = "";
-			depVersion.downloadLink = depDetails.downloadUrl;
-
-			dependencyDownloads.push_back({
-				.name = depDetails.name,
-				.version = depDetails.version,
-				.versionInfo = depVersion,
-				.destinationDir = GetPackageFolderPath() / folderName,
-				.managedId = *dependency.modId});
-		}
-	}
-
-	if (hasInvalidDependency)
-	{
-		modState.state = INVALID_DEPENDENCY;
-		return false;
-	}
-
-	std::string folderName = SanitizeFolderComponent(details.author) + "-" +
-		SanitizeFolderComponent(details.name) + "-" +
-		SanitizeFolderComponent(details.version);
-
-	VerifiedModVersion version = {};
-	version.platform = ModSource::ModWorkshop;
-	version.checksum = "";
-	version.downloadLink = details.downloadUrl;
-
-	startedDownloadThread = true;
-	startedDownloadThread = StartDownloadThread(details.name, details.version, version, GetPackageFolderPath() / folderName, id, std::move(dependencyDownloads));
-	return startedDownloadThread;
-}
-
 void ModDownloader::CancelDownload()
 {
 	modState.state = ABORTED;
+	if (m_WorkshopOperationGeneration.load() != 0)
+		CModInstallService::Get().Cancel();
 }
 
 void ModDownloader::LoadServerModSchema()
@@ -1150,30 +1082,34 @@ void ModDownloader::ParseSchemaDocument()
 
 		modEntry.platform = platform;
 
-		switch(platform)
+		switch (platform)
 		{
-			case ModSource::Thunderstore:
-				if(!it->value.HasMember("DependencyString") || !it->value["DependencyString"].IsString())
-				{
-					spdlog::error("Mod entry {} does not have a valid DependencyString field for Thunderstore platform, skipping.", modEntry.name);
-					continue;
-				}
-				modEntry.dependencyString = it->value["DependencyString"].GetString();
-				break;
-			case ModSource::ModWorkshop:
-				spdlog::error("ModWorkshop platform is not supported in server mod schema, skipping mod {}", modEntry.name);
+		case ModSource::Thunderstore:
+			if (!it->value.HasMember("DependencyString") || !it->value["DependencyString"].IsString())
+			{
+				spdlog::error("Mod entry {} does not have a valid DependencyString field for Thunderstore platform, skipping.", modEntry.name);
 				continue;
-				break;
-			case ModSource::Unknown:
-				if(!it->value.HasMember("URL") || !it->value["URL"].IsString())
-				{
-					spdlog::error("Mod entry {} does not have a valid URL field for Unknown platform, skipping.", modEntry.name);
-					continue;
-				}
-				modEntry.url = it->value["URL"].GetString();
-				break;
-			default:
+			}
+			modEntry.dependencyString = it->value["DependencyString"].GetString();
+			if (CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString).empty())
+			{
+				spdlog::error("Mod entry {} has an invalid Thunderstore DependencyString, skipping.", modEntry.name);
 				continue;
+			}
+			break;
+		case ModSource::ModWorkshop:
+			spdlog::error("ModWorkshop platform is not supported in server mod schema, skipping mod {}", modEntry.name);
+			continue;
+		case ModSource::Unknown:
+			if (!it->value.HasMember("URL") || !it->value["URL"].IsString())
+			{
+				spdlog::error("Mod entry {} does not have a valid URL field for Unknown platform, skipping.", modEntry.name);
+				continue;
+			}
+			modEntry.url = it->value["URL"].GetString();
+			break;
+		default:
+			continue;
 		}
 
 		if (!it->value.HasMember("Checksum") || !it->value["Checksum"].IsString())
@@ -1273,7 +1209,12 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 			if(!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
 				return false;
 			modEntry.dependencyString = std::string(dependencyOrUrl);
-			break;
+		if (CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString).empty())
+		{
+			spdlog::warn("Received mod info packet with an invalid Thunderstore dependency string, skipping mod.");
+			return false;
+		}
+		break;
 		case 'M':
 			modEntry.platform = ModSource::ModWorkshop;
 			spdlog::error("Received ModWorkshop platform mod info from server, which is unsupported, skipping mod.");
@@ -1317,7 +1258,7 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 			switch( modEntry.platform )
 			{
 				case ModSource::Thunderstore:
-					versionInfo.downloadLink = "https://gcdn.thunderstore.io/live/repository/packages/" + modEntry.dependencyString + ".zip";
+					versionInfo.downloadLink = CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString);
 					break;
 				case ModSource::Unknown:
 					versionInfo.downloadLink = modEntry.url;
@@ -1340,7 +1281,7 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 		switch( modEntry.platform )
 		{
 			case ModSource::Thunderstore:
-				versionInfo.downloadLink = "https://gcdn.thunderstore.io/live/repository/packages/" + modEntry.dependencyString + ".zip";
+				versionInfo.downloadLink = CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString);
 				break;
 			case ModSource::Unknown:
 				versionInfo.downloadLink = modEntry.url;
@@ -1397,6 +1338,26 @@ ADD_SQFUNC("array<RequiredModInfo>", NSGetServerRequestedMods, "", "", ScriptCon
 	}
 
 	return SQRESULT_NOTNULL;
+}
+
+ADD_SQFUNC("void", NSDecideModDownloadSource, "int source", "", ScriptContext::UI)
+{
+	if (!g_pModDownloader)
+		return SQRESULT_NULL;
+
+	switch (g_pSquirrel[context]->getinteger(sqvm, 1))
+	{
+	case 1:
+		g_pModDownloader->SetDownloadSourceChoice(ModDownloader::ModDownloadSourceChoice::Thunderstore);
+		break;
+	case 2:
+		g_pModDownloader->SetDownloadSourceChoice(ModDownloader::ModDownloadSourceChoice::ModWorkshop);
+		break;
+	default:
+		g_pModDownloader->SetDownloadSourceChoice(ModDownloader::ModDownloadSourceChoice::Cancelled);
+		break;
+	}
+	return SQRESULT_NULL;
 }
 
 ADD_SQFUNC("void", NSClearServerRequestedMods, "", "", ScriptContext::UI)
@@ -1469,15 +1430,6 @@ ADD_SQFUNC("void", NSDownloadMod, "string name, string version", "", ScriptConte
 	const SQChar* modVersion = g_pSquirrel[context]->getstring(sqvm, 2);
 	g_pModDownloader->DownloadMod(modName, modVersion);
 
-	return SQRESULT_NULL;
-}
-
-ADD_SQFUNC("void", NSSetModDownloadReady, "", "", ScriptContext::UI)
-{
-	if (!g_pModDownloader)
-		return SQRESULT_NULL;
-
-	g_pModDownloader->SetDownloadReady(true);
 	return SQRESULT_NULL;
 }
 

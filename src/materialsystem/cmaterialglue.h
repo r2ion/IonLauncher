@@ -1,6 +1,8 @@
 #pragma once
 
 #include "materialsystem/cshaderglue.h"
+#include <cstddef>
+#include <cstdint>
 
 class RpakTextureHeader // Expected size: 0x130
 {
@@ -37,6 +39,11 @@ public:
 	uint8_t unknownByte128;
 	uint8_t padding[7];
 };
+static_assert(sizeof(RpakTextureHeader) == 0x130);
+static_assert(offsetof(RpakTextureHeader, width) == 0x10);
+static_assert(offsetof(RpakTextureHeader, transform) == 0x48);
+static_assert(offsetof(RpakTextureHeader, d3d11Resource) == 0x118);
+static_assert(offsetof(RpakTextureHeader, shaderResourceView) == 0x120);
 
 struct CBufUberStatic // sizeof = 0xE0
 {

@@ -3,11 +3,19 @@
 #include "rtech/rui/rui_core_types.h"
 #include "rtech/rui/rui_render_types.h"
 #include "rtech/rui/rui_runtime_types.h"
+#include "tier0/frametask.h"
 #include "tier0/module.h"
 
+#include <Windows.h>
+
+#include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <deque>
+#include <functional>
 #include <immintrin.h>
+#include <mutex>
+#include <utility>
 
 #define RUI_SHUFFLE_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(value), imm))
 #define RUI_SHUFFLE_I32_AS_PS(value, imm) _mm_castsi128_ps(_mm_shuffle_epi32((value), imm))
@@ -49,6 +57,199 @@ static __m128 s_RuiCosApproxCoeff0;
 static __m128 s_RuiCosApproxCoeff1;
 static __m128 s_RuiCosApproxCoeff2;
 static __m128 s_RuiCosApproxCoeff3;
+
+bool CRuiRenderTaskQueue::IsCurrentThread() const noexcept
+{
+	const uint32_t threadId = m_ThreadId.load(std::memory_order_acquire);
+	return threadId != 0 && threadId == GetCurrentThreadId();
+}
+
+void CRuiRenderTaskQueue::Dispatch(std::function<void()> task)
+{
+	if (!task)
+		return;
+	if (IsCurrentThread())
+	{
+		task();
+		return;
+	}
+
+	bool scheduleDispatch = false;
+	{
+		std::scoped_lock lock(m_Mutex);
+		m_Tasks.push_back(std::move(task));
+		if (!m_DispatchScheduled)
+		{
+			m_DispatchScheduled = true;
+			scheduleDispatch = true;
+		}
+	}
+
+	if (scheduleDispatch)
+		RunInMainThread([this] { Schedule(); });
+}
+
+uint64_t CRuiRenderTaskQueue::RunMaterialTasks(uint64_t, uint32_t, uint32_t, uint64_t)
+{
+	Get().RunPending();
+	return 0;
+}
+
+void CRuiRenderTaskQueue::RunPending()
+{
+	m_ThreadId.store(GetCurrentThreadId(), std::memory_order_release);
+	for (;;)
+	{
+		std::deque<std::function<void()>> tasks;
+		{
+			std::scoped_lock lock(m_Mutex);
+			if (m_Tasks.empty())
+			{
+				m_DispatchScheduled = false;
+				break;
+			}
+			tasks.swap(m_Tasks);
+		}
+
+		for (std::function<void()>& task : tasks)
+			task();
+	}
+	m_ThreadId.store(0, std::memory_order_release);
+}
+
+void CRuiRenderTaskQueue::Schedule()
+{
+	if (m_QueueMaterialTask)
+	{
+		m_QueueMaterialTask(RunMaterialTasks, 0, 0, 0, 0);
+		return;
+	}
+
+	std::scoped_lock lock(m_Mutex);
+	m_DispatchScheduled = false;
+}
+
+void CRuiRenderTaskQueue::Initialize(CModule module)
+{
+	m_QueueMaterialTask = module.Offset(0x88D50).RCast<QueueMaterialTask>();
+}
+
+class CRuiRenderData final
+{
+public:
+	explicit CRuiRenderData(const RuiInstance* rui) : m_pRui(rui)
+	{
+	}
+
+	float GetFloat(int offset) const
+	{
+		float value;
+		std::memcpy(&value, &m_pRui->data[offset], sizeof(value));
+		return value;
+	}
+
+	int32_t GetInt(int offset) const
+	{
+		int32_t value;
+		std::memcpy(&value, &m_pRui->data[offset], sizeof(value));
+		return value;
+	}
+
+	__m128 GetScalar(int offset) const
+	{
+		return _mm_set_ss(GetFloat(offset));
+	}
+
+private:
+	const RuiInstance* m_pRui;
+};
+
+class CImageAtlasDrawContext final
+{
+public:
+	CImageAtlasDrawContext(RuiGlobalState* globalState, RuiInstance* rui, RuiDrawBatch* batch, const RuiTransform* transform, int orientation,
+	                       __m128* correctionData, RuiDrawQuad& quad, RuiBaseUv& drawUv, const RuiBaseUv* baseUv)
+	    : m_pGlobalState(globalState), m_pRui(rui), m_pBatch(batch), m_pTransform(transform), m_Orientation(orientation),
+	      m_pCorrectionData(correctionData), m_Quad(quad), m_DrawUv(drawUv), m_pBaseUv(baseUv)
+	{
+	}
+
+	bool Submit()
+	{
+		RuiDrawInfo* drawInfo = m_pRui->drawInfo;
+		return s_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](drawInfo, &m_DrawUv, &m_Quad, m_pBatch);
+	}
+
+	void SetTriangleFromUv(__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, bool forceCorrection)
+	{
+		const __m128 row0 = m_pTransform->rows[0];
+		const __m128 row1 = m_pTransform->rows[1];
+		__m128 projected[2];
+		projected[0] =
+		    _mm_add_ps(_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(row0, 170), u), _mm_mul_ps(RUI_SHUFFLE_PS(row0, 0), v)), RUI_SHUFFLE_PS(row1, 0));
+		projected[1] =
+		    _mm_add_ps(_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(row0, 255), u), _mm_mul_ps(RUI_SHUFFLE_PS(row0, 85), v)), RUI_SHUFFLE_PS(row1, 85));
+
+		if (correction && (forceCorrection || _mm_movemask_ps(_mm_cmpneq_ps(*correction, _mm_setzero_ps()))))
+			s_ApplyEdgeCorrection(m_pGlobalState, m_pRui, m_pCorrectionData, correction, projected);
+
+		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
+		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
+		if (m_Orientation == 2)
+		{
+			if (useAlternateOrientationShuffle)
+			{
+				quad0 = RUI_SHUFFLE_PS(quad0, 78);
+				quad1 = RUI_SHUFFLE_PS(quad1, 78);
+			}
+			else
+			{
+				quad0 = RUI_SHUFFLE_PS(quad0, _MM_SHUFFLE(1, 0, 3, 2));
+				quad1 = RUI_SHUFFLE_PS(quad1, _MM_SHUFFLE(1, 0, 3, 2));
+			}
+		}
+		_mm_storeu_ps(&m_Quad.positions[0][0], quad0);
+		_mm_storeu_ps(&m_Quad.positions[1][0], quad1);
+	}
+
+	bool DrawPiece(__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, __m128 base, __m128 xDirection,
+	               __m128 yDirection)
+	{
+		SetTriangleFromUv(u, v, correction, useAlternateOrientationShuffle, false);
+		m_DrawUv.primaryOrigin = yDirection;
+		m_DrawUv.primaryBasisX = base;
+		m_DrawUv.primaryBasisY = xDirection;
+		m_DrawUv.imageIndex = m_pBaseUv->imageIndex;
+		m_DrawUv.maskImageIndex = m_pBaseUv->maskImageIndex;
+		m_DrawUv.computedStyleIndex = m_pBaseUv->computedStyleIndex;
+		m_DrawUv.flags = m_pBaseUv->flags;
+		std::memset(&m_DrawUv.secondaryBasisX, 0, sizeof(m_DrawUv.secondaryBasisX) * 3);
+		return Submit();
+	}
+
+	static __m128 BlendByMask(__m128 keep, __m128 replace, __m128 mask)
+	{
+		return _mm_or_ps(_mm_andnot_ps(mask, keep), _mm_and_ps(replace, mask));
+	}
+
+private:
+	RuiGlobalState* m_pGlobalState;
+	RuiInstance* m_pRui;
+	RuiDrawBatch* m_pBatch;
+	const RuiTransform* m_pTransform;
+	int m_Orientation;
+	__m128* m_pCorrectionData;
+	RuiDrawQuad& m_Quad;
+	RuiBaseUv& m_DrawUv;
+	const RuiBaseUv* m_pBaseUv;
+};
+
+class CRuiJobRenderer final
+{
+public:
+	static bool RenderImage(RuiRenderContext* context, RuiInstance* rui, const RuiImageRenderJob* job, RuiDrawBatch* batch);
+	static bool RenderEllipse(RuiRenderContext* context, RuiInstance* rui, const RuiEllipseRenderJob* job, RuiDrawBatch* batch);
+};
 
 bool RuiDrawImageAtlasEntry(
 	RuiGlobalState* globalState,
@@ -104,68 +305,7 @@ bool RuiDrawImageAtlasEntry(
 		s_BuildEdgeCorrection(transform, &rui->header->elementWidth, correctionData);
 
 	const uint16_t textureOffsetIndex = static_cast<uint16_t>(descriptor->imageIndex);
-	const __m128 zero = _mm_setzero_ps();
-
-	auto submitDraw = [&]() -> bool
-	{
-		RuiDrawInfo* drawInfo = rui->drawInfo;
-		return s_RuiDrawInfoHandlers[static_cast<uint32_t>(drawInfo->mode)](
-			drawInfo,
-			&drawUv,
-			&quad,
-			batch);
-	};
-
-	auto setTriangleFromUv = [&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, bool forceCorrection)
-	{
-		const __m128 row0 = transform->rows[0];
-		const __m128 row1 = transform->rows[1];
-
-		__m128 projected[2];
-		projected[0] = _mm_add_ps(
-			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(row0, 170), u), _mm_mul_ps(RUI_SHUFFLE_PS(row0, 0), v)), RUI_SHUFFLE_PS(row1, 0));
-		projected[1] = _mm_add_ps(
-			_mm_add_ps(_mm_mul_ps(RUI_SHUFFLE_PS(row0, 255), u), _mm_mul_ps(RUI_SHUFFLE_PS(row0, 85), v)), RUI_SHUFFLE_PS(row1, 85));
-
-		if (correction && (forceCorrection || _mm_movemask_ps(_mm_cmpneq_ps(*correction, zero))))
-			s_ApplyEdgeCorrection(globalState, rui, correctionData, correction, projected);
-
-		__m128 quad0 = _mm_unpacklo_ps(projected[0], projected[1]);
-		__m128 quad1 = _mm_unpackhi_ps(projected[0], projected[1]);
-
-		if (orientation == 2)
-		{
-			if (useAlternateOrientationShuffle)
-			{
-				quad0 = RUI_SHUFFLE_PS(quad0, 78);
-				quad1 = RUI_SHUFFLE_PS(quad1, 78);
-			}
-			else
-			{
-				quad0 = RUI_SHUFFLE_PS(quad0, _MM_SHUFFLE(1, 0, 3, 2));
-				quad1 = RUI_SHUFFLE_PS(quad1, _MM_SHUFFLE(1, 0, 3, 2));
-			}
-		}
-
-		_mm_storeu_ps(&quad.positions[0][0], quad0);
-		_mm_storeu_ps(&quad.positions[1][0], quad1);
-	};
-
-	auto drawPiece =
-		[&](__m128 u, __m128 v, const __m128* correction, bool useAlternateOrientationShuffle, __m128 base, __m128 xDir, __m128 yDir) -> bool
-	{
-		setTriangleFromUv(u, v, correction, useAlternateOrientationShuffle, false);
-
-		drawUv.primaryOrigin = yDir;
-		drawUv.primaryBasisX = base;
-		drawUv.primaryBasisY = xDir;
-		drawUv.imageIndex = baseUv->imageIndex;
-		drawUv.maskImageIndex = baseUv->maskImageIndex;
-		drawUv.computedStyleIndex = baseUv->computedStyleIndex;
-		drawUv.flags = baseUv->flags;
-		std::memset(&drawUv.secondaryBasisX, 0, sizeof(drawUv.secondaryBasisX) * 3);
-		return submitDraw();
-	};
+	CImageAtlasDrawContext drawContext(globalState, rui, batch, transform, orientation, correctionData, quad, drawUv, baseUv);
 
 	if (textureOffsetIndex >= imageAtlas->nineSliceImageCount)
 	{
@@ -261,13 +401,10 @@ bool RuiDrawImageAtlasEntry(
 	int clipMaskX = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(atlasStep, s_RuiSignMaskLowHalf)));
 	int clipMaskY = _mm_movemask_ps(_mm_cmple_ps(*clipThreshold, _mm_xor_ps(RUI_SHUFFLE_PS(atlasStep, 78), s_RuiSignMaskLowHalf)));
 
-	auto blendByMask = [](__m128 keep, __m128 replace, __m128 mask)
-	{ return _mm_or_ps(_mm_andnot_ps(mask, keep), _mm_and_ps(replace, mask)); };
-
 	const int clipMaskY_5 = clipMaskY & 5;
 	const int clipMaskY_A = clipMaskY & 0xA;
 
-	if ((clipMaskX & 3) == 0 && !drawPiece(
+	if ((clipMaskX & 3) == 0 && !drawContext.DrawPiece(
 									RUI_SHUFFLE_PS(uvHigh, 20),
 									RUI_SHUFFLE_PS(uvLow, 80),
 									&s_RuiEdgeCorrectionMasks[correctionMask & 5],
@@ -279,77 +416,78 @@ bool RuiDrawImageAtlasEntry(
 		return false;
 	}
 
-	if ((clipMaskY_5 | (clipMaskX & 2)) || drawPiece(
+	if ((clipMaskY_5 | (clipMaskX & 2)) ||
+	    drawContext.DrawPiece(
 											   RUI_SHUFFLE_PS(uvHigh, 20),
 											   RUI_SHUFFLE_PS(uvLow, 245),
 											   &s_RuiEdgeCorrectionMasks[correctionMask & 4],
 											   true,
-											   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane0),
-											   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane0),
-											   blendByMask(outerYDir, innerYDir, s_RuiBlendMaskLane0)))
+	                          CImageAtlasDrawContext::BlendByMask(outerBase, innerBase, s_RuiBlendMaskLane0),
+	                          CImageAtlasDrawContext::BlendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane0),
+	                          CImageAtlasDrawContext::BlendByMask(outerYDir, innerYDir, s_RuiBlendMaskLane0)))
 	{
 		// The corresponding piece is visible only when neither clipped axis rejects it.
 		if ((clipMaskX & 6) == 0)
 		{
-			if (!drawPiece(
+			if (!drawContext.DrawPiece(
 					RUI_SHUFFLE_PS(uvHigh, 20),
 					RUI_SHUFFLE_PS(uvLow, 175),
 					&s_RuiEdgeCorrectionMasks[correctionMask & 6],
 					false,
-					outerBase,
-					outerXDir,
-					blendByMask(outerYDir, edgeYDir, s_RuiBlendMaskLane0)))
+			                           outerBase,
+					outerXDir, CImageAtlasDrawContext::BlendByMask(outerYDir, edgeYDir, s_RuiBlendMaskLane0)))
 			{
 				return false;
 			}
 		}
 
-		if ((clipMaskY_A | (clipMaskX & 1)) || drawPiece(
+		if ((clipMaskY_A | (clipMaskX & 1)) ||
+		    drawContext.DrawPiece(
 												   RUI_SHUFFLE_PS(uvHigh, 125),
 												   RUI_SHUFFLE_PS(uvLow, 80),
 												   &s_RuiEdgeCorrectionMasks[correctionMask & 1],
 												   false,
-												   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane1),
-												   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane1),
-												   blendByMask(outerYDir, innerYDir, s_RuiBlendMaskLane1)))
+		                          CImageAtlasDrawContext::BlendByMask(outerBase, innerBase, s_RuiBlendMaskLane1),
+		                          CImageAtlasDrawContext::BlendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane1),
+		                          CImageAtlasDrawContext::BlendByMask(outerYDir, innerYDir, s_RuiBlendMaskLane1)))
 
 		{
 			if (clipMaskY ||
-				drawPiece(RUI_SHUFFLE_PS(uvHigh, 125), RUI_SHUFFLE_PS(uvLow, 245), nullptr, true, innerBase, innerXDir, innerYDir))
+			    drawContext.DrawPiece(RUI_SHUFFLE_PS(uvHigh, 125), RUI_SHUFFLE_PS(uvLow, 245), nullptr, true, innerBase, innerXDir, innerYDir))
 			{
-				if ((clipMaskY_A | (clipMaskX & 4)) || drawPiece(
+				if ((clipMaskY_A | (clipMaskX & 4)) ||
+				    drawContext.DrawPiece(
 														   RUI_SHUFFLE_PS(uvHigh, 125),
 														   RUI_SHUFFLE_PS(uvLow, 175),
 														   &s_RuiEdgeCorrectionMasks[correctionMask & 2],
-														   false,
-														   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane1),
-														   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane1),
-														   blendByMask(edgeYDir, innerYDir, s_RuiBlendMaskLane1)))
+				                          false, CImageAtlasDrawContext::BlendByMask(outerBase, innerBase, s_RuiBlendMaskLane1),
+				                          CImageAtlasDrawContext::BlendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane1),
+				                          CImageAtlasDrawContext::BlendByMask(edgeYDir, innerYDir, s_RuiBlendMaskLane1)))
 				{
-					if ((clipMaskX & 9) == 0 && !drawPiece(
+					if ((clipMaskX & 9) == 0 && !drawContext.DrawPiece(
 													RUI_SHUFFLE_PS(uvHigh, 235),
 													RUI_SHUFFLE_PS(uvLow, 80),
 													&s_RuiEdgeCorrectionMasks[correctionMask & 9],
 													true,
 													outerBase,
 													outerXDir,
-											blendByMask(outerYDir, edgeYDir, s_RuiBlendMaskLane1)))
+					                                                   CImageAtlasDrawContext::BlendByMask(outerYDir, edgeYDir, s_RuiBlendMaskLane1)))
 					{
 						return false;
 					}
 
-					if ((clipMaskY_5 | (clipMaskX & 8)) || drawPiece(
+					if ((clipMaskY_5 | (clipMaskX & 8)) ||
+					    drawContext.DrawPiece(
 															   RUI_SHUFFLE_PS(uvHigh, 235),
 															   RUI_SHUFFLE_PS(uvLow, 245),
 															   &s_RuiEdgeCorrectionMasks[correctionMask & 8],
-															   false,
-															   blendByMask(outerBase, innerBase, s_RuiBlendMaskLane0),
-															   blendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane0),
-															   blendByMask(edgeYDir, innerYDir, s_RuiBlendMaskLane0)))
+					                          false, CImageAtlasDrawContext::BlendByMask(outerBase, innerBase, s_RuiBlendMaskLane0),
+					                          CImageAtlasDrawContext::BlendByMask(outerXDir, innerXDir, s_RuiBlendMaskLane0),
+					                          CImageAtlasDrawContext::BlendByMask(edgeYDir, innerYDir, s_RuiBlendMaskLane0)))
 					{
 						if ((clipMaskX & 0xC) == 0)
 						{
-							return drawPiece(
+							return drawContext.DrawPiece(
 								RUI_SHUFFLE_PS(uvHigh, 235),
 								RUI_SHUFFLE_PS(uvLow, 175),
 								&s_RuiEdgeCorrectionMasks[correctionMask & 0xA],
@@ -397,13 +535,13 @@ DECLARE_HOOK(RuiDrawImageAtlasEntry, engine.dll + 0xF9B80, [](auto& hook,
 	const __m128* clipThreshold,
 	const __m128* uvBias,
 	const __m128* viewportScale) -> bool
-	{
-		return RuiDrawImageAtlasEntry(
+{
+	return RuiDrawImageAtlasEntry(
 			globalState, rui, batch, baseUv, transform, orientation, descriptor,
 			atlasUv, clipThreshold, uvBias, viewportScale);
-	});
+});
 
-static bool RuiRenderEllipseJob(
+bool CRuiJobRenderer::RenderEllipse(
 	RuiRenderContext* context,
 	RuiInstance* rui,
 	const RuiEllipseRenderJob* job,
@@ -411,29 +549,12 @@ static bool RuiRenderEllipseJob(
 {
 	(void)context;
 
-	auto dataFloat = [&](uint16_t offset) -> float
-	{
-		float value;
-		std::memcpy(&value, &rui->data[offset], sizeof(value));
-		return value;
-	};
-
-	auto dataInt = [&](uint16_t offset) -> int32_t
-	{
-		int32_t value;
-		std::memcpy(&value, &rui->data[offset], sizeof(value));
-		return value;
-	};
-
-	auto dataScalar = [&](uint16_t offset) -> __m128
-	{
-		return _mm_set_ss(dataFloat(offset));
-	};
+	const CRuiRenderData data(rui);
 
 	const uint8_t styleIndex = job->styleIndex;
 	const auto* styleDescriptors = reinterpret_cast<const RuiStyleType2DescriptorOffsets*>(rui->header->styleDescriptors);
 	const RuiStyleType2DescriptorOffsets& style = styleDescriptors[styleIndex];
-	if (dataFloat(style.common.primaryColor.alpha) <= 0.0f)
+	if (data.GetFloat(style.common.primaryColor.alpha) <= 0.0f)
 		return true;
 
 	const uint16_t transformIndex = job->transformIndex;
@@ -451,7 +572,7 @@ static bool RuiRenderEllipseJob(
 	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, s_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
-	const int32_t assetDescriptorIndex = dataInt(job->imageOffset);
+	const int32_t assetDescriptorIndex = data.GetInt(job->imageOffset);
 	if (assetDescriptorIndex == -1)
 		return true;
 
@@ -462,15 +583,15 @@ static bool RuiRenderEllipseJob(
 	const int16_t assetIndex = asset->imageIndex;
 	const int16_t combinedFlags = static_cast<int16_t>(job->flags | asset->flags);
 
-	const __m128 mins = _mm_unpacklo_ps(dataScalar(job->boundsMinOffsets.x), dataScalar(job->boundsMinOffsets.y));
-	const __m128 maxs = _mm_unpacklo_ps(dataScalar(job->boundsMaxOffsets.x), dataScalar(job->boundsMaxOffsets.y));
-	const float texMinX = dataFloat(job->uvMinOffsets.x);
-	const float texMinY = dataFloat(job->uvMinOffsets.y);
-	const float texMaxX = dataFloat(job->uvMaxOffsets.x);
-	const float texMaxY = dataFloat(job->uvMaxOffsets.y);
+	const __m128 mins = _mm_unpacklo_ps(data.GetScalar(job->boundsMinOffsets.x), data.GetScalar(job->boundsMinOffsets.y));
+	const __m128 maxs = _mm_unpacklo_ps(data.GetScalar(job->boundsMaxOffsets.x), data.GetScalar(job->boundsMaxOffsets.y));
+	const float texMinX = data.GetFloat(job->uvMinOffsets.x);
+	const float texMinY = data.GetFloat(job->uvMinOffsets.y);
+	const float texMaxX = data.GetFloat(job->uvMaxOffsets.x);
+	const float texMaxY = data.GetFloat(job->uvMaxOffsets.y);
 	const __m128 texMins = _mm_setr_ps(texMinX, texMinY, texMinX, texMinY);
 	const __m128 texMaxs = _mm_setr_ps(texMaxX, texMaxY, texMaxX, texMaxY);
-	const float edgeSoftness = dataFloat(style.edgeSoftness);
+	const float edgeSoftness = data.GetFloat(style.edgeSoftness);
 
 	const __m128 transformSize = rui->runtime->transformSizes[transformIndex];
 	const float transformWidth = transformSize.m128_f32[0];
@@ -567,9 +688,7 @@ static bool RuiRenderEllipseJob(
 		batch);
 }
 
-
-
-static bool RuiRenderImageJob(
+bool CRuiJobRenderer::RenderImage(
 	RuiRenderContext* context,
 	RuiInstance* rui,
 	const RuiImageRenderJob* job,
@@ -578,22 +697,9 @@ static bool RuiRenderImageJob(
 	const uint16_t styleIndex = job->styleIndex;
 	const RuiStyleDescriptorOffsets* styleOffsets = &rui->header->styleDescriptors[styleIndex];
 
-	auto dataFloat = [&](int offset) -> float
-	{
-		return *reinterpret_cast<const float*>(&rui->data[offset]);
-	};
+	const CRuiRenderData data(rui);
 
-	auto dataInt = [&](int offset) -> int
-	{
-		return *reinterpret_cast<const int*>(&rui->data[offset]);
-	};
-
-	auto dataScalar = [&](int offset) -> __m128
-	{
-		return _mm_set_ss(dataFloat(offset));
-	};
-
-	if (dataFloat(styleOffsets->common.primaryColor.alpha) <= 0.0f)
+	if (data.GetFloat(styleOffsets->common.primaryColor.alpha) <= 0.0f)
 		return true;
 
 	const RuiTransform* transform = &rui->runtime->transforms[job->transformIndex];
@@ -610,7 +716,7 @@ static bool RuiRenderImageJob(
 	const __m128 transformedOrigin = _mm_mul_ps(_mm_xor_ps(inverseBasis, s_RuiSignMaskAll), RUI_SHUFFLE_PS(transformRow1, 216));
 	const __m128 originSum = _mm_add_ps(RUI_SHUFFLE_PS(transformedOrigin, 78), transformedOrigin);
 
-	const int primaryAssetDescriptorIndex = dataInt(job->imageOffset);
+	const int primaryAssetDescriptorIndex = data.GetInt(job->imageOffset);
 	if (primaryAssetDescriptorIndex == -1)
 		return true;
 
@@ -626,7 +732,7 @@ static bool RuiRenderImageJob(
 	int16_t secondaryAssetIndex = -1;
 	uint16_t flags = job->flags | static_cast<uint8_t>(primaryAsset->flags);
 
-	const int secondaryAssetDescriptorIndex = dataInt(job->maskImageOffset);
+	const int secondaryAssetDescriptorIndex = data.GetInt(job->maskImageOffset);
 	if (secondaryAssetDescriptorIndex != -1)
 	{
 		const auto* secondaryAsset = CImageAtlas::GetAssetDescriptor(secondaryAssetDescriptorIndex);
@@ -651,11 +757,11 @@ static bool RuiRenderImageJob(
 
 	const RuiImageAtlasEntry& primaryTextureRecord = imageAtlas->images[static_cast<uint16_t>(assetIndex)];
 
-	const __m128 mins = _mm_unpacklo_ps(dataScalar(job->boundsMinOffsets.x), dataScalar(job->boundsMinOffsets.y));
-	const __m128 maxs = _mm_unpacklo_ps(dataScalar(job->boundsMaxOffsets.x), dataScalar(job->boundsMaxOffsets.y));
-	const __m128 texMinsLo = _mm_unpacklo_ps(dataScalar(job->uvMinOffsets.x), dataScalar(job->uvMinOffsets.y));
+	const __m128 mins = _mm_unpacklo_ps(data.GetScalar(job->boundsMinOffsets.x), data.GetScalar(job->boundsMinOffsets.y));
+	const __m128 maxs = _mm_unpacklo_ps(data.GetScalar(job->boundsMaxOffsets.x), data.GetScalar(job->boundsMaxOffsets.y));
+	const __m128 texMinsLo = _mm_unpacklo_ps(data.GetScalar(job->uvMinOffsets.x), data.GetScalar(job->uvMinOffsets.y));
 	__m128 texMins = _mm_movelh_ps(texMinsLo, texMinsLo);
-	const __m128 texMaxsLo = _mm_unpacklo_ps(dataScalar(job->uvMaxOffsets.x), dataScalar(job->uvMaxOffsets.y));
+	const __m128 texMaxsLo = _mm_unpacklo_ps(data.GetScalar(job->uvMaxOffsets.x), data.GetScalar(job->uvMaxOffsets.y));
 	__m128 texMaxs = _mm_movelh_ps(texMaxsLo, texMaxsLo);
 	__m128 geometryBounds = _mm_movelh_ps(_mm_xor_ps(s_RuiSignMaskAll, mins), maxs);
 	__m128 textureExtent = _mm_sub_ps(texMaxs, texMins);
@@ -706,10 +812,10 @@ static bool RuiRenderImageJob(
 	else
 	{
 		const RuiImageAtlasEntry& secondaryTextureRecord = imageAtlas->images[static_cast<uint16_t>(secondaryAssetIndex)];
-		const __m128 maskRotation = dataScalar(job->maskRotationOffset);
-		const __m128 maskCenter = _mm_unpacklo_ps(dataScalar(job->maskCenterOffsets.x), dataScalar(job->maskCenterOffsets.y));
-		const __m128 maskSize = _mm_unpacklo_ps(dataScalar(job->maskScaleOffsets.x), dataScalar(job->maskScaleOffsets.y));
-		const __m128 maskTranslate = _mm_unpacklo_ps(dataScalar(job->maskTranslationOffsets.x), dataScalar(job->maskTranslationOffsets.y));
+		const __m128 maskRotation = data.GetScalar(job->maskRotationOffset);
+		const __m128 maskCenter = _mm_unpacklo_ps(data.GetScalar(job->maskCenterOffsets.x), data.GetScalar(job->maskCenterOffsets.y));
+		const __m128 maskSize = _mm_unpacklo_ps(data.GetScalar(job->maskScaleOffsets.x), data.GetScalar(job->maskScaleOffsets.y));
+		const __m128 maskTranslate = _mm_unpacklo_ps(data.GetScalar(job->maskTranslationOffsets.x), data.GetScalar(job->maskTranslationOffsets.y));
 
 		const __m128 rotationTurns = _mm_mul_ps(
 			_mm_add_ps(_mm_xor_ps(RUI_SHUFFLE_PS(maskRotation, 0), s_RuiSignMaskLane2), s_RuiQuarterEndpoints),
@@ -794,7 +900,7 @@ static bool RuiRenderImageJob(
 
 DECLARE_HOOK(RuiRenderImageJob, engine.dll + 0xF72F0, [](auto& hook, RuiRenderContext* context, RuiInstance* rui, const RuiImageRenderJob* job, RuiDrawBatch* batch) -> bool
 {
-	return RuiRenderImageJob(context, rui, job, batch);
+	return CRuiJobRenderer::RenderImage(context, rui, job, batch);
 });
 
 DECLARE_HOOK(
@@ -802,7 +908,7 @@ DECLARE_HOOK(
 	engine.dll + 0xF7A80,
 	[](auto& hook, RuiRenderContext* context, RuiInstance* rui, const RuiEllipseRenderJob* job, RuiDrawBatch* batch) -> bool
 {
-	return RuiRenderEllipseJob(context, rui, job, batch);
+	return CRuiJobRenderer::RenderEllipse(context, rui, job, batch);
 });
 
 ON_DLL_LOAD("engine.dll", RuiRender, [](CModule module)
@@ -844,3 +950,5 @@ ON_DLL_LOAD("engine.dll", RuiRender, [](CModule module)
 
 	DISPATCH_MODULE(RuiRenderHooks);
 })
+
+ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", RuiMaterialRenderTasks, [](CModule module) { CRuiRenderTaskQueue::Get().Initialize(module); })

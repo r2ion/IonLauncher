@@ -51,6 +51,10 @@ bool InitialiseNorthstar()
 	bInitialised = true;
 
 	InitialiseNorthstarPrefix();
+	if (curl_global_init_mem(CURL_GLOBAL_DEFAULT, _malloc_base, _free_base, _realloc_base, _strdup_base, _calloc_base) != CURLE_OK)
+	{
+		return false;
+	}
 
 	wchar_t modulePath[MAX_PATH] = {};
 	if (GetModuleFileNameW(g_NorthstarModule, modulePath, MAX_PATH) > 0)
@@ -64,15 +68,15 @@ bool InitialiseNorthstar()
 	static HANDLE s_uriMutex = CreateMutexA(nullptr, FALSE, "Local\\NorthstarUriMutex");
 	const bool uriMutexExists = (GetLastError() == ERROR_ALREADY_EXISTS);
 
-	if (auto uri = Mod_TryGetUriFromCommandLine())
+	if (auto uri = CModShellExtension::Get().GetCommandLineUri())
 	{
-		if (uriMutexExists && Mod_ForwardUriToRunningInstance(*uri))
+		if (uriMutexExists && CModShellExtension::Get().ForwardToRunningInstance(*uri))
 			ExitProcess(0);
-		HandleModShellExtensionUri(*uri);
+		CModShellExtension::Get().HandleUri(*uri);
 	}
 
 	if (!uriMutexExists)
-		Mod_StartUriServer();
+		CModShellExtension::Get().StartUriServer();
 
 	// Init minhook
 	HookSys_Init();
@@ -103,8 +107,6 @@ bool InitialiseNorthstar()
 	g_pSquirrel.InitialiseSquirrelManagers();
 
 	SetEnvironmentVariableA("OPENSSL_ia32cap", "~0x200000200000000");
-
-	curl_global_init_mem(CURL_GLOBAL_DEFAULT, _malloc_base, _free_base, _realloc_base, _strdup_base, _calloc_base);
 
 	g_pCallbackManager->ProcessLoadedModules();
 

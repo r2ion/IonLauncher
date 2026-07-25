@@ -186,6 +186,19 @@ set(XZ_TOOL_SCRIPTS OFF)
 set(XZ_NLS OFF)
 set(XZ_DOXYGEN OFF)
 set(XZ_DOC OFF)
+set(WEBP_BUILD_ANIM_UTILS OFF)
+set(WEBP_BUILD_CWEBP OFF)
+set(WEBP_BUILD_DWEBP OFF)
+set(WEBP_BUILD_GIF2WEBP OFF)
+set(WEBP_BUILD_IMG2WEBP OFF)
+set(WEBP_BUILD_VWEBP OFF)
+set(WEBP_BUILD_WEBPINFO OFF)
+set(WEBP_BUILD_LIBWEBPMUX OFF)
+set(WEBP_BUILD_WEBPMUX OFF)
+set(WEBP_BUILD_EXTRAS OFF)
+set(WEBP_BUILD_WEBP_JS OFF)
+set(WEBP_BUILD_FUZZTEST OFF)
+set(WEBP_USE_THREAD OFF)
 # I forgot how to add functions to cmake-format settings :(
 # cmake-format: off
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
@@ -232,6 +245,12 @@ CPMAddPackage(
   	NAME libcurl
   	GITHUB_REPOSITORY curl/curl
   	GIT_TAG curl-8_18_0
+)
+
+CPMAddPackage(
+    NAME libwebp
+    GITHUB_REPOSITORY webmproject/libwebp
+    GIT_TAG v1.5.0
 )
 
 CPMAddPackage(
