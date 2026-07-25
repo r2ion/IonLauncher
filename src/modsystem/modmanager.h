@@ -32,6 +32,8 @@ struct ModOverrideFile
 public:
 	Mod* m_pOwningMod;
 	fs::path m_Path;
+	std::string m_KeyValuesRootName;
+	std::string m_KeyValuesOrderPath;
 	VanillaCompatibility::CompatibilityMode m_lastCompatibilityMode;
 	std::vector<std::string> m_VanillaKeyvaluePaths;
 	std::vector<std::string> m_NorthstarKeyvaluePaths;
@@ -109,6 +111,7 @@ private:
 	 **/
 	void SearchFilesystemForMods();
 	void ProcessConditionalBlocks(const fs::path& filePath, bool keepNorthstar);
+	void RegisterCompiledKeyValuesFiles(const char* filename, const ModOverrideFile& modFile);
 
 	/**
 	 * Prevents crashes caused by mods being installed several times.
@@ -146,6 +149,7 @@ public:
 	// compile asset type stuff, these are done in files under runtime/compiled/
 	void BuildScriptsRson();
 	void BuildLocalPackageIcons();
+	void DumpCompiledKeyValues();
 	void TryBuildKeyValues(const char* filename);
 	void TryChangeoverKeyValues(const char* filename, ModOverrideFile& modFile);
 	void BuildPdef();

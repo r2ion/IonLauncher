@@ -1,4 +1,12 @@
 #include "keyvalues.h"
+#include "core/filesystem/filesystem.h"
+
+#include <cstdint>
+#include <cstring>
+#include <cwchar>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <winnt.h>
 
 // implementation of the ConVar class
@@ -853,6 +861,50 @@ const wchar_t* KeyValues::GetWString(const char* pszKeyName, const wchar_t* pwsz
 	return pwszDefaultValue;
 }
 
+std::string KeyValues::GetStringValue(void) const
+{
+	switch (m_iDataType)
+	{
+	case TYPE_STRING:
+		return m_sValue ? m_sValue : "";
+	case TYPE_INT:
+	case TYPE_COMPILED_INT_BYTE:
+		return std::to_string(m_iValue);
+	case TYPE_COMPILED_INT_0:
+		return "0";
+	case TYPE_COMPILED_INT_1:
+		return "1";
+	case TYPE_FLOAT:
+	{
+		std::ostringstream value;
+		value << std::setprecision(std::numeric_limits<float>::max_digits10) << m_flValue;
+		return value.str();
+	}
+	case TYPE_PTR:
+		return std::to_string(reinterpret_cast<uintptr_t>(m_pValue));
+	case TYPE_WSTRING:
+	{
+		if (!m_wsValue)
+			return {};
+
+		std::string value((wcslen(m_wsValue) * 4) + 1, '\0');
+		const int length = V_UnicodeToUTF8(m_wsValue, value.data(), static_cast<int>(value.size()));
+		if (length <= 0)
+			return {};
+
+		value.resize(strnlen(value.c_str(), value.size()));
+		return value;
+	}
+	case TYPE_COLOR:
+		return std::to_string(m_Color[0]) + " " + std::to_string(m_Color[1]) + " " + std::to_string(m_Color[2]) + " " +
+			   std::to_string(m_Color[3]);
+	case TYPE_UINT64:
+		return m_sValue ? std::to_string(*reinterpret_cast<const uint64_t*>(m_sValue)) : "";
+	default:
+		return {};
+	}
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Gets a color
 // Input  : *pszKeyName -
@@ -1296,9 +1348,24 @@ ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 
 DECLARE_MODULE(KeyValuesHooks)
 
+using KeyValuesLoadFromTextBufferFn = char(__fastcall*)(KeyValues*, const char*, const char*, void*, void*, void*, int);
+static KeyValuesLoadFromTextBufferFn s_KeyValuesLoadFromTextBuffer = nullptr;
+
+bool KeyValues_LoadFromBuffer(KeyValues* keyValues, const char* resourceName, const char* buffer, IFileSystem* fileSystem)
+{
+	if (!s_KeyValuesLoadFromTextBuffer || !keyValues || !resourceName || !buffer)
+		return false;
+
+	// The engine KeyValues loader takes the IBaseFileSystem subobject. Ion's
+	// IFileSystem pointer addresses the primary interface, while m_vtable2 is
+	// the embedded IBaseFileSystem interface used for Open/Read/Close.
+	void* baseFileSystem = fileSystem ? &fileSystem->m_vtable2 : nullptr;
+	return s_KeyValuesLoadFromTextBuffer(keyValues, resourceName, buffer, baseFileSystem, nullptr, nullptr, 2) != 0;
+}
+
 // clang-format off
 DECLARE_HOOK(KeyValues__LoadFromBuffer, engine.dll + 0x426C30,
-[](auto& hook, KeyValues* self, const char* pResourceName, const char* pBuffer, void* pFileSystem, void* a5, void* a6, int a7) -> char
+[](auto& hook, KeyValues* self, const char* pResourceName, void* pBuffer, void* pFileSystem, void* a5, void* a6, int a7) -> char
 // clang-format on
 {
 	static void* pSavedFilesystemPtr = nullptr;
@@ -1318,5 +1385,8 @@ DECLARE_HOOK(KeyValues__LoadFromBuffer, engine.dll + 0x426C30,
 
 ON_DLL_LOAD("engine.dll", EngineKeyValues, [](CModule module)
 {
+	// 0x426AD0 is the public text-buffer wrapper. It constructs the CUtlBuffer
+	// consumed by the hooked parser at 0x426C30.
+	s_KeyValuesLoadFromTextBuffer = module.Offset(0x426AD0).RCast<KeyValuesLoadFromTextBufferFn>();
 	DISPATCH_MODULE(KeyValuesHooks)
 })

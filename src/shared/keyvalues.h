@@ -1,6 +1,10 @@
 #pragma once
 #include "core/math/color.h"
 
+#include <string>
+
+class IFileSystem;
+
 enum KeyValuesTypes_t : char
 {
 	TYPE_NONE = 0x0,
@@ -92,6 +96,7 @@ public:
 	float GetFloat(const char* pszKeyName, float flDefaultValue);
 	const char* GetString(const char* pszKeyName = nullptr, const char* pszDefaultValue = "");
 	const wchar_t* GetWString(const char* pszKeyName = nullptr, const wchar_t* pwszDefaultValue = L"");
+	std::string GetStringValue(void) const;
 	Color GetColor(const char* pszKeyName, const Color& defaultColor);
 	KeyValuesTypes_t GetDataType(const char* pszKeyName);
 	KeyValuesTypes_t GetDataType(void) const;
@@ -132,3 +137,5 @@ public:
 	KeyValues* m_pSub; // 0x0038
 	KeyValues* m_pChain; // 0x0040
 };
+
+bool KeyValues_LoadFromBuffer(KeyValues* keyValues, const char* resourceName, const char* buffer, IFileSystem* fileSystem);
