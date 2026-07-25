@@ -650,9 +650,10 @@ JSONDocument Server::ExecuteSquirrelScript(const JSONValue& arguments)
         throw;
     }
 
-	if (!execution.value("success", false))
+	if (!execution["success"].GetBool())
 		QueueConsoleText(MakeEchoCommand("[MCP-END:" + guid + "]"));
-        const bool complete = m_OutputCapture.WaitForCompletion(guid, CAPTURE_TIMEOUT);
+
+    const bool complete = m_OutputCapture.WaitForCompletion(guid, CAPTURE_TIMEOUT);
 	const std::vector<std::string> lines = m_OutputCapture.TakeLines();
 	m_OutputCapture.Stop();
 
