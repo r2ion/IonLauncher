@@ -18,14 +18,14 @@ class CWorkshopThumbnailAtlas final
 public:
 	static constexpr size_t SLOT_COUNT = 24;
 	static constexpr uint32_t ATLAS_COLUMNS = 4;
-	static constexpr uint32_t CELL_WIDTH = 512;
-	static constexpr uint32_t CELL_HEIGHT = 320;
 	static constexpr uint32_t GUTTER = 4;
+	static constexpr uint32_t CELL_WIDTH = 512;
+	static constexpr uint32_t IMAGE_WIDTH = CELL_WIDTH - GUTTER * 2;
+	static constexpr uint32_t IMAGE_HEIGHT = IMAGE_WIDTH / 2;
+	static constexpr uint32_t CELL_HEIGHT = IMAGE_HEIGHT + GUTTER * 2;
 	static constexpr uint32_t ATLAS_ROWS = (static_cast<uint32_t>(SLOT_COUNT) + ATLAS_COLUMNS - 1) / ATLAS_COLUMNS;
 	static constexpr uint32_t ATLAS_WIDTH = ATLAS_COLUMNS * CELL_WIDTH;
 	static constexpr uint32_t ATLAS_HEIGHT = ATLAS_ROWS * CELL_HEIGHT;
-	static constexpr uint32_t IMAGE_WIDTH = CELL_WIDTH - GUTTER * 2;
-	static constexpr uint32_t IMAGE_HEIGHT = CELL_HEIGHT - GUTTER * 2;
 
 	static CWorkshopThumbnailAtlas& Get()
 	{
