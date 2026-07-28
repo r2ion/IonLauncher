@@ -78,7 +78,7 @@ bool CWorkshopThumbnailAtlas::InitializeLocked()
 	textureDescription.Height = ATLAS_HEIGHT;
 	textureDescription.MipLevels = 1;
 	textureDescription.ArraySize = 1;
-	textureDescription.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	textureDescription.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 	textureDescription.SampleDesc.Count = 1;
 	textureDescription.Usage = D3D11_USAGE_DEFAULT;
 	textureDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -125,7 +125,7 @@ bool CWorkshopThumbnailAtlas::InitializeLocked()
 	m_TextureHeader.width = static_cast<uint16_t>(ATLAS_WIDTH);
 	m_TextureHeader.height = static_cast<uint16_t>(ATLAS_HEIGHT);
 	m_TextureHeader.depth = 0;
-	m_TextureHeader.dxgiFormat = static_cast<uint16_t>(DXGI_FORMAT_R8G8B8A8_UNORM);
+	m_TextureHeader.dxgiFormat = static_cast<uint16_t>(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
 	m_TextureHeader.dataSize = ATLAS_WIDTH * ATLAS_HEIGHT * 4;
 	m_TextureHeader.compressionType = 0;
 	m_TextureHeader.optStreamedMipCount = 0;
