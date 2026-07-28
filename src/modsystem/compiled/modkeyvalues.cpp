@@ -438,7 +438,10 @@ void ModManager::TryBuildKeyValues(const char* filename)
 
 	const std::string orderFilePath = "mod_order_" + kvPath.filename().string();
 	fs::remove(compiledDir / orderFilePath);
-	if (WriteKeyValuesOrderBase(compiledDir / orderFilePath, ogFilePath, originalFile, rootName))
+	// The parser resolves relative #base directives from the resource name.
+	// Keep the weapon directory here instead of parsing the copied file by basename.
+	const std::string originalResourcePath = NormaliseModFilePath(kvPath.parent_path() / ogFilePath);
+	if (WriteKeyValuesOrderBase(compiledDir / orderFilePath, originalResourcePath, originalFile, rootName))
 	{
 		// #base only appends missing nodes. Seed the selected base's order before
 		// sparse patches so overriding Mods entries cannot move their indices.
