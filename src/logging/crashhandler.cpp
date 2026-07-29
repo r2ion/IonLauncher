@@ -9,6 +9,7 @@
 #include "rtech/pakfilesystem.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
+#include "tier0/hooks.h"
 #include "tier0/module.h"
 #include "util/version.h"
 #include "util/utils.h"
@@ -177,6 +178,7 @@ CCrashHandler::CCrashHandler()
 	, m_bAllExceptionsFatal(false)
 	, m_bHasShownCrashMsg(false)
 	, m_bState(false)
+	, m_pszActiveHookName(nullptr)
 {
 	Init();
 }
@@ -424,6 +426,7 @@ bool CCrashHandler::TrySymGetLineFromAddr64Safe(HANDLE process, DWORD64 address,
 void CCrashHandler::SetExceptionInfos(EXCEPTION_POINTERS* pExceptionPointers)
 {
 	m_pExceptionInfos = pExceptionPointers;
+	m_pszActiveHookName = HookSys::GetActiveHookName();
 }
 //-----------------------------------------------------------------------------
 // Purpose: Sets the exception stirngs for message box
@@ -636,6 +639,8 @@ void CCrashHandler::FormatException()
 	}
 
 	spdlog::error("\tAt: {} + {}", m_svCrashedModule, m_svCrashedOffset);
+	if (m_pszActiveHookName && *m_pszActiveHookName)
+		spdlog::error("\tActive hook: {}", m_pszActiveHookName);
 }
 
 //-----------------------------------------------------------------------------
@@ -1206,7 +1211,10 @@ void CCrashHandler::WriteCrashComment()
 		commentFile << fmt::format("WinApi Error: {}\n", m_svError.c_str());
 	}
 	commentFile << fmt::format("Exception: {}\n", GetExceptionString());
-	commentFile << fmt::format("At: {} + {}\n\n", m_svCrashedModule, m_svCrashedOffset);
+	commentFile << fmt::format("At: {} + {}\n", m_svCrashedModule, m_svCrashedOffset);
+	if (m_pszActiveHookName && *m_pszActiveHookName)
+		commentFile << fmt::format("Active hook: {}\n", m_pszActiveHookName);
+	commentFile << "\n";
 
 	commentFile << "=== Callstack ===\n";
 	for (const std::string& line : FormatCallstack())

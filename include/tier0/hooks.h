@@ -161,6 +161,33 @@ struct hook_placeholder
     }
 };
 
+inline thread_local const char* g_activeHookName = nullptr;
+
+inline const char* GetActiveHookName()
+{
+    return g_activeHookName;
+}
+
+template <const char* HookDebugName> class HookInvocationScope
+{
+  public:
+    HookInvocationScope() : m_previousHookName(g_activeHookName)
+    {
+        g_activeHookName = HookDebugName;
+    }
+
+    ~HookInvocationScope()
+    {
+        g_activeHookName = m_previousHookName;
+    }
+
+    HookInvocationScope(const HookInvocationScope&) = delete;
+    HookInvocationScope& operator=(const HookInvocationScope&) = delete;
+
+  private:
+    const char* m_previousHookName;
+};
+
 template <typename LambdaT, typename = void> struct lambda_traits_for_hook : lambda_traits<decltype(&LambdaT::operator())>
 {
 };
@@ -777,10 +804,11 @@ template <typename HookT> struct LambdaHookRegistrationProc
 #define DECLARE_HOOK_CC(debugName, addrString, callingConvention, lambda)                                                                            \
     namespace                                                                                                                                        \
     {                                                                                                                                                \
+    inline constexpr char CONCAT2(__lambdaHookDebugName_, __LINE__)[] = __STR(debugName);                                                           \
     inline auto CONCAT2(__lambdaHookLambda_, __LINE__) = lambda;                                                                                     \
-    struct CONCAT2(__lambdaHook_, __LINE__) : public HookSys::LambdaHookBase                                                                         \
+    template <const char* HookDebugName> struct CONCAT2(__lambdaHook_, __LINE__) : public HookSys::LambdaHookBase                                    \
     {                                                                                                                                                \
-        using Self = CONCAT2(__lambdaHook_, __LINE__);                                                                                               \
+        using Self = CONCAT2(__lambdaHook_, __LINE__)<HookDebugName>;                                                                                \
         using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookLambda_, __LINE__))>;                                                              \
         using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                                     \
         using ReturnT = typename Traits::return_type;                                                                                                \
@@ -834,6 +862,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 s_lambda(Instance(), args...);                                                                                                       \
             else                                                                                                                                     \
@@ -841,6 +870,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 s_lambda(Instance(), args...);                                                                                                       \
             else                                                                                                                                     \
@@ -892,8 +922,9 @@ template <typename HookT> struct LambdaHookRegistrationProc
             Instance().Dispatch();                                                                                                                   \
         }                                                                                                                                            \
     };                                                                                                                                               \
-    HookSys::LambdaHookRegistrationOffset<CONCAT2(__lambdaHook_, __LINE__)> CONCAT2(__lambdaHookReg_, __LINE__)(                                    \
-        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(addrString));                                                         \
+    HookSys::LambdaHookRegistrationOffset<                                                                                                           \
+        CONCAT2(__lambdaHook_, __LINE__)<CONCAT2(__lambdaHookDebugName_, __LINE__)>> CONCAT2(__lambdaHookReg_, __LINE__)(                           \
+        HookSys::GetOrCreateFileHookModule(__FILE__), CONCAT2(__lambdaHookDebugName_, __LINE__), __STR(addrString));                                \
     }
 
 #define DECLARE_HOOK(debugName, addrString, lambda) DECLARE_HOOK_CC(debugName, addrString, HOOKSYS_CALLCONV, lambda)
@@ -902,9 +933,10 @@ template <typename HookT> struct LambdaHookRegistrationProc
 #define DECLARE_HOOK_FN_CC(debugName, addrString, callingConvention, func)                                                                           \
     namespace                                                                                                                                        \
     {                                                                                                                                                \
-    struct CONCAT2(__funcHook_, __LINE__) : public HookSys::LambdaHookBase                                                                           \
+    inline constexpr char CONCAT2(__funcHookDebugName_, __LINE__)[] = __STR(debugName);                                                             \
+    template <const char* HookDebugName> struct CONCAT2(__funcHook_, __LINE__) : public HookSys::LambdaHookBase                                      \
     {                                                                                                                                                \
-        using Self = CONCAT2(__funcHook_, __LINE__);                                                                                                 \
+        using Self = CONCAT2(__funcHook_, __LINE__)<HookDebugName>;                                                                                  \
         using FnPtr = std::remove_reference_t<decltype(&func)>;                                                                                      \
         using Traits = HookSys::function_traits<FnPtr>;                                                                                              \
         using ReturnT = typename Traits::return_type;                                                                                                \
@@ -955,6 +987,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 func(args...);                                                                                                                       \
             else                                                                                                                                     \
@@ -962,6 +995,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 func(args...);                                                                                                                       \
             else                                                                                                                                     \
@@ -1013,8 +1047,9 @@ template <typename HookT> struct LambdaHookRegistrationProc
             Instance().Dispatch();                                                                                                                   \
         }                                                                                                                                            \
     };                                                                                                                                               \
-    HookSys::LambdaHookRegistrationOffset<CONCAT2(__funcHook_, __LINE__)> CONCAT2(__funcHookReg_, __LINE__)(                                        \
-        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(addrString));                                                         \
+    HookSys::LambdaHookRegistrationOffset<                                                                                                           \
+        CONCAT2(__funcHook_, __LINE__)<CONCAT2(__funcHookDebugName_, __LINE__)>> CONCAT2(__funcHookReg_, __LINE__)(                                 \
+        HookSys::GetOrCreateFileHookModule(__FILE__), CONCAT2(__funcHookDebugName_, __LINE__), __STR(addrString));                                  \
     }
 
 #define DECLARE_HOOK_FN(debugName, addrString, func) DECLARE_HOOK_FN_CC(debugName, addrString, HOOKSYS_CALLCONV, func)
@@ -1023,10 +1058,11 @@ template <typename HookT> struct LambdaHookRegistrationProc
 #define DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, callingConvention, lambda)                                                                         \
     namespace                                                                                                                                        \
     {                                                                                                                                                \
+    inline constexpr char CONCAT2(__lambdaHookAbsDebugName_, __LINE__)[] = __STR(debugName);                                                        \
     inline auto CONCAT2(__lambdaHookAbsLambda_, __LINE__) = lambda;                                                                                  \
-    struct CONCAT2(__lambdaHookAbs_, __LINE__) : public HookSys::LambdaHookBase                                                                      \
+    template <const char* HookDebugName> struct CONCAT2(__lambdaHookAbs_, __LINE__) : public HookSys::LambdaHookBase                                 \
     {                                                                                                                                                \
-        using Self = CONCAT2(__lambdaHookAbs_, __LINE__);                                                                                            \
+        using Self = CONCAT2(__lambdaHookAbs_, __LINE__)<HookDebugName>;                                                                             \
         using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookAbsLambda_, __LINE__))>;                                                           \
         using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                                     \
         using ReturnT = typename Traits::return_type;                                                                                                \
@@ -1061,6 +1097,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 s_lambda(Instance(), args...);                                                                                                       \
             else                                                                                                                                     \
@@ -1112,9 +1149,9 @@ template <typename HookT> struct LambdaHookRegistrationProc
             Instance().Dispatch();                                                                                                                   \
         }                                                                                                                                            \
     };                                                                                                                                               \
-    HookSys::LambdaHookRegistrationAbsolute<CONCAT2(__lambdaHookAbs_, __LINE__)> CONCAT2(__lambdaHookAbsReg_,                                        \
-                                                                                         __LINE__)(                                                    \
-        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), static_cast<uintptr_t>(addr));                                              \
+    HookSys::LambdaHookRegistrationAbsolute<                                                                                                         \
+        CONCAT2(__lambdaHookAbs_, __LINE__)<CONCAT2(__lambdaHookAbsDebugName_, __LINE__)>> CONCAT2(__lambdaHookAbsReg_, __LINE__)(                  \
+        HookSys::GetOrCreateFileHookModule(__FILE__), CONCAT2(__lambdaHookAbsDebugName_, __LINE__), static_cast<uintptr_t>(addr));                   \
     }
 
 #define DECLARE_HOOK_ABSOLUTE(debugName, addr, lambda) DECLARE_HOOK_ABSOLUTE_CC(debugName, addr, HOOKSYS_CALLCONV, lambda)
@@ -1123,9 +1160,10 @@ template <typename HookT> struct LambdaHookRegistrationProc
 #define DECLARE_HOOK_ABSOLUTE_FN_CC(debugName, addr, callingConvention, func)                                                                        \
     namespace                                                                                                                                        \
     {                                                                                                                                                \
-    struct CONCAT2(__funcAbsHook_, __LINE__) : public HookSys::LambdaHookBase                                                                        \
+    inline constexpr char CONCAT2(__funcAbsHookDebugName_, __LINE__)[] = __STR(debugName);                                                          \
+    template <const char* HookDebugName> struct CONCAT2(__funcAbsHook_, __LINE__) : public HookSys::LambdaHookBase                                   \
     {                                                                                                                                                \
-        using Self = CONCAT2(__funcAbsHook_, __LINE__);                                                                                              \
+        using Self = CONCAT2(__funcAbsHook_, __LINE__)<HookDebugName>;                                                                               \
         using FnPtr = std::remove_reference_t<decltype(&func)>;                                                                                      \
         using Traits = HookSys::function_traits<FnPtr>;                                                                                              \
         using ReturnT = typename Traits::return_type;                                                                                                \
@@ -1176,6 +1214,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 func(args...);                                                                                                                       \
             else                                                                                                                                     \
@@ -1183,6 +1222,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 func(args...);                                                                                                                       \
             else                                                                                                                                     \
@@ -1234,8 +1274,9 @@ template <typename HookT> struct LambdaHookRegistrationProc
             Instance().Dispatch();                                                                                                                   \
         }                                                                                                                                            \
     };                                                                                                                                               \
-    HookSys::LambdaHookRegistrationAbsolute<CONCAT2(__funcAbsHook_, __LINE__)> CONCAT2(__funcAbsHookReg_, __LINE__)(                                \
-        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), static_cast<uintptr_t>(addr));                                              \
+    HookSys::LambdaHookRegistrationAbsolute<                                                                                                         \
+        CONCAT2(__funcAbsHook_, __LINE__)<CONCAT2(__funcAbsHookDebugName_, __LINE__)>> CONCAT2(__funcAbsHookReg_, __LINE__)(                        \
+        HookSys::GetOrCreateFileHookModule(__FILE__), CONCAT2(__funcAbsHookDebugName_, __LINE__), static_cast<uintptr_t>(addr));                     \
     }
 
 #define DECLARE_HOOK_ABSOLUTE_FN(debugName, addr, func) DECLARE_HOOK_ABSOLUTE_FN_CC(debugName, addr, HOOKSYS_CALLCONV, func)
@@ -1244,10 +1285,11 @@ template <typename HookT> struct LambdaHookRegistrationProc
 #define DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, callingConvention, lambda)                                                             \
     namespace                                                                                                                                        \
     {                                                                                                                                                \
+    inline constexpr char CONCAT2(__lambdaHookProcDebugName_, __LINE__)[] = __STR(debugName);                                                       \
     inline auto CONCAT2(__lambdaHookProcLambda_, __LINE__) = lambda;                                                                                 \
-    struct CONCAT2(__lambdaHookProc_, __LINE__) : public HookSys::LambdaHookBase                                                                     \
+    template <const char* HookDebugName> struct CONCAT2(__lambdaHookProc_, __LINE__) : public HookSys::LambdaHookBase                                \
     {                                                                                                                                                \
-        using Self = CONCAT2(__lambdaHookProc_, __LINE__);                                                                                           \
+        using Self = CONCAT2(__lambdaHookProc_, __LINE__)<HookDebugName>;                                                                            \
         using LambdaT = std::decay_t<decltype(CONCAT2(__lambdaHookProcLambda_, __LINE__))>;                                                          \
         using Traits = HookSys::lambda_traits_for_hook<LambdaT>;                                                                                     \
         using ReturnT = typename Traits::return_type;                                                                                                \
@@ -1282,6 +1324,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 s_lambda(Instance(), args...);                                                                                                       \
             else                                                                                                                                     \
@@ -1333,8 +1376,9 @@ template <typename HookT> struct LambdaHookRegistrationProc
             Instance().Dispatch();                                                                                                                   \
         }                                                                                                                                            \
     };                                                                                                                                               \
-    HookSys::LambdaHookRegistrationProc<CONCAT2(__lambdaHookProc_, __LINE__)> CONCAT2(__lambdaHookProcReg_, __LINE__)(                               \
-        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(moduleName), __STR(procName));                                        \
+    HookSys::LambdaHookRegistrationProc<                                                                                                             \
+        CONCAT2(__lambdaHookProc_, __LINE__)<CONCAT2(__lambdaHookProcDebugName_, __LINE__)>> CONCAT2(__lambdaHookProcReg_, __LINE__)(               \
+        HookSys::GetOrCreateFileHookModule(__FILE__), CONCAT2(__lambdaHookProcDebugName_, __LINE__), __STR(moduleName), __STR(procName));            \
     }
 
 #define DECLARE_HOOK_PROC(debugName, moduleName, procName, lambda) DECLARE_HOOK_PROC_CC(debugName, moduleName, procName, HOOKSYS_CALLCONV, lambda)
@@ -1343,9 +1387,10 @@ template <typename HookT> struct LambdaHookRegistrationProc
 #define DECLARE_HOOK_PROC_FN_CC(debugName, moduleName, procName, callingConvention, func)                                                            \
     namespace                                                                                                                                        \
     {                                                                                                                                                \
-    struct CONCAT2(__funcProcHook_, __LINE__) : public HookSys::LambdaHookBase                                                                       \
+    inline constexpr char CONCAT2(__funcProcHookDebugName_, __LINE__)[] = __STR(debugName);                                                         \
+    template <const char* HookDebugName> struct CONCAT2(__funcProcHook_, __LINE__) : public HookSys::LambdaHookBase                                  \
     {                                                                                                                                                \
-        using Self = CONCAT2(__funcProcHook_, __LINE__);                                                                                             \
+        using Self = CONCAT2(__funcProcHook_, __LINE__)<HookDebugName>;                                                                              \
         using FnPtr = std::remove_reference_t<decltype(&func)>;                                                                                      \
         using Traits = HookSys::function_traits<FnPtr>;                                                                                              \
         using ReturnT = typename Traits::return_type;                                                                                                \
@@ -1396,6 +1441,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 func(args...);                                                                                                                       \
             else                                                                                                                                     \
@@ -1403,6 +1449,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
         {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
                 func(args...);                                                                                                                       \
             else                                                                                                                                     \
@@ -1454,8 +1501,9 @@ template <typename HookT> struct LambdaHookRegistrationProc
             Instance().Dispatch();                                                                                                                   \
         }                                                                                                                                            \
     };                                                                                                                                               \
-    HookSys::LambdaHookRegistrationProc<CONCAT2(__funcProcHook_, __LINE__)> CONCAT2(__funcProcHookReg_, __LINE__)(                                  \
-        HookSys::GetOrCreateFileHookModule(__FILE__), __STR(debugName), __STR(moduleName), __STR(procName));                                        \
+    HookSys::LambdaHookRegistrationProc<                                                                                                             \
+        CONCAT2(__funcProcHook_, __LINE__)<CONCAT2(__funcProcHookDebugName_, __LINE__)>> CONCAT2(__funcProcHookReg_, __LINE__)(                     \
+        HookSys::GetOrCreateFileHookModule(__FILE__), CONCAT2(__funcProcHookDebugName_, __LINE__), __STR(moduleName), __STR(procName));              \
     }
 
 #define DECLARE_HOOK_PROC_FN(debugName, moduleName, procName, func) DECLARE_HOOK_PROC_FN_CC(debugName, moduleName, procName, HOOKSYS_CALLCONV, func)

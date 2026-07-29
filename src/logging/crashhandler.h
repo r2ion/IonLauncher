@@ -99,6 +99,7 @@ private:
 
 	std::string m_svCrashedModule;
 	std::string m_svCrashedOffset;
+	const char* m_pszActiveHookName;
 
 	std::string m_svError;
 
