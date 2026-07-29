@@ -15,6 +15,8 @@
 #include <random>
 #include <ranges>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -22,6 +24,82 @@ DECLARE_MODULE(AudioHooks)
 
 static thread_local const char* pszAudioEventName;
 static thread_local bool s_loadingCustomMilesSample;
+
+static constexpr int MILES_SOURCE_FLAC = 3;
+static constexpr int MILES_SOURCE_AUTO = 64;
+static constexpr uintptr_t MILES_SAMPLE_DRIVER_OFFSET = 0x08;
+static constexpr const char* MILES_FLAC_DECODER_DLL = "MilesFlac.dll";
+static constexpr const char* MILES_FLAC_REGISTER_EXPORT = "MilesDriverRegisterFlacAudio";
+
+using MilesDriverRegisterFlacAudio_Type = void (*)(void* driver);
+
+static std::mutex s_flacDecoderMutex;
+static HMODULE s_flacDecoderModule;
+static MilesDriverRegisterFlacAudio_Type MilesDriverRegisterFlacAudio;
+static std::unordered_set<void*> s_flacRegisteredDrivers;
+
+static std::mutex s_customMilesSampleDecoderTypesMutex;
+static std::unordered_map<void*, int> s_customMilesSampleDecoderTypes;
+
+static bool EnsureFlacDecoderRegistered(void* driver)
+{
+    if (!driver)
+        return false;
+
+    std::lock_guard lock(s_flacDecoderMutex);
+    if (s_flacRegisteredDrivers.contains(driver))
+        return true;
+
+    if (!s_flacDecoderModule)
+    {
+        s_flacDecoderModule = LoadLibraryA(MILES_FLAC_DECODER_DLL);
+        if (!s_flacDecoderModule)
+        {
+            NS::log::MILES->error("Could not load {} (Windows error {})", MILES_FLAC_DECODER_DLL, GetLastError());
+            return false;
+        }
+    }
+
+    if (!MilesDriverRegisterFlacAudio)
+    {
+        MilesDriverRegisterFlacAudio =
+            reinterpret_cast<MilesDriverRegisterFlacAudio_Type>(GetProcAddress(s_flacDecoderModule, MILES_FLAC_REGISTER_EXPORT));
+        if (!MilesDriverRegisterFlacAudio)
+        {
+            NS::log::MILES->error("{} does not export {} (Windows error {})", MILES_FLAC_DECODER_DLL, MILES_FLAC_REGISTER_EXPORT,
+                                  GetLastError());
+            return false;
+        }
+    }
+
+    MilesDriverRegisterFlacAudio(driver);
+    s_flacRegisteredDrivers.insert(driver);
+    NS::log::MILES->info("Registered the FLAC audio decoder with Miles driver {}", driver);
+    return true;
+}
+
+static void SetCustomMilesSampleDecoderType(void* sample, int decoderType)
+{
+    std::lock_guard lock(s_customMilesSampleDecoderTypesMutex);
+    s_customMilesSampleDecoderTypes[sample] = decoderType;
+}
+
+static bool TryGetCustomMilesSampleDecoderType(void* sample, int& decoderType)
+{
+    std::lock_guard lock(s_customMilesSampleDecoderTypesMutex);
+    auto iter = s_customMilesSampleDecoderTypes.find(sample);
+    if (iter == s_customMilesSampleDecoderTypes.end())
+        return false;
+
+    decoderType = iter->second;
+    return true;
+}
+
+static void ClearCustomMilesSampleDecoderType(void* sample)
+{
+    std::lock_guard lock(s_customMilesSampleDecoderTypesMutex);
+    s_customMilesSampleDecoderTypes.erase(sample);
+}
 
 ConVar* Cvar_mileslog_enable;
 ConVar* Cvar_ns_print_played_sounds;
@@ -381,7 +459,10 @@ CModAudioRuntime::EventIterator CModAudioRuntime::Destroy(EventIterator event)
         if (MilesSampleGetStatus && MilesSamplePause && IsSampleActive(MilesSampleGetStatus(layer.Sample)))
             MilesSamplePause(layer.Sample);
         if (MilesSampleDestroy)
+        {
+            ClearCustomMilesSampleDecoderType(layer.Sample);
             MilesSampleDestroy(layer.Sample);
+        }
         layer.Sample = nullptr;
     }
 
@@ -429,6 +510,7 @@ void CModAudioRuntime::Service()
                 hasActiveLayer = true;
                 continue;
             }
+            ClearCustomMilesSampleDecoderType(layer.Sample);
             MilesSampleDestroy(layer.Sample);
             layer.Sample = nullptr;
         }
@@ -537,7 +619,8 @@ size_t CModAudioRuntime::SelectRandomIndex(size_t count)
     return distribution(RandomGenerator());
 }
 
-bool CModAudioRuntime::SelectAudioSample(const std::shared_ptr<ModAudioEventDefinition>& definition, void*& data, unsigned int& dataLength)
+bool CModAudioRuntime::SelectAudioSample(const std::shared_ptr<ModAudioEventDefinition>& definition, void*& data, unsigned int& dataLength,
+                                         int& decoderType)
 {
     std::lock_guard lock(definition->SampleSelectionMutex);
 
@@ -545,6 +628,7 @@ bool CModAudioRuntime::SelectAudioSample(const std::shared_ptr<ModAudioEventDefi
     {
         data = EMPTY_WAVE;
         dataLength = sizeof(EMPTY_WAVE);
+        decoderType = MILES_SOURCE_AUTO;
         return true;
     }
 
@@ -569,6 +653,7 @@ bool CModAudioRuntime::SelectAudioSample(const std::shared_ptr<ModAudioEventDefi
 
     data = sample->Data.get();
     dataLength = static_cast<unsigned int>(sample->Size);
+    decoderType = sample->DecoderType;
     return data != nullptr;
 }
 
@@ -670,13 +755,13 @@ bool CModAudioRuntime::ShouldPlayAudioEvent(const char* eventName, const std::sh
     return true; // good to go
 }
 
-bool CModAudioRuntime::TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength)
+bool CModAudioRuntime::TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength, int& decoderType)
 {
     std::shared_ptr<ModAudioEventDefinition> definition = m_manager.FindReplacementDefinition(eventName);
     if (!definition || !ShouldPlayAudioEvent(eventName, definition))
         return false;
 
-    if (!SelectAudioSample(definition, data, dataLength))
+    if (!SelectAudioSample(definition, data, dataLength, decoderType))
         NS::log::MILES->warn("Could not get sample data from override definition for event {}", eventName);
     if (data)
         return true;
@@ -1084,7 +1169,10 @@ AudioPlayResult CModAudioRuntime::TryPlayEvent(void* eventSystem, const char* ev
         for (ActiveModAudioLayer& layer : instance.Layers)
         {
             if (layer.Sample)
+            {
+                ClearCustomMilesSampleDecoderType(layer.Sample);
                 MilesSampleDestroy(layer.Sample);
+            }
             layer.Sample = nullptr;
         }
     };
@@ -1127,6 +1215,14 @@ AudioPlayResult CModAudioRuntime::TryPlayEvent(void* eventSystem, const char* ev
         instance.Layers.push_back(std::move(layer));
         ActiveModAudioLayer& activeLayer = instance.Layers.back();
 
+        if (source->DecoderType == MILES_SOURCE_FLAC && !EnsureFlacDecoderRegistered(driver))
+        {
+            NS::log::MILES->error("Could not register the FLAC decoder for custom event {} layer {}", eventName, layerDefinition.Name);
+            destroyUntrackedLayers();
+            return CModAudioManager::PlayResult::FAILED;
+        }
+
+        SetCustomMilesSampleDecoderType(activeLayer.Sample, source->DecoderType);
         s_loadingCustomMilesSample = true;
         bool sourceLoaded = false;
         if (layerDefinition.SourceMode == AudioSourceMode::STREAM)
@@ -1136,11 +1232,13 @@ AudioPlayResult CModAudioRuntime::TryPlayEvent(void* eventSystem, const char* ev
         }
         else
         {
-            sourceLoaded = MilesSampleSetSource(activeLayer.Sample, source->Data.get(), static_cast<unsigned int>(source->Size), 64);
+            sourceLoaded =
+                MilesSampleSetSource(activeLayer.Sample, source->Data.get(), static_cast<unsigned int>(source->Size), source->DecoderType);
         }
         s_loadingCustomMilesSample = false;
         if (!sourceLoaded)
         {
+            ClearCustomMilesSampleDecoderType(activeLayer.Sample);
             NS::log::MILES->error("Could not load source {} for custom event {} layer {}", source->Path.string(), eventName, layerDefinition.Name);
             destroyUntrackedLayers();
             return CModAudioManager::PlayResult::FAILED;
@@ -1670,6 +1768,18 @@ DECLARE_HOOK(MilesIntServiceProjectEventSystem, mileswin64.dll + 0x1B2D0, [](aut
 DECLARE_HOOK(LoadSampleMetadata, mileswin64.dll + 0xF110,
              [](auto& hook, void* sample, void* audioBuffer, unsigned int audioBufferLength, int audioType) -> bool
 {
+    int customDecoderType = MILES_SOURCE_AUTO;
+    if (TryGetCustomMilesSampleDecoderType(sample, customDecoderType))
+    {
+        if (customDecoderType == MILES_SOURCE_FLAC)
+        {
+            void* driver = *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(sample) + MILES_SAMPLE_DRIVER_OFFSET);
+            if (!EnsureFlacDecoderRegistered(driver))
+                return false;
+        }
+        return hook.Original(sample, audioBuffer, audioBufferLength, customDecoderType);
+    }
+
     if (s_loadingCustomMilesSample)
         return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
 
@@ -1685,15 +1795,26 @@ DECLARE_HOOK(LoadSampleMetadata, mileswin64.dll + 0xF110,
 
     void* data = nullptr;
     unsigned int dataLength = 0;
-    if (!g_ModAudioManager.TryGetReplacementSample(eventName, data, dataLength))
+    int decoderType = MILES_SOURCE_AUTO;
+    if (!g_ModAudioManager.TryGetReplacementSample(eventName, data, dataLength, decoderType))
         return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
+
+    if (decoderType == MILES_SOURCE_FLAC)
+    {
+        void* driver = *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(sample) + MILES_SAMPLE_DRIVER_OFFSET);
+        if (!EnsureFlacDecoderRegistered(driver))
+        {
+            NS::log::MILES->error("Could not register the FLAC decoder for replacement event {}", eventName);
+            return hook.Original(sample, audioBuffer, audioBufferLength, audioType);
+        }
+    }
 
     audioBuffer = data;
     audioBufferLength = dataLength;
     *(void**)((uintptr_t)sample + 0xE8) = audioBuffer;
     *(unsigned int*)((uintptr_t)sample + 0xF0) = audioBufferLength;
 
-    bool res = hook.Original(sample, audioBuffer, audioBufferLength, 64);
+    bool res = hook.Original(sample, audioBuffer, audioBufferLength, decoderType);
     if (!res)
         NS::log::MILES->error("LoadSampleMetadata failed! The game will crash :(");
 

@@ -205,7 +205,8 @@ bool CModAudioDefinitionReader::ReadGraph(const AudioJsonValue& value, const cha
     return true;
 }
 
-bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std::vector<AudioRouteDefinition>& routes) const
+bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std::vector<AudioRouteDefinition>& routes,
+                                           std::vector<AudioControllerBinding>& controllerBindings) const
 {
     if (!routesJson.IsArray() || routesJson.Empty())
     {
@@ -239,10 +240,31 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
             return false;
         }
 
-        if (routeJson.HasMember("Volume") && (!ReadFiniteFloat(routeJson, "Volume", route.Volume) || route.Volume < 0.0f))
+        std::optional<std::string> volumeController;
+        if (routeJson.HasMember("Volume"))
         {
-            spdlog::error("Failed reading audio override file {}: route Volume must be non-negative", m_path.string());
-            return false;
+            const AudioJsonValue& volumeJson = routeJson["Volume"];
+            if (volumeJson.IsString())
+            {
+                if (volumeJson.GetStringLength() == 0)
+                {
+                    spdlog::error("Failed reading audio override file {}: route Volume controller name must not be empty", m_path.string());
+                    return false;
+                }
+                volumeController = volumeJson.GetString();
+                route.Volume = 1.0f;
+            }
+            else if (!volumeJson.IsNumber() || !std::isfinite(volumeJson.GetDouble()) || volumeJson.GetDouble() < 0.0)
+            {
+                spdlog::error(
+                    "Failed reading audio override file {}: route Volume must be a non-negative finite number or a non-empty global controller name",
+                    m_path.string());
+                return false;
+            }
+            else
+            {
+                route.Volume = static_cast<float>(volumeJson.GetDouble());
+            }
         }
         if (routeJson.HasMember("LFEVolume") && (!ReadFiniteFloat(routeJson, "LFEVolume", route.LFEVolume) || route.LFEVolume < 0.0f))
         {
@@ -280,6 +302,23 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
         }
 
         routes.push_back(std::move(route));
+        if (volumeController)
+        {
+            AudioControllerBinding binding;
+            binding.Controller = std::move(*volumeController);
+            binding.Source = AudioControllerSource::GLOBAL;
+            binding.Target = AudioControllerTarget::ROUTE;
+            binding.Property = AudioControllerProperty::ROUTE_VOLUME;
+            binding.Operation = AudioControllerOperation::SET;
+            binding.TargetIndex = static_cast<unsigned int>(routes.size() - 1);
+            // Miles percentage controllers such as ReverbSmall and
+            // ReverbLarge use a 0-100 range; route levels are linear 0-1.
+            binding.Curve = {
+                AudioGraphPoint{.X = 0.0f, .Y = 0.0f},
+                AudioGraphPoint{.X = 100.0f, .Y = 1.0f},
+            };
+            controllerBindings.push_back(std::move(binding));
+        }
     }
     return true;
 }
@@ -601,7 +640,7 @@ bool CModAudioDefinitionReader::ReadLayer(const AudioJsonValue& layerJson, Audio
     if (layerJson.HasMember("Routes"))
     {
         layer.Routes.clear();
-        if (!ReadRoutes(layerJson["Routes"], layer.Routes))
+        if (!ReadRoutes(layerJson["Routes"], layer.Routes, layer.ControllerBindings))
             return false;
     }
     if (layerJson.HasMember("ControllerBindings") && !ReadControllerBindings(layerJson["ControllerBindings"], layer.ControllerBindings))
@@ -920,7 +959,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     if (dataJson.HasMember("Routes"))
     {
         hasCustomEventOptions = true;
-        if (!reader.ReadRoutes(dataJson["Routes"], Routes))
+        if (!reader.ReadRoutes(dataJson["Routes"], Routes, ControllerBindings))
             return;
     }
 
@@ -1346,16 +1385,26 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         }
     }
 
-    bool foundWaveSample = false;
+    bool foundAudioSample = false;
     float longestWaveDuration = 0.0f;
 
     for (fs::directory_entry file : fs::recursive_directory_iterator(samplesFolder))
     {
-        if (file.is_regular_file() && file.path().extension().string() == ".wav")
+        if (!file.is_regular_file())
+            continue;
+
+        std::string extension = file.path().extension().string();
+        std::ranges::transform(extension, extension.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+        const bool isWave = extension == ".wav";
+        const bool isFlac = extension == ".flac";
+        if (isWave || isFlac)
         {
-            foundWaveSample = true;
-            if (const std::optional<float> duration = CWaveFileReader(file.path()).ReadDurationSeconds())
-                longestWaveDuration = std::max(longestWaveDuration, *duration);
+            foundAudioSample = true;
+            if (isWave)
+            {
+                if (const std::optional<float> duration = CWaveFileReader(file.path()).ReadDurationSeconds())
+                    longestWaveDuration = std::max(longestWaveDuration, *duration);
+            }
 
             std::wstring pathString = file.path().wstring();
 
@@ -1369,20 +1418,20 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             }
 
             // Open the file.
-            std::ifstream wavStream(pathString, std::ios::binary);
+            std::ifstream audioStream(pathString, std::ios::binary);
 
-            if (wavStream.fail())
+            if (audioStream.fail())
             {
                 spdlog::error(L"Failed reading audio sample {}", pathString);
                 continue;
             }
 
             // Get file size.
-            wavStream.seekg(0, std::ios::end);
-            size_t fileSize = wavStream.tellg();
-            wavStream.close();
+            audioStream.seekg(0, std::ios::end);
+            size_t fileSize = audioStream.tellg();
+            audioStream.close();
 
-            Samples.push_back({.Path = file.path(), .Size = fileSize});
+            Samples.push_back({.Path = file.path(), .Size = fileSize, .DecoderType = isFlac ? 3 : 64});
         }
     }
 
@@ -1429,16 +1478,16 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
 
             AudioSampleData& sample = Samples[sampleIndex];
             const std::wstring pathString = sample.Path.wstring();
-            std::ifstream wavStream(pathString, std::ios::binary);
-            if (wavStream.fail())
+            std::ifstream audioStream(pathString, std::ios::binary);
+            if (audioStream.fail())
             {
                 spdlog::error(L"Failed reading audio sample {}", pathString);
                 return;
             }
 
             sample.Data = std::make_unique<uint8_t[]>(sample.Size);
-            wavStream.read(reinterpret_cast<char*>(sample.Data.get()), sample.Size);
-            if (!wavStream)
+            audioStream.read(reinterpret_cast<char*>(sample.Data.get()), sample.Size);
+            if (!audioStream)
             {
                 spdlog::error(L"Failed reading complete audio sample {}", pathString);
                 return;
@@ -1446,11 +1495,11 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         }
     }
 
-    if (!foundWaveSample || Samples.empty())
+    if (!foundAudioSample || Samples.empty())
     {
         if (IsCustomEvent)
         {
-            spdlog::error("Custom audio event {} has no valid WAV samples", path.string());
+            spdlog::error("Custom audio event {} has no valid WAV or FLAC samples", path.string());
             return;
         }
 

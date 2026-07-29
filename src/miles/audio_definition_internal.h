@@ -37,7 +37,8 @@ class CModAudioDefinitionReader
     bool ReadVector3(const AudioJsonValue& object, const char* memberName, std::array<float, 3>& output) const;
     bool ReadGraph(const AudioJsonValue& value, const char* xName, const char* yName, std::vector<AudioGraphPoint>& output,
                    const char* propertyName) const;
-    bool ReadRoutes(const AudioJsonValue& routesJson, std::vector<AudioRouteDefinition>& routes) const;
+    bool ReadRoutes(const AudioJsonValue& routesJson, std::vector<AudioRouteDefinition>& routes,
+                    std::vector<AudioControllerBinding>& controllerBindings) const;
     bool ReadControllerBindings(const AudioJsonValue& bindingsJson, std::vector<AudioControllerBinding>& bindings) const;
     std::shared_ptr<AudioSourceSelectorDefinition> ReadSelector(const AudioJsonValue& selectorJson) const;
     bool ReadFilters(const AudioJsonValue& filtersJson, std::vector<AudioFilterDefinition>& filters) const;

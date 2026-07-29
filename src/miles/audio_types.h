@@ -185,6 +185,7 @@ struct AudioSampleData
     fs::path Path;
     size_t Size = 0;
     std::unique_ptr<uint8_t[]> Data;
+    int DecoderType = 64;
 };
 
 struct AudioLayerDefinition

@@ -50,9 +50,9 @@ class CModAudioManager
         return FindServerSoundAliasDefinition(eventId) != nullptr;
     }
     bool TryGetServerSoundTags(const char* eventId, uint32_t& soundTags);
-    bool TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength)
+    bool TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength, int& decoderType)
     {
-        return m_runtime.TryGetReplacementSample(eventName, data, dataLength);
+        return m_runtime.TryGetReplacementSample(eventName, data, dataLength, decoderType);
     }
     bool IsCustomEventControl(const char* eventName) const
     {

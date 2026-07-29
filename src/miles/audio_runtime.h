@@ -148,7 +148,7 @@ class CModAudioRuntime
     void UpdateEventRate(uint64_t eventId, float rateFactor);
     void RecordSpatialization(void* sample, void* route, const void* listener, const float* outputLevels, uint64_t outputChannelCount,
                               uint64_t inputChannelCount);
-    bool TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength);
+    bool TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength, int& decoderType);
     bool IsControlName(const char* eventName) const;
 
     void Service();
@@ -165,7 +165,8 @@ class CModAudioRuntime
     static void BeginFade(ActiveModAudioEvent& instance, float targetMultiplier, unsigned int durationMs, bool destroyAfterFade);
     static std::mt19937& RandomGenerator();
     static size_t SelectRandomIndex(size_t count);
-    static bool SelectAudioSample(const std::shared_ptr<ModAudioEventDefinition>& definition, void*& data, unsigned int& dataLength);
+    static bool SelectAudioSample(const std::shared_ptr<ModAudioEventDefinition>& definition, void*& data, unsigned int& dataLength,
+                                  int& decoderType);
     static const AudioSampleData* SelectLayerAudioSourceLocked(ModAudioEventDefinition& eventDefinition,
                                                                const std::shared_ptr<AudioSourceSelectorDefinition>& selector, void* eventSystem,
                                                                const std::unordered_map<std::string, float>& eventControllerValues);
