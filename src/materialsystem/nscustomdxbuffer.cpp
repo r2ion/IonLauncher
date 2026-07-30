@@ -1,4 +1,6 @@
 #include <atomic>
+#include <array>
+#include <cassert>
 #include "core/tier0.h"
 #include <d3d11.h>
 #include <map>
@@ -16,23 +18,73 @@ struct Ns_Constant_Buffer
 	float data[320];
 };
 
-struct MaterialTextureMappings
+static constexpr size_t kMaxCustomTextureBindings = 60;
+
+struct MaterialTextureMappings_t
 {
-
-	std::array<uint64_t, 60> slots;
-
+	std::array<uint64_t, kMaxCustomTextureBindings> m_Slots {};
 };
+
+struct MaterialNamedTextureMappings_t
+{
+	std::array<std::string, kMaxCustomTextureBindings> m_Slots {};
+};
+
+using FindNamedTextureFn = void* (__fastcall*)(const char* textureName);
+using GetTextureHandleFn = uint64_t(__fastcall*)(void* texture, uint32_t frame);
+using BindPixelTextureHandleFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
+
 DECLARE_MODULE(NSCustomDXBufferHooks)
 
 static Ns_Constant_Buffer NSCustomDXBuffer;
 static std::mutex NSCustomDXBufferMutex;
+static std::mutex s_NamedTextureBindingsMutex;
 
 // map to later on associate guid > buffer
 static std::map<uint64_t, Ns_Constant_Buffer> NSCustomBuffersPerMaterial = {};
-static std::map<uint64_t, MaterialTextureMappings> NSMaterialTextureSlotBindings = {};
+static std::map<uint64_t, MaterialTextureMappings_t> NSMaterialTextureSlotBindings = {};
+static std::map<uint64_t, MaterialNamedTextureMappings_t> s_MaterialNamedTextureSlotBindings = {};
 static std::unordered_set<uint64_t> NSRegisteredCustomBufferMaterials = {};
 static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
+static FindNamedTextureFn s_FindNamedTexture = nullptr;
+static BindPixelTextureHandleFn s_BindPixelTextureHandle = nullptr;
 
+//-----------------------------------------------------------------------------
+// Purpose: Resolve a material-system named texture and bind its current frame
+//          to a pixel-shader resource slot.
+//-----------------------------------------------------------------------------
+static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName)
+{
+	assert(s_FindNamedTexture);
+	assert(s_BindPixelTextureHandle);
+	assert(slot < kMaxCustomTextureBindings);
+	assert(textureName && textureName[0]);
+
+	if (!s_FindNamedTexture || !s_BindPixelTextureHandle || slot >= kMaxCustomTextureBindings || !textureName
+		|| !textureName[0])
+	{
+		return false;
+	}
+
+	void* texture = s_FindNamedTexture(textureName);
+	if (!texture)
+		return false;
+
+	auto* vtable = *reinterpret_cast<void***>(texture);
+	if (!vtable)
+		return false;
+
+	const auto getTextureHandle = reinterpret_cast<GetTextureHandleFn>(vtable[0x170 / sizeof(void*)]);
+	if (!getTextureHandle)
+		return false;
+
+	const int16_t textureHandle = static_cast<int16_t>(getTextureHandle(texture, 0));
+	if (!textureHandle)
+		return false;
+
+	s_BindPixelTextureHandle(slot, textureHandle);
+	return true;
+}
 
 DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, CMaterialGlue_short* a4) -> __int64
 {
@@ -50,9 +102,9 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 		auto& mappings = NSMaterialTextureSlotBindings[internal_logic_material->guid];
 
-		for (size_t slot = 0; slot < mappings.slots.size(); ++slot)
+		for (size_t slot = 0; slot < mappings.m_Slots.size(); ++slot)
 		{
-			uint64_t textureGUID = mappings.slots[slot];
+			uint64_t textureGUID = mappings.m_Slots[slot];
 
 			if (textureGUID == 0)
 				continue;
@@ -70,6 +122,23 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 			dx11.m_pContext->PSSetShaderResources(slot, 1, &TextureSRV);
 
 		}
+	}
+
+	MaterialNamedTextureMappings_t namedTextureMappings;
+	{
+		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
+		const auto mappings = s_MaterialNamedTextureSlotBindings.find(internal_logic_material->guid);
+		if (mappings != s_MaterialNamedTextureSlotBindings.end())
+			namedTextureMappings = mappings->second;
+	}
+
+	// Named textures intentionally bind after RPAK textures so they win when
+	// both mappings target the same shader-resource slot.
+	for (size_t slot = 0; slot < namedTextureMappings.m_Slots.size(); ++slot)
+	{
+		const std::string& textureName = namedTextureMappings.m_Slots[slot];
+		if (!textureName.empty())
+			BindNamedTextureToPixelShader(static_cast<uint32_t>(slot), textureName.c_str());
 	}
 
 	//update custom buffer if material is registered in NSRegisteredCustomBufferMaterials
@@ -250,10 +319,14 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 	uint64_t rPakMaterialGUID = std::stoull(rPakMaterialGUIDString, nullptr, 16);
 	char* MatAssetFromGUID = g_pakLoadApi->GetAssetBinding(rPakMaterialGUID);
 
-	if (rPakShaderSlotBindingInt > 60)
+	if (rPakShaderSlotBindingInt < 0 || rPakShaderSlotBindingInt >= kMaxCustomTextureBindings)
 	{
 		g_pSquirrel[ScriptContext::CLIENT]->raiseerror(
-			sqvm, fmt::format("TextureOverrides only support 30 custom bindings").c_str());
+			sqvm,
+			fmt::format(
+				"TextureOverrides only support shader binding slots 0-{}",
+				kMaxCustomTextureBindings - 1)
+				.c_str());
 		return SQRESULT_ERROR;
 	}
 
@@ -278,19 +351,134 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 				sqvm, fmt::format("Texture with GUID {} Doesnt Exist", rPakTextureGUIDString).c_str());
 			return SQRESULT_ERROR;
 		}
-		NSMaterialTextureSlotBindings[GUIDMaterialGlue_short->guid].slots[rPakShaderSlotBindingInt] = rPakTextureGUID;
+		NSMaterialTextureSlotBindings[GUIDMaterialGlue_short->guid].m_Slots[rPakShaderSlotBindingInt] = rPakTextureGUID;
 	}
 	else
-		NSMaterialTextureSlotBindings[GUIDMaterialGlue_short->guid].slots[rPakShaderSlotBindingInt] = 0;
+		NSMaterialTextureSlotBindings[GUIDMaterialGlue_short->guid].m_Slots[rPakShaderSlotBindingInt] = 0;
 
 		
 
 	return SQRESULT_NULL;
 }
 
+//-----------------------------------------------------------------------------
+// Purpose: Bind a material-system named texture to an RPAK material's pixel
+//          shader slot. Resolution is deferred until the material is drawn.
+//-----------------------------------------------------------------------------
+template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRRELVM sqvm)
+{
+	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);
+	const char* textureName = g_pSquirrel[context]->getstring(sqvm, 2);
+	const int shaderBindingSlot = g_pSquirrel[context]->getinteger(sqvm, 3);
+
+	if (!isValidMaterialGUID(materialGUIDString))
+	{
+		g_pSquirrel[context]->raiseerror(sqvm, "Malformed material GUID");
+		return SQRESULT_ERROR;
+	}
+
+	if (!textureName || !textureName[0])
+	{
+		g_pSquirrel[context]->raiseerror(sqvm, "Named texture cannot be empty");
+		return SQRESULT_ERROR;
+	}
+
+	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings)
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm,
+			fmt::format(
+				"Named texture bindings only support shader binding slots 0-{}",
+				kMaxCustomTextureBindings - 1)
+				.c_str());
+		return SQRESULT_ERROR;
+	}
+
+	const uint64_t materialGUID = std::stoull(materialGUIDString, nullptr, 16);
+	char* materialAsset = g_pakLoadApi->GetAssetBinding(materialGUID);
+	if (!materialAsset)
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm, fmt::format("Material with GUID {} does not exist", materialGUIDString).c_str());
+		return SQRESULT_ERROR;
+	}
+
+	auto* materialBase = reinterpret_cast<uint8_t*>(materialAsset);
+	auto* material = reinterpret_cast<CMaterialGlue_short*>(materialBase + 16);
+
+	{
+		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
+		s_MaterialNamedTextureSlotBindings[material->guid].m_Slots[shaderBindingSlot] = textureName;
+	}
+
+	NS::log::SCRIPT_CL->info(
+		"Bound named texture '{}' to material GUID {:016X} at pixel shader slot {}",
+		textureName,
+		material->guid,
+		shaderBindingSlot);
+	return SQRESULT_NULL;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Remove a material-system named texture override from an RPAK
+//          material's pixel-shader slot.
+//-----------------------------------------------------------------------------
+template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUIRRELVM sqvm)
+{
+	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);
+	const int shaderBindingSlot = g_pSquirrel[context]->getinteger(sqvm, 2);
+
+	if (!isValidMaterialGUID(materialGUIDString))
+	{
+		g_pSquirrel[context]->raiseerror(sqvm, "Malformed material GUID");
+		return SQRESULT_ERROR;
+	}
+
+	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings)
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm,
+			fmt::format(
+				"Named texture bindings only support shader binding slots 0-{}",
+				kMaxCustomTextureBindings - 1)
+				.c_str());
+		return SQRESULT_ERROR;
+	}
+
+	const uint64_t materialGUID = std::stoull(materialGUIDString, nullptr, 16);
+	char* materialAsset = g_pakLoadApi->GetAssetBinding(materialGUID);
+	if (!materialAsset)
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm, fmt::format("Material with GUID {} does not exist", materialGUIDString).c_str());
+		return SQRESULT_ERROR;
+	}
+
+	auto* materialBase = reinterpret_cast<uint8_t*>(materialAsset);
+	auto* material = reinterpret_cast<CMaterialGlue_short*>(materialBase + 16);
+
+	{
+		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
+		const auto mappings = s_MaterialNamedTextureSlotBindings.find(material->guid);
+		if (mappings != s_MaterialNamedTextureSlotBindings.end())
+			mappings->second.m_Slots[shaderBindingSlot].clear();
+	}
+
+	NS::log::SCRIPT_CL->info(
+		"Unbound named texture from material GUID {:016X} at pixel shader slot {}",
+		material->guid,
+		shaderBindingSlot);
+	return SQRESULT_NULL;
+}
+
 
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module)
 {
+	s_FindNamedTexture = module.Offset(0x96F00).RCast<FindNamedTextureFn>();
+	s_BindPixelTextureHandle = module.Offset(0x267D0).RCast<BindPixelTextureHandleFn>();
+	assert(s_FindNamedTexture);
+	assert(s_BindPixelTextureHandle);
+
 	DISPATCH_MODULE(NSCustomDXBufferHooks)
 
 	auto clientUpdateCustomDXBuffer = NSUpdateCustomDXBufferForGUID<ScriptContext::CLIENT>;
@@ -324,4 +512,20 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 		"string rPakMaterialGUID string rPakTextureGUID int shaderBindingSlot",
 		"",
 		clientregisterTexOverride);
+
+	auto clientBindNamedTexture = NSBindNamedTextureToMaterial<ScriptContext::CLIENT>;
+	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
+		"void",
+		"NSBindNamedTextureToMaterial",
+		"string rPakMaterialGUID string textureName int shaderBindingSlot",
+		"",
+		clientBindNamedTexture);
+
+	auto clientUnbindNamedTexture = NSUnbindNamedTextureFromMaterial<ScriptContext::CLIENT>;
+	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
+		"void",
+		"NSUnbindNamedTextureFromMaterial",
+		"string rPakMaterialGUID int shaderBindingSlot",
+		"",
+		clientUnbindNamedTexture);
 })
