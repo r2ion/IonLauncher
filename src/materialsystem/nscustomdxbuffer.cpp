@@ -1,6 +1,7 @@
 #include <atomic>
 #include <array>
 #include <cassert>
+#include <fstream>
 #include "core/tier0.h"
 #include <d3d11.h>
 #include <map>
@@ -9,6 +10,7 @@
 #include <cctype>
 #include <string>
 #include <cstdint>
+#include <vector>
 #include "cmaterialglue.h"
 #include "materialsystem/dx11_device.h"
 #include "rtech/pakfilesystem.h"
@@ -33,6 +35,7 @@ struct MaterialNamedTextureMappings_t
 using FindNamedTextureFn = void* (__fastcall*)(const char* textureName);
 using GetTextureHandleFn = uint64_t(__fastcall*)(void* texture, uint32_t frame);
 using BindPixelTextureHandleFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
+using SetupWaterTextureBindingsFn = void(__fastcall*)(__int64 textureHandles, uint64_t textureCount);
 
 DECLARE_MODULE(NSCustomDXBufferHooks)
 
@@ -48,6 +51,7 @@ static std::unordered_set<uint64_t> NSRegisteredCustomBufferMaterials = {};
 static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
 static FindNamedTextureFn s_FindNamedTexture = nullptr;
 static BindPixelTextureHandleFn s_BindPixelTextureHandle = nullptr;
+static SetupWaterTextureBindingsFn s_SetupWaterTextureBindings = nullptr;
 
 //-----------------------------------------------------------------------------
 // Purpose: Resolve a material-system named texture and bind its current frame
@@ -85,6 +89,77 @@ static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName
 	s_BindPixelTextureHandle(slot, textureHandle);
 	return true;
 }
+
+DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
+{
+	NOTE_UNUSED(hook);
+	NOTE_UNUSED(a1);
+	NOTE_UNUSED(a2);
+	NOTE_UNUSED(a3);
+
+	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
+	if (!dx11)
+		return *reinterpret_cast<unsigned int*>(a4 + 8);
+
+	static bool shadersLoaded = false;
+	static ID3D11VertexShader* vertexShader = nullptr;
+	static ID3D11PixelShader* pixelShader = nullptr;
+
+	if (!shadersLoaded)
+	{
+		shadersLoaded = true;
+
+		const auto readShader = [](const char* fileName, std::vector<uint8_t>& buffer) -> bool
+		{
+			std::ifstream file(fileName, std::ios::binary | std::ios::ate);
+			if (!file)
+			{
+				spdlog::error("Failed to open compiled shader '{}'", fileName);
+				return false;
+			}
+
+			const std::streamoff fileSize = file.tellg();
+			if (fileSize <= 0)
+				return false;
+
+			buffer.resize(static_cast<size_t>(fileSize));
+			file.seekg(0, std::ios::beg);
+			return static_cast<bool>(
+				file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(fileSize)));
+		};
+
+		std::vector<uint8_t> vertexShaderBuffer;
+		std::vector<uint8_t> pixelShaderBuffer;
+		if (readShader("vertex.fxc", vertexShaderBuffer) && readShader("pixel.fxc", pixelShaderBuffer))
+		{
+			HRESULT result = dx11.m_pDevice->CreateVertexShader(
+				vertexShaderBuffer.data(), vertexShaderBuffer.size(), nullptr, &vertexShader);
+			if (FAILED(result))
+				spdlog::error("Failed to create water vertex shader (HRESULT 0x{:08X})", static_cast<uint32_t>(result));
+
+			result = dx11.m_pDevice->CreatePixelShader(
+				pixelShaderBuffer.data(), pixelShaderBuffer.size(), nullptr, &pixelShader);
+			if (FAILED(result))
+				spdlog::error("Failed to create water pixel shader (HRESULT 0x{:08X})", static_cast<uint32_t>(result));
+		}
+	}
+
+	if (vertexShader && pixelShader)
+	{
+		dx11.m_pContext->VSSetShader(vertexShader, nullptr, 0);
+		dx11.m_pContext->PSSetShader(pixelShader, nullptr, 0);
+	}
+
+	ID3D11Buffer* const* constantBuffer = reinterpret_cast<ID3D11Buffer* const*>(a4 + 16);
+	dx11.m_pContext->VSSetConstantBuffers(0, 1, constantBuffer);
+	dx11.m_pContext->PSSetConstantBuffers(0, 1, constantBuffer);
+
+	assert(s_SetupWaterTextureBindings);
+	if (s_SetupWaterTextureBindings)
+		s_SetupWaterTextureBindings(*reinterpret_cast<__int64*>(a4 + 0x78), 14);
+
+	return *reinterpret_cast<unsigned int*>(a4 + 8);
+})
 
 DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, CMaterialGlue_short* a4) -> __int64
 {
@@ -471,13 +546,14 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 	return SQRESULT_NULL;
 }
 
-
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module)
 {
 	s_FindNamedTexture = module.Offset(0x96F00).RCast<FindNamedTextureFn>();
 	s_BindPixelTextureHandle = module.Offset(0x267D0).RCast<BindPixelTextureHandleFn>();
+	s_SetupWaterTextureBindings = module.Offset(0x264F0).RCast<SetupWaterTextureBindingsFn>();
 	assert(s_FindNamedTexture);
 	assert(s_BindPixelTextureHandle);
+	assert(s_SetupWaterTextureBindings);
 
 	DISPATCH_MODULE(NSCustomDXBufferHooks)
 
