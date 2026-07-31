@@ -338,6 +338,7 @@ add_library(
     "vgui/basemodui.cpp"
     "vgui/basemodui.h"
     "vgui/imagepanelcrashfix.cpp"
+    "vgui/panelcrashfix.cpp"
     "vgui/surface.cpp"
     "vgui/surface.h"
     "vgui/vgui.h"
