@@ -153,6 +153,28 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, [](CMod
 	// nop the call to it
 	module.Offset(0x156A63).NoOP(5);
 
+	if (CommandLine()->CheckParm("-noshaderapi"))
+    {
+        // Likely CL_ClearState: clears the client map/model state.
+        // Preserve all software-side cleanup, but skip the render-context reset and release because the null MaterialSystem has no context.
+        module.Offset(0x72B9A).NoOP(9);
+        module.Offset(0x72BCE).NoOP(6);
+        module.Offset(0x72BDC).Patch("C3 90 90 90");
+
+        // Called by Mod_LoadCubemapSamples to select the map cubemap or engine/defaultcubemap.
+        // Keep the texture reference and BSP model metadata, but skip BindLocalCubemap and the context release because the context is null.
+        module.Offset(0xC8404).NoOP(9);
+        module.Offset(0xC8414).NoOP(6);
+        module.Offset(0xC842E).Patch("C3 90 90 90");
+    }
+
+    if (CommandLine()->CheckParm("-nowindow"))
+    {
+        // CVideoMode_Common::CreateGameWindow: skip creating and binding the Win32 window and skip IMaterialSystem::SetMode.
+        // Resume at the software-side datatable and LCD screen effect RPak type registrations, then return success.
+        module.Offset(0x1CD0ED).Patch("E9 70 00 00 00");
+    }
+
 	// runframeserver
 	// nop some access violations
 	module.Offset(0x159819).NoOP(17);
