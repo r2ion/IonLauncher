@@ -44,12 +44,19 @@ struct MaterialTextureMappings_t
 struct MaterialNamedTextureMappings_t
 {
 	std::array<std::string, kMaxCustomTextureBindings> m_Slots {};
+	std::array<int8_t, kMaxCustomTextureBindings> m_SamplerSlots;
+
+	MaterialNamedTextureMappings_t()
+	{
+		m_SamplerSlots.fill(-1);
+	}
 };
 
 using FindNamedTextureFn = void* (__fastcall*)(const char* textureName);
 using GetTextureHandleFn = uint64_t(__fastcall*)(void* texture, uint32_t frame);
 using GetDepthTextureHandleFn = uint64_t(__fastcall*)(void* texture);
 using BindPixelTextureHandleFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
+using ResolvePixelTextureAndSamplerFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
 using SetupWaterTextureBindingsFn = void(__fastcall*)(__int64 textureHandles, uint64_t textureCount);
 
 DECLARE_MODULE(NSCustomDXBufferHooks)
@@ -70,7 +77,12 @@ static std::unordered_set<uint64_t> NSRegisteredCustomBufferMaterials = {};
 static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
 static FindNamedTextureFn s_FindNamedTexture = nullptr;
 static BindPixelTextureHandleFn s_BindPixelTextureHandle = nullptr;
+static ResolvePixelTextureAndSamplerFn s_ResolvePixelTextureAndSampler = nullptr;
 static SetupWaterTextureBindingsFn s_SetupWaterTextureBindings = nullptr;
+static ID3D11ShaderResourceView** s_StagedPixelTextures = nullptr;
+static ID3D11SamplerState** s_StagedPixelSamplers = nullptr;
+static uint64_t* s_StagedTextureBindingState = nullptr;
+static std::mutex s_TextureSamplerResolveMutex;
 // map of material guid -> custom pixel shader
 static std::map<uint64_t, Microsoft::WRL::ComPtr<ID3D11PixelShader>> NSMaterialPixelShaders = {};
 static std::mutex NSMaterialPixelShadersMutex;
@@ -362,18 +374,64 @@ template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM 
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: Resolve a material-system named texture and bind its color and
-//          depth handles to adjacent pixel-shader resource slots.
+// Purpose: Resolve the sampler state encoded in a material-system texture
+//          handle without leaving changes in the engine's staging arrays.
 //-----------------------------------------------------------------------------
-static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName)
+static ID3D11SamplerState* ResolveTextureSampler(int16_t textureHandle)
+{
+	assert(s_ResolvePixelTextureAndSampler);
+	assert(s_StagedPixelTextures);
+	assert(s_StagedPixelSamplers);
+	assert(s_StagedTextureBindingState);
+
+	if (!s_ResolvePixelTextureAndSampler || !s_StagedPixelTextures || !s_StagedPixelSamplers
+		|| !s_StagedTextureBindingState || textureHandle == 0)
+	{
+		return nullptr;
+	}
+
+	std::lock_guard<std::mutex> lock(s_TextureSamplerResolveMutex);
+	ID3D11ShaderResourceView* const previousTexture = s_StagedPixelTextures[0];
+	ID3D11SamplerState* const previousSampler = s_StagedPixelSamplers[0];
+	const uint64_t previousBindingState = *s_StagedTextureBindingState;
+
+	s_ResolvePixelTextureAndSampler(0, textureHandle);
+	ID3D11SamplerState* const sampler = s_StagedPixelSamplers[0];
+
+	s_StagedPixelTextures[0] = previousTexture;
+	s_StagedPixelSamplers[0] = previousSampler;
+	*s_StagedTextureBindingState = previousBindingState;
+	return sampler;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Bind one material-system texture handle and its engine-authored
+//          sampler state to the requested pixel-shader register.
+//-----------------------------------------------------------------------------
+static void BindTextureHandleToPixelShader(uint32_t textureSlot, uint32_t samplerSlot, int16_t textureHandle)
+{
+	s_BindPixelTextureHandle(textureSlot, textureHandle);
+
+	ID3D11SamplerState* sampler = ResolveTextureSampler(textureHandle);
+	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
+	if (sampler && dx11)
+		dx11.m_pContext->PSSetSamplers(samplerSlot, 1, &sampler);
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Resolve a material-system named texture and bind its color/depth
+//          handles to tN/tN+1 and its samplers to sM/sM+1.
+//-----------------------------------------------------------------------------
+static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t samplerSlot, const char* textureName)
 {
 	assert(s_FindNamedTexture);
 	assert(s_BindPixelTextureHandle);
-	assert(slot < kMaxCustomTextureBindings - 1);
+	assert(textureSlot < kMaxCustomTextureBindings - 1);
+	assert(samplerSlot < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1);
 	assert(textureName && textureName[0]);
 
-	if (!s_FindNamedTexture || !s_BindPixelTextureHandle || slot >= kMaxCustomTextureBindings - 1 || !textureName
-		|| !textureName[0])
+	if (!s_FindNamedTexture || !s_BindPixelTextureHandle || textureSlot >= kMaxCustomTextureBindings - 1
+		|| samplerSlot >= D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1 || !textureName || !textureName[0])
 	{
 		return false;
 	}
@@ -396,11 +454,11 @@ static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName
 	if (!textureHandle)
 		return false;
 
-	s_BindPixelTextureHandle(slot, textureHandle);
+	BindTextureHandleToPixelShader(textureSlot, samplerSlot, textureHandle);
 
 	const int16_t depthTextureHandle = static_cast<int16_t>(getDepthTextureHandle(texture));
 	if (depthTextureHandle)
-		s_BindPixelTextureHandle(slot + 1, depthTextureHandle);
+		BindTextureHandleToPixelShader(textureSlot + 1, samplerSlot + 1, depthTextureHandle);
 
 	return true;
 }
@@ -527,8 +585,12 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	for (size_t slot = 0; slot < namedTextureMappings.m_Slots.size(); ++slot)
 	{
 		const std::string& textureName = namedTextureMappings.m_Slots[slot];
-		if (!textureName.empty())
-			BindNamedTextureToPixelShader(static_cast<uint32_t>(slot), textureName.c_str());
+		const int samplerSlot = namedTextureMappings.m_SamplerSlots[slot];
+		if (!textureName.empty() && samplerSlot >= 0)
+		{
+			BindNamedTextureToPixelShader(
+				static_cast<uint32_t>(slot), static_cast<uint32_t>(samplerSlot), textureName.c_str());
+		}
 	}
 
 	//update custom buffer if material is registered in NSRegisteredCustomBufferMaterials
@@ -787,7 +849,8 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 {
 	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);
 	const char* textureName = g_pSquirrel[context]->getstring(sqvm, 2);
-	const int shaderBindingSlot = g_pSquirrel[context]->getinteger(sqvm, 3);
+	const int textureBindingSlot = g_pSquirrel[context]->getinteger(sqvm, 3);
+	const int samplerBindingSlot = g_pSquirrel[context]->getinteger(sqvm, 4);
 
 	if (!isValidMaterialGUID(materialGUIDString))
 	{
@@ -801,13 +864,24 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 		return SQRESULT_ERROR;
 	}
 
-	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings - 1)
+	if (textureBindingSlot < 0 || textureBindingSlot >= kMaxCustomTextureBindings - 1)
 	{
 		g_pSquirrel[context]->raiseerror(
 			sqvm,
 			fmt::format(
 				"Named texture bindings only support base shader slots 0-{} because depth uses the adjacent slot",
 				kMaxCustomTextureBindings - 2)
+				.c_str());
+		return SQRESULT_ERROR;
+	}
+
+	if (samplerBindingSlot < 0 || samplerBindingSlot >= D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1)
+	{
+		g_pSquirrel[context]->raiseerror(
+			sqvm,
+			fmt::format(
+				"Named texture sampler bindings only support base slots 0-{} because color/depth samplers use adjacent slots",
+				D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 2)
 				.c_str());
 		return SQRESULT_ERROR;
 	}
@@ -827,17 +901,20 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 	{
 		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
 		auto& mappings = s_MaterialNamedTextureSlotBindings[material->guid];
-		mappings.m_Slots[shaderBindingSlot] = textureName;
+		mappings.m_Slots[textureBindingSlot] = textureName;
+		mappings.m_SamplerSlots[textureBindingSlot] = static_cast<int8_t>(samplerBindingSlot);
 		UpdateCompileWaterFlag(material, mappings);
 		RefreshRequestedWaterPasses();
 	}
 
 	NS::log::SCRIPT_CL->info(
-		"Bound named texture '{}' to material GUID {:016X} at color slot {} and depth slot {}",
+		"Bound named texture '{}' to material GUID {:016X} at t{}/t{} with samplers s{}/s{}",
 		textureName,
 		material->guid,
-		shaderBindingSlot,
-		shaderBindingSlot + 1);
+		textureBindingSlot,
+		textureBindingSlot + 1,
+		samplerBindingSlot,
+		samplerBindingSlot + 1);
 	return SQRESULT_NULL;
 }
 
@@ -885,6 +962,7 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 		if (mappings != s_MaterialNamedTextureSlotBindings.end())
 		{
 			mappings->second.m_Slots[shaderBindingSlot].clear();
+			mappings->second.m_SamplerSlots[shaderBindingSlot] = -1;
 			UpdateCompileWaterFlag(material, mappings->second);
 			RefreshRequestedWaterPasses();
 		}
@@ -901,10 +979,18 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 {
 	s_FindNamedTexture = module.Offset(0x96F00).RCast<FindNamedTextureFn>();
 	s_BindPixelTextureHandle = module.Offset(0x267D0).RCast<BindPixelTextureHandleFn>();
+	s_ResolvePixelTextureAndSampler = module.Offset(0x26430).RCast<ResolvePixelTextureAndSamplerFn>();
 	s_SetupWaterTextureBindings = module.Offset(0x264F0).RCast<SetupWaterTextureBindingsFn>();
+	s_StagedPixelTextures = module.Offset(0x19ACA70).RCast<ID3D11ShaderResourceView**>();
+	s_StagedPixelSamplers = module.Offset(0x19AC9F0).RCast<ID3D11SamplerState**>();
+	s_StagedTextureBindingState = module.Offset(0x19ACB30).RCast<uint64_t*>();
 	assert(s_FindNamedTexture);
 	assert(s_BindPixelTextureHandle);
+	assert(s_ResolvePixelTextureAndSampler);
 	assert(s_SetupWaterTextureBindings);
+	assert(s_StagedPixelTextures);
+	assert(s_StagedPixelSamplers);
+	assert(s_StagedTextureBindingState);
 
 	DISPATCH_HOOK(NSCustomDXBufferHooks, Water_Execute)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, ShaderExecute)
@@ -945,7 +1031,7 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
 		"void",
 		"NSBindNamedTextureToMaterial",
-		"string rPakMaterialGUID string textureName int shaderBindingSlot",
+		"string rPakMaterialGUID string textureName int textureBindingSlot int samplerBindingSlot",
 		"",
 		clientBindNamedTexture);
 
