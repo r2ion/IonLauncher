@@ -9,7 +9,7 @@ class ISurface;
 extern ISurface* g_pVGuiSurface;
 
 class IImage;
-class HFont;
+typedef unsigned long HFont;
 class IVguiMatInfo;
 class IHTML;
 class IHTMLEvents;
@@ -42,6 +42,23 @@ struct DrawTexturedRectParms_t
 	unsigned char alpha_ll;
 
 	float angle;
+};
+
+enum FontFlags
+{
+    FONTFLAG_NONE,
+    FONTFLAG_ITALIC = 0x001,
+    FONTFLAG_UNDERLINE = 0x002,
+    FONTFLAG_STRIKEOUT = 0x004,
+    FONTFLAG_SYMBOL = 0x008,
+    FONTFLAG_ANTIALIAS = 0x010,
+    FONTFLAG_GAUSSIANBLUR = 0x020,
+    FONTFLAG_ROTARY = 0x040,
+    FONTFLAG_DROPSHADOW = 0x080,
+    FONTFLAG_ADDITIVE = 0x100,
+    FONTFLAG_OUTLINE = 0x200,
+    FONTFLAG_CUSTOM = 0x400,
+    FONTFLAG_BITMAP = 0x800,
 };
 
 struct Vertex_t
@@ -217,11 +234,33 @@ enum ImageFormat
 class ISurface
 {
 public:
+	unsigned long font_create()
+	{
+		using original_fn = unsigned int(__thiscall*)(void*);
+		return (*(original_fn**)this)[78](this);
+	}
+	bool set_font_glyph(unsigned long font, const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags)
+	{
+		using original_fn = bool(__thiscall*)(void*, unsigned long, const char*, int, int, int, int, int, int, int);
+		return (*(original_fn**)this)[79](this, font, windowsFontName, tall, weight, blur, scanlines, flags, 0, 0);
+	}
+
+	// The primary CMatSystemSurface vtable returned for VGUI_Surface031 has
+	// eight internal entries before the public ISurface methods begin.
+	virtual void UNK_Internal00() = 0;
+	virtual void UNK_Internal01() = 0;
+	virtual void UNK_Internal02() = 0;
+	virtual void UNK_Internal03() = 0;
+	virtual void UNK_Internal04() = 0;
+	virtual void UNK_Internal05() = 0;
+	virtual void UNK_Internal06() = 0;
+	virtual void UNK_Internal07() = 0;
+
 	// frame
 	virtual void RunFrame() = 0;
 
 	// hierarchy root
-	virtual Panel* GetEmbeddedPanel() = 0;
+	virtual uintptr_t GetEmbeddedPanel() = 0;
 	virtual void SetEmbeddedPanel(Panel* pPanel) = 0;
 
 	// drawing context
@@ -229,8 +268,8 @@ public:
 	virtual void PopMakeCurrent(Panel* panel) = 0;
 
 	// rendering functions
-	virtual void DrawSetColor(int r, int g, int b, int a) = 0;
 	virtual void DrawSetColor(Color col) = 0;
+	virtual void DrawSetColor(int r, int g, int b, int a) = 0;
 	virtual void DrawGetColor(Color& col) = 0; // dg: r1 add
 
 	virtual void DrawFilledRect(int x0, int y0, int x1, int y1) = 0;
@@ -246,8 +285,8 @@ public:
 
 	virtual void DrawSetTextFont(HFont font) = 0;
 	virtual HFont DrawGetTextFont() = 0; // dg: r1 add
-	virtual void DrawSetTextColor(int r, int g, int b, int a) = 0;
 	virtual void DrawSetTextColor(Color col) = 0;
+	virtual void DrawSetTextColor(int r, int g, int b, int a) = 0;
 	virtual void DrawSetTextPos(int x, int y) = 0;
 	virtual void DrawGetTextPos(int& x, int& y) = 0;
 	virtual void DrawPrintText(const wchar_t* text, int textLen, FontDrawType_t drawType = FONT_DRAW_DEFAULT) = 0;
@@ -312,6 +351,10 @@ public:
 	virtual bool IsWithin(int x, int y) = 0;
 	virtual bool HasFocus() = 0;
 
+	// Public ISurface slots 58-62 (absolute CMatSystemSurface slots 66-70).
+	// Keeping all five entries here aligns the font methods below with the runtime vtable.
+	virtual bool UNK_GetFlag() = 0;
+	virtual void UNK_SetFlag(bool state) = 0;
 	virtual void UNK_nullsub1() = 0;
 	virtual void UNK_nullsub2() = 0;
 	virtual int UNK_retsub3() = 0;
