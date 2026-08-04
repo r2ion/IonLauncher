@@ -2,6 +2,7 @@
 #include "modsystem/modmanager.h"
 #include "dedicated/dedicated.h"
 #include "core/tier0.h"
+#include "materialsystem/nscustomdxbuffer.h"
 #include "util/utils.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
@@ -599,6 +600,8 @@ DECLARE_HOOK(LoadMapRpaks, engine.dll + 0x15A8C0, [](auto& hook, char* mapPath) 
 	NOTE_UNUSED(hook);
 	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
 		return false;
+	if (!IsDedicatedServer())
+		StopFXCAndHotReloadWatchers();
 	const bool forceModelReload = g_pPakLoadManager->GetForceReloadOnMapLoad();
 
 	// unload all mod rpaks that are marked for unload
