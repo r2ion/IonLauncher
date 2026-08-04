@@ -34,6 +34,7 @@ struct MaterialNamedTextureMappings_t
 
 using FindNamedTextureFn = void* (__fastcall*)(const char* textureName);
 using GetTextureHandleFn = uint64_t(__fastcall*)(void* texture, uint32_t frame);
+using GetDepthTextureHandleFn = uint64_t(__fastcall*)(void* texture);
 using BindPixelTextureHandleFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
 using SetupWaterTextureBindingsFn = void(__fastcall*)(__int64 textureHandles, uint64_t textureCount);
 
@@ -54,17 +55,17 @@ static BindPixelTextureHandleFn s_BindPixelTextureHandle = nullptr;
 static SetupWaterTextureBindingsFn s_SetupWaterTextureBindings = nullptr;
 
 //-----------------------------------------------------------------------------
-// Purpose: Resolve a material-system named texture and bind its current frame
-//          to a pixel-shader resource slot.
+// Purpose: Resolve a material-system named texture and bind its color and
+//          depth handles to adjacent pixel-shader resource slots.
 //-----------------------------------------------------------------------------
 static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName)
 {
 	assert(s_FindNamedTexture);
 	assert(s_BindPixelTextureHandle);
-	assert(slot < kMaxCustomTextureBindings);
+	assert(slot < kMaxCustomTextureBindings - 1);
 	assert(textureName && textureName[0]);
 
-	if (!s_FindNamedTexture || !s_BindPixelTextureHandle || slot >= kMaxCustomTextureBindings || !textureName
+	if (!s_FindNamedTexture || !s_BindPixelTextureHandle || slot >= kMaxCustomTextureBindings - 1 || !textureName
 		|| !textureName[0])
 	{
 		return false;
@@ -79,7 +80,9 @@ static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName
 		return false;
 
 	const auto getTextureHandle = reinterpret_cast<GetTextureHandleFn>(vtable[0x170 / sizeof(void*)]);
-	if (!getTextureHandle)
+	const auto getDepthTextureHandle =
+		reinterpret_cast<GetDepthTextureHandleFn>(vtable[0x178 / sizeof(void*)]);
+	if (!getTextureHandle || !getDepthTextureHandle)
 		return false;
 
 	const int16_t textureHandle = static_cast<int16_t>(getTextureHandle(texture, 0));
@@ -87,6 +90,11 @@ static bool BindNamedTextureToPixelShader(uint32_t slot, const char* textureName
 		return false;
 
 	s_BindPixelTextureHandle(slot, textureHandle);
+
+	const int16_t depthTextureHandle = static_cast<int16_t>(getDepthTextureHandle(texture));
+	if (depthTextureHandle)
+		s_BindPixelTextureHandle(slot + 1, depthTextureHandle);
+
 	return true;
 }
 
@@ -437,8 +445,8 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: Bind a material-system named texture to an RPAK material's pixel
-//          shader slot. Resolution is deferred until the material is drawn.
+// Purpose: Bind a material-system named texture to adjacent RPAK pixel-shader
+//          slots. Resolution is deferred until the material is drawn.
 //-----------------------------------------------------------------------------
 template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRRELVM sqvm)
 {
@@ -458,13 +466,13 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 		return SQRESULT_ERROR;
 	}
 
-	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings)
+	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings - 1)
 	{
 		g_pSquirrel[context]->raiseerror(
 			sqvm,
 			fmt::format(
-				"Named texture bindings only support shader binding slots 0-{}",
-				kMaxCustomTextureBindings - 1)
+				"Named texture bindings only support base shader slots 0-{} because depth uses the adjacent slot",
+				kMaxCustomTextureBindings - 2)
 				.c_str());
 		return SQRESULT_ERROR;
 	}
@@ -487,10 +495,11 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 	}
 
 	NS::log::SCRIPT_CL->info(
-		"Bound named texture '{}' to material GUID {:016X} at pixel shader slot {}",
+		"Bound named texture '{}' to material GUID {:016X} at color slot {} and depth slot {}",
 		textureName,
 		material->guid,
-		shaderBindingSlot);
+		shaderBindingSlot,
+		shaderBindingSlot + 1);
 	return SQRESULT_NULL;
 }
 
@@ -509,13 +518,13 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 		return SQRESULT_ERROR;
 	}
 
-	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings)
+	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings - 1)
 	{
 		g_pSquirrel[context]->raiseerror(
 			sqvm,
 			fmt::format(
-				"Named texture bindings only support shader binding slots 0-{}",
-				kMaxCustomTextureBindings - 1)
+				"Named texture bindings only support base shader slots 0-{} because depth uses the adjacent slot",
+				kMaxCustomTextureBindings - 2)
 				.c_str());
 		return SQRESULT_ERROR;
 	}
