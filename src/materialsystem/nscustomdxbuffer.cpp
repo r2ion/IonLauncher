@@ -514,6 +514,18 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 		dx11.m_pContext->Unmap(resource, 0);
 		dx11.m_pContext->PSSetConstantBuffers(4, 1, &resource);
 	}
+
+
+    // If a custom pixel shader has been registered for this material, set it now
+    {
+        std::lock_guard<std::mutex> lock(NSMaterialPixelShadersMutex);
+        auto it = NSMaterialPixelShaders.find(internal_logic_material->guid);
+        if (it != NSMaterialPixelShaders.end() && it->second != nullptr)
+        {
+            dx11.m_pContext->PSSetShader(it->second.Get(), nullptr, 0);
+        }
+    }
+
 	return subResult;
 })
 
@@ -545,6 +557,9 @@ template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIR
 	{
 		NS::log::SCRIPT_CL->warn("Attempted to register GUID: {} to the NSCustomDXBuffer system, GUID was already registered", GUIDMaterialGlue_short->guid);
 	}
+
+
+
 	return SQRESULT_NULL;
 }
 
