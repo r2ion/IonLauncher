@@ -28,6 +28,13 @@ struct Ns_Constant_Buffer
 };
 
 static constexpr size_t kMaxCustomTextureBindings = 60;
+static constexpr uint32_t kCompileWaterGlueFlag2 = 0x00080000;
+static constexpr const char* kWaterReflectionTextureName = "_rt_WaterReflection";
+static constexpr const char* kWaterRefractionTextureName = "_rt_WaterRefraction";
+static constexpr uint16_t kDrawWaterRefraction = 0x0001;
+static constexpr uint16_t kDrawWaterReflection = 0x0002;
+static constexpr size_t kViewWaterPlaneOffset = 0x50890;
+static constexpr size_t kViewWaterDrawFlagsOffset = 0x508A4;
 
 struct MaterialTextureMappings_t
 {
@@ -55,6 +62,10 @@ static std::mutex s_NamedTextureBindingsMutex;
 static std::map<uint64_t, Ns_Constant_Buffer> NSCustomBuffersPerMaterial = {};
 static std::map<uint64_t, MaterialTextureMappings_t> NSMaterialTextureSlotBindings = {};
 static std::map<uint64_t, MaterialNamedTextureMappings_t> s_MaterialNamedTextureSlotBindings = {};
+// Tracks only flags applied by the named-texture binding system so unbinding
+// does not clear a compileWater flag authored in the RPAK material itself.
+static std::unordered_set<uint64_t> s_AutoCompileWaterMaterials = {};
+static std::atomic<uint16_t> s_RequestedWaterPasses {};
 static std::unordered_set<uint64_t> NSRegisteredCustomBufferMaterials = {};
 static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
 static FindNamedTextureFn s_FindNamedTexture = nullptr;
@@ -63,6 +74,49 @@ static SetupWaterTextureBindingsFn s_SetupWaterTextureBindings = nullptr;
 // map of material guid -> custom pixel shader
 static std::map<uint64_t, Microsoft::WRL::ComPtr<ID3D11PixelShader>> NSMaterialPixelShaders = {};
 static std::mutex NSMaterialPixelShadersMutex;
+
+static uint16_t GetRequestedWaterPasses(const MaterialNamedTextureMappings_t& mappings)
+{
+	uint16_t requestedPasses = 0;
+	for (const std::string& textureName : mappings.m_Slots)
+	{
+		if (_stricmp(textureName.c_str(), kWaterRefractionTextureName) == 0)
+			requestedPasses |= kDrawWaterRefraction;
+		else if (_stricmp(textureName.c_str(), kWaterReflectionTextureName) == 0)
+			requestedPasses |= kDrawWaterReflection;
+	}
+
+	return requestedPasses;
+}
+
+// Must be called while s_NamedTextureBindingsMutex is held.
+static void RefreshRequestedWaterPasses()
+{
+	uint16_t requestedPasses = 0;
+	for (const auto& materialMappings : s_MaterialNamedTextureSlotBindings)
+		requestedPasses |= GetRequestedWaterPasses(materialMappings.second);
+
+	s_RequestedWaterPasses.store(requestedPasses, std::memory_order_release);
+}
+
+// CMaterialGlue::IsWater reads flags2 bit 19, which is the RPAK equivalent of
+// VMT %compileWater. The client render-target producer still needs a separate
+// hook because engine.dll only creates its water records from BSP leafwaterdata.
+static void UpdateCompileWaterFlag(
+	CMaterialGlue_short* material, const MaterialNamedTextureMappings_t& mappings)
+{
+	if (GetRequestedWaterPasses(mappings) != 0)
+	{
+		if ((material->flags2 & kCompileWaterGlueFlag2) == 0)
+			s_AutoCompileWaterMaterials.insert(material->guid);
+
+		material->flags2 |= kCompileWaterGlueFlag2;
+		return;
+	}
+
+	if (s_AutoCompileWaterMaterials.erase(material->guid) != 0)
+		material->flags2 &= ~kCompileWaterGlueFlag2;
+}
 
 struct FXCWatcher_t
 {
@@ -529,6 +583,35 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	return subResult;
 })
 
+// The normal water path reaches this function with flags produced from
+// engine.dll's BSP leafwaterdata records. RPAK materials have no leaf record,
+// so add the pass bits requested by their named render-target bindings just
+// before the client decides which water render targets to update.
+DECLARE_HOOK(UpdateWaterRenderTargets, client.dll + 0x3756A0, [](auto& hook, __int64 viewRender, uint8_t* view, void* originalView, unsigned int clearFlags, __int64 finalRenderTarget) -> __int64
+{
+	const uint16_t requestedPasses = s_RequestedWaterPasses.load(std::memory_order_acquire);
+	if (view && requestedPasses != 0)
+	{
+		auto* waterDrawFlags = reinterpret_cast<uint16_t*>(view + kViewWaterDrawFlagsOffset);
+		*waterDrawFlags |= requestedPasses;
+
+		if ((requestedPasses & kDrawWaterReflection) != 0)
+		{
+			auto* waterPlane = reinterpret_cast<float*>(view + kViewWaterPlaneOffset);
+			if (waterPlane[0] == 0.0f && waterPlane[1] == 0.0f && waterPlane[2] == 0.0f)
+			{
+				// A material has no geometry or transform from which to recover a
+				// reflection plane. Use a valid horizontal fallback so the target
+				// is populated; real BSP water keeps its authored plane above.
+				waterPlane[2] = 1.0f;
+				waterPlane[3] = reinterpret_cast<float*>(view)[2] - 64.0f;
+			}
+		}
+	}
+
+	return hook.Original(viewRender, view, originalView, clearFlags, finalRenderTarget);
+})
+
 template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIRRELVM sqvm)
 {
 
@@ -743,7 +826,10 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 
 	{
 		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
-		s_MaterialNamedTextureSlotBindings[material->guid].m_Slots[shaderBindingSlot] = textureName;
+		auto& mappings = s_MaterialNamedTextureSlotBindings[material->guid];
+		mappings.m_Slots[shaderBindingSlot] = textureName;
+		UpdateCompileWaterFlag(material, mappings);
+		RefreshRequestedWaterPasses();
 	}
 
 	NS::log::SCRIPT_CL->info(
@@ -797,7 +883,11 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
 		const auto mappings = s_MaterialNamedTextureSlotBindings.find(material->guid);
 		if (mappings != s_MaterialNamedTextureSlotBindings.end())
+		{
 			mappings->second.m_Slots[shaderBindingSlot].clear();
+			UpdateCompileWaterFlag(material, mappings->second);
+			RefreshRequestedWaterPasses();
+		}
 	}
 
 	NS::log::SCRIPT_CL->info(
@@ -816,7 +906,8 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 	assert(s_BindPixelTextureHandle);
 	assert(s_SetupWaterTextureBindings);
 
-	DISPATCH_MODULE(NSCustomDXBufferHooks)
+	DISPATCH_HOOK(NSCustomDXBufferHooks, Water_Execute)
+	DISPATCH_HOOK(NSCustomDXBufferHooks, ShaderExecute)
 
 	auto clientUpdateCustomDXBuffer = NSUpdateCustomDXBufferForGUID<ScriptContext::CLIENT>;
 	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration(
@@ -866,5 +957,11 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 		"",
 		clientUnbindNamedTexture);
     auto clientWatchFXC = NSWatchFXCAndHotReload_SQ<ScriptContext::CLIENT>;
-    g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration("void", "NSWatchFXCAndHotReload", "string optionalMaterialGUID", "", clientWatchFXC);
+	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration("void", "NSWatchFXCAndHotReload", "string optionalMaterialGUID", "", clientWatchFXC);
+})
+
+ON_DLL_LOAD_CLIENT("client.dll", CustomWaterRenderTargets, [](CModule module)
+{
+	NOTE_UNUSED(module);
+	DISPATCH_HOOK(NSCustomDXBufferHooks, UpdateWaterRenderTargets)
 })
