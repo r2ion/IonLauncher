@@ -11,8 +11,11 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <commdlg.h>
 #include "cmaterialglue.h"
 #include "materialsystem/dx11_device.h"
+#include <d3dcompiler.h>
+#pragma comment(lib, "d3dcompiler.lib")
 #include "rtech/pakfilesystem.h"
 
 struct Ns_Constant_Buffer
@@ -53,6 +56,234 @@ static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
 static FindNamedTextureFn s_FindNamedTexture = nullptr;
 static BindPixelTextureHandleFn s_BindPixelTextureHandle = nullptr;
 static SetupWaterTextureBindingsFn s_SetupWaterTextureBindings = nullptr;
+// map of material guid -> custom pixel shader
+static std::map<uint64_t, ID3D11PixelShader*> NSMaterialPixelShaders = {};
+static std::mutex NSMaterialPixelShadersMutex;
+
+// Simple watcher threads bookkeeping to avoid starting multiple watchers for same material
+// watcher threads and stop flags
+static std::unordered_map<uint64_t, std::thread> NSFXCWatchers = {};
+static std::unordered_map<uint64_t, std::shared_ptr<std::atomic<bool>>> NSFXCWatcherStops = {};
+static std::mutex NSFXCWatchersMutex;
+
+bool isValidMaterialGUID(const std::string& str)
+{
+    // Must start with "0x" or "0X"
+    if (str.size() != 18 || str[0] != '0' || (str[1] != 'x' && str[1] != 'X'))
+        return false;
+
+    // Must contain exactly 16 hex digits after 0x
+    for (size_t i = 2; i < str.size(); ++i)
+    {
+        if (!std::isxdigit(static_cast<unsigned char>(str[i])))
+            return false;
+    }
+
+    return true;
+}
+
+
+static void WatchFXCAndHotReload(const std::wstring filePath, uint64_t materialGUID)
+{
+    auto stopFlag = std::make_shared<std::atomic<bool>>(false);
+    {
+        std::lock_guard<std::mutex> lock(NSFXCWatchersMutex);
+        NSFXCWatcherStops[materialGUID] = stopFlag;
+    }
+
+    std::thread t([filePath, materialGUID, stopFlag]()
+    {
+        using namespace std::chrono_literals;
+        std::error_code ec;
+        auto lastWrite = std::filesystem::last_write_time(filePath, ec);
+
+        while (!stopFlag->load())
+        {
+            std::this_thread::sleep_for(500ms);
+            auto curr = std::filesystem::last_write_time(filePath, ec);
+            if (ec)
+                continue;
+            if (curr != lastWrite)
+            {
+                lastWrite = curr;
+                // attempt compile/load
+                const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
+                if (!dx11)
+                    continue;
+
+                ID3D11PixelShader* newShader = nullptr;
+
+                // determine extension
+                std::wstring ext = std::filesystem::path(filePath).extension().wstring();
+                try
+                {
+                    if (_wcsicmp(ext.c_str(), L".cso") == 0 || _wcsicmp(ext.c_str(), L".bin") == 0)
+                    {
+                        // compiled blob
+                        ID3DBlob* blob = nullptr;
+                        if (SUCCEEDED(D3DReadFileToBlob(filePath.c_str(), &blob)) && blob)
+                        {
+                            if (SUCCEEDED(dx11.m_pDevice->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &newShader)))
+                            {
+                                spdlog::info("Hotloaded pixel shader from {} for GUID {}", std::string(filePath.begin(), filePath.end()),
+                                             materialGUID);
+                            }
+                            blob->Release();
+                        }
+                    }
+                    else
+                    {
+                        ID3DBlob* code = nullptr;
+                        ID3DBlob* err = nullptr;
+                        UINT flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+                        HRESULT hr =
+                            D3DCompileFromFile(filePath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", flags, 0, &code, &err);
+                        if (FAILED(hr))
+                        {
+                            if (err)
+                            {
+                                spdlog::error("Shader compile error: {}", std::string(reinterpret_cast<char*>(err->GetBufferPointer())));
+                                err->Release();
+                            }
+                        }
+                        else if (code)
+                        {
+                            if (SUCCEEDED(dx11.m_pDevice->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &newShader)))
+                            {
+                                spdlog::info("Hotloaded compiled pixel shader from source {} for GUID {}",
+                                             std::string(filePath.begin(), filePath.end()), materialGUID);
+                            }
+                            code->Release();
+                        }
+                    }
+                }
+                catch (...)
+                {
+                }
+
+                if (newShader)
+                {
+                    std::lock_guard<std::mutex> lock(NSMaterialPixelShadersMutex);
+                    auto it = NSMaterialPixelShaders.find(materialGUID);
+                    if (it != NSMaterialPixelShaders.end() && it->second != nullptr)
+                    {
+                        it->second->Release();
+                    }
+                    NSMaterialPixelShaders[materialGUID] = newShader;
+                }
+            }
+        }
+    });
+
+    t.detach();
+    std::lock_guard<std::mutex> lock(NSFXCWatchersMutex);
+    NSFXCWatchers[materialGUID] = std::move(t);
+}
+
+template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM sqvm)
+{
+    // 1: optional guid string
+    const char* maybeGuid = nullptr;
+    try
+    {
+        maybeGuid = g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1);
+    }
+    catch (...)
+    {
+        maybeGuid = nullptr;
+    }
+
+    // Open file dialog to select fxc file
+    OPENFILENAMEW ofn = {};
+    wchar_t szFile[MAX_PATH] = {0};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter = L"FXC or FX\0*.fxc;*.fx\0All\0*.*\0";
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrDefExt = L"fxc";
+
+    if (!GetOpenFileNameW(&ofn))
+    {
+        g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "File selection cancelled or failed");
+        return SQRESULT_ERROR;
+    }
+
+    std::wstring filePath(szFile);
+
+    std::string guidStr;
+    if (maybeGuid && strlen(maybeGuid) > 0)
+    {
+        guidStr = maybeGuid;
+    }
+    else
+    {
+        MessageBoxA(NULL, "Please copy the material GUID (hex, e.g. 0xABC...) to the clipboard and press OK", "Enter Material GUID",
+                    MB_OK | MB_ICONINFORMATION);
+        //if (!ReadClipboardString(guidStr) || guidStr.empty())
+        //{
+        //    g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "No GUID found in clipboard");
+        //    return SQRESULT_ERROR;
+        //}
+    }
+
+    if (!isValidMaterialGUID(guidStr))
+    {
+        g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "Malformed Material GUID");
+        return SQRESULT_ERROR;
+    }
+
+    uint64_t matGUID = std::stoull(guidStr, nullptr, 16);
+
+    // ensure we dont already have a watcher
+    {
+        std::lock_guard<std::mutex> lock(NSFXCWatchersMutex);
+        if (NSFXCWatchers.find(matGUID) != NSFXCWatchers.end())
+        {
+            g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "A watcher is already running for this material GUID");
+            return SQRESULT_ERROR;
+        }
+    }
+
+    WatchFXCAndHotReload(filePath, matGUID);
+
+    return SQRESULT_NULL;
+}
+
+// forward declare validation helper used by the Squirrel watcher function
+bool isValidMaterialGUID(const std::string& str);
+
+static bool LoadPixelShaderFromFile(const CDx11Device::Snapshot& dx11, const std::wstring& path, ID3D11PixelShader** outShader)
+{
+    if (!dx11.m_pDevice)
+        return false;
+
+    ID3DBlob* blob = nullptr;
+    HRESULT hr = D3DReadFileToBlob(path.c_str(), &blob);
+    if (FAILED(hr) || !blob)
+    {
+        spdlog::error("D3DReadFileToBlob failed for {} hr={:X}", std::string(path.begin(), path.end()), (uint32_t)hr);
+        if (blob)
+            blob->Release();
+        return false;
+    }
+
+    ID3D11PixelShader* shader = nullptr;
+    hr = dx11.m_pDevice->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &shader);
+    blob->Release();
+    if (FAILED(hr) || !shader)
+    {
+        spdlog::error("CreatePixelShader failed hr={:X}", (uint32_t)hr);
+        if (shader)
+            shader->Release();
+        return false;
+    }
+
+    *outShader = shader;
+    return true;
+}
+
+
 
 //-----------------------------------------------------------------------------
 // Purpose: Resolve a material-system named texture and bind its color and
@@ -263,22 +494,6 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	}
 	return subResult;
 })
-
-bool isValidMaterialGUID(const std::string& str)
-{
-	// Must start with "0x" or "0X"
-	if (str.size() != 18 || str[0] != '0' || (str[1] != 'x' && str[1] != 'X'))
-		return false;
-
-	// Must contain exactly 16 hex digits after 0x
-	for (size_t i = 2; i < str.size(); ++i)
-	{
-		if (!std::isxdigit(static_cast<unsigned char>(str[i])))
-			return false;
-	}
-
-	return true;
-}
 
 template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIRRELVM sqvm)
 {
@@ -613,4 +828,6 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 		"string rPakMaterialGUID int shaderBindingSlot",
 		"",
 		clientUnbindNamedTexture);
+    auto clientWatchFXC = NSWatchFXCAndHotReload_SQ<ScriptContext::CLIENT>;
+    g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration("void", "NSWatchFXCAndHotReload", "string optionalMaterialGUID", "", clientWatchFXC);
 })
