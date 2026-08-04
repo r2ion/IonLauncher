@@ -39,7 +39,11 @@ void ConCommand_hideconsole(const CCommand& arg)
 
 void SourceConsoleSink::sink_it_(const spdlog::details::log_msg& msg)
 {
-	if (!g_pGameConsole->m_bInitialized || !ConColorMsg || !ConMsg)
+
+	if (!g_pGameConsole)
+        return;
+
+    if ((g_pGameConsole && !g_pGameConsole->m_bInitialized) || !ConColorMsg || !ConMsg)
 		return;
 
 	spdlog::memory_buf_t formatted;
