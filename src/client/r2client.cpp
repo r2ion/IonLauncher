@@ -9,9 +9,6 @@ CPlayer__IsMantling_t CPlayer__IsMantling;
 
 ON_DLL_LOAD("client.dll", R2Client, [](CModule module)
 {
-	// Force breakable glass to use the debugempty fallback instead of dereferencing a missing "breakable" substring.
-	//module.Offset(0x11D7A8).NoOP(2);
-
 	CPlayer__IsMantling = module.Offset(0x9E0B0).RCast<CPlayer__IsMantling_t>();
 })
 

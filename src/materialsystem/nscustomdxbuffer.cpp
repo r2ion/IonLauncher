@@ -101,7 +101,6 @@ static uint16_t GetRequestedWaterPasses(const MaterialNamedTextureMappings_t& ma
 	return requestedPasses;
 }
 
-// Must be called while s_NamedTextureBindingsMutex is held.
 static void RefreshRequestedWaterPasses()
 {
 	uint16_t requestedPasses = 0;
@@ -112,7 +111,7 @@ static void RefreshRequestedWaterPasses()
 }
 
 // CMaterialGlue::IsWater reads flags2 bit 19, which is the RPAK equivalent of
-// VMT %compileWater. The client render-target producer still needs a separate
+// VMT %compileWater. The client render-target still needs a separate
 // hook because engine.dll only creates its water records from BSP leafwaterdata.
 static void UpdateCompileWaterFlag(
 	CMaterialGlue_short* material, const MaterialNamedTextureMappings_t& mappings)
@@ -136,8 +135,7 @@ struct FXCWatcher_t
 	std::jthread m_Thread;
 };
 
-// Watchers remain joinable so map teardown can quiesce them before unloading
-// the materials their GUIDs refer to.
+
 static std::unordered_map<uint64_t, FXCWatcher_t> NSFXCWatchers = {};
 static std::mutex NSFXCWatchersMutex;
 
@@ -345,16 +343,6 @@ template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM 
     {
         guidStr = maybeGuid;
     }
-    else
-    {
-        MessageBoxA(NULL, "Please copy the material GUID (hex, e.g. 0xABC...) to the clipboard and press OK", "Enter Material GUID",
-                    MB_OK | MB_ICONINFORMATION);
-        //if (!ReadClipboardString(guidStr) || guidStr.empty())
-        //{
-        //    g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "No GUID found in clipboard");
-        //    return SQRESULT_ERROR;
-        //}
-    }
 
     if (!isValidMaterialGUID(guidStr))
     {
@@ -373,10 +361,6 @@ template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM 
 	return SQRESULT_NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Resolve the sampler state encoded in a material-system texture
-//          handle without leaving changes in the engine's staging arrays.
-//-----------------------------------------------------------------------------
 static ID3D11SamplerState* ResolveTextureSampler(int16_t textureHandle)
 {
 	assert(s_ResolvePixelTextureAndSampler);
@@ -404,10 +388,6 @@ static ID3D11SamplerState* ResolveTextureSampler(int16_t textureHandle)
 	return sampler;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Bind one material-system texture handle and its engine-authored
-//          sampler state to the requested pixel-shader register.
-//-----------------------------------------------------------------------------
 static void BindTextureHandleToPixelShader(uint32_t textureSlot, uint32_t samplerSlot, int16_t textureHandle)
 {
 	s_BindPixelTextureHandle(textureSlot, textureHandle);
@@ -418,10 +398,7 @@ static void BindTextureHandleToPixelShader(uint32_t textureSlot, uint32_t sample
 		dx11.m_pContext->PSSetSamplers(samplerSlot, 1, &sampler);
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Resolve a material-system named texture and bind its color/depth
-//          handles to tN/tN+1 and its samplers to sM/sM+1.
-//-----------------------------------------------------------------------------
+
 static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t samplerSlot, const char* textureName)
 {
 	assert(s_FindNamedTexture);
@@ -538,7 +515,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 {
 	CMaterialGlue_short* internal_logic_material = a4;
 
-	auto subResult = hook.Original(a1, a2, a3, internal_logic_material); // IMPORTANT DO NOT REPLACE, NEEDS TO RUN BEFORE ANYTHING ELSE HAPPENS IN SHADEREXECUTE
+	auto subResult = hook.Original(a1, a2, a3, internal_logic_material);
 
 	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
 	if (!dx11)
@@ -691,7 +668,6 @@ template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIR
 
 	auto* base = reinterpret_cast<uint8_t*>(AssetFromGUID);
 	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
-	// We need to add 16 to the pointer; Pak_GetAssetBinding returns the full material glue.
 	if(!NSRegisteredCustomBufferMaterials.contains( GUIDMaterialGlue_short->guid))
 	{
 		NS::log::SCRIPT_CL->info("Registered GUID: {} to use the NSCustomDXBuffer system", GUIDMaterialGlue_short->guid);
@@ -725,7 +701,6 @@ template <ScriptContext context> SQRESULT NSDeregisterCustomDXBufferForGUID(HSQU
 
 	auto* base = reinterpret_cast<uint8_t*>(AssetFromGUID);
 	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
-	// We need to add 16 to the pointer; Pak_GetAssetBinding returns the full material glue.
 	if (NSRegisteredCustomBufferMaterials.contains(GUIDMaterialGlue_short->guid))
 	{
 		NS::log::SCRIPT_CL->info("Deregistered GUID: {} from the NSCustomDXBuffer system", GUIDMaterialGlue_short->guid);
@@ -741,8 +716,6 @@ template <ScriptContext context> SQRESULT NSDeregisterCustomDXBufferForGUID(HSQU
 
 template <ScriptContext context> SQRESULT NSUpdateCustomDXBufferForGUID(HSQUIRRELVM sqvm)
 {
-
-	// get the guid as a string to later conv
 	auto rPakMaterialGUIDString = (g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1));
 
 	std::vector<float> NSCustomBufferVector;
@@ -783,7 +756,6 @@ template <ScriptContext context> SQRESULT NSUpdateCustomDXBufferForGUID(HSQUIRRE
 	}
 	for (int vIdx = 0; vIdx < NSCustomBufferVector.size(); ++vIdx)
 	{
-		// assign buffer to the map using the guid as key
 		NSCustomBuffersPerMaterial[rPakMaterialGUID].data[vIdx] = NSCustomBufferVector.at(vIdx);
 	}
 	return SQRESULT_NULL;
@@ -841,10 +813,7 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 	return SQRESULT_NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Bind a material-system named texture to adjacent RPAK pixel-shader
-//          slots. Resolution is deferred until the material is drawn.
-//-----------------------------------------------------------------------------
+
 template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRRELVM sqvm)
 {
 	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);
@@ -918,10 +887,6 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 	return SQRESULT_NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Remove a material-system named texture override from an RPAK
-//          material's pixel-shader slot.
-//-----------------------------------------------------------------------------
 template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUIRRELVM sqvm)
 {
 	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);

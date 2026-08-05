@@ -234,19 +234,7 @@ enum ImageFormat
 class ISurface
 {
 public:
-	unsigned long font_create()
-	{
-		using original_fn = unsigned int(__thiscall*)(void*);
-		return (*(original_fn**)this)[78](this);
-	}
-	bool set_font_glyph(unsigned long font, const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags)
-	{
-		using original_fn = bool(__thiscall*)(void*, unsigned long, const char*, int, int, int, int, int, int, int);
-		return (*(original_fn**)this)[79](this, font, windowsFontName, tall, weight, blur, scanlines, flags, 0, 0);
-	}
-
-	// The primary CMatSystemSurface vtable returned for VGUI_Surface031 has
-	// eight internal entries before the public ISurface methods begin.
+    // IAppSystem methods
 	virtual void UNK_Internal00() = 0;
 	virtual void UNK_Internal01() = 0;
 	virtual void UNK_Internal02() = 0;
