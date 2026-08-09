@@ -1,5 +1,5 @@
 #include "printcommands.h"
-#include "core/convar/cvar.h"
+#include "tier1/cvar.h"
 #include "core/convar/convar.h"
 #include "core/convar/concommand.h"
 
@@ -20,7 +20,7 @@ void PrintCommandHelpDialogue(const ConCommandBase* command, const char* name)
 	{
 		flagString = "( ";
 
-		for (auto& flagPair : g_PrintCommandFlags)
+		for (const auto& flagPair : GetConVarFlagNames())
 		{
 			if (command->GetFlags() & flagPair.first)
 			{
@@ -68,7 +68,7 @@ void TryPrintCvarHelpForCommand(const char* pCommand)
 	// check if we're inputting a cvar, but not setting it at all
 	ConVar* cvar = g_pCVar->FindVar(cvarStr.c_str());
 	if (cvar)
-		PrintCommandHelpDialogue(&cvar->m_ConCommandBase, cvarStr.c_str());
+		PrintCommandHelpDialogue(cvar, cvarStr.c_str());
 }
 
 void ConCommand_help(const CCommand& arg)
@@ -138,7 +138,7 @@ void ConCommand_findflags(const CCommand& arg)
 	if (arg.ArgC() < 2)
 	{
 		spdlog::info("Usage: findflags <string>");
-		for (auto& flagPair : g_PrintCommandFlags)
+		for (const auto& flagPair : GetConVarFlagNames())
 			spdlog::info("   - {}", flagPair.second);
 
 		return;
@@ -152,7 +152,7 @@ void ConCommand_findflags(const CCommand& arg)
 
 	// resolve flag name => int flags
 	int resolvedFlag = FCVAR_NONE;
-	for (auto& flagPair : g_PrintCommandFlags)
+	for (const auto& flagPair : GetConVarFlagNames())
 	{
 		if (!strcmp(flagPair.second, upperFlag.c_str()))
 		{

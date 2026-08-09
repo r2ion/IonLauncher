@@ -1,8 +1,9 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "core/tier0.h"
-#include "engine/bitbuf.h"
+#include "tier1/bitbuf.h"
 #include "logging/logging.h"
 #include "tier0/module.h"
+#include "tier1/cvar.h"
 #include <vector>
 
 DECLARE_MODULE(NetworkStringTablesHooks)

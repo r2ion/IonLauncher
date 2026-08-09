@@ -1,13 +1,5 @@
 #pragma once
 
-class IClientEntityList
-{
-public:
-	
-	M_VMETHOD(CBaseEntity*, GetClientEntity, 3, (int hEnt), (this, hEnt))
-};
-
+#include "game/client/icliententitylist.h"
 
 extern IClientEntityList* g_pClientEntityList;
-
-

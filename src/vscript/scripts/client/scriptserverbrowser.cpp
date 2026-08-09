@@ -2,8 +2,9 @@
 #include "masterserver/masterserver.h"
 #include "server/auth/serverauthentication.h"
 #include "engine/r2engine.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "client/connect.h"
+#include "tier1/cvar.h"
 
 // functions for viewing server browser
 

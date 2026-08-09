@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vscript/vscript.h"
+#include "vscript/languages/squirrel_re/vsquirrel.h"
 
 #include <queue>
 

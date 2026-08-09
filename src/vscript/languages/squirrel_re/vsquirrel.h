@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vscript/languages/squirrel_re/squirrel/sqvm.h"
+
 struct CSquirrelVM
 {
 	BYTE gap_0[8];

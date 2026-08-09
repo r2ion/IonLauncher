@@ -1,4 +1,4 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "vscript/squirrel/squirrel.h"
 #include "client/ckf.h"
 #include "logging/sourceconsole.h"

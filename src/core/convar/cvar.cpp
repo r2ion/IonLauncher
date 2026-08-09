@@ -1,13 +1,10 @@
-#include "cvar.h"
-#include "convar.h"
-#include "concommand.h"
+#include "tier1/cvar.h"
 
 //-----------------------------------------------------------------------------
 // Purpose: returns all ConVars
 //-----------------------------------------------------------------------------
 std::unordered_map<std::string, ConCommandBase*> CCvar::DumpToMap()
 {
-	std::stringstream ss;
 	CCVarIteratorInternal* itint = FactoryInternalIterator(); // Allocate new InternalIterator.
 
 	std::unordered_map<std::string, ConCommandBase*> allConVars;
@@ -15,8 +12,7 @@ std::unordered_map<std::string, ConCommandBase*> CCvar::DumpToMap()
 	for (itint->SetFirst(); itint->IsValid(); itint->Next()) // Loop through all instances.
 	{
 		ConCommandBase* pCommand = itint->Get();
-		const char* pszCommandName = pCommand->m_pszName;
-		allConVars[pszCommandName] = pCommand;
+		allConVars[pCommand->GetName()] = pCommand;
 	}
 
 	return allConVars;

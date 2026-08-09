@@ -1,8 +1,8 @@
-#include "client.h"
+#include "engine/client/client.h"
 #include "server/r2server.h"
 
-void (*CClient__Disconnect)(void* self, uint32_t unknownButAlways1, const char* reason, ...);
-void (*CClient__SendDataBlock)(void* self, bf_write* msg);
+CClientDisconnectFn CClient__Disconnect;
+CClientSendDataBlockFn CClient__SendDataBlock;
 CClient* g_pClientArray;
 
 void CClient::Disconnect(const Reputation_t nRepLevel, const char* reason, ...)
@@ -44,7 +44,7 @@ ON_DLL_LOAD("engine.dll", CClient, [](CModule module)
 {
 	DISPATCH_MODULE(EngineClientHooks)
 
-	CClient__Disconnect = module.Offset(0x1012C0).RCast<void (*)(void*, uint32_t, const char*, ...)>();
-	CClient__SendDataBlock = module.Offset(0x104870).RCast<void (*)(void*, bf_write*)>();
+	CClient__Disconnect = module.Offset(0x1012C0).RCast<CClientDisconnectFn>();
+	CClient__SendDataBlock = module.Offset(0x104870).RCast<CClientSendDataBlockFn>();
 	g_pClientArray = module.Offset(0x12A53F90).RCast<CClient*>();
 })

@@ -1,8 +1,7 @@
 #pragma once
 
-#include "vscript/languages/squirrel_re/include/squirrel.h"
+#include <cstddef>
 
-// TODO [Fifty]: Verify size
 struct alignas(4) SQInstruction
 {
 	int op;
@@ -11,3 +10,11 @@ struct alignas(4) SQInstruction
 	short arg2;
 	short arg3;
 };
+
+static_assert(sizeof(SQInstruction) == 0x10);
+static_assert(alignof(SQInstruction) == 0x4);
+static_assert(offsetof(SQInstruction, op) == 0x0);
+static_assert(offsetof(SQInstruction, arg1) == 0x4);
+static_assert(offsetof(SQInstruction, output) == 0x8);
+static_assert(offsetof(SQInstruction, arg2) == 0xC);
+static_assert(offsetof(SQInstruction, arg3) == 0xE);

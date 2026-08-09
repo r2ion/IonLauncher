@@ -1,14 +1,23 @@
 #pragma once
 
 #include "vscript/languages/squirrel_re/include/squirrel.h"
+#include <cstddef>
+#include <type_traits>
 
+struct SQObjectPtr;
 struct SQTable;
+struct SQVM;
+struct SQWeakRef;
+
+enum SQObjectType : int;
 
 struct SQRefCounted
 {
-	void* vftable;
-	SQInteger uiRef;
-	void* weakRef; // Probably
+	SQUnsignedInteger _uiRef;
+	SQWeakRef* _weakref;
+
+	virtual ~SQRefCounted();
+	virtual void Release() = 0;
 };
 
 struct SQCollectable : public SQRefCounted
@@ -16,12 +25,38 @@ struct SQCollectable : public SQRefCounted
 	SQCollectable* _next;
 	SQCollectable* _prev;
 	SQSharedState* _sharedstate;
+
+	virtual void Release() override = 0;
+	virtual void Mark(SQCollectable** chain) = 0;
+	virtual void Finalize() = 0;
+	virtual void DumpToString(SQChar* buffer, SQUnsignedInteger length, SQInteger start, SQInteger end) = 0;
 };
 
 struct SQDelegable : public SQCollectable
 {
+	virtual bool GetMetaMethod(SQVM* vm, int method, SQObjectPtr& result) = 0;
+
 	SQTable* _delegate;
 };
+
+static_assert(std::is_polymorphic_v<SQRefCounted>);
+static_assert(std::has_virtual_destructor_v<SQRefCounted>);
+static_assert(std::is_abstract_v<SQRefCounted>);
+static_assert(sizeof(SQRefCounted) == 0x18);
+static_assert(offsetof(SQRefCounted, _uiRef) == 0x8);
+static_assert(offsetof(SQRefCounted, _weakref) == 0x10);
+
+static_assert(std::is_base_of_v<SQRefCounted, SQCollectable>);
+static_assert(std::is_abstract_v<SQCollectable>);
+static_assert(sizeof(SQCollectable) == 0x30);
+static_assert(offsetof(SQCollectable, _next) == 0x18);
+static_assert(offsetof(SQCollectable, _prev) == 0x20);
+static_assert(offsetof(SQCollectable, _sharedstate) == 0x28);
+
+static_assert(std::is_base_of_v<SQCollectable, SQDelegable>);
+static_assert(std::is_abstract_v<SQDelegable>);
+static_assert(sizeof(SQDelegable) == 0x38);
+static_assert(offsetof(SQDelegable, _delegate) == 0x30);
 
 enum SQObjectType : int
 {
@@ -91,3 +126,10 @@ struct SQObject
 	int structNumber;
 	SQObjectValue _VAL;
 };
+
+static_assert(sizeof(SQObjectType) == 0x4);
+static_assert(sizeof(SQObjectValue) == 0x8);
+static_assert(sizeof(SQObject) == 0x10);
+static_assert(offsetof(SQObject, _Type) == 0x0);
+static_assert(offsetof(SQObject, structNumber) == 0x4);
+static_assert(offsetof(SQObject, _VAL) == 0x8);

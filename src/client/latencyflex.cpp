@@ -1,5 +1,4 @@
-#include "core/convar/convar.h"
-
+#include "tier1/convar.h"
 DECLARE_MODULE(LatencyFlexHooks)
 
 ConVar* Cvar_r_latencyflex;

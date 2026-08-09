@@ -2,10 +2,9 @@
 #include "tier0/hooks.h"
 #include "tier0/module.h"
 #include "logging/logging.h"
-#include "core/convar/cvar.h"
-#include "core/convar/convar.h"
-#include "util/strtools.h"
-
+#include "tier1/cvar.h"
+#include "tier1/convar.h"
+#include "tier1/strtools.h"
 DECLARE_MODULE(ConsoleLoggingFixHooks)
 
 // Console filter convars
@@ -15,7 +14,6 @@ ConVar* Cvar_con_filter_text_out;
 
 // Global flags
 static bool g_bInColorPrint = false;
-static bool g_fColorPrintf = false;
 
 // Con_ColorPrintf - Hook the completely gutted R2 version and restore CSGO/Portal 2 functionality
 // This is the varargs version that formats and then prints
@@ -65,10 +63,7 @@ DECLARE_HOOK_CC(Con_ColorPrintf, engine.dll + 0x0A8830, __cdecl, [](auto& hook, 
                 Color dimColor(200, 200, 200, 150);
 
                 g_bInColorPrint = true;
-                typedef void (*ConsoleColorPrintfFn)(CCvar*, const Color*, const char*, ...);
-                ConsoleColorPrintfFn consoleColorPrintf = *(ConsoleColorPrintfFn*)((uintptr_t*)*(uintptr_t*)g_pCVar + 26);
-                if (consoleColorPrintf)
-                    consoleColorPrintf(g_pCVar, &dimColor, "%s", msg);
+                g_pCVar->ConsoleColorPrintf(dimColor, "%s", msg);
                 g_bInColorPrint = false;
                 return;
             }
@@ -82,24 +77,7 @@ DECLARE_HOOK_CC(Con_ColorPrintf, engine.dll + 0x0A8830, __cdecl, [](auto& hook, 
 
     g_bInColorPrint = true;
 
-    // Call the appropriate console output function via vtable
-    // In CSGO this checks g_fColorPrintf, g_fIsDebugPrint flags
-    // For now, always use ConsoleColorPrintf since we have the color
-    typedef void (*ConsoleColorPrintfFn)(CCvar*, const Color*, const char*, ...);
-    typedef void (*ConsolePrintfFn)(CCvar*, const char*, ...);
-    typedef void (*ConsoleDPrintfFn)(CCvar*, const char*, ...);
-
-    ConsoleColorPrintfFn consoleColorPrintf = *(ConsoleColorPrintfFn*)((uintptr_t*)*(uintptr_t*)g_pCVar + 26);
-    ConsolePrintfFn consolePrintf = *(ConsolePrintfFn*)((uintptr_t*)*(uintptr_t*)g_pCVar + 27);
-
-    if (consoleColorPrintf)
-    {
-        consoleColorPrintf(g_pCVar, &clr, "%s", msg);
-    }
-    else if (consolePrintf)
-    {
-        consolePrintf(g_pCVar, "%s", msg);
-    }
+    g_pCVar->ConsoleColorPrintf(clr, "%s", msg);
 
     g_bInColorPrint = false;
 })

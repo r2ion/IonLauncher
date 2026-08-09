@@ -1,5 +1,6 @@
 #include "mod.h"
 #include "modmanager.h"
+#include "core/convar/convar.h"
 #include "modsystem/platform/modplatform.h"
 #include "rapidjson/error/en.h"
 

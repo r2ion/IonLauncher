@@ -3,10 +3,9 @@
 #include "server/auth/serverauthentication.h"
 #include "dedicated/dedicated.h"
 #include "dedicated/dedicatedlogtoclient.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "server/r2server.h"
-#include "engine/client.h"
-
+#include "engine/client/client.h"
 #include <filesystem>
 
 ADD_SQFUNC("void", NSEarlyWritePlayerPersistenceForLeave, "entity player", "", ScriptContext::SERVER)

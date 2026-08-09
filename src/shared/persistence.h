@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/netmessages.h"
+#include "common/netmessages.h"
 #include "util/utils.h"
 
 class NET_SendPersistenceChecksum : public INetMessage

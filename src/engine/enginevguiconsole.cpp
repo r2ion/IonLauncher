@@ -16,7 +16,7 @@ extern bool(__fastcall* o_pCLocalise__AddFile)(void* pVguiLocalize, const char* 
 // Consolidated hook that handles both GameConsole setup AND mod localization loading
 DECLARE_HOOK(CEngineVGui__Init, engine.dll + 0x247E10, [](auto& hook, void* thisptr)
 {
-    // Get GameConsole004 interface from client.dll BEFORE calling Init
+    // Get the game console interface from client.dll BEFORE calling Init
     CModule clientModule("client.dll");
 
     typedef void* (*CreateInterfaceFn)(const char* pName, int* pReturnCode);
@@ -25,18 +25,18 @@ DECLARE_HOOK(CEngineVGui__Init, engine.dll + 0x247E10, [](auto& hook, void* this
     if (clientCreateInterface)
     {
         int returnCode = 0;
-        CGameConsole* gameConsole = reinterpret_cast<CGameConsole*>(clientCreateInterface("GameConsole004", &returnCode));
+        CGameConsole* gameConsole = static_cast<CGameConsole*>(clientCreateInterface(GAMECONSOLE_INTERFACE_VERSION, &returnCode));
 
         if (gameConsole && returnCode == 0)
         {
             // Set the global pointer BEFORE calling Init
             *g_pEngineGameConsole = gameConsole;
-            spdlog::info("GameConsole004 interface set at engine.dll + 0x14055B88: {:p}", (void*)gameConsole);
+            spdlog::info("{} interface set at engine.dll + 0x14055B88: {:p}", GAMECONSOLE_INTERFACE_VERSION, static_cast<void*>(gameConsole));
         }
         else
         {
 
-            spdlog::warn("Failed to get GameConsole004 interface from client.dll (return code: {})", returnCode);
+            spdlog::warn("Failed to get {} interface from client.dll (return code: {})", GAMECONSOLE_INTERFACE_VERSION, returnCode);
         }
     }
     else

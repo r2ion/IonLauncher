@@ -29,8 +29,10 @@ namespace fs = std::filesystem;
 
 #define NOTE_UNUSED(var) do { (void)var; } while(false)
 
+#include "common/pseudodefs.h"
+
 #include "core/macros.h"
-#include "core/math/color.h"
+#include "mathlib/color.h"
 #include "logging/logging.h"
 #include <MinHook.h>
 #include <curl/curl.h>

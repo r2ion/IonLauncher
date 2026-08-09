@@ -1,5 +1,5 @@
 #include "connect.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "dedicated/dedicated.h"
 #include "common/proto_oob.h"
 #include "core/tier0.h"
@@ -10,6 +10,8 @@
 #include "modsystem/modmanager.h"
 #include "server/auth/serverauthentication.h"
 #include "vscript/squirrel/squirrel.h"
+#include "core/convar/concommand.h"
+#include "tier1/cvar.h"
 
 DECLARE_MODULE(ConnectHooks)
 
@@ -255,12 +257,12 @@ void ConnectionManager::AuthenticateToMasterServer()
 
 	UpdateMessage("#DIALOG_AUTHENTICATING_MASTERSERVER");
 
-	float startTime = Plat_FloatTime();
+	float startTime = g_PlatFloatTime();
 	float timeOut = g_pCVar->FindVar("cl_resend_timeout")->GetFloat();
 
 	g_pMasterServerManager->AuthenticateOriginWithMasterServer();
 
-	while (!g_pMasterServerManager->m_bOriginAuthWithMasterServerDone && Plat_FloatTime() - startTime < timeOut && !IsCancelled())
+	while (!g_pMasterServerManager->m_bOriginAuthWithMasterServerDone && g_PlatFloatTime() - startTime < timeOut && !IsCancelled())
 		Sleep(100);
 
 	RETURN_IF_CANCELLED()
@@ -294,7 +296,7 @@ void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAu
 
 	NET_SendPacket(nullptr, NS_CLIENT, &addr, msg.GetData(), msg.GetNumBytesWritten(), nullptr, false, 0, true);
 
-	float startTime = Plat_FloatTime();
+	float startTime = g_PlatFloatTime();
 	float timeOut = g_pCVar->FindVar("cl_resend_inforequest_timeout")->GetFloat();
 
 	if (m_eCurrentMode == eConnectionMode::RemoteServer)
@@ -302,18 +304,18 @@ void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAu
 
 	UpdateMessage("#REQUESTING_CUSTOM_SERVER_INFO");
 
-	while (!g_bReceivedServerInfo && !IsCancelled() && Plat_FloatTime() - startTime < timeOut)
+	while (!g_bReceivedServerInfo && !IsCancelled() && g_PlatFloatTime() - startTime < timeOut)
 	{
 		int retryInterval = g_pCVar->FindVar("cl_resend_inforequest_interval_ms")->GetInt();
 		NET_SendPacket(nullptr, NS_CLIENT, &addr, msg.GetData(), msg.GetNumBytesWritten(), nullptr, false, 0, true);
 		Sleep(retryInterval);
 	}
 
-	startTime = Plat_FloatTime();
+	startTime = g_PlatFloatTime();
 
 	if (serverAuthUs)
 	{
-		while (!g_bReceivedAuthNotify && Plat_FloatTime() - startTime < timeOut && !IsCancelled())
+		while (!g_bReceivedAuthNotify && g_PlatFloatTime() - startTime < timeOut && !IsCancelled())
 			Sleep(100);
 
 		RETURN_IF_CANCELLED()
@@ -528,7 +530,7 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			spdlog::info("Authenticating with remote server for uid {}", g_pLocalPlayerUserID);
 
-			m_flConnectionStartTime = Plat_FloatTime();
+			m_flConnectionStartTime = g_PlatFloatTime();
 			float maxTime = g_pCVar->FindVar("cl_resend_timeout")->GetFloat();
 
 			RemoteServerInfo* serverInfo = nullptr;
@@ -555,7 +557,7 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 			UpdateMessage("#DIALOG_SERVERCONNECTING_MSG", serverInfo->name);
 
 			while (!g_pMasterServerManager->m_bSuccessfullyAuthenticatedWithGameServer &&
-				   Plat_FloatTime() - g_pConnectionManager->m_flConnectionStartTime < maxTime && !IsCancelled())
+				   g_PlatFloatTime() - g_pConnectionManager->m_flConnectionStartTime < maxTime && !IsCancelled())
 				Sleep(100);
 
 			RETURN_IF_CANCELLED()
@@ -791,7 +793,7 @@ void ConnectionManager::ConnectToLocalServer()
 
 			spdlog::info("Authenticating with own server for uid {}", g_pLocalPlayerUserID);
 
-			m_flConnectionStartTime = Plat_FloatTime();
+			m_flConnectionStartTime = g_PlatFloatTime();
 			float maxTime = g_pCVar->FindVar("cl_resend_timeout")->GetFloat();
 
 			g_pMasterServerManager->AuthenticateWithOwnServer(g_pLocalPlayerUserID, g_pMasterServerManager->m_sOwnClientAuthToken, {});
@@ -799,7 +801,7 @@ void ConnectionManager::ConnectToLocalServer()
 			UpdateMessage("Getting account data.");
 
 			while (!g_pMasterServerManager->m_bSuccessfullyAuthenticatedWithGameServer &&
-				   Plat_FloatTime() - g_pConnectionManager->m_flConnectionStartTime < maxTime && !IsCancelled())
+				   g_PlatFloatTime() - g_pConnectionManager->m_flConnectionStartTime < maxTime && !IsCancelled())
 				Sleep(100);
 
 			RETURN_IF_CANCELLED()

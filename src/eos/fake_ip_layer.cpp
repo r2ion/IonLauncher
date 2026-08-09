@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "core/convar/cvar.h"
+#include "tier1/cvar.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
 #include "eos_threading.h"
@@ -15,7 +15,7 @@
 
 ConVar* Cvar_eos_current_endpoint = nullptr;
 
-namespace
+namespace FakeIpInternal
 {
 
 constexpr uint16_t kFakeIPv6Prefix = 0x3FFE; // Deprecated 6bone space
@@ -23,18 +23,18 @@ constexpr size_t kProductBytes = 16;
 
 using eos::PacketRoute;
 
-PacketRoute NormalizeRoute(PacketRoute route)
+static PacketRoute NormalizeRoute(PacketRoute route)
 {
     return route == PacketRoute::None ? PacketRoute::All : route;
 }
 
-PacketRoute CombineRoutes(PacketRoute lhs, PacketRoute rhs)
+static PacketRoute CombineRoutes(PacketRoute lhs, PacketRoute rhs)
 {
     return NormalizeRoute(static_cast<PacketRoute>(
         static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs)));
 }
 
-bool HexCharToValue(char c, uint8_t& out)
+static bool HexCharToValue(char c, uint8_t& out)
 {
     if (c >= '0' && c <= '9')
     {
@@ -50,7 +50,8 @@ bool HexCharToValue(char c, uint8_t& out)
     return false;
 }
 
-bool ProductIdToBytes(const std::string& productId, std::array<uint8_t, kProductBytes>& outBytes)
+static bool ProductIdToBytes(
+    const std::string& productId, std::array<uint8_t, kProductBytes>& outBytes)
 {
     std::string normalized;
     normalized.reserve(productId.size());
@@ -80,7 +81,7 @@ bool ProductIdToBytes(const std::string& productId, std::array<uint8_t, kProduct
     return true;
 }
 
-std::string BytesToProductIdString(const std::array<uint8_t, kProductBytes>& bytes)
+static std::string BytesToProductIdString(const std::array<uint8_t, kProductBytes>& bytes)
 {
     static constexpr char kHex[] = "0123456789abcdef";
     std::string result(kProductBytes * 2, '0');
@@ -92,7 +93,7 @@ std::string BytesToProductIdString(const std::array<uint8_t, kProductBytes>& byt
     return result;
 }
 
-} // namespace
+} // namespace FakeIpInternal
 
 namespace eos
 {
@@ -106,23 +107,23 @@ FakeIpLayer::FakeIpLayer(EOS_HP2P p2pHandle, EOS_ProductUserId localUser)
 
 bool FakeIpLayer::NormalizeProductId(const std::string& productId, std::string& normalized) const
 {
-    std::array<uint8_t, kProductBytes> bytes{};
-    if (!ProductIdToBytes(productId, bytes))
+    std::array<uint8_t, FakeIpInternal::kProductBytes> bytes{};
+    if (!FakeIpInternal::ProductIdToBytes(productId, bytes))
         return false;
 
-    normalized = BytesToProductIdString(bytes);
+    normalized = FakeIpInternal::BytesToProductIdString(bytes);
     return true;
 }
 
 bool FakeIpLayer::EncodeProductId(const std::string& productId, FakeEndpoint& endpoint) const
 {
-    std::array<uint8_t, kProductBytes> bytes{};
-    if (!ProductIdToBytes(productId, bytes))
+    std::array<uint8_t, FakeIpInternal::kProductBytes> bytes{};
+    if (!FakeIpInternal::ProductIdToBytes(productId, bytes))
         return false;
 
     // ProductUserIds always begin with 0x00, 0x02 so we only need to transmit the last 14 bytes.
     endpoint.address = in6_addr{};
-    endpoint.address.u.Word[0] = htons(kFakeIPv6Prefix);
+    endpoint.address.u.Word[0] = htons(FakeIpInternal::kFakeIPv6Prefix);
     std::memcpy(endpoint.address.u.Byte + 2, bytes.data() + 2, 14);
 
     uint16_t hostPort = static_cast<uint16_t>(g_pCVar->FindVar("clientport")->GetInt());
@@ -141,15 +142,15 @@ bool FakeIpLayer::EncodeProductId(const std::string& productId, FakeEndpoint& en
 
 bool FakeIpLayer::DecodeProductId(const FakeEndpoint& endpoint, std::string& productId) const
 {
-    if (ntohs(endpoint.address.u.Word[0]) != kFakeIPv6Prefix)
+    if (ntohs(endpoint.address.u.Word[0]) != FakeIpInternal::kFakeIPv6Prefix)
         return false;
 
-    std::array<uint8_t, kProductBytes> bytes{};
+    std::array<uint8_t, FakeIpInternal::kProductBytes> bytes{};
     bytes[0] = 0x00;
     bytes[1] = 0x02;
     std::memcpy(bytes.data() + 2, endpoint.address.u.Byte + 2, 14);
 
-    productId = BytesToProductIdString(bytes);
+    productId = FakeIpInternal::BytesToProductIdString(bytes);
     return true;
 }
 
@@ -223,7 +224,7 @@ bool FakeIpLayer::SendToPeer(const FakeEndpoint& endpoint,
     if (!m_p2pHandle || !localUser || !data || length == 0)
         return false;
 
-    const PacketRoute normalizedRoute = NormalizeRoute(route);
+    const PacketRoute normalizedRoute = FakeIpInternal::NormalizeRoute(route);
 
     std::string productId;
     if (!DecodeProductId(endpoint, productId))
@@ -266,7 +267,7 @@ bool FakeIpLayer::SendToPeer(const FakeEndpoint& endpoint,
         }
         else
         {
-            it->second.route = CombineRoutes(it->second.route, normalizedRoute);
+            it->second.route = FakeIpInternal::CombineRoutes(it->second.route, normalizedRoute);
             binding = it->second;
         }
     }
@@ -369,7 +370,7 @@ void FakeIpLayer::PumpIncoming()
             continue;
 
         packet.sender = endpoint;
-        packet.route = NormalizeRoute(packetRoute);
+        packet.route = FakeIpInternal::NormalizeRoute(packetRoute);
 
         {
             std::lock_guard guard(m_queueMutex);
@@ -399,7 +400,7 @@ bool FakeIpLayer::ResolveEndpoint(EOS_ProductUserId remoteUser,
         {
             outEndpoint = it->second.endpoint;
             if (outRoute)
-                *outRoute = NormalizeRoute(it->second.route);
+                *outRoute = FakeIpInternal::NormalizeRoute(it->second.route);
             return true;
         }
     }
@@ -416,13 +417,13 @@ bool FakeIpLayer::ResolveEndpoint(EOS_ProductUserId remoteUser,
 bool FakeIpLayer::PopPacket(PacketRoute desiredRoute, PendingPacket& outPacket)
 {
     std::lock_guard guard(m_queueMutex);
-    const PacketRoute normalizedDesired = NormalizeRoute(desiredRoute);
+    const PacketRoute normalizedDesired = FakeIpInternal::NormalizeRoute(desiredRoute);
     if (m_packets.empty())
         return false;
 
     for (auto it = m_packets.begin(); it != m_packets.end(); ++it)
     {
-        const PacketRoute packetRoute = NormalizeRoute(it->route);
+        const PacketRoute packetRoute = FakeIpInternal::NormalizeRoute(it->route);
         if (!AnyRoute(packetRoute & normalizedDesired))
             continue;
 

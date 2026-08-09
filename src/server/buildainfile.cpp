@@ -1,9 +1,9 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "engine/hoststate.h"
 #include "engine/r2engine.h"
-#include "engine/bitvec.h"
-#include "util/utlvector.h"
-
+#include "tier1/bitvec.h"
+#include "game/server/ai_network.h"
+#include "tier1/utlvector.h"
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -14,20 +14,6 @@ namespace fs = std::filesystem;
 const int AINET_VERSION_NUMBER = 57;
 const int AINET_SCRIPT_VERSION_NUMBER = 21;
 const int PLACEHOLDER_CRC = 0;
-const int MAX_HULLS = 5;
-
-#pragma pack(push, 1)
-struct CAI_NodeLink
-{
-	short srcId;
-	short destId;
-	bool hulls[MAX_HULLS];
-	char unk0;
-	char unk1; // maps => unk0 on disk
-	char unk2[5];
-	int64_t flags;
-};
-#pragma pack(pop)
 
 #pragma pack(push, 1)
 struct CAI_NodeLinkDisk
@@ -38,65 +24,7 @@ struct CAI_NodeLinkDisk
 	bool hulls[MAX_HULLS];
 };
 #pragma pack(pop)
-
-enum NodeType_e // !TODO: unconfirmed for r1/r2/r5.
-{
-	NODE_ANY, // Used to specify any type of node (for search)
-	NODE_DELETED, // Used in wc_edit mode to remove nodes during runtime
-	NODE_GROUND,
-	NODE_AIR,
-	NODE_CLIMB,
-	NODE_WATER
-};
-
-struct Vector3D
-{
-	float x, y, z;
-};
-
-#pragma pack(push, 1)
-struct CAI_Node
-{
-	const Vector3D& GetOrigin() const { return m_vOrigin; }
-	Vector3D& AccessOrigin() { return m_vOrigin; }
-	float GetYaw() const { return m_flYaw; }
-
-	int NumLinks() const { return m_Links.Count(); }
-	void ClearLinks() { m_Links.Purge(); }
-	CAI_NodeLink* GetLinkByIndex(int i) const { return m_Links[i]; }
-
-	NodeType_e SetType(NodeType_e type) { return (m_eNodeType = type); }
-	NodeType_e GetType() const { return m_eNodeType; }
-
-	int SetInfo(int info) { return m_eNodeInfo = info; }
-	int GetInfo() const { return m_eNodeInfo; }
-
-	int m_iID; // ID for this node
-	Vector3D m_vOrigin; // location of this node in space
-	float m_flVOffset[MAX_HULLS]; // vertical offset for each hull type, assuming ground node, 0 otherwise
-	float m_flYaw; // NPC on this node should face this yaw to face the hint, or climb a ladder
-
-	NodeType_e m_eNodeType; // The type of node; always 2 in buildainfile.
-	int m_eNodeInfo; // bits that tell us more about this nodes
-
-	int unk2[MAX_HULLS]; // maps directly to unk2 in disk struct, despite being ints rather than shorts
-
-	// view server.dll+393672 for context and death wish
-	char unk3[MAX_HULLS]; // hell on earth, should map to unk3 on disk
-	char pad[3]; // aligns next bytes
-	float unk4[MAX_HULLS]; // i have no fucking clue, calculated using some kind of demon hell function float magic
-
-	CUtlVector<CAI_NodeLink*> m_Links;
-	int unk6; // should match up to unk4 on disk
-	char unk7[16]; // padding until next bit
-	int unk8; // should match up to unk5 on disk
-	char unk9[4]; // padding until next bit
-	char unk10[8]; // should match up to unk6 on disk
-	char padTail[4]; // tail padding to match engine size (0xA8)
-};
-#pragma pack(pop)
-
-static_assert(sizeof(CAI_Node) == 168);
+static_assert(sizeof(CAI_NodeLinkDisk) == 0xA);
 
 #pragma pack(push, 1)
 struct CAI_NodeOld
@@ -159,6 +87,7 @@ struct CAI_NodeDisk
 	char unk6[8];
 }; // total size of 68 bytes
 #pragma pack(pop)
+static_assert(sizeof(CAI_NodeDisk) == 0x44);
 
 #pragma pack(push, 1)
 struct UnkNodeStruct0
@@ -225,39 +154,8 @@ static_assert(sizeof(UnkLinkStruct1Disk) == 11);
 int* pUnkLinkStruct1Count;
 UnkLinkStruct1*** pppUnkStruct1s;
 
-struct CAI_TraverseNode
-{
-	float m_Quat[4];
-	int m_Index_MAYBE;
-};
-
 CUtlVector<CAI_TraverseNode>* g_pAITraverseNodes = nullptr;
 
-#pragma pack(push, 1)
-struct CAI_ScriptNode
-{
-	float x;
-	float y;
-	float z;
-	uint64_t scriptdata;
-};
-#pragma pack(pop)
-
-//=============================================================================
-//>> CAI_HullData
-//=============================================================================
-struct CAI_HullData
-{
-	CVarBitVec m_bitVec;
-
-	// Unknown, possible part of CVarBitVec ??? see [r5apex_ds + 1A52B0] if,
-	// this is part of CVarBitVec, it seems to be unused in any of the
-	// compiled CVarBitVec and CLargeVarBitVec methods so i think it should be
-	// just part of this struct.
-	char unk3[8];
-};
-
-struct CAI_Network;
 struct CAI_NetworkManager;
 
 class CAI_NetworkEditTools
@@ -267,7 +165,7 @@ public:
 	// WC Editing
 	//-----------------
 	int m_nNextWCIndex;
-	Vector3D* m_pWCPosition;
+	Vector3* m_pWCPosition;
 
 	//-----------------
 	// Debugging Tools
@@ -281,39 +179,6 @@ public:
 	CAI_NetworkManager* m_pManager;
 	CAI_Network* m_pNetwork;
 };
-
-#pragma pack(push, 1)
-struct CAI_Network
-{
-	// +0
-	void* m_pVTable; // <-- 'this'.
-	// +8
-	int linkcount; // this is uninitialised and never set on ain build, fun!
-	int m_nUnk0;
-
-	CAI_HullData m_HullData[MAX_HULLS];
-	int m_iNumZones[MAX_HULLS]; // +0x0088
-
-	// +156
-	int unk5; // unk8 on disk
-	// +160
-	char unk6[4];
-	// +164
-	int hintcount;
-	// +168
-	short hints[2000]; // these probably aren't actually hints, but there's 1 of them per hint so idk
-	// +4168
-	int scriptnodecount;
-	// +4172
-	CAI_ScriptNode scriptnodes[4000];
-	// +84172
-	int nodecount;
-	// +84176
-	CAI_Node** nodes;
-};
-#pragma pack(pop)
-
-static_assert(sizeof(CAI_Network) == 84184);
 
 struct CAI_NetworkManager
 {
@@ -353,12 +218,12 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	int calculatedLinkcount = 0;
 
 	// path nodes
-	spdlog::info("writing nodecount: {}", aiNetwork->nodecount);
-	writeStream.write((char*)&aiNetwork->nodecount, sizeof(int));
+	spdlog::info("writing nodecount: {}", aiNetwork->m_iNumNodes);
+	writeStream.write((char*)&aiNetwork->m_iNumNodes, sizeof(int));
 
-	for (int i = 0; i < aiNetwork->nodecount; i++)
+	for (int i = 0; i < aiNetwork->m_iNumNodes; i++)
 	{
-		CAI_Node* aiNode = aiNetwork->nodes[i];
+		CAI_Node* aiNode = aiNetwork->m_pAInode[i];
 		// construct on-disk node struct
 		CAI_NodeDisk diskNode;
 		diskNode.x = aiNode->m_vOrigin.x;
@@ -387,13 +252,13 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	}
 
 	// links
-	spdlog::info("linkcount: {}", aiNetwork->linkcount);
+	spdlog::info("linkcount: {}", aiNetwork->m_iNumLinks);
 	spdlog::info("calculated total linkcount: {}", calculatedLinkcount);
 
 	calculatedLinkcount /= 2;
 	if (Cvar_ns_ai_dumpAINfileFromLoad->GetBool())
 	{
-		if (aiNetwork->linkcount == calculatedLinkcount)
+		if (aiNetwork->m_iNumLinks == calculatedLinkcount)
 			spdlog::info("caculated linkcount is normal!");
 		else
 			spdlog::warn("calculated linkcount has weird value! this is expected on build!");
@@ -402,21 +267,21 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	spdlog::info("writing linkcount: {}", calculatedLinkcount);
 	writeStream.write((char*)&calculatedLinkcount, sizeof(int));
 
-	for (int i = 0; i < aiNetwork->nodecount; i++)
+	for (int i = 0; i < aiNetwork->m_iNumNodes; i++)
 	{
-		const CAI_Node* aiNode = aiNetwork->nodes[i];
+		const CAI_Node* aiNode = aiNetwork->m_pAInode[i];
 		for (int j = 0; j < aiNode->NumLinks(); j++)
 		{
 			// skip links that don't originate from current node
 			const CAI_NodeLink* nodeLink = aiNode->GetLinkByIndex(j);
-			if (nodeLink->srcId != aiNode->m_iID)
+			if (nodeLink->m_iSrcID != aiNode->m_iID)
 				continue;
 
 			CAI_NodeLinkDisk diskLink;
-			diskLink.srcId = nodeLink->srcId;
-			diskLink.destId = nodeLink->destId;
+			diskLink.srcId = nodeLink->m_iSrcID;
+			diskLink.destId = nodeLink->m_iDestID;
 			diskLink.unk0 = nodeLink->unk1;
-			memcpy(diskLink.hulls, nodeLink->hulls, sizeof(diskLink.hulls));
+			memcpy(diskLink.hulls, nodeLink->m_iAcceptedMoveTypes, sizeof(diskLink.hulls));
 
 			spdlog::info("writing link {} => {} to {:x}", diskLink.srcId, diskLink.destId, static_cast<uint64_t>(writeStream.tellp()));
 			writeStream.write((char*)&diskLink, sizeof(CAI_NodeLinkDisk));
@@ -424,7 +289,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	}
 
 	// WC lookup table (Hammer node IDs)
-	spdlog::info("writing {:x} bytes for wc lookup table at {:x}", aiNetwork->nodecount * sizeof(uint32_t), static_cast<uint64_t>(writeStream.tellp()));
+	spdlog::info("writing {:x} bytes for wc lookup table at {:x}", aiNetwork->m_iNumNodes * sizeof(uint32_t), static_cast<uint64_t>(writeStream.tellp()));
 	const CAI_NetworkEditTools* pEditOps = nullptr;
 	if (g_ppAINetworkManager && *g_ppAINetworkManager)
 		pEditOps = (*g_ppAINetworkManager)->m_pEditOps;
@@ -433,7 +298,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	{
 		std::map<int, int> wcIDs;
 		bool bCheckForProblems = false;
-		for (int node = 0; node < aiNetwork->nodecount; node++)
+		for (int node = 0; node < aiNetwork->m_iNumNodes; node++)
 		{
 			const int nIndex = pEditOps->m_pNodeIndexTable[node];
 			auto it = wcIDs.find(nIndex);
@@ -454,9 +319,9 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	}
 	else
 	{
-		uint32_t* unkNodeBlock = new uint32_t[aiNetwork->nodecount];
-		memset(unkNodeBlock, 0, aiNetwork->nodecount * sizeof(uint32_t));
-		writeStream.write((char*)unkNodeBlock, aiNetwork->nodecount * sizeof(uint32_t));
+		uint32_t* unkNodeBlock = new uint32_t[aiNetwork->m_iNumNodes];
+		memset(unkNodeBlock, 0, aiNetwork->m_iNumNodes * sizeof(uint32_t));
+		writeStream.write((char*)unkNodeBlock, aiNetwork->m_iNumNodes * sizeof(uint32_t));
 		delete[] unkNodeBlock;
 	}
 
@@ -536,21 +401,21 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	writeStream.write((char*)&aiNetwork->unk5, sizeof(aiNetwork->unk5));
 
 	// tf2-exclusive stuff past this point, i.e. ain v57 only
-	spdlog::info("writing {} script nodes at {:x}", aiNetwork->scriptnodecount, static_cast<uint64_t>(writeStream.tellp()));
-	writeStream.write((char*)&aiNetwork->scriptnodecount, sizeof(aiNetwork->scriptnodecount));
-	for (int i = 0; i < aiNetwork->scriptnodecount; i++)
+	spdlog::info("writing {} script nodes at {:x}", aiNetwork->m_iNumScriptNodes, static_cast<uint64_t>(writeStream.tellp()));
+	writeStream.write((char*)&aiNetwork->m_iNumScriptNodes, sizeof(aiNetwork->m_iNumScriptNodes));
+	for (int i = 0; i < aiNetwork->m_iNumScriptNodes; i++)
 	{
 		// disk and memory structs are literally identical here so just directly write
 		spdlog::info("writing script node {} at {:x}", i, static_cast<uint64_t>(writeStream.tellp()));
-		writeStream.write((char*)&aiNetwork->scriptnodes[i], sizeof(aiNetwork->scriptnodes[i]));
+		writeStream.write((char*)&aiNetwork->m_ScriptNodes[i], sizeof(aiNetwork->m_ScriptNodes[i]));
 	}
 
-	spdlog::info("writing {} hints at {:x}", aiNetwork->hintcount, static_cast<uint64_t>(writeStream.tellp()));
-	writeStream.write((char*)&aiNetwork->hintcount, sizeof(aiNetwork->hintcount));
-	for (int i = 0; i < aiNetwork->hintcount; i++)
+	spdlog::info("writing {} hints at {:x}", aiNetwork->m_iNumHints, static_cast<uint64_t>(writeStream.tellp()));
+	writeStream.write((char*)&aiNetwork->m_iNumHints, sizeof(aiNetwork->m_iNumHints));
+	for (int i = 0; i < aiNetwork->m_iNumHints; i++)
 	{
 		spdlog::info("writing hint data {} at {:x}", i, static_cast<uint64_t>(writeStream.tellp()));
-		writeStream.write((char*)&aiNetwork->hints[i], sizeof(aiNetwork->hints[i]));
+		writeStream.write((char*)&aiNetwork->m_Hints[i], sizeof(aiNetwork->m_Hints[i]));
 	}
 
 	writeStream.close();

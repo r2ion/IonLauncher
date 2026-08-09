@@ -1,5 +1,8 @@
 #include "core/tier0.h"
+#include "eiface.h"
+#include "vstdlib/random.h"
 #include "maxplayers.h"
+#include <dt_recv.h>
 
 DECLARE_MODULE(MaxPlayersHooks)
 
@@ -129,7 +132,7 @@ typedef void (*RunUserCmds_Type)(bool a1, float a2);
 RunUserCmds_Type RunUserCmds_Original;
 
 HMODULE serverBase = 0;
-auto RandomIntZeroMax = (__int64(__fastcall*)())0;
+static decltype(&::RandomIntZeroMax) s_RandomIntZeroMax = nullptr;
 
 // lazy rebuild
 // clang-format off
@@ -165,7 +168,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 	auto g_pGlobals = *(__int64*)(base + 0xBFBE08);
 	__int64 globals = g_pGlobals;
 
-	auto g_pEngineServer = *(__int64*)(base + 0xBFBD98);
+	IVEngineServer* g_pEngineServer = *reinterpret_cast<IVEngineServer**>(base + 0xBFBD98);
 
 	auto qword_1814D9648 = *(__int64*)(base + 0x14D9648);
 	auto qword_1814DA408 = *(__int64*)(base + 0x14DA408);
@@ -181,8 +184,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 
 	v3 = *(unsigned char*)(g_pGlobals + 73);
 	if (*(DWORD*)(qword_1814D9648 + 92) &&
-		((*(unsigned __int8(__fastcall**)(__int64))(*(__int64*)g_pEngineServer + 32))(g_pEngineServer) ||
-		 !*(DWORD*)(qword_1814DA408 + 92)) &&
+		(g_pEngineServer->IsDedicatedServer() || !*(DWORD*)(qword_1814DA408 + 92)) &&
 		v3)
 	{
 		globals = g_pGlobals;
@@ -222,7 +224,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 				v14 = *(DWORD*)(globals + 52);
 				do
 				{
-					v15 = RandomIntZeroMax();
+					v15 = s_RandomIntZeroMax();
 					v16 = v25[v13--];
 					v17 = v15 % v14--;
 					v25[v13 + 1] = v25[v17];
@@ -298,7 +300,8 @@ ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, [](CModule module)
 
 	// get required data
 	serverBase = (HMODULE)module.GetModuleBase();
-	RandomIntZeroMax = (decltype(RandomIntZeroMax))(GetProcAddress(GetModuleHandleA("vstdlib.dll"), "RandomIntZeroMax"));
+	s_RandomIntZeroMax = reinterpret_cast<decltype(s_RandomIntZeroMax)>(
+		GetProcAddress(GetModuleHandleA("vstdlib.dll"), "RandomIntZeroMax"));
 
 	// patch max players amount
 	ChangeOffset<unsigned char>(module.Offset(0x9A44D + 3), NEW_MAX_PLAYERS); // 0x20 (32) => 0x80 (128)
@@ -450,14 +453,19 @@ ON_DLL_LOAD("server.dll", MaxPlayersOverride_Server, [](CModule module)
 
 // clang-format off
 DECLARE_HOOK(RecvPropArray2, client.dll + 0x1CEDA0,
-[](auto& hook, __int64 recvProp, int elements, int flags, const char* name, __int64 proxyFn) -> __int64
+[](auto& hook,
+	CRecvProp* recv_prop,
+	int element_count,
+	int element_stride,
+	const char* var_name,
+	ArrayLengthRecvProxyFn array_length_proxy) -> CRecvProp*
 // clang-format on
 {
 	// Change the amount of elements to account for a bigger player amount
-	if (!strcmp(name, "\"player_array\""))
-		elements = NEW_MAX_PLAYERS;
+	if (!strcmp(var_name, "\"player_array\""))
+		element_count = NEW_MAX_PLAYERS;
 
-	return hook.Original(recvProp, elements, flags, name, proxyFn);
+	return hook.Original(recv_prop, element_count, element_stride, var_name, array_length_proxy);
 })
 
 ON_DLL_LOAD("client.dll", MaxPlayersOverride_Client, [](CModule module)

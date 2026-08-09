@@ -8,7 +8,7 @@ DECLARE_MODULE(CoreTier0Hooks)
 IMemAlloc* g_pMemAllocSingleton = nullptr;
 
 CommandLineType CommandLine;
-Plat_FloatTimeType Plat_FloatTime;
+Plat_FloatTimeType g_PlatFloatTime;
 
 using ThreadCheckFn = bool (*)();
 static ThreadCheckFn s_ThreadInMainThread = nullptr;
@@ -70,7 +70,7 @@ ON_DLL_LOAD("tier0.dll", Tier0GameFuncs, [](CModule module)
 
 	// setup tier0 funcs
 	CommandLine = module.GetExportedFunction("CommandLine").RCast<CommandLineType>();
-	Plat_FloatTime = module.GetExportedFunction("Plat_FloatTime").RCast<Plat_FloatTimeType>();
+	g_PlatFloatTime = module.GetExportedFunction("Plat_FloatTime").RCast<Plat_FloatTimeType>();
 	s_ThreadInMainThread = module.GetExportedFunction("ThreadInMainThread").RCast<ThreadCheckFn>();
 	s_ThreadInServerFrameThread = module.GetExportedFunction("ThreadInServerFrameThread").RCast<ThreadCheckFn>();
 })

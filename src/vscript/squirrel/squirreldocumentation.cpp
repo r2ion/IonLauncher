@@ -1,6 +1,6 @@
 #include "squirreldocumentation.h"
 
-#include "vscript/vscript.h"
+#include "vscript/languages/squirrel_re/squirrel/sqvm.h"
 
 #include <algorithm>
 #include <cctype>

@@ -1,11 +1,13 @@
 #include "modmanager.h"
 #include "config/profile.h"
 #include "core/convar/concommand.h"
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 #include "core/filesystem/filesystem.h"
 #include "datacache/mdlcache.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
+#include "engine/modelloader.h"
 #include "masterserver/masterserver.h"
 #include "miles/audio.h"
 #include "modsystem/modinstaller.h"
@@ -32,14 +34,6 @@
 
 ModManager* g_pModManager;
 
-enum class ModelReloadType_t : uint32_t
-{
-    LodChanged = 0,
-    Everything,
-	RefreshModels,
-	Async,
-};
-
 class CModDirectoryCollector final
 {
 public:
@@ -65,12 +59,9 @@ private:
 	bool m_WarnedAboutLegacyRoot = false;
 };
 
-static constexpr int CModelLoader_RetouchModelsVTableIndex = 23;
-
 ModManager::ModManager(const CModule& engineModule)
 {
-    m_pModelLoader = engineModule.Offset(0x7C4C20).RCast<void*>();
-    m_pFlushModelByName = engineModule.Offset(0xCEF30).RCast<decltype(m_pFlushModelByName)>();
+    m_pModelLoader = engineModule.Offset(0x7C4C20).RCast<CModelLoader*>();
     cfgPath = GetNorthstarPrefix() + "/enabledmods.json";
 
 	// precaculated string hashes
@@ -1086,7 +1077,7 @@ void ModManager::RunModelReload()
     if (!m_bModelReloadPending)
         return;
 
-    if (!m_pModelLoader || !m_pFlushModelByName || !g_pMDLCache)
+    if (!m_pModelLoader || !g_pMDLCache)
     {
         m_bModelReloadPending = false;
         return;
@@ -1123,7 +1114,7 @@ void ModManager::RunModelReload()
     for (const std::string& path : modelPaths)
     {
         const MDLHandle_t handle = g_pMDLCache->FindExistingMDL(path.c_str());
-        m_pFlushModelByName(m_pModelLoader, path.c_str());
+        m_pModelLoader->FlushModelByName(path.c_str());
 
         if (handle != InvalidMDLHandle)
         {
@@ -1133,7 +1124,7 @@ void ModManager::RunModelReload()
         }
     }
 
-    CallVFunc<void>(CModelLoader_RetouchModelsVTableIndex, m_pModelLoader, ModelReloadType_t::RefreshModels);
+    m_pModelLoader->RetouchModels(ModelReloadType_t::RefreshModels);
 
     if (!g_pPakLoadManager || !g_pPakLoadManager->GetForceReloadOnMapLoad())
         MarkModelsReloaded(failedPaths);

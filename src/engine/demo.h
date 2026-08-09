@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/macros.h"
+#include "engine/net.h"
 #include "engine/r2engine.h"
 
 class CDemoFile;
@@ -27,7 +27,7 @@ public:
 	virtual int64_t ResumePlayback() = 0;
 	virtual int64_t StopPlayback() = 0;
 	virtual char InterpolateViewpoint() = 0;
-	virtual netpacket_s* ReadPacket() = 0;
+	virtual netpacket_t* ReadPacket() = 0;
 	virtual void ResetDemoInterpolation() = 0;
 };
 

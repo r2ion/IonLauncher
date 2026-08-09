@@ -106,36 +106,36 @@ bool CWorkshopThumbnailAtlas::InitializeLocked()
 		return false;
 	}
 
-	const RpakTextureHeader* templateTexture = nullptr;
+	const TextureAsset_s* templateTexture = nullptr;
 	for (const char* path : TEXTURE_TEMPLATE_IMAGES)
 	{
 		const RuiImageAssetDescriptor* descriptor = CImageAtlas::FindAssetDescriptor(CImageAtlas::HashImagePath(path));
 		RuiImageAtlas* atlas = descriptor ? CImageAtlas::GetAtlas(descriptor->atlasIndex) : nullptr;
 		if (!atlas || !atlas->texture)
 			continue;
-		templateTexture = static_cast<const RpakTextureHeader*>(atlas->texture);
+		templateTexture = static_cast<const TextureAsset_s*>(atlas->texture);
 		break;
 	}
 
-	m_TextureHeader = templateTexture ? *templateTexture : RpakTextureHeader{};
+	m_TextureHeader = templateTexture ? *templateTexture : TextureAsset_s{};
 	if (!templateTexture)
 		spdlog::warn("No loaded UI texture template was available for the ModWorkshop atlas");
-	m_TextureHeader.guid = CImageAtlas::HashAssetPath(m_TextureName);
-	m_TextureHeader.name = m_TextureName;
+	m_TextureHeader.assetGuid = CImageAtlas::HashAssetPath(m_TextureName);
+	m_TextureHeader.debugName = m_TextureName;
 	m_TextureHeader.width = static_cast<uint16_t>(ATLAS_WIDTH);
 	m_TextureHeader.height = static_cast<uint16_t>(ATLAS_HEIGHT);
 	m_TextureHeader.depth = 0;
-	m_TextureHeader.dxgiFormat = static_cast<uint16_t>(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+	m_TextureHeader.imageFormat = static_cast<uint16_t>(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
 	m_TextureHeader.dataSize = ATLAS_WIDTH * ATLAS_HEIGHT * 4;
-	m_TextureHeader.compressionType = 0;
-	m_TextureHeader.optStreamedMipCount = 0;
+	m_TextureHeader.swizzleType = 0;
+	m_TextureHeader.optStreamedMipLevels = 0;
 	m_TextureHeader.arraySize = 0;
 	m_TextureHeader.layerCount = 0;
-	m_TextureHeader.mipFlags = 0;
-	m_TextureHeader.permanentMipCount = 1;
-	m_TextureHeader.streamedMipCount = 0;
-	std::memset(m_TextureHeader.unk, 0, sizeof(m_TextureHeader.unk));
-	m_TextureHeader.numPixels = 0;
+	m_TextureHeader.usageFlags = 0;
+	m_TextureHeader.permanentMipLevels = 1;
+	m_TextureHeader.streamedMipLevels = 0;
+	std::memset(m_TextureHeader.unkPerMip, 0, sizeof(m_TextureHeader.unkPerMip));
+	m_TextureHeader.texelCount = 0;
 	m_TextureHeader.d3d11Resource = m_Texture.Get();
 	m_TextureHeader.shaderResourceView = m_ShaderResourceView.Get();
 

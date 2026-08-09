@@ -1,5 +1,5 @@
 #include "audio.h"
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "dedicated/dedicated.h"
 #include "logging/logging.h"
 

@@ -1,6 +1,7 @@
 #include "vscript/squirrel/squirrel.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "engine/r2engine.h"
+#include "tier1/cvar.h"
 
 // asset function StringToAsset( string assetName )
 ADD_SQFUNC(

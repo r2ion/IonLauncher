@@ -1,4 +1,4 @@
-#include "netmessages.h"
+#include "common/netmessages.h"
 #include "netchannel.h"
 
 bool g_bListeningforCustomServerInfoPacket = false;

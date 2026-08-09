@@ -1,26 +1,37 @@
 #include "vscript/squirrel/squirrel.h"
+#include "engine/cdll_int.h"
 #include "vgui/basemodui.h"
+#include "vgui_controls/Panel.h"
 
-using CClientScriptHudElement = void*;
-using CUtlString = const char*;
-using CGameUIConVarRef__Init_t = __int64 (*)(__int64, const char*, bool);
+#include <cstddef>
+#include <cstdlib>
+
+class CClientScriptHudElement;
+class CDialogListButton;
+class ConVar;
+class IConVar;
+
+// Retail CGameUIConVarRef stores the IConVar subobject and its owning ConVar.
+// The resolver at client.dll + 0x4A3650 proves the +0x30 base adjustment.
+struct CGameUIConVarRef
+{
+	IConVar* m_pIConVar;
+	ConVar* m_pConVar;
+};
+
+static_assert(sizeof(CGameUIConVarRef) == 0x10);
+static_assert(alignof(CGameUIConVarRef) == 0x8);
+static_assert(offsetof(CGameUIConVarRef, m_pIConVar) == 0x0);
+static_assert(offsetof(CGameUIConVarRef, m_pConVar) == 0x8);
+
+using CGameUIConVarRef__Init_t = CGameUIConVarRef* (*)(CGameUIConVarRef*, const char*);
 
 CGameUIConVarRef__Init_t CGameUIConVarRef__Init = nullptr;
 
-class CDialogListButton
+static vgui::Panel* GetHudElementPanel(CClientScriptHudElement* hudElement)
 {
-public:
-	struct DialogListItem_t
-	{
-		// CUtlString m_String;
-		// CUtlString m_StringParm1;
-		// CUtlString m_CommandString;
-		// bool m_bEnabled;
-		char pad[72];
-	};
-};
-
-// static_assert(sizeof(CDialogListButton::DialogListItem_t) == 72, "Wrong size");
+	return *reinterpret_cast<vgui::Panel**>(reinterpret_cast<std::byte*>(hudElement) + 0x28);
+}
 
 ADD_SQFUNC("void", Hud_DialogList_RemoveListItems, "var elem", "", ScriptContext::UI)
 {
@@ -32,27 +43,17 @@ ADD_SQFUNC("void", Hud_DialogList_RemoveListItems, "var elem", "", ScriptContext
 		return SQRESULT_ERROR;
 	}
 
-	uintptr_t dialogListButton = *(uintptr_t*)((uintptr_t)hudElement + 40);
+	vgui::Panel* dialogListButton = GetHudElementPanel(hudElement);
+	const char* name = dialogListButton->GetName();
 
-	using VFuncType = uintptr_t(__fastcall*)(uintptr_t);
-	VFuncType vfunc = *(VFuncType*)(*(uintptr_t*)dialogListButton + 1520);
-	uintptr_t isDialogListButton = vfunc(dialogListButton);
-
-	using NameFuncType = const char*(__fastcall*)(uintptr_t);
-	NameFuncType nameFunc = *(NameFuncType*)(*(uintptr_t*)dialogListButton + 168);
-	const char* name = nameFunc(dialogListButton);
-
-	if (!isDialogListButton)
+	if (!dialogListButton->IsDialogListButton())
 	{
 		g_pSquirrel[context]->raiseerror(sqvm, fmt::format("No DialogListButton element with name '{}'.", name).c_str());
 		return SQRESULT_ERROR;
 	}
 
-    int count = *(int*)(dialogListButton + 1328);
-    CDialogListButton::DialogListItem_t* vectorBase = (CDialogListButton::DialogListItem_t*)(*(uintptr_t*)(dialogListButton + 1304));
-
-	// epic memory leak probably
-	*(int*)(dialogListButton + 1328) = 0;
+	// The retail type has no recoverable RTTI or static vtable, so only mutate the proven CUtlVector count field.
+	*reinterpret_cast<int*>(reinterpret_cast<std::byte*>(dialogListButton) + 0x530) = 0;
 
 	return SQRESULT_NULL;
 }
@@ -68,26 +69,19 @@ ADD_SQFUNC("void", Hud_ChangeDialogListConVar, "var elem, string convarName", ""
 		return SQRESULT_ERROR;
 	}
 
-	uintptr_t dialogListButton = *(uintptr_t*)((uintptr_t)hudElement + 40);
+	vgui::Panel* dialogListButton = GetHudElementPanel(hudElement);
+	const char* name = dialogListButton->GetName();
 
-	using VFuncType = uintptr_t(__fastcall*)(uintptr_t);
-	VFuncType vfunc = *(VFuncType*)(*(uintptr_t*)dialogListButton + 1520);
-	uintptr_t isDialogListButton = vfunc(dialogListButton);
-
-	using NameFuncType = const char*(__fastcall*)(uintptr_t);
-	NameFuncType nameFunc = *(NameFuncType*)(*(uintptr_t*)dialogListButton + 168);
-	const char* name = nameFunc(dialogListButton);
-
-	if (!isDialogListButton)
+	if (!dialogListButton->IsDialogListButton())
 	{
 		g_pSquirrel[context]->raiseerror(sqvm, fmt::format("No DialogListButton element with name '{}'.", name).c_str());
 		return SQRESULT_ERROR;
 	}
 
-	void* convarRef = malloc(0x10);
-	__int64 result = CGameUIConVarRef__Init((uintptr_t)convarRef, convarName, false);
+	auto* convarRef = static_cast<CGameUIConVarRef*>(std::malloc(sizeof(CGameUIConVarRef)));
+	CGameUIConVarRef__Init(convarRef, convarName);
 
-	*(uintptr_t**)(dialogListButton + 1256) = (uintptr_t*)convarRef;
+	*reinterpret_cast<CGameUIConVarRef**>(reinterpret_cast<std::byte*>(dialogListButton) + 0x4E8) = convarRef;
 
 	return SQRESULT_NULL;
 }
@@ -96,36 +90,33 @@ using sub_738940_t = __int64 (__fastcall *)(uint64_t);
 sub_738940_t sub_738940 = nullptr;
 using sub_4A3620_t = int (__fastcall *)(void);
 sub_4A3620_t sub_4A3620 = nullptr;
-using sub_733BB0_t = unsigned int (__fastcall *)(unsigned __int8 *, unsigned __int8 *);
+using sub_733BB0_t = unsigned int (__fastcall *)(const unsigned __int8 *, const unsigned __int8 *);
 sub_733BB0_t sub_733BB0 = nullptr;
 using sub_73A300_t = int (__fastcall *)(__int64);
 sub_73A300_t sub_73A300 = nullptr;
-using sub_739B90_t = __int64 (__fastcall *)(__int64);
+using sub_739B90_t = const char* (__fastcall *)(__int64);
 sub_739B90_t sub_739B90 = nullptr;
 
 HMODULE clientBase = 0;
 
 DECLARE_MODULE(ScriptHudElemHooks)
 
-DECLARE_HOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, ([](auto& hook, __int64 a1) -> bool
+DECLARE_HOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, ([](auto& hook, CDialogListButton* dialogListButton) -> bool
 {
 	NOTE_UNUSED(hook);
+	uintptr_t a1 = reinterpret_cast<uintptr_t>(dialogListButton);
   __int64 v3; // rcx
   __int64 v4; // rax
   __int64 v5; // rbx
   unsigned __int8 *v6; // rdi
   int v7; // eax
-  __int64 v8; // rbx
-  __int64 v9; // rax
-  __int64 v10; // rax
-  __int64 v11; // rbx
-  unsigned __int8 *v12; // rdi
-  __int64 v13; // rax
-  __int64 v14; // r9
-  unsigned __int8 *v15; // rax
+  const char* v9; // rax
+  const char* v12; // rdi
+  const char* v13; // rax
+  const char* v15; // rax
 
   uintptr_t base = (uintptr_t)clientBase;
-  auto qword_C3D940 = *(uint64_t *)(base + 0xC3D940);
+  IVEngineClient* engineClient = *reinterpret_cast<IVEngineClient**>(base + 0xC3D940);
 
   if ( *(DWORD *)(a1 + 1132) != 3 )
     return 0;
@@ -136,31 +127,26 @@ DECLARE_HOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, ([](auto& 
     v5 = *(uint64_t *)(a1 + 1256);
     v6 = (unsigned __int8 *)v4;
     v7 = sub_4A3620();
-    if ( (unsigned int)sub_733BB0(v6, *(unsigned __int8 **)(*(uint64_t *)(v5 + 16LL * v7 + 8) + 72LL)) )
+    if ( (unsigned int)sub_733BB0(v6, *reinterpret_cast<const unsigned __int8 **>(*reinterpret_cast<uint64_t *>(v5 + 16LL * v7 + 8) + 72LL)) )
       return 1;
   }
   if ( sub_73A300(a1 + 1264) )
   {
-    v8 = *(uint64_t *)qword_C3D940;
     v9 = sub_739B90(a1 + 1264);
-    v10 = (*(__int64 (__fastcall **)(__int64, uint64_t, __int64, uint64_t))(v8 + 808))(
-            qword_C3D940,
-            *(unsigned __int8 *)(a1 + 1296),
+    v12 = engineClient->GetCurrentPlaylistGameModeVar(
+            *reinterpret_cast<unsigned __int8*>(a1 + 1296),
             v9,
-            0LL);
-    v11 = *(uint64_t *)qword_C3D940;
-    v12 = (unsigned __int8 *)v10;
+            false);
     v13 = sub_739B90(a1 + 1264);
-    v15 = (unsigned __int8 *)(*(__int64 (__fastcall **)(__int64, uint64_t, __int64, __int64))(v11 + 808))(
-                               qword_C3D940,
-                               *(unsigned __int8 *)(a1 + 1296),
-                               v13,
-                               1);
+    v15 = engineClient->GetCurrentPlaylistGameModeVar(
+            *reinterpret_cast<unsigned __int8*>(a1 + 1296),
+            v13,
+            true);
 
 	// this can be null when we use Hud_DialogList_RemoveListItems
 	if( !v12 )
 		return 0;
-    if ( (unsigned int)sub_733BB0(v12, v15) )
+    if ( (unsigned int)sub_733BB0(reinterpret_cast<const unsigned __int8*>(v12), reinterpret_cast<const unsigned __int8*>(v15)) )
       return 1;
   }
   return 0;

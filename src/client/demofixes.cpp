@@ -1,5 +1,5 @@
-#include "core/convar/convar.h"
-
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 ON_DLL_LOAD_CLIENT("engine.dll", EngineDemoFixes, [](CModule module)
 {
 	// allow demo recording on loopback

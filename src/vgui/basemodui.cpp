@@ -1,6 +1,7 @@
 #include "vgui/basemodui.h"
 #include "core/tier0.h"
 #include "server/auth/serverauthentication.h"
+#include "tier1/cvar.h"
 
 DECLARE_MODULE(BaseModUIHooks)
 
@@ -102,14 +103,14 @@ DECLARE_HOOK(BaseModUI__LoadingProgress__PaintBackground, client.dll + 0x4CEB20,
 
 	if (loadingBar)
 	{
-		double t = Plat_FloatTime();
+		double t = g_PlatFloatTime();
 		float dt = t - g_flLastUpdateTime;
 
 		if (flPerc == 1.0)
-			*(float*)(loadingBar + 620) = 1.0;
+			loadingBar->SetProgressValue(1.0f);
 		else
 		{
-			float currentProgress = *(float*)(loadingBar + 620);
+			float currentProgress = loadingBar->GetProgress();
 			float maxStep = dt * 0.5f;
 			float diff = flPerc - currentProgress;
 
@@ -118,7 +119,7 @@ DECLARE_HOOK(BaseModUI__LoadingProgress__PaintBackground, client.dll + 0x4CEB20,
 			else
 				currentProgress = flPerc;
 
-			*(float*)(loadingBar + 620) = currentProgress;
+			loadingBar->SetProgressValue(currentProgress);
 		}
 	}
 
@@ -139,7 +140,7 @@ void WaitForFadeout()
 	vgui::ContinuousProgressBar* loadingBar = reinterpret_cast<vgui::ContinuousProgressBar*>(loadingRes->FindChildByName("LoadingProgressBar", false));
 
 	if(loadingBar)
-		*(float*)(loadingBar + 620) = 0.0;
+		loadingBar->SetProgressValue(0.0f);
 	flPerc = 0;
 	m_eLastProgressPoint = PROGRESS_NONE;
 	m_nLastProgressPointRepeatCount = 0;
@@ -199,7 +200,7 @@ DECLARE_HOOK(CEngineVGui__UpdateProgressBar, engine.dll + 0x249ED0,
 	bool bNewCheckpoint = progress != m_eLastProgressPoint;
 
 	// Early time-based throttle for UpdateProgressBar
-	double t = Plat_FloatTime();
+	double t = g_PlatFloatTime();
 	float dt = t - g_flLastUpdateTime;
 	if ((!bNewCheckpoint && (dt < 0.050000001)))
 	{
@@ -227,7 +228,7 @@ DECLARE_HOOK(CEngineVGui__UpdateProgressBar, engine.dll + 0x249ED0,
 	}
 
 	m_eLastProgressPoint = progress;
-	g_flLastUpdateTime = Plat_FloatTime();
+	g_flLastUpdateTime = g_PlatFloatTime();
 
 	vgui::Panel* basemodpanel = reinterpret_cast<vgui::Panel*>(BaseModUI::CBaseModPanel::GetSingleton());
 	vgui::Panel* loadingRes = basemodpanel->FindChildByName("LoadingProgress", false);

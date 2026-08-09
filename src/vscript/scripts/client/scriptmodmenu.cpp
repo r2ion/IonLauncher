@@ -4,6 +4,7 @@
 #include "rtech/rui/workshop_thumbnail_atlas.h"
 #include "rtech/rui/workshop_thumbnail_service.h"
 #include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel/sqarray.h"
 
 #include <algorithm>
 #include <charconv>

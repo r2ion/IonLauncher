@@ -163,26 +163,22 @@ std::string MCPScriptFunctionSearch::JoinGamePath(std::string_view directory, st
 void MCPScriptFunctionSearch::EnumerateGameScripts(std::string_view directory, std::unordered_set<std::string>& seen, std::vector<std::string>& paths,
                                                    size_t depth)
 {
-    if (!g_pFilesystem || !g_pFilesystem->m_vtable || depth > 32)
-        return;
-
-    IFileSystem::VTable* vtable = g_pFilesystem->m_vtable;
-    if (!vtable->FindFirstEx || !vtable->FindNext || !vtable->FindIsDirectory || !vtable->FindClose)
+    if (!g_pFilesystem || depth > 32)
         return;
 
     const std::string wildcard = JoinGamePath(directory, "*");
     FileFindHandle_t handle = FILESYSTEM_INVALID_FIND_HANDLE;
-    const char* found = vtable->FindFirstEx(g_pFilesystem, wildcard.c_str(), "GAME", &handle);
+    const char* found = g_pFilesystem->FindFirstEx(wildcard.c_str(), "GAME", &handle);
     std::vector<std::pair<std::string, bool>> entries;
     while (found)
     {
         std::string name(found);
         if (name != "." && name != "..")
-            entries.emplace_back(std::move(name), vtable->FindIsDirectory(g_pFilesystem, handle));
-        found = vtable->FindNext(g_pFilesystem, handle);
+            entries.emplace_back(std::move(name), g_pFilesystem->FindIsDirectory(handle));
+        found = g_pFilesystem->FindNext(handle);
     }
     if (handle != FILESYSTEM_INVALID_FIND_HANDLE)
-        vtable->FindClose(g_pFilesystem, handle);
+        g_pFilesystem->FindClose(handle);
 
     for (const auto& [name, isDirectory] : entries)
     {

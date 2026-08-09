@@ -1,8 +1,8 @@
 #include "vscript/squirrel/squirrel.h"
 #include "engine/r2engine.h"
-#include "engine/netmessages.h"
+#include "common/netmessages.h"
 #include "masterserver/masterserver.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "core/tier0.h"
 #include "client/connect.h"
 

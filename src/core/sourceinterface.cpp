@@ -1,3 +1,5 @@
+#include "game/client/IGameClientExports.h"
+
 #include "logging/sourceconsole.h"
 
 DECLARE_MODULE(SourceInterfaceHooks)
@@ -9,7 +11,7 @@ DECLARE_HOOK_PROC(ClientCreateInterface, client.dll, CreateInterface, [](auto& h
 	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface CLIENT {}", pName);
 
-	if (!strcmp(pName, "GameClientExports001"))
+	if (!strcmp(pName, GAMECLIENTEXPORTS_INTERFACE_VERSION))
 		InitialiseConsoleOnInterfaceCreation();
 
 	return ret;

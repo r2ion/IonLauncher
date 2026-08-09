@@ -1,9 +1,10 @@
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "tier0/vanilla.h"
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
 #include "vscript/squirrel/squirrel.h"
 #include "client/connect.h"
+#include "tier1/cvar.h"
 
 ADD_SQFUNC("bool", NSIsMasterServerAuthenticated, "", "", ScriptContext::UI)
 {

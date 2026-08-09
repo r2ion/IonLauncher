@@ -6,7 +6,7 @@ using CInputSystem__PostEvent = void(__fastcall*)(void* thisObject, InputEventTy
 static void (*v_CInputSystem__PostEvent)(void* thisObject, InputEventType_t nType, int nTick, int nData, int nData2, int nData3);
 
 const int CROUCHKICK_FIX_BUFFER_MICROSECONDS = 9000;
-inline const int BUTTON_CODE_COUNT = 255;
+inline const int CROUCHKICK_BUTTON_CODE_COUNT = 255;
 
 
 inline long long wallrunStartedTime = 0;

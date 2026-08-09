@@ -1,4 +1,5 @@
 #include "materialsystem/cmaterialglue.h"
+#include "rendersystem/schema/texture.g.h"
 
 DECLARE_MODULE(GlMatSysIFaceHooks)
 
@@ -26,41 +27,41 @@ DECLARE_HOOK(CC_mat_crosshair_printmaterial_f, engine.dll + 0xB3C40, [](auto& ho
 		}
 
 		spdlog::info("├ {}", szName);
-		spdlog::info("│├── GUID: {:#x}", pGlue->material.guid);
-		spdlog::info("│└── Name: {}", pGlue->material.name);
+		spdlog::info("│├── GUID: {:#x}", pGlue->guid);
+		spdlog::info("│└── Name: {}", pGlue->name);
 
 	};
 	spdlog::info("────────────────────────────────────────────────────────────");
 
-	spdlog::info("┌ Name: {}", pMat->material.name);
-	spdlog::info("├ GUID: {:#x}", pMat->material.guid);
-	spdlog::info("├ Width : {}", pMat->material.width);
-	spdlog::info("├ Height: {}", pMat->material.height);
-	spdlog::info("├ Shaderset: {}", pMat->material.shaderSet->inner.name);
+	spdlog::info("┌ Name: {}", pMat->name);
+	spdlog::info("├ GUID: {:#x}", pMat->guid);
+	spdlog::info("├ Width : {}", pMat->width);
+	spdlog::info("├ Height: {}", pMat->height);
+	spdlog::info("├ Shaderset: {}", pMat->shaderSet->name);
 
-	fnPrintGlue(pMat->material.DepthShadow_ref, "DepthShadow");
-	fnPrintGlue(pMat->material.DepthPrepass_ref, "DepthPrepass");
-	fnPrintGlue(pMat->material.DepthVSM_ref, "DepthVSM");
-	fnPrintGlue(pMat->material.Colpass_ref, "Colpass");
+	fnPrintGlue(pMat->DepthShadow_ref, "DepthShadow");
+	fnPrintGlue(pMat->DepthPrepass_ref, "DepthPrepass");
+	fnPrintGlue(pMat->DepthVSM_ref, "DepthVSM");
+	fnPrintGlue(pMat->Colpass_ref, "Colpass");
 
-	if (pMat && pMat->material.shaderSet && pMat->material.shaderSet->inner.textureInputCount >= 1 && pMat->material.textureHandles)
+	if (pMat->shaderSet && pMat->shaderSet->textureInputCount >= 1 && pMat->textureHandles)
 	{
 		spdlog::info("├ Textures");
-		for (size_t slot = 0; slot < pMat->material.shaderSet->inner.textureInputCount +1; ++slot)
+		for (size_t slot = 0; slot < pMat->shaderSet->textureInputCount +1; ++slot)
 		{
-			RpakTextureHeader* currentTexture = pMat->material.textureHandles[slot];
+			TextureAsset_s* currentTexture = pMat->textureHandles[slot];
 	
-			if (currentTexture && currentTexture->name)
+			if (currentTexture && currentTexture->debugName)
 			{
-				if(slot == pMat->material.shaderSet->inner.textureInputCount)
-					spdlog::info("│└[{}][{:#x}]{}", slot, currentTexture->guid, currentTexture->name);
+				if(slot == pMat->shaderSet->textureInputCount)
+					spdlog::info("│└[{}][{:#x}]{}", slot, currentTexture->assetGuid, currentTexture->debugName);
 				else
-					spdlog::info("│├[{}][{:#x}]{}", slot, currentTexture->guid, currentTexture->name);
+					spdlog::info("│├[{}][{:#x}]{}", slot, currentTexture->assetGuid, currentTexture->debugName);
 			}
 		}
 	}
-	spdlog::info("├ Glueflags: {:#x}", pMat->material.flags);
-	spdlog::info("└ Glueflags2: {:#x}", pMat->material.flags2);
+	spdlog::info("├ Glueflags: {:#x}", pMat->flags);
+	spdlog::info("└ Glueflags2: {:#x}", pMat->flags2);
 	spdlog::info("────────────────────────────────────────────────────────────");
 
 })

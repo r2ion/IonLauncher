@@ -1,5 +1,5 @@
 #include "core/tier1.h"
-#include "plugins/interfaces/interface.h"
+#include "plugins/interfaces/interface_registry.h"
 #include "ISys.h"
 #include "plugins/plugins.h"
 #include "plugins/pluginmanager.h"

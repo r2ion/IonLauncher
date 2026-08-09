@@ -4,8 +4,7 @@
 #include "client/cdll_client_int.h"
 #include "engine/hoststate.h"
 
-#include "core/math/vplane.h"
-
+#include "mathlib/vplane.h"
 #include <fstream>
 
 const int AINET_VERSION_NUMBER = 57;

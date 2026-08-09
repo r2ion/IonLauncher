@@ -13,6 +13,7 @@
 #include "tier0/frametask.h"
 #include "modsystem/moddownloader.h"
 #include "eos/eos_layer.h"
+#include "tier1/cvar.h"
 
 DECLARE_MODULE(HostStateHooks)
 
@@ -78,9 +79,9 @@ DECLARE_HOOK(CHostState__State_NewGame, engine.dll + 0x16E7D0, [](auto& hook, CH
 
 	ServerStartingOrChangingMap();
 
-	double dStartTime = Plat_FloatTime();
+	double dStartTime = g_PlatFloatTime();
 	hook.Original(self);
-	spdlog::info("loading took {}s", Plat_FloatTime() - dStartTime);
+	spdlog::info("loading took {}s", g_PlatFloatTime() - dStartTime);
 
 	// setup server presence
 	g_pServerPresence->CreatePresence();
@@ -109,9 +110,9 @@ DECLARE_HOOK(CHostState__State_LoadGame, engine.dll + 0x16E730, [](auto& hook, C
 	g_pCVar->FindVar("net_data_block_enabled")->SetValue(true);
 	g_pServerAuthentication->m_bStartingLocalSPGame = true;
 
-	double dStartTime = Plat_FloatTime();
+	double dStartTime = g_PlatFloatTime();
 	hook.Original(self);
-	spdlog::info("loading took {}s", Plat_FloatTime() - dStartTime);
+	spdlog::info("loading took {}s", g_PlatFloatTime() - dStartTime);
 
 	// no server presence, can't do it because no map name in hoststate
 	// and also not super important for sp saves really
@@ -125,9 +126,9 @@ DECLARE_HOOK(CHostState__State_ChangeLevelMP, engine.dll + 0x16E520, [](auto& ho
 
 	ServerStartingOrChangingMap();
 
-	double dStartTime = Plat_FloatTime();
+	double dStartTime = g_PlatFloatTime();
 	hook.Original(self);
-	spdlog::info("loading took {}s", Plat_FloatTime() - dStartTime);
+	spdlog::info("loading took {}s", g_PlatFloatTime() - dStartTime);
 
 	g_pServerPresence->SetMap(g_pHostState->m_levelName);
 })

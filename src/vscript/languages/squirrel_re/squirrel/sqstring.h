@@ -12,4 +12,10 @@ struct alignas(8) SQString : public SQRefCounted
 	char _hash[8];
 	char _val[1];
 };
-static_assert(sizeof(SQString) == 56); // [Fifty]: Game allocates 56 + strlen
+static_assert(std::is_base_of_v<SQRefCounted, SQString>);
+static_assert(sizeof(SQString) == 0x38); // Game allocates 0x38 + string length.
+static_assert(offsetof(SQString, sharedState) == 0x18);
+static_assert(offsetof(SQString, length) == 0x20);
+static_assert(offsetof(SQString, gap_24) == 0x24);
+static_assert(offsetof(SQString, _hash) == 0x28);
+static_assert(offsetof(SQString, _val) == 0x30);

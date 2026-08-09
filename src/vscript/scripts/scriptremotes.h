@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/bitbuf.h"
+#include "tier1/bitbuf.h"
 
 class CModRemoteFunction
 {

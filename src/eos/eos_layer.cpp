@@ -11,15 +11,16 @@
 
 #include "eos_logging_manager.h"
 #include "eos_threading.h"
+#include "tier1/cvar.h"
 
-namespace
+namespace EosLayerInternal
 {
 
 constexpr int kAsyncPollIntervalMs = 10;
 constexpr char kDefaultSocketName[] = "ion";
-std::recursive_mutex g_sdkMutex;
+static std::recursive_mutex g_sdkMutex;
 
-std::string Base64Decode(const std::string& encoded)
+static std::string Base64Decode(const std::string& encoded)
 {
     static constexpr char kBase64Chars[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -68,7 +69,7 @@ struct PromiseCleanup
     }
 };
 
-std::string BuildDisplayName()
+static std::string BuildDisplayName()
 {
 	const char* name = g_pCVar->FindVar("name")->GetString();
 	if (name && name[0] != '\0')
@@ -77,7 +78,7 @@ std::string BuildDisplayName()
     return "ion_user";
 }
 
-void EOS_CALL OnCreateDeviceIdCallback(const EOS_Connect_CreateDeviceIdCallbackInfo* data)
+static void EOS_CALL OnCreateDeviceIdCallback(const EOS_Connect_CreateDeviceIdCallbackInfo* data)
 {
     using PromisePtr = std::shared_ptr<std::promise<EOS_EResult>>;
     auto* holder = static_cast<PromisePtr*>(data->ClientData);
@@ -88,7 +89,7 @@ void EOS_CALL OnCreateDeviceIdCallback(const EOS_Connect_CreateDeviceIdCallbackI
     delete holder; // drop our ref; promise is destroyed when all shared_ptrs go away
 }
 
-void EOS_CALL OnConnectLoginCallback(const EOS_Connect_LoginCallbackInfo* data)
+static void EOS_CALL OnConnectLoginCallback(const EOS_Connect_LoginCallbackInfo* data)
 {
     using PromisePtr = std::shared_ptr<std::promise<eos::LoginCallbackPayload>>;
     auto* holder = static_cast<PromisePtr*>(data->ClientData);
@@ -104,7 +105,7 @@ void EOS_CALL OnConnectLoginCallback(const EOS_Connect_LoginCallbackInfo* data)
     delete holder; // same as above
 }
 
-void EOS_CALL OnIncomingConnectionRequest(const EOS_P2P_OnIncomingConnectionRequestInfo* data)
+static void EOS_CALL OnIncomingConnectionRequest(const EOS_P2P_OnIncomingConnectionRequestInfo* data)
 {
     auto* layer = data ? static_cast<eos::EosLayer*>(data->ClientData) : nullptr;
     if (layer)
@@ -113,7 +114,7 @@ void EOS_CALL OnIncomingConnectionRequest(const EOS_P2P_OnIncomingConnectionRequ
     }
 }
 
-void EOS_CALL OnPeerConnectionEstablished(const EOS_P2P_OnPeerConnectionEstablishedInfo* data)
+static void EOS_CALL OnPeerConnectionEstablished(const EOS_P2P_OnPeerConnectionEstablishedInfo* data)
 {
     auto* layer = data ? static_cast<eos::EosLayer*>(data->ClientData) : nullptr;
     if (layer)
@@ -122,14 +123,14 @@ void EOS_CALL OnPeerConnectionEstablished(const EOS_P2P_OnPeerConnectionEstablis
     }
 }
 
-} // namespace
+} // namespace EosLayerInternal
 
 namespace eos
 {
 
 std::recursive_mutex& GetSdkMutex()
 {
-    return g_sdkMutex;
+    return EosLayerInternal::g_sdkMutex;
 }
 
 EosLayer& EosLayer::Instance()
@@ -178,7 +179,7 @@ bool EosLayer::Initialize(const char* productId,
     Logging::Initialize();
 
     static const std::string clientId = EOS_CLIENT_ID;
-    static const std::string clientSecret = Base64Decode(EOS_CLIENT_SECRET_B64);
+    static const std::string clientSecret = EosLayerInternal::Base64Decode(EOS_CLIENT_SECRET_B64);
 
     EOS_Platform_Options platformOptions{};
     platformOptions.ApiVersion = EOS_PLATFORM_OPTIONS_API_LATEST;
@@ -217,7 +218,7 @@ bool EosLayer::Initialize(const char* productId,
     std::snprintf(m_defaultSocketId.SocketName,
                   EOS_P2P_SOCKETID_SOCKETNAME_SIZE,
                   "%s",
-                  kDefaultSocketName);
+                  EosLayerInternal::kDefaultSocketName);
 
     EOS_P2P_SetRelayControlOptions relayOptions{};
     relayOptions.ApiVersion = EOS_P2P_SETRELAYCONTROL_API_LATEST;
@@ -302,7 +303,8 @@ bool EosLayer::CreateDeviceId()
 
     {
         SdkLock lock(GetSdkMutex());
-        EOS_Connect_CreateDeviceId(m_connectHandle, &options, holder, &OnCreateDeviceIdCallback);
+        EOS_Connect_CreateDeviceId(
+            m_connectHandle, &options, holder, &EosLayerInternal::OnCreateDeviceIdCallback);
     }
 
     EOS_EResult result = EOS_EResult::EOS_UnexpectedError;
@@ -327,7 +329,7 @@ bool EosLayer::LoginWithDeviceId()
     auto promise = std::make_shared<std::promise<LoginCallbackPayload>>();
     auto future = promise->get_future();
 
-    auto displayName = std::make_shared<std::string>(BuildDisplayName());
+    auto displayName = std::make_shared<std::string>(EosLayerInternal::BuildDisplayName());
 
     EOS_Connect_UserLoginInfo userInfo{};
     userInfo.ApiVersion = EOS_CONNECT_USERLOGININFO_API_LATEST;
@@ -347,7 +349,7 @@ bool EosLayer::LoginWithDeviceId()
 
     {
         SdkLock lock(GetSdkMutex());
-        EOS_Connect_Login(m_connectHandle, &loginOptions, holder, &OnConnectLoginCallback);
+        EOS_Connect_Login(m_connectHandle, &loginOptions, holder, &EosLayerInternal::OnConnectLoginCallback);
     }
 
     LoginCallbackPayload payload{};
@@ -437,7 +439,8 @@ bool EosLayer::WaitForResult(std::future<EOS_EResult>& future,
     while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
     {
         PumpOnce();
-        std::this_thread::sleep_for(std::chrono::milliseconds(kAsyncPollIntervalMs));
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(EosLayerInternal::kAsyncPollIntervalMs));
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
         if (elapsed.count() > timeoutMs)
@@ -463,7 +466,8 @@ bool EosLayer::WaitForLogin(std::future<LoginCallbackPayload>& future,
     while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
     {
         PumpOnce();
-        std::this_thread::sleep_for(std::chrono::milliseconds(kAsyncPollIntervalMs));
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(EosLayerInternal::kAsyncPollIntervalMs));
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
         if (elapsed.count() > timeoutMs)
@@ -510,7 +514,8 @@ void EosLayer::StartPumpThread()
         while (m_shouldRun.load(std::memory_order_acquire))
         {
             PumpOnce();
-            std::this_thread::sleep_for(std::chrono::milliseconds(kAsyncPollIntervalMs));
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(EosLayerInternal::kAsyncPollIntervalMs));
         }
     });
 }
@@ -543,7 +548,7 @@ bool EosLayer::RegisterSocketNotifications()
         std::snprintf(m_defaultSocketId.SocketName,
                       EOS_P2P_SOCKETID_SOCKETNAME_SIZE,
                       "%s",
-                      kDefaultSocketName);
+                      EosLayerInternal::kDefaultSocketName);
     }
 
     EOS_P2P_AddNotifyPeerConnectionRequestOptions requestOptions{};
@@ -553,7 +558,7 @@ bool EosLayer::RegisterSocketNotifications()
     {
         SdkLock lock(GetSdkMutex());
         m_connectionRequestNotificationId = EOS_P2P_AddNotifyPeerConnectionRequest(
-            m_p2pHandle, &requestOptions, this, &OnIncomingConnectionRequest);
+            m_p2pHandle, &requestOptions, this, &EosLayerInternal::OnIncomingConnectionRequest);
     }
     if (m_connectionRequestNotificationId == EOS_INVALID_NOTIFICATIONID)
         return false;
@@ -565,7 +570,7 @@ bool EosLayer::RegisterSocketNotifications()
     {
         SdkLock lock(GetSdkMutex());
         m_connectionEstablishedNotificationId = EOS_P2P_AddNotifyPeerConnectionEstablished(
-            m_p2pHandle, &establishedOptions, this, &OnPeerConnectionEstablished);
+            m_p2pHandle, &establishedOptions, this, &EosLayerInternal::OnPeerConnectionEstablished);
     }
     if (m_connectionEstablishedNotificationId == EOS_INVALID_NOTIFICATIONID)
     {

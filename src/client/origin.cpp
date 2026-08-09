@@ -1,6 +1,7 @@
 #include "origin.h"
-#include "r2client.h"
+#include "engine/client/clientstate.h"
 #include "util/utils.h"
+#include "core/convar/concommand.h"
 
 DECLARE_MODULE(OriginHooks)
 

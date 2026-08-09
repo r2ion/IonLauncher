@@ -9,7 +9,7 @@ void* _malloc_base(size_t n)
 	if (!g_pMemAllocSingleton)
 		TryCreateGlobalMemAlloc();
 
-	return g_pMemAllocSingleton->m_vtable->Alloc(g_pMemAllocSingleton, n);
+	return g_pMemAllocSingleton->Alloc(n);
 }
 
 /*extern "C" void* malloc(size_t n)
@@ -22,7 +22,7 @@ void _free_base(void* p)
 	if (!g_pMemAllocSingleton)
 		TryCreateGlobalMemAlloc();
 
-	g_pMemAllocSingleton->m_vtable->Free(g_pMemAllocSingleton, p);
+	g_pMemAllocSingleton->Free(p);
 }
 
 void* _realloc_base(void* oldPtr, size_t size)
@@ -30,7 +30,7 @@ void* _realloc_base(void* oldPtr, size_t size)
 	if (!g_pMemAllocSingleton)
 		TryCreateGlobalMemAlloc();
 
-	return g_pMemAllocSingleton->m_vtable->Realloc(g_pMemAllocSingleton, oldPtr, size);
+	return g_pMemAllocSingleton->Realloc(oldPtr, size);
 }
 
 void* _calloc_base(size_t n, size_t size)
@@ -67,7 +67,7 @@ size_t _msize(void* const block)
 	if (!g_pMemAllocSingleton)
 		TryCreateGlobalMemAlloc();
 
-	return g_pMemAllocSingleton->m_vtable->GetSize(g_pMemAllocSingleton, block);
+	return g_pMemAllocSingleton->GetSize(block);
 }
 
 char* _strdup_base(const char* src)

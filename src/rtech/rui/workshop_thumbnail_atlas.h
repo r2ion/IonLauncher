@@ -1,6 +1,6 @@
 #pragma once
 
-#include "materialsystem/cmaterialglue.h"
+#include "rendersystem/schema/texture.g.h"
 #include "rtech/rui/imageatlas.h"
 
 #include <wrl/client.h>
@@ -64,7 +64,7 @@ private:
 
 	mutable std::mutex m_Mutex;
 	CImageAtlas m_Atlas;
-	RpakTextureHeader m_TextureHeader{};
+	TextureAsset_s m_TextureHeader{};
 	Microsoft::WRL::ComPtr<ID3D11Texture2D> m_Texture;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_ShaderResourceView;
 	ID3D11Device* m_Device = nullptr;

@@ -10,7 +10,7 @@
 
 #include "eos_layer.h"
 #include "eos_threading.h"
-#include "core/convar/cvar.h"
+#include "tier1/cvar.h"
 #include "util/version.h"
 
 #include <intrin.h>
@@ -22,7 +22,7 @@ std::mutex g_socketRouteMutex;
 std::unordered_map<SOCKET, eos::PacketRoute> g_socketRoutes;
 std::unordered_map<SOCKET, bool> g_fakeIpRecvSockets;
 
-namespace
+namespace EosNetworkInternal
 {
 
 constexpr char kProductId[] = "38a41893d2fa4e73801e0daed2060cb6";
@@ -41,15 +41,15 @@ using SendToFn = int (WSAAPI*)(SOCKET, const char*, int, int, const sockaddr*, i
 using RecvFromFn = int (WSAAPI*)(SOCKET, char*, int, int, sockaddr*, int*);
 using CloseSocketFn = int (WSAAPI*)(SOCKET);
 
-SendToFn g_realSendTo = nullptr;
-RecvFromFn g_realRecvFrom = nullptr;
-CloseSocketFn g_realCloseSocket = nullptr;
-LPVOID g_sendToTarget = nullptr;
-LPVOID g_recvFromTarget = nullptr;
-LPVOID g_closeSocketTarget = nullptr;
-bool g_hooksInstalled = false;
+static SendToFn g_realSendTo = nullptr;
+static RecvFromFn g_realRecvFrom = nullptr;
+static CloseSocketFn g_realCloseSocket = nullptr;
+static LPVOID g_sendToTarget = nullptr;
+static LPVOID g_recvFromTarget = nullptr;
+static LPVOID g_closeSocketTarget = nullptr;
+static bool g_hooksInstalled = false;
 
-bool ExtractFakeEndpoint(const sockaddr* address, eos::FakeEndpoint& outEndpoint)
+static bool ExtractFakeEndpoint(const sockaddr* address, eos::FakeEndpoint& outEndpoint)
 {
     if (!address || address->sa_family != AF_INET6)
         return false;
@@ -63,7 +63,7 @@ bool ExtractFakeEndpoint(const sockaddr* address, eos::FakeEndpoint& outEndpoint
     return true;
 }
 
-void WriteSockaddrForFakeEndpoint(const eos::FakeEndpoint& endpoint,
+static void WriteSockaddrForFakeEndpoint(const eos::FakeEndpoint& endpoint,
                                   sockaddr* outAddress,
                                   int* outLength)
 {
@@ -103,7 +103,7 @@ void WriteSockaddrForFakeEndpoint(const eos::FakeEndpoint& endpoint,
     }
 }
 
-uint16_t GetLocalSocketPort(SOCKET socketHandle)
+static uint16_t GetLocalSocketPort(SOCKET socketHandle)
 {
     sockaddr_storage addr{};
     int addrLen = sizeof(addr);
@@ -119,7 +119,7 @@ uint16_t GetLocalSocketPort(SOCKET socketHandle)
     return 0;
 }
 
-eos::PacketRoute ClassifySocketRoute(uint16_t port)
+static eos::PacketRoute ClassifySocketRoute(uint16_t port)
 {
 	if (!port)
 		return eos::PacketRoute::None;
@@ -136,7 +136,7 @@ eos::PacketRoute ClassifySocketRoute(uint16_t port)
 	return eos::PacketRoute::None;
 }
 
-eos::PacketRoute DetermineSocketRoute(SOCKET socketHandle)
+static eos::PacketRoute DetermineSocketRoute(SOCKET socketHandle)
 {
     {
         std::lock_guard lock(g_socketRouteMutex);
@@ -156,7 +156,7 @@ eos::PacketRoute DetermineSocketRoute(SOCKET socketHandle)
     return route;
 }
 
-int WSAAPI HookedSendTo(SOCKET socketHandle,
+static int WSAAPI HookedSendTo(SOCKET socketHandle,
                         const char* buffer,
                         int length,
                         int flags,
@@ -191,7 +191,7 @@ int WSAAPI HookedSendTo(SOCKET socketHandle,
     return length;
 }
 
-int WSAAPI HookedRecvFrom(SOCKET socketHandle,
+static int WSAAPI HookedRecvFrom(SOCKET socketHandle,
                           char* buffer,
                           int length,
                           int flags,
@@ -234,7 +234,7 @@ int WSAAPI HookedRecvFrom(SOCKET socketHandle,
         : SOCKET_ERROR;
 }
 
-int WSAAPI HookedCloseSocket(SOCKET s)
+static int WSAAPI HookedCloseSocket(SOCKET s)
 {
     {
         std::lock_guard lock(g_socketRouteMutex);
@@ -244,7 +244,7 @@ int WSAAPI HookedCloseSocket(SOCKET s)
     return g_realCloseSocket ? g_realCloseSocket(s) : 0;
 }
 
-bool InstallSocketHooks()
+static bool InstallSocketHooks()
 {
     if (g_hooksInstalled)
         return true;
@@ -264,7 +264,7 @@ bool InstallSocketHooks()
     return true;
 }
 
-void RemoveSocketHooks()
+static void RemoveSocketHooks()
 {
     if (!g_hooksInstalled)
         return;
@@ -279,7 +279,7 @@ void RemoveSocketHooks()
 	g_hooksInstalled = false;
 }
 
-} // namespace
+} // namespace EosNetworkInternal
 
 namespace eos
 {
@@ -293,7 +293,11 @@ bool Initialize()
     if (layer.IsInitialized())
         return true;
 
-    if (!layer.Initialize(kProductId, kSandboxId, kDeploymentId, kProductName, version))
+    if (!layer.Initialize(EosNetworkInternal::kProductId,
+                          EosNetworkInternal::kSandboxId,
+                          EosNetworkInternal::kDeploymentId,
+                          EosNetworkInternal::kProductName,
+                          version))
     {
         NS::log::EOS->error("Failed to initialize networking layer");
         return false;
@@ -307,7 +311,7 @@ bool Initialize()
 bool InitializeNetworking()
 {
     // Only install hooks - EOS initialization will happen lazily when needed
-    if (!InstallSocketHooks())
+    if (!EosNetworkInternal::InstallSocketHooks())
     {
         NS::log::EOS->error("Failed to install socket hooks");
         return false;
@@ -319,7 +323,7 @@ bool InitializeNetworking()
 
 void ShutdownNetworking()
 {
-    RemoveSocketHooks();
+    EosNetworkInternal::RemoveSocketHooks();
     EosLayer::Instance().Shutdown();
 }
 

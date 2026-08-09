@@ -1,7 +1,6 @@
 #include "serverauthentication.h"
 #include "shared/exploit_fixes/ns_limits.h"
-#include "core/convar/cvar.h"
-#include "core/convar/convar.h"
+#include "tier1/cvar.h"
 #include "masterserver/masterserver.h"
 #include "server/serverpresence.h"
 #include "engine/hoststate.h"
@@ -10,8 +9,8 @@
 #include "dedicated/dedicated.h"
 #include "config/profile.h"
 #include "core/tier0.h"
-#include "engine/client.h"
-#include "client/r2client.h"
+#include "engine/client/client.h"
+#include "engine/client/clientstate.h"
 #include "server/r2server.h"
 #include "engine/r2engine.h"
 
@@ -332,7 +331,7 @@ DECLARE_HOOK(CClient::Disconnect, engine.dll + 0x1012C0, [](auto& hook, CClient*
 	// this reason is used while connecting to a local server, hacky, but just ignore it
 	if (strcmp(pReason, "Connection closing"))
 	{
-		spdlog::info("Player {} disconnected: \"{}\"", self->m_szServerName, buf);
+		spdlog::info("Player {} disconnected: \"{}\"", self->m_szClientName, buf);
 
 		// dcing, write persistent data
 		if (g_pServerAuthentication->m_PlayerAuthenticationData[self].needPersistenceWriteOnLeave)

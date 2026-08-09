@@ -1,39 +1,77 @@
 #include "convar.h"
+#include "tier1/cvar.h"
 #include "core/tier1.h"
 
 #include <float.h>
 
-typedef void (*ConVarRegisterType)(
-	ConVar* pConVar,
-	const char* pszName,
-	const char* pszDefaultValue,
-	int nFlags,
-	const char* pszHelpString,
-	bool bMin,
-	float fMin,
-	bool bMax,
-	float fMax,
-	void* pCallback);
-ConVarRegisterType conVarRegister;
+#include <utility>
 
-typedef void (*ConVarMallocType)(void* pConVarMaloc, int a2, int a3);
-ConVarMallocType conVarMalloc;
+using ConVarRegisterType = void (*)(
+	ConVar* conVar,
+	const char* name,
+	const char* defaultValue,
+	int flags,
+	const char* helpString,
+	bool hasMin,
+	float minValue,
+	bool hasMax,
+	float maxValue,
+	FnChangeCallback_t callback);
+static ConVarRegisterType s_ConVarRegister;
 
-void* g_pConVar_Vtable = nullptr;
-void* g_pIConVar_Vtable = nullptr;
+using ConVarCallbacksConstructorType = void (*)(CUtlVector<ConVar::CVChange_t>* callbacks, int growSize, int initialCapacity);
+static ConVarCallbacksConstructorType s_ConVarCallbacksConstructor;
+
+static constexpr std::pair<int, const char*> s_PrintCommandFlags[] = {
+	{FCVAR_UNREGISTERED, "UNREGISTERED"},
+	{FCVAR_DEVELOPMENTONLY, "DEVELOPMENTONLY"},
+	{FCVAR_GAMEDLL, "GAMEDLL"},
+	{FCVAR_CLIENTDLL, "CLIENTDLL"},
+	{FCVAR_HIDDEN, "HIDDEN"},
+	{FCVAR_PROTECTED, "PROTECTED"},
+	{FCVAR_SPONLY, "SPONLY"},
+	{FCVAR_ARCHIVE, "ARCHIVE"},
+	{FCVAR_NOTIFY, "NOTIFY"},
+	{FCVAR_USERINFO, "USERINFO"},
+	{FCVAR_PRINTABLEONLY, "PRINTABLEONLY"},
+	{FCVAR_GAMEDLL_FOR_REMOTE_CLIENTS, "GAMEDLL_FOR_REMOTE_CLIENTS"},
+	{FCVAR_UNLOGGED, "UNLOGGED"},
+	{FCVAR_NEVER_AS_STRING, "NEVER_AS_STRING"},
+	{FCVAR_REPLICATED, "REPLICATED"},
+	{FCVAR_CHEAT, "CHEAT"},
+	{FCVAR_SS, "SS"},
+	{FCVAR_DEMO, "DEMO"},
+	{FCVAR_DONTRECORD, "DONTRECORD"},
+	{FCVAR_SS_ADDED, "SS_ADDED"},
+	{FCVAR_RELEASE, "RELEASE"},
+	{FCVAR_RELOAD_MATERIALS, "RELOAD_MATERIALS"},
+	{FCVAR_RELOAD_TEXTURES, "RELOAD_TEXTURES"},
+	{FCVAR_NOT_CONNECTED, "NOT_CONNECTED"},
+	{FCVAR_MATERIAL_SYSTEM_THREAD, "MATERIAL_SYSTEM_THREAD"},
+	{FCVAR_ARCHIVE_PLAYERPROFILE, "ARCHIVE_PLAYERPROFILE"},
+	{FCVAR_ACCESSIBLE_FROM_THREADS, "ACCESSIBLE_FROM_THREADS"},
+	{FCVAR_STUDIO_SYSTEM, "STUDIO_SYSTEM"},
+	{FCVAR_SERVER_FRAME_THREAD, "SERVER_FRAME_THREAD"},
+	{FCVAR_SERVER_CAN_EXECUTE, "SERVER_CAN_EXECUTE"},
+	{FCVAR_SERVER_CANNOT_QUERY, "SERVER_CANNOT_QUERY"},
+	{FCVAR_CLIENTCMD_CAN_EXECUTE, "CLIENTCMD_CAN_EXECUTE"},
+	{static_cast<int>(FCVAR_PLATFORM_SYSTEM), "PLATFORM_SYSTEM"},
+};
+
+std::span<const std::pair<int, const char*>> GetConVarFlagNames()
+{
+	return s_PrintCommandFlags;
+}
 
 //-----------------------------------------------------------------------------
 // Purpose: ConVar interface initialization
 //-----------------------------------------------------------------------------
 ON_DLL_LOAD("engine.dll", ConVar, [](CModule module)
 {
-	conVarMalloc = module.Offset(0x415C20).RCast<ConVarMallocType>();
-	conVarRegister = module.Offset(0x417230).RCast<ConVarRegisterType>();
+	s_ConVarCallbacksConstructor = module.Offset(0x415C20).RCast<ConVarCallbacksConstructorType>();
+	s_ConVarRegister = module.Offset(0x417230).RCast<ConVarRegisterType>();
 
-	g_pConVar_Vtable = module.Offset(0x67FD28);
-	g_pIConVar_Vtable = module.Offset(0x67FDC8);
-
-	g_pCVar = Sys_GetFactoryPtr("vstdlib.dll", "VEngineCvar007").RCast<CCvar*>();
+	g_pCVar = Sys_GetFactoryPtr("vstdlib.dll", CVAR_INTERFACE_VERSION).RCast<CCvar*>();
 })
 
 //-----------------------------------------------------------------------------
@@ -43,11 +81,8 @@ ConVar::ConVar(const char* pszName, const char* pszDefaultValue, int nFlags, con
 {
 	spdlog::info("Registering Convar {}", pszName);
 
-	this->m_ConCommandBase.m_pConCommandBaseVTable = g_pConVar_Vtable;
-	this->m_ConCommandBase.s_pConCommandBases = (ConCommandBase*)g_pIConVar_Vtable;
-
-	conVarMalloc(&this->m_pMalloc, 0, 0); // Allocate new memory for ConVar.
-	conVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, 0, 0, 0, 0, 0);
+	s_ConVarCallbacksConstructor(&m_fnChangeCallbacks, 0, 0);
+	s_ConVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, false, 0.0f, false, 0.0f, nullptr);
 }
 
 //-----------------------------------------------------------------------------
@@ -66,19 +101,16 @@ ConVar::ConVar(
 {
 	spdlog::info("Registering Convar {}", pszName);
 
-	this->m_ConCommandBase.m_pConCommandBaseVTable = g_pConVar_Vtable;
-	this->m_ConCommandBase.s_pConCommandBases = (ConCommandBase*)g_pIConVar_Vtable;
-
-	conVarMalloc(&this->m_pMalloc, 0, 0); // Allocate new memory for ConVar.
-	conVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, bMin, fMin, bMax, fMax, (void*)pCallback);
+	s_ConVarCallbacksConstructor(&m_fnChangeCallbacks, 0, 0);
+	s_ConVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, bMin, fMin, bMax, fMax, pCallback);
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: destructor
 //-----------------------------------------------------------------------------
-ConVar::~ConVar(void)
+ConVar::~ConVar()
 {
-	if (m_Value.m_pszString)
+	if (m_pParent == this && m_Value.m_pszString)
 		delete[] m_Value.m_pszString;
 }
 
@@ -86,36 +118,51 @@ ConVar::~ConVar(void)
 // Purpose: Returns the base ConVar name.
 // Output : const char*
 //-----------------------------------------------------------------------------
-const char* ConVar::GetBaseName(void) const
+const char* ConVar::GetName() const
 {
-	return m_ConCommandBase.m_pszName;
+	return m_pParent->m_pszName;
+}
+
+const char* ConVar::GetBaseName() const
+{
+	return m_pParent->m_pszName;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Returns the ConVar help text.
 // Output : const char*
 //-----------------------------------------------------------------------------
-const char* ConVar::GetHelpText(void) const
+const char* ConVar::GetHelpText() const
 {
-	return m_ConCommandBase.m_pszHelpString;
+	return m_pParent->m_pszHelpString;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Add's flags to ConVar.
 // Input  : nFlags -
 //-----------------------------------------------------------------------------
-void ConVar::AddFlags(int nFlags)
+void ConVar::AddFlags(int flags)
 {
-	m_ConCommandBase.m_nFlags |= nFlags;
+	m_pParent->m_nFlags |= flags;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Removes flags from ConVar.
 // Input  : nFlags -
 //-----------------------------------------------------------------------------
-void ConVar::RemoveFlags(int nFlags)
+void ConVar::RemoveFlags(int flags)
 {
-	m_ConCommandBase.m_nFlags &= ~nFlags;
+	m_pParent->m_nFlags &= ~flags;
+}
+
+int ConVar::GetFlags() const
+{
+	return m_pParent->m_nFlags;
+}
+
+int ConVar::GetSplitScreenPlayerSlot() const
+{
+	return 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -131,43 +178,41 @@ bool ConVar::GetBool(void) const
 // Purpose: Return ConVar value as a float.
 // Output : float
 //-----------------------------------------------------------------------------
-float ConVar::GetFloat(void) const
+float ConVar::GetFloat() const
 {
-	return m_Value.m_fValue;
+	return m_pParent->m_Value.m_fValue;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Return ConVar value as an integer.
 // Output : int
 //-----------------------------------------------------------------------------
-int ConVar::GetInt(void) const
+int ConVar::GetInt() const
 {
-	return m_Value.m_nValue;
+	return m_pParent->m_Value.m_nValue;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Return ConVar value as a color.
 // Output : Color
 //-----------------------------------------------------------------------------
-Color ConVar::GetColor(void) const
+Color ConVar::GetColor() const
 {
-	unsigned char* pColorElement = ((unsigned char*)&m_Value.m_nValue);
-	return Color(pColorElement[0], pColorElement[1], pColorElement[2], pColorElement[3]);
+	const unsigned char* color = reinterpret_cast<const unsigned char*>(&m_pParent->m_Value.m_nValue);
+	return Color(color[0], color[1], color[2], color[3]);
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Return ConVar value as a string.
 // Output : const char *
 //-----------------------------------------------------------------------------
-const char* ConVar::GetString(void) const
+const char* ConVar::GetString() const
 {
-	if (m_ConCommandBase.m_nFlags & FCVAR_NEVER_AS_STRING)
-	{
+	if (m_pParent->m_nFlags & FCVAR_NEVER_AS_STRING)
 		return "FCVAR_NEVER_AS_STRING";
-	}
 
-	char const* str = m_Value.m_pszString;
-	return str ? str : "";
+	const char* value = m_pParent->m_Value.m_pszString;
+	return value ? value : "";
 }
 
 //-----------------------------------------------------------------------------
@@ -175,10 +220,10 @@ const char* ConVar::GetString(void) const
 // Input  : flMinVal -
 // Output : true if there is a min set.
 //-----------------------------------------------------------------------------
-bool ConVar::GetMin(float& flMinVal) const
+bool ConVar::GetMin(float& minValue) const
 {
-	flMinVal = m_fMinVal;
-	return m_bHasMin;
+	minValue = m_pParent->m_fMinVal;
+	return m_pParent->m_bHasMin;
 }
 
 //-----------------------------------------------------------------------------
@@ -186,78 +231,71 @@ bool ConVar::GetMin(float& flMinVal) const
 // Input  : flMaxVal -
 // Output : true if there is a max set.
 //-----------------------------------------------------------------------------
-bool ConVar::GetMax(float& flMaxVal) const
+bool ConVar::GetMax(float& maxValue) const
 {
-	flMaxVal = m_fMaxVal;
-	return m_bHasMax;
+	maxValue = m_pParent->m_fMaxVal;
+	return m_pParent->m_bHasMax;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: returns the min value.
 // Output : float
 //-----------------------------------------------------------------------------
-float ConVar::GetMinValue(void) const
+float ConVar::GetMinValue() const
 {
-	return m_fMinVal;
+	return m_pParent->m_fMinVal;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: returns the max value.
 // Output : float
 //-----------------------------------------------------------------------------
-float ConVar::GetMaxValue(void) const
+float ConVar::GetMaxValue() const
 {
-	return m_fMaxVal;
-	;
+	return m_pParent->m_fMaxVal;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: checks if ConVar has min value.
 // Output : bool
 //-----------------------------------------------------------------------------
-bool ConVar::HasMin(void) const
+bool ConVar::HasMin() const
 {
-	return m_bHasMin;
+	return m_pParent->m_bHasMin;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: checks if ConVar has max value.
 // Output : bool
 //-----------------------------------------------------------------------------
-bool ConVar::HasMax(void) const
+bool ConVar::HasMax() const
 {
-	return m_bHasMax;
+	return m_pParent->m_bHasMax;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: sets the ConVar int value.
 // Input  : nValue -
 //-----------------------------------------------------------------------------
-void ConVar::SetValue(int nValue)
+void ConVar::SetValue(int value)
 {
-	if (nValue == m_Value.m_nValue)
-	{
+	ConVar* const parent = m_pParent;
+	if (value == parent->m_Value.m_nValue)
 		return;
-	}
 
-	float flValue = (float)nValue;
+	float floatValue = static_cast<float>(value);
+	if (ClampValue(floatValue))
+		value = static_cast<int>(floatValue);
 
-	// Check bounds.
-	if (ClampValue(flValue))
+	const float oldValue = parent->m_Value.m_fValue;
+	parent->m_Value.m_fValue = floatValue;
+	parent->m_Value.m_nValue = value;
+
+	if (!(parent->m_nFlags & FCVAR_NEVER_AS_STRING))
 	{
-		nValue = (int)(flValue);
-	}
-
-	// Redetermine value.
-	float flOldValue = m_Value.m_fValue;
-	m_Value.m_fValue = flValue;
-	m_Value.m_nValue = nValue;
-
-	if (!(m_ConCommandBase.m_nFlags & FCVAR_NEVER_AS_STRING))
-	{
-		char szTempValue[32];
-		snprintf(szTempValue, sizeof(szTempValue), "%d", m_Value.m_nValue);
-		ChangeStringValue(szTempValue, flOldValue);
+		char text[32];
+		snprintf(text, sizeof(text), "%d", parent->m_Value.m_nValue);
+		ChangeStringValue(text, oldValue);
 	}
 }
 
@@ -265,26 +303,23 @@ void ConVar::SetValue(int nValue)
 // Purpose: sets the ConVar float value.
 // Input  : flValue -
 //-----------------------------------------------------------------------------
-void ConVar::SetValue(float flValue)
+void ConVar::SetValue(float value)
 {
-	if (flValue == m_Value.m_fValue)
-	{
+	ConVar* const parent = m_pParent;
+	if (value == parent->m_Value.m_fValue)
 		return;
-	}
 
-	// Check bounds.
-	ClampValue(flValue);
+	ClampValue(value);
 
-	// Redetermine value.
-	float flOldValue = m_Value.m_fValue;
-	m_Value.m_fValue = flValue;
-	m_Value.m_nValue = (int)m_Value.m_fValue;
+	const float oldValue = parent->m_Value.m_fValue;
+	parent->m_Value.m_fValue = value;
+	parent->m_Value.m_nValue = static_cast<int>(value);
 
-	if (!(m_ConCommandBase.m_nFlags & FCVAR_NEVER_AS_STRING))
+	if (!(parent->m_nFlags & FCVAR_NEVER_AS_STRING))
 	{
-		char szTempValue[32];
-		snprintf(szTempValue, sizeof(szTempValue), "%f", m_Value.m_fValue);
-		ChangeStringValue(szTempValue, flOldValue);
+		char text[32];
+		snprintf(text, sizeof(text), "%f", value);
+		ChangeStringValue(text, oldValue);
 	}
 }
 
@@ -292,164 +327,137 @@ void ConVar::SetValue(float flValue)
 // Purpose: sets the ConVar string value.
 // Input  : *szValue -
 //-----------------------------------------------------------------------------
-void ConVar::SetValue(const char* pszValue)
+void ConVar::SetValue(const char* value)
 {
-	if (strcmp(this->m_Value.m_pszString, pszValue) == 0)
+	ConVar* const parent = m_pParent;
+	if (value && parent->m_Value.m_pszString && strcmp(parent->m_Value.m_pszString, value) == 0)
 		return;
 
-	char szTempValue[32] {};
-	const char* pszNewValue {};
+	char clampedText[32] {};
+	const char* newValue = value ? value : "";
+	const float oldValue = parent->m_Value.m_fValue;
 
-	float flOldValue = m_Value.m_fValue;
-	pszNewValue = (char*)pszValue;
-	if (!pszNewValue)
+	if (!SetColorFromString(newValue))
 	{
-		pszNewValue = "";
-	}
-
-	if (!SetColorFromString(pszValue))
-	{
-		// Not a color, do the standard thing
-		float flNewValue = (float)atof(pszValue);
-		if (!std::isfinite(flNewValue))
+		float floatValue = static_cast<float>(atof(newValue));
+		if (!std::isfinite(floatValue))
 		{
-			spdlog::warn("Warning: ConVar '{}' = '{}' is infinite, clamping value.\n", GetBaseName(), pszValue);
-			flNewValue = FLT_MAX;
+			spdlog::warn("Warning: ConVar '{}' = '{}' is infinite, clamping value.\n", GetBaseName(), newValue);
+			floatValue = FLT_MAX;
 		}
 
-		if (ClampValue(flNewValue))
+		if (ClampValue(floatValue))
 		{
-			snprintf(szTempValue, sizeof(szTempValue), "%f", flNewValue);
-			pszNewValue = szTempValue;
+			snprintf(clampedText, sizeof(clampedText), "%f", floatValue);
+			newValue = clampedText;
 		}
 
-		// Redetermine value
-		m_Value.m_fValue = flNewValue;
-		m_Value.m_nValue = (int)(m_Value.m_fValue);
+		parent->m_Value.m_fValue = floatValue;
+		parent->m_Value.m_nValue = static_cast<int>(floatValue);
 	}
 
-	if (!(m_ConCommandBase.m_nFlags & FCVAR_NEVER_AS_STRING))
-	{
-		ChangeStringValue(pszNewValue, flOldValue);
-	}
+	if (!(parent->m_nFlags & FCVAR_NEVER_AS_STRING))
+		ChangeStringValue(newValue, oldValue);
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: sets the ConVar color value.
 // Input  : clValue -
 //-----------------------------------------------------------------------------
-void ConVar::SetValue(Color clValue)
+void ConVar::SetValue(Color value)
 {
-	std::string svResult = "";
-
-	for (int i = 0; i < 4; i++)
+	std::string text;
+	for (int i = 0; i < 4; ++i)
 	{
-		if (!(clValue.GetValue(i) == 0 && svResult.size() == 0))
+		if (value.GetValue(i) != 0 || !text.empty())
 		{
-			svResult += std::to_string(clValue.GetValue(i));
-			svResult.append(" ");
+			text += std::to_string(value.GetValue(i));
+			text.push_back(' ');
 		}
 	}
-
-	this->m_Value.m_pszString = svResult.c_str();
+	SetValue(text.c_str());
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: changes the ConVar string value.
 // Input  : *pszTempVal - flOldValue
 //-----------------------------------------------------------------------------
-void ConVar::ChangeStringValue(const char* pszTempVal, float flOldValue)
+void ConVar::ChangeStringValue(const char* value, float oldValue)
 {
-	NOTE_UNUSED(flOldValue);
-	assert(!(m_ConCommandBase.m_nFlags & FCVAR_NEVER_AS_STRING));
+	NOTE_UNUSED(oldValue);
+	ConVar* const parent = m_pParent;
+	assert(!(parent->m_nFlags & FCVAR_NEVER_AS_STRING));
 
-	char* pszOldValue = (char*)_malloca(m_Value.m_iStringLength);
-	if (pszOldValue != NULL)
+	char* oldString = static_cast<char*>(_malloca(parent->m_Value.m_iStringLength));
+	if (oldString)
+		memcpy(oldString, parent->m_Value.m_pszString, parent->m_Value.m_iStringLength);
+
+	if (value)
 	{
-		memcpy(pszOldValue, m_Value.m_pszString, m_Value.m_iStringLength);
-	}
-
-	if (pszTempVal)
-	{
-		size_t len = strlen(pszTempVal) + 1;
-
-		if (len > m_Value.m_iStringLength)
+		const size_t length = strlen(value) + 1;
+		if (length > parent->m_Value.m_iStringLength)
 		{
-			if (m_Value.m_pszString)
-				delete[] m_Value.m_pszString;
+			if (parent->m_Value.m_pszString)
+				delete[] parent->m_Value.m_pszString;
 
-			m_Value.m_pszString = new char[len];
-			m_Value.m_iStringLength = len;
+			parent->m_Value.m_pszString = new char[length];
+			parent->m_Value.m_iStringLength = length;
 		}
 
-		memcpy((char*)m_Value.m_pszString, pszTempVal, len);
+		memcpy(const_cast<char*>(parent->m_Value.m_pszString), value, length);
 	}
 	else
 	{
-		m_Value.m_pszString = NULL;
+		parent->m_Value.m_pszString = nullptr;
 	}
 
-	pszOldValue = 0;
+	_freea(oldString);
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: sets the ConVar color value from string.
 // Input  : *pszValue -
 //-----------------------------------------------------------------------------
-bool ConVar::SetColorFromString(const char* pszValue)
+bool ConVar::SetColorFromString(const char* value)
 {
-	bool bColor = false;
+	int rgba[4] {};
+	const int count = sscanf_s(value, "%i %i %i %i", &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+	if (count < 3)
+		return false;
 
-	// Try pulling RGBA color values out of the string.
-	int nRGBA[4] {};
-	int nParamsRead = sscanf_s(pszValue, "%i %i %i %i", &(nRGBA[0]), &(nRGBA[1]), &(nRGBA[2]), &(nRGBA[3]));
+	if (count == 3)
+		rgba[3] = 255;
 
-	if (nParamsRead >= 3)
+	for (int component : rgba)
 	{
-		// This is probably a color!
-		if (nParamsRead == 3)
-		{
-			// Assume they wanted full alpha.
-			nRGBA[3] = 255;
-		}
-
-		if (nRGBA[0] >= 0 && nRGBA[0] <= 255 && nRGBA[1] >= 0 && nRGBA[1] <= 255 && nRGBA[2] >= 0 && nRGBA[2] <= 255 && nRGBA[3] >= 0 &&
-			nRGBA[3] <= 255)
-		{
-			// printf("*** WOW! Found a color!! ***\n");
-
-			// This is definitely a color!
-			bColor = true;
-
-			// Stuff all the values into each byte of our int.
-			unsigned char* pColorElement = ((unsigned char*)&m_Value.m_nValue);
-			pColorElement[0] = nRGBA[0];
-			pColorElement[1] = nRGBA[1];
-			pColorElement[2] = nRGBA[2];
-			pColorElement[3] = nRGBA[3];
-
-			// Copy that value into our float.
-			m_Value.m_fValue = (float)(m_Value.m_nValue);
-		}
+		if (component < 0 || component > 255)
+			return false;
 	}
 
-	return bColor;
+	ConVar* const parent = m_pParent;
+	unsigned char* color = reinterpret_cast<unsigned char*>(&parent->m_Value.m_nValue);
+	color[0] = static_cast<unsigned char>(rgba[0]);
+	color[1] = static_cast<unsigned char>(rgba[1]);
+	color[2] = static_cast<unsigned char>(rgba[2]);
+	color[3] = static_cast<unsigned char>(rgba[3]);
+	parent->m_Value.m_fValue = static_cast<float>(parent->m_Value.m_nValue);
+	return true;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Checks if ConVar is registered.
 // Output : bool
 //-----------------------------------------------------------------------------
-bool ConVar::IsRegistered(void) const
+bool ConVar::IsRegistered() const
 {
-	return m_ConCommandBase.m_bRegistered;
+	return m_pParent->m_bRegistered;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Returns true if this is a command
 // Output : bool
 //-----------------------------------------------------------------------------
-bool ConVar::IsCommand(void) const
+bool ConVar::IsCommand() const
 {
 	return false;
 }
@@ -459,9 +467,9 @@ bool ConVar::IsCommand(void) const
 // Input  : nFlags
 // Output : False if change is permitted, true if not.
 //-----------------------------------------------------------------------------
-bool ConVar::IsFlagSet(int nFlags) const
+bool ConVar::IsFlagSet(int flags) const
 {
-	return m_ConCommandBase.m_nFlags & nFlags;
+	return (m_pParent->m_nFlags & flags) != 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -469,17 +477,18 @@ bool ConVar::IsFlagSet(int nFlags) const
 // Input  : flValue -
 // Output : Returns true if value changed.
 //-----------------------------------------------------------------------------
-bool ConVar::ClampValue(float& flValue)
+bool ConVar::ClampValue(float& value)
 {
-	if (m_bHasMin && (flValue < m_fMinVal))
+	ConVar* const parent = m_pParent;
+	if (parent->m_bHasMin && value < parent->m_fMinVal)
 	{
-		flValue = m_fMinVal;
+		value = parent->m_fMinVal;
 		return true;
 	}
 
-	if (m_bHasMax && (flValue > m_fMaxVal))
+	if (parent->m_bHasMax && value > parent->m_fMaxVal)
 	{
-		flValue = m_fMaxVal;
+		value = parent->m_fMaxVal;
 		return true;
 	}
 
@@ -504,7 +513,7 @@ int ParseConVarFlagsString(std::string modName, std::string sFlags)
 
 		// find the matching flag value
 		bool ok = false;
-		for (auto const& flagPair : g_PrintCommandFlags)
+		for (const auto& flagPair : s_PrintCommandFlags)
 		{
 			if (sFlag == flagPair.second)
 			{

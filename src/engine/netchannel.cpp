@@ -3,6 +3,7 @@
 #include "dedicated/dedicated.h"
 #include "r2engine.h"
 #include "modsystem/moddownloader.h"
+#include "core/convar/concommand.h"
 
 DECLARE_MODULE(NetChannelHooks)
 

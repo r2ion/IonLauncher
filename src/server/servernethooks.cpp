@@ -1,8 +1,9 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 #include "engine/r2engine.h"
 #include "shared/exploit_fixes/ns_limits.h"
 #include "masterserver/masterserver.h"
-#include "engine/netmessages.h"
+#include "common/netmessages.h"
 #include "dedicated/dedicated.h"
 #include "server/serverpresence.h"
 #include "shared/playlist.h"
@@ -249,14 +250,14 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 
 	response.WriteLong(mods.size()); // required mods, do later
 
-	NET_SendPacket(nullptr, NS_SERVER, &packet->adr, response.GetData(), response.GetNumBytesWritten(), nullptr, false, 0, true);
+	NET_SendPacket(nullptr, NS_SERVER, &packet->from, response.GetData(), response.GetNumBytesWritten(), nullptr, false, 0, true);
 
 	if( requestedMods )
 	{
 		for(int i = 0; i < mods.size(); i++)
 		{
 			auto& mod = mods[i];
-			g_pModDownloader->SendModInfoConnectionlessPacket(packet->adr, mod, i, mods.size());
+			g_pModDownloader->SendModInfoConnectionlessPacket(packet->from, mod, i, mods.size());
 		}
 	}
 
@@ -264,7 +265,7 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 	{
 		spdlog::info("Authenticating incoming client {}", uid);
 		// HACK: this is really bad but there's no way to auth without being on the server browser
-		g_pMasterServerManager->AuthenticateWithOwnServer(uid, token, packet->adr);
+		g_pMasterServerManager->AuthenticateWithOwnServer(uid, token, packet->from);
 	}
 
 	return true;

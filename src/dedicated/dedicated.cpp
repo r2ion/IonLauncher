@@ -8,6 +8,7 @@
 #include "masterserver/masterserver.h"
 #include "util/printcommands.h"
 #include "util/utils.h"
+#include "tier1/cvar.h"
 
 DECLARE_MODULE(DedicatedHooks)
 
@@ -17,33 +18,50 @@ bool IsDedicatedServer()
 	return result;
 }
 
-// CDedidcatedExports defs
-struct CDedicatedExports; // forward declare
-
-typedef void (*DedicatedSys_PrintfType)(CDedicatedExports* dedicated, const char* msg);
-typedef void (*DedicatedRunServerType)(CDedicatedExports* dedicated);
-
-// would've liked to just do this as a class but have not been able to get it to work
-struct CDedicatedExports
+bool CDedicatedExports::Connect(CreateInterfaceFn)
 {
-	void* vtable; // because it's easier, we just set this to &this, since CDedicatedExports has no props we care about other than funcs
+	return true;
+}
 
-	char unused[56];
-
-	DedicatedSys_PrintfType Sys_Printf;
-	DedicatedRunServerType RunServer;
-};
-
-void Sys_Printf(CDedicatedExports* dedicated, const char* msg)
+void CDedicatedExports::Disconnect()
 {
-	NOTE_UNUSED(dedicated);
+}
+
+void* CDedicatedExports::QueryInterface(const char*)
+{
+	return nullptr;
+}
+
+InitReturnVal_t CDedicatedExports::Init()
+{
+	return INIT_OK;
+}
+
+void CDedicatedExports::Shutdown()
+{
+}
+
+const AppSystemInfo_t* CDedicatedExports::GetDependencies()
+{
+	return nullptr;
+}
+
+AppSystemTier_t CDedicatedExports::GetTier()
+{
+	return APP_SYSTEM_TIER_OTHER;
+}
+
+void CDedicatedExports::Reconnect(CreateInterfaceFn, const char*)
+{
+}
+
+void CDedicatedExports::Sys_Printf(const char* msg)
+{
 	spdlog::info("[DEDICATED SERVER] {}", msg);
 }
 
-void RunServer(CDedicatedExports* dedicated)
+void CDedicatedExports::RunServer()
 {
-	NOTE_UNUSED(dedicated);
-
 	spdlog::info("CDedicatedExports::RunServer(): starting");
 	spdlog::info(CommandLine()->GetCmdLine());
 
@@ -63,11 +81,11 @@ void RunServer(CDedicatedExports* dedicated)
 	double frameTitle = 0;
 	while (g_pEngine->m_nQuitting == EngineQuitState::QUIT_NOTQUITTING)
 	{
-		double frameStart = Plat_FloatTime();
+		double frameStart = g_PlatFloatTime();
 		g_pEngine->Frame();
 
 		std::this_thread::sleep_for(
-			std::chrono::duration<double, std::ratio<1>>(g_pGlobals->m_flTickInterval - fmin(Plat_FloatTime() - frameStart, 0.25)));
+			std::chrono::duration<double, std::ratio<1>>(g_pGlobals->m_flTickInterval - fmin(g_PlatFloatTime() - frameStart, 0.25)));
 	}
 }
 
@@ -226,12 +244,8 @@ ON_DLL_LOAD_DEDI_RELIESON("engine.dll", DedicatedServer, ServerPresence, [](CMod
     // Do not show game UI on disconnect cmd.
     module.Offset(0x249D50).Patch("C3");
 
-	CDedicatedExports* dedicatedExports = new CDedicatedExports;
-	dedicatedExports->vtable = dedicatedExports;
-	dedicatedExports->Sys_Printf = Sys_Printf;
-	dedicatedExports->RunServer = RunServer;
-
-	*module.Offset(0x13F0B668).RCast<CDedicatedExports**>() = dedicatedExports;
+	static CDedicatedExports dedicatedExports;
+	*module.Offset(0x13F0B668).RCast<CDedicatedExports**>() = &dedicatedExports;
 
 	// extra potential patches:
 	// nop engine.dll+1c67d1 and +1c67d8 to skip videomode creategamewindow

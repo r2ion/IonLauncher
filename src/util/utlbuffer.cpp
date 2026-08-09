@@ -8,9 +8,9 @@
 
 #pragma warning (disable : 4514)
 
-#include "utlbuffer.h"
-#include "strtools.h"
-#include "characterset.h"
+#include "tier1/utlbuffer.h"
+#include "tier1/strtools.h"
+#include "tier1/characterset.h"
 
 // Swap two of anything.
 template <class T> FORCEINLINE void V_swap(T& x, T& y)

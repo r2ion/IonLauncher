@@ -1,5 +1,5 @@
 #include "config/profile.h"
-#include "engine/netmessages.h"
+#include "common/netmessages.h"
 #include "logging/crashhandler.h"
 #include "logging/logging.h"
 #include "plugins/pluginmanager.h"

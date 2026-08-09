@@ -3,8 +3,7 @@
 #include "vscript/squirrel/squirrel.h"
 #include "server/r2server.h"
 #include "util/utils.h"
-#include "engine/client.h"
-
+#include "engine/client/client.h"
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>

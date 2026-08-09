@@ -1,10 +1,10 @@
 #include "logging.h"
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "core/convar/concommand.h"
 #include "config/profile.h"
 #include "core/tier0.h"
 #include "util/version.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "dedicated/dedicated.h"
 
 #include <spdlog/async.h>
@@ -21,7 +21,7 @@ static std::mutex g_LoggersMutex;
 static std::vector<std::shared_ptr<spdlog::logger>> g_Loggers {};
 static std::shared_ptr<spdlog::sinks::dist_sink_mt> g_DispatchSink;
 
-namespace
+namespace LoggingInternal
 {
 	class RecentLogRingBufferSink final : public spdlog::sinks::base_sink<std::mutex>
 	{
@@ -77,7 +77,7 @@ namespace
 	};
 
 	static std::shared_ptr<RecentLogRingBufferSink> g_RecentLogSink;
-}
+} // namespace LoggingInternal
 
 namespace NS::log
 {
@@ -315,9 +315,9 @@ void LogSys_InitialiseLogging()
 
 	// In-memory recent-log ring buffer for crash reporting.
 	{
-		auto recentSink = std::make_shared<RecentLogRingBufferSink>(200);
+		auto recentSink = std::make_shared<LoggingInternal::RecentLogRingBufferSink>(200);
 		recentSink->set_pattern("[%Y-%m-%d] [%H:%M:%S] [%n] [%l] %v");
-		g_RecentLogSink = recentSink;
+		LoggingInternal::g_RecentLogSink = recentSink;
 		RegisterSink(std::move(recentSink));
 	}
 
@@ -349,7 +349,7 @@ void LogSys_InitialiseLogging()
 
 std::vector<std::string> NS::log::GetRecentLogLines(size_t maxLines)
 {
-	auto sink = g_RecentLogSink;
+	auto sink = LoggingInternal::g_RecentLogSink;
 	if (!sink)
 		return {};
 	return sink->GetLastLines(maxLines);

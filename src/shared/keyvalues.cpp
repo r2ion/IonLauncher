@@ -1,5 +1,6 @@
-#include "keyvalues.h"
-#include "core/filesystem/filesystem.h"
+#include "tier1/keyvalues.h"
+#include "vstdlib/ikeyvaluessystem.h"
+#include "filesystem/ifilesystem.h"
 
 #include <cstdint>
 #include <cstring>
@@ -12,9 +13,6 @@
 // implementation of the ConVar class
 // heavily based on https://github.com/Mauler125/r5sdk/blob/master/r5dev/vpc/keyvalues.cpp
 
-typedef int HKeySymbol;
-#define INVALID_KEY_SYMBOL (-1)
-
 #define MAKE_3_BYTES_FROM_1_AND_2(x1, x2) ((((uint16_t)x2) << 8) | (uint8_t)(x1))
 #define SPLIT_3_BYTES_INTO_1_AND_2(x1, x2, x3)                                                                                             \
 	do                                                                                                                                     \
@@ -23,25 +21,9 @@ typedef int HKeySymbol;
 		x2 = (uint16_t)((x3) >> 8);                                                                                                        \
 	} while (0)
 
-struct CKeyValuesSystem
-{
-public:
-	struct __VTable
-	{
-		char pad0[8 * 3]; // 2 methods
-		HKeySymbol (*GetSymbolForString)(CKeyValuesSystem* self, const char* name, bool bCreate);
-		const char* (*GetStringForSymbol)(CKeyValuesSystem* self, HKeySymbol symbol);
-		char pad1[8 * 5];
-		HKeySymbol (*GetSymbolForStringCaseSensitive)(
-			CKeyValuesSystem* self, HKeySymbol& hCaseInsensitiveSymbol, const char* name, bool bCreate);
-	};
-
-	const __VTable* m_pVtable;
-};
-
-int (*V_UTF8ToUnicode)(const char* pUTF8, wchar_t* pwchDest, int cubDestSizeInBytes);
-int (*V_UnicodeToUTF8)(const wchar_t* pUnicode, char* pUTF8, int cubDestSizeInBytes);
-CKeyValuesSystem* (*KeyValuesSystem)();
+static int (*s_UTF8ToUnicode)(const char* pUTF8, wchar_t* pwchDest, int cubDestSizeInBytes);
+static int (*s_UnicodeToUTF8)(const wchar_t* pUnicode, char* pUTF8, int cubDestSizeInBytes);
+KeyValuesSystemFn KeyValuesSystem = nullptr;
 
 KeyValues::KeyValues() {} // default constructor for copying and such
 
@@ -226,7 +208,7 @@ KeyValues* KeyValues::FindKey(const char* pszKeyName, bool bCreate)
 		pSubStr = nullptr;
 	}
 
-	HKeySymbol iSearchStr = KeyValuesSystem()->m_pVtable->GetSymbolForString(KeyValuesSystem(), pSearchStr, bCreate);
+	HKeySymbol iSearchStr = KeyValuesSystem()->GetSymbolForString(pSearchStr, bCreate);
 	if (iSearchStr == INVALID_KEY_SYMBOL)
 	{
 		// not found, couldn't possibly be in key value list
@@ -592,8 +574,8 @@ KeyValues* KeyValues::GetNextKey() const
 //-----------------------------------------------------------------------------
 const char* KeyValues::GetName(void) const
 {
-	return KeyValuesSystem()->m_pVtable->GetStringForSymbol(
-		KeyValuesSystem(), MAKE_3_BYTES_FROM_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2));
+	return KeyValuesSystem()->GetStringForSymbol(
+		MAKE_3_BYTES_FROM_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2));
 }
 
 //-----------------------------------------------------------------------------
@@ -771,7 +753,7 @@ const char* KeyValues::GetString(const char* pszKeyName, const char* pszDefaultV
 		{
 			// convert the string to char *, set it for future use, and return it
 			char wideBuf[512];
-			int result = V_UnicodeToUTF8(pKey->m_wsValue, wideBuf, 512);
+			int result = s_UnicodeToUTF8(pKey->m_wsValue, wideBuf, 512);
 			if (result)
 			{
 				// note: this will copy wideBuf
@@ -838,7 +820,7 @@ const wchar_t* KeyValues::GetWString(const char* pszKeyName, const wchar_t* pwsz
 		{
 			size_t bufSize = strlen(pKey->m_sValue) + 1;
 			wchar_t* pWBuf = new wchar_t[bufSize];
-			int result = V_UTF8ToUnicode(pKey->m_sValue, pWBuf, static_cast<int>(bufSize * sizeof(wchar_t)));
+			int result = s_UTF8ToUnicode(pKey->m_sValue, pWBuf, static_cast<int>(bufSize * sizeof(wchar_t)));
 			if (result >= 0) // may be a zero length string
 			{
 				SetWString(pszKeyName, pWBuf);
@@ -888,7 +870,7 @@ std::string KeyValues::GetStringValue(void) const
 			return {};
 
 		std::string value((wcslen(m_wsValue) * 4) + 1, '\0');
-		const int length = V_UnicodeToUTF8(m_wsValue, value.data(), static_cast<int>(value.size()));
+		const int length = s_UnicodeToUTF8(m_wsValue, value.data(), static_cast<int>(value.size()));
 		if (length <= 0)
 			return {};
 
@@ -1026,7 +1008,7 @@ void KeyValues::SetName(const char* pszSetName)
 {
 	HKeySymbol hCaseSensitiveKeyName = INVALID_KEY_SYMBOL, hCaseInsensitiveKeyName = INVALID_KEY_SYMBOL;
 	hCaseSensitiveKeyName =
-		KeyValuesSystem()->m_pVtable->GetSymbolForStringCaseSensitive(KeyValuesSystem(), hCaseInsensitiveKeyName, pszSetName, false);
+		KeyValuesSystem()->GetSymbolForStringCaseSensitive(hCaseInsensitiveKeyName, pszSetName, false);
 
 	m_iKeyName = hCaseInsensitiveKeyName;
 	SPLIT_3_BYTES_INTO_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2, hCaseSensitiveKeyName);
@@ -1341,9 +1323,9 @@ KeyValues* KeyValues::MakeCopy(void) const
 
 ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 {
-	V_UTF8ToUnicode = module.GetExportedFunction("V_UTF8ToUnicode").RCast<int (*)(const char*, wchar_t*, int)>();
-	V_UnicodeToUTF8 = module.GetExportedFunction("V_UnicodeToUTF8").RCast<int (*)(const wchar_t*, char*, int)>();
-	KeyValuesSystem = module.GetExportedFunction("KeyValuesSystem").RCast<CKeyValuesSystem* (*)()>();
+	s_UTF8ToUnicode = module.GetExportedFunction("V_UTF8ToUnicode").RCast<int (*)(const char*, wchar_t*, int)>();
+	s_UnicodeToUTF8 = module.GetExportedFunction("V_UnicodeToUTF8").RCast<int (*)(const wchar_t*, char*, int)>();
+	KeyValuesSystem = module.GetExportedFunction("KeyValuesSystem").RCast<KeyValuesSystemFn>();
 })
 
 DECLARE_MODULE(KeyValuesHooks)
@@ -1356,10 +1338,9 @@ bool KeyValues_LoadFromBuffer(KeyValues* keyValues, const char* resourceName, co
 	if (!s_KeyValuesLoadFromTextBuffer || !keyValues || !resourceName || !buffer)
 		return false;
 
-	// The engine KeyValues loader takes the IBaseFileSystem subobject. Ion's
-	// IFileSystem pointer addresses the primary interface, while m_vtable2 is
-	// the embedded IBaseFileSystem interface used for Open/Read/Close.
-	void* baseFileSystem = fileSystem ? &fileSystem->m_vtable2 : nullptr;
+	// The engine KeyValues loader takes the +0x8 IBaseFileSystem subobject.
+	// A C++ base conversion performs the retail-proven pointer adjustment.
+	IBaseFileSystem* baseFileSystem = fileSystem ? static_cast<IBaseFileSystem*>(fileSystem) : nullptr;
 	return s_KeyValuesLoadFromTextBuffer(keyValues, resourceName, buffer, baseFileSystem, nullptr, nullptr, 2) != 0;
 }
 

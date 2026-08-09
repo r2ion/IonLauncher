@@ -19,9 +19,6 @@ ConVar* Cvar_ns_fs_log_reads;
 
 IFileSystem* g_pFilesystem;
 
-using AddSearchPathFn = void(__fastcall*)(IFileSystem*, const char*, const char*, SearchPathAdd_t);
-using MountVPKFn = CPackedStore* (*)(IFileSystem*, const char*);
-using UnmountVPKFn = void (*)(IFileSystem*, const char*);
 
 struct AddedModSearchPath_s
 {
@@ -49,19 +46,20 @@ std::string ReadVPKFile(const char* path)
     if (!g_pFilesystem || !path)
         return {};
 
-    FileHandle_t fileHandle = g_pFilesystem->m_vtable2->Open(&g_pFilesystem->m_vtable2, path, "rb", "GAME", 0);
+    IBaseFileSystem* const baseFileSystem = static_cast<IBaseFileSystem*>(g_pFilesystem);
+    FileHandle_t fileHandle = baseFileSystem->Open(path, "rb", "GAME");
     if (!fileHandle)
         return {};
 
     std::stringstream fileStream;
     char data[4096];
     int bytesRead = 0;
-    while ((bytesRead = g_pFilesystem->m_vtable2->Read(&g_pFilesystem->m_vtable2, data, static_cast<int>(std::size(data)), fileHandle)) > 0)
+    while ((bytesRead = baseFileSystem->Read(data, static_cast<int>(std::size(data)), fileHandle)) > 0)
     {
         fileStream.write(data, bytesRead);
     }
 
-    g_pFilesystem->m_vtable2->Close(g_pFilesystem, fileHandle);
+    baseFileSystem->Close(fileHandle);
     if (bytesRead < 0)
         return {};
 
@@ -137,13 +135,13 @@ void SetNewModSearchPaths(Mod* mod, const char* pPathID)
 
 bool RemoveModSearchPaths()
 {
-    if (!g_pFilesystem || !g_pFilesystem->m_vtable || !g_pFilesystem->m_vtable->RemoveSearchPath)
+    if (!g_pFilesystem)
         return false;
 
     std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
 
     for (const AddedModSearchPath_s& added : s_ModFilesystem.m_AddedSearchPaths)
-        g_pFilesystem->m_vtable->RemoveSearchPath(g_pFilesystem, added.m_Path.c_str(), added.m_bHasPathID ? added.m_PathID.c_str() : nullptr);
+        g_pFilesystem->RemoveSearchPath(added.m_Path.c_str(), added.m_bHasPathID ? added.m_PathID.c_str() : nullptr);
 
     s_ModFilesystem.m_AddedSearchPaths.clear();
     s_ModFilesystem.m_CurrentModPath.clear();

@@ -14,8 +14,8 @@ bool CImageAtlas::s_LoaderConfigured = false;
 CImageAtlas::CreateGpuBufferFn CImageAtlas::s_CreateGpuBuffer = nullptr;
 CImageAtlas::DestroyGpuBufferFn CImageAtlas::s_DestroyGpuBuffer = nullptr;
 CImageAtlas::FindDescriptorFn CImageAtlas::s_FindDescriptor = nullptr;
-CImageAtlas::FindOrReserveDescriptorFn CImageAtlas::s_FindOrReserveDescriptor = nullptr;
-CImageAtlas::RemoveDescriptorFn CImageAtlas::s_RemoveDescriptor = nullptr;
+RHashMapU32FindOrReserveUnlockedFn CImageAtlas::s_FindOrReserveDescriptor = nullptr;
+RHashMapU32RemoveExistingFn CImageAtlas::s_RemoveDescriptor = nullptr;
 CImageAtlas::PakStringToGuidFn CImageAtlas::s_PakStringToGuidAligned = nullptr;
 CImageAtlas::PakStringToGuidFn CImageAtlas::s_PakStringToGuidUnaligned = nullptr;
 RHashMapU32* CImageAtlas::s_DescriptorMap = nullptr;
@@ -510,8 +510,8 @@ void CImageAtlas::OnEngineLoaded(CModule module)
 	s_CreateGpuBuffer = module.Offset(0xFBF60).RCast<CreateGpuBufferFn>();
 	s_DestroyGpuBuffer = module.Offset(0xFC4F0).RCast<DestroyGpuBufferFn>();
 	s_FindDescriptor = module.Offset(0xF3C60).RCast<FindDescriptorFn>();
-	s_FindOrReserveDescriptor = module.Offset(0xF3BB0).RCast<FindOrReserveDescriptorFn>();
-	s_RemoveDescriptor = module.Offset(0xF3E30).RCast<RemoveDescriptorFn>();
+	s_FindOrReserveDescriptor = module.Offset(0xF3BB0).RCast<RHashMapU32FindOrReserveUnlockedFn>();
+	s_RemoveDescriptor = module.Offset(0xF3E30).RCast<RHashMapU32RemoveExistingFn>();
 }
 
 ON_DLL_LOAD("engine.dll", RuiImageAtlasEngine, [](CModule module)

@@ -1,7 +1,7 @@
 #pragma once
 #include "core/tier1.h"
 #include "logging/logging.h"
-#include "plugins/interfaces/interface.h"
+#include "plugins/interfaces/interface_registry.h"
 #include "plugins/interfaces/IPluginId.h"
 #include "plugins/interfaces/IPluginCallbacks.h"
 

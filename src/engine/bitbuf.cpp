@@ -5,8 +5,8 @@
 // $NoKeywords: $
 //===========================================================================//
 
-#include "bitbuf.h"
-#include "bitvec.h"
+#include "tier1/bitbuf.h"
+#include "tier1/bitvec.h"
 #include "coordsize.h"
 
 #include <algorithm>

@@ -1,6 +1,10 @@
 #pragma once
 
-#include "core/math/vector2d.h"
+#include "appframework/IAppSystem.h"
+
+#include "mathlib/vector2d.h"
+
+#include <type_traits>
 
 namespace vgui
 {
@@ -231,33 +235,13 @@ enum ImageFormat
 	NUM_IMAGE_FORMATS
 };
 
-class ISurface
+// Retail VGUI_Surface031 uses the canonical IAppSystem contract at absolute
+// slots 0-7. ISurface begins at slot 8 and runs through slot 161.
+class ISurface : public IAppSystem
 {
 public:
-	unsigned long font_create()
-	{
-		using original_fn = unsigned int(__thiscall*)(void*);
-		return (*(original_fn**)this)[78](this);
-	}
-	bool set_font_glyph(unsigned long font, const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags)
-	{
-		using original_fn = bool(__thiscall*)(void*, unsigned long, const char*, int, int, int, int, int, int, int);
-		return (*(original_fn**)this)[79](this, font, windowsFontName, tall, weight, blur, scanlines, flags, 0, 0);
-	}
-
-	// The primary CMatSystemSurface vtable returned for VGUI_Surface031 has
-	// eight internal entries before the public ISurface methods begin.
-	virtual void UNK_Internal00() = 0;
-	virtual void UNK_Internal01() = 0;
-	virtual void UNK_Internal02() = 0;
-	virtual void UNK_Internal03() = 0;
-	virtual void UNK_Internal04() = 0;
-	virtual void UNK_Internal05() = 0;
-	virtual void UNK_Internal06() = 0;
-	virtual void UNK_Internal07() = 0;
-
 	// frame
-	virtual void RunFrame() = 0;
+	virtual void RunFrame() = 0; // 8
 
 	// hierarchy root
 	virtual uintptr_t GetEmbeddedPanel() = 0;
@@ -351,8 +335,8 @@ public:
 	virtual bool IsWithin(int x, int y) = 0;
 	virtual bool HasFocus() = 0;
 
-	// Public ISurface slots 58-62 (absolute CMatSystemSurface slots 66-70).
-	// Keeping all five entries here aligns the font methods below with the runtime vtable.
+	// Absolute CMatSystemSurface slots 66-70. Keeping all five entries here
+	// aligns the remaining public surface methods with the retail vtable.
 	virtual bool UNK_GetFlag() = 0;
 	virtual void UNK_SetFlag(bool state) = 0;
 	virtual void UNK_nullsub1() = 0;
@@ -370,7 +354,7 @@ public:
 		OUTLINE_FONTS = 6,
 		DIRECT_HWND_RENDER = 7,
 	};
-	virtual bool SupportsFeature(SurfaceFeature_t feature) = 0;
+	virtual bool SupportsFeature(SurfaceFeature_t feature) = 0; // 71
 
 	// restricts what gets drawn to one panel and it's children
 	// currently only works in the game
@@ -390,9 +374,9 @@ public:
 
 	// fonts
 	// creates an empty handle to a vgui font.  windows fonts can be add to this via SetFontGlyphSet().
-	virtual HFont CreateFont() = 0;
+	virtual HFont CreateFont() = 0; // 78
 
-	virtual bool SetFontGlyphSet(HFont font, const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags, int nRangeMin = 0, int nRangeMax = 0) = 0;
+	virtual bool SetFontGlyphSet(HFont font, const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags, int nRangeMin = 0, int nRangeMax = 0) = 0; // 79
 
 	// adds a custom font file (only supports true type font files (.ttf) for now)
 	virtual bool AddCustomFontFile(const char* fontFileName) = 0;
@@ -538,7 +522,11 @@ public:
 
 	virtual const char* GetWebkitHTMLUserAgentString() = 0;
 
-	virtual void* Deprecated_AccessChromeHTMLController() = 0;
+	virtual void* Deprecated_AccessChromeHTMLController() = 0; // 161
 };
+
+static_assert(std::is_base_of_v<IAppSystem, ISurface>);
+static_assert(sizeof(ISurface) == sizeof(void*));
+static_assert(alignof(ISurface) == alignof(void*));
 
 }

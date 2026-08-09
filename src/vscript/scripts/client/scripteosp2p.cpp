@@ -1,7 +1,8 @@
 #include "vscript/squirrel/squirrel.h"
 #include "eos/eos_layer.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "engine/r2engine.h"
+#include "tier1/cvar.h"
 
 ADD_SQFUNC("string", NSGetLocalP2PEndpointAddress, "", "", ScriptContext::UI)
 {

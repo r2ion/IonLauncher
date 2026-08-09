@@ -6,47 +6,44 @@
 
 DECLARE_MODULE(RuiHooks)
 
-namespace
+namespace RuiHookInternal
 {
 constexpr ptrdiff_t PILOT_SPEEDOMETER_VISIBILITY_BRANCH = 0x6AB7F;
 constexpr ptrdiff_t GAUNTLET_MAX_SPEED_MPH = 0xD1AD8;
 constexpr ptrdiff_t GAUNTLET_MAX_SPEED_KPH = 0xD1B1C;
 
-ConVar* Cvar_ion_use_custom_crosshair;
-ConVar* Cvar_ion_crosshair_gap_v;
-ConVar* Cvar_ion_crosshair_length_v;
-ConVar* Cvar_ion_crosshair_inset_v;
-ConVar* Cvar_ion_crosshair_thickness_l;
-ConVar* Cvar_ion_crosshair_thickness_r;
-ConVar* Cvar_ion_crosshair_gap_h;
-ConVar* Cvar_ion_crosshair_length_h;
-ConVar* Cvar_ion_chroma_gameinfo;
-ConVar* Cvar_ion_speedometer_always_show;
-ConVar* Cvar_gauntlet_timer_max_speed_metric;
-ConVar* Cvar_gauntlet_timer_max_speed_imperial;
+static ConVar* Cvar_ion_use_custom_crosshair;
+static ConVar* Cvar_ion_crosshair_gap_v;
+static ConVar* Cvar_ion_crosshair_length_v;
+static ConVar* Cvar_ion_crosshair_inset_v;
+static ConVar* Cvar_ion_crosshair_thickness_l;
+static ConVar* Cvar_ion_crosshair_thickness_r;
+static ConVar* Cvar_ion_crosshair_gap_h;
+static ConVar* Cvar_ion_crosshair_length_h;
+static ConVar* Cvar_ion_chroma_gameinfo;
+static ConVar* Cvar_ion_speedometer_always_show;
+static ConVar* Cvar_gauntlet_timer_max_speed_metric;
+static ConVar* Cvar_gauntlet_timer_max_speed_imperial;
 
-float* s_GauntletMaxSpeedMph;
-float* s_GauntletMaxSpeedKph;
-bool s_RuiUiModuleReady;
-bool s_RuiConVarsReady;
-bool s_RuiUiHooksDispatched;
+static float* s_GauntletMaxSpeedMph;
+static float* s_GauntletMaxSpeedKph;
 
-__m128 MakeColor(float red, float green, float blue, float alpha = 1.0f)
+static __m128 MakeColor(float red, float green, float blue, float alpha = 1.0f)
 {
 	return _mm_setr_ps(red, green, blue, alpha);
 }
 
-__m128 FriendlyTeamColor()
+static __m128 FriendlyTeamColor()
 {
 	return MakeColor(0.095f, 0.309f, 0.708f);
 }
 
-__m128 EnemyTeamColor()
+static __m128 EnemyTeamColor()
 {
 	return MakeColor(1.0f, 0.188f, 0.014f);
 }
 
-__m128 RainbowColor(float time, float speed, float hueOffset)
+static __m128 RainbowColor(float time, float speed, float hueOffset)
 {
 	float hue = std::fmod(time * speed + hueOffset, 1.0f);
 	if (hue < 0.0f)
@@ -68,31 +65,31 @@ __m128 RainbowColor(float time, float speed, float hueOffset)
 	}
 }
 
-void StoreColor(float (&destination)[4], __m128 color)
+static void StoreColor(float (&destination)[4], __m128 color)
 {
 	_mm_storeu_ps(destination, color);
 }
 
-void StoreRgb(float (&destination)[3], __m128 color)
+static void StoreRgb(float (&destination)[3], __m128 color)
 {
 	destination[0] = color.m128_f32[0];
 	destination[1] = color.m128_f32[1];
 	destination[2] = color.m128_f32[2];
 }
 
-float FractionalPart(float value)
+static float FractionalPart(float value)
 {
 	return value - std::floor(value);
 }
 
-float LowAmmoPulse(float currentTime)
+static float LowAmmoPulse(float currentTime)
 {
 	const float phase = FractionalPart(currentTime * 2.0f);
 	const float risingEdge = std::max(0.0f, 1.0f - (1.0f - phase) * 4.0f);
 	return 1.0f - std::min(2.0f - risingEdge * 2.0f, 1.0f);
 }
 
-float NoiseEnvelope(float currentTime)
+static float NoiseEnvelope(float currentTime)
 {
 	const float phase = FractionalPart(currentTime * 200.0f);
 	return std::max(0.0f, 1.0f - (1.0f - phase) * 0.2f);
@@ -105,7 +102,7 @@ struct AmmoUrgency
 	__m128 color;
 };
 
-AmmoUrgency ComputeAmmoUrgency(float ammoFraction, float currentTime)
+static AmmoUrgency ComputeAmmoUrgency(float ammoFraction, float currentTime)
 {
 	if (ammoFraction <= 0.33f)
 		return {4.0f, LowAmmoPulse(currentTime), MakeColor(1.0f, 0.065f, 0.051f)};
@@ -116,7 +113,7 @@ AmmoUrgency ComputeAmmoUrgency(float ammoFraction, float currentTime)
 	return {1.0f, 0.0f, MakeColor(0.242f, 0.831f, 1.0f)};
 }
 
-void UpdateGamestateInfoColors(RuiGlobalState* globals, float (&left)[3], float (&right)[3])
+static void UpdateGamestateInfoColors(RuiGlobalState* globals, float (&left)[3], float (&right)[3])
 {
 	if (Cvar_ion_chroma_gameinfo->GetBool())
 	{
@@ -129,7 +126,7 @@ void UpdateGamestateInfoColors(RuiGlobalState* globals, float (&left)[3], float 
 	StoreRgb(right, EnemyTeamColor());
 }
 
-void UpdateGamestateInfoFfa(
+static void UpdateGamestateInfoFfa(
 	const RuiFunctionTable_t* api,
 	RuiGlobalState* globals,
 	RuiInstance* rui,
@@ -228,12 +225,12 @@ void UpdateGamestateInfoFfa(
 	api->executeTransform(rui, 158);
 }
 
-RuiFloat2Value AddMovement(float movementX, float movementY, float x, float y)
+static RuiFloat2Value AddMovement(float movementX, float movementY, float x, float y)
 {
 	return {movementX + x, movementY + y};
 }
 
-void UpdateCrosshairPlus(
+static void UpdateCrosshairPlus(
 	const RuiFunctionTable_t* api,
 	RuiGlobalState* globals,
 	RuiInstance* rui,
@@ -334,7 +331,7 @@ void UpdateCrosshairPlus(
 	api->executeTransform(rui, 162);
 }
 
-void UpdateKraberAmmoCounter(
+static void UpdateKraberAmmoCounter(
 	const RuiFunctionTable_t* api,
 	RuiGlobalState* globals,
 	RuiInstance* rui,
@@ -361,7 +358,7 @@ void UpdateKraberAmmoCounter(
 	api->executeTransform(rui, 82);
 }
 
-void UpdateMastiffAmmoCounter(
+static void UpdateMastiffAmmoCounter(
 	const RuiFunctionTable_t* api,
 	RuiGlobalState* globals,
 	RuiInstance* rui,
@@ -390,7 +387,7 @@ void UpdateMastiffAmmoCounter(
 }
 
 template <typename T>
-bool WriteProtectedValue(T* address, const T& value)
+static bool WriteProtectedValue(T* address, const T& value)
 {
 	DWORD oldProtection;
 	if (!VirtualProtect(address, sizeof(T), PAGE_EXECUTE_READWRITE, &oldProtection))
@@ -401,7 +398,7 @@ bool WriteProtectedValue(T* address, const T& value)
 	return true;
 }
 
-void UpdateGauntletSpeedLimits()
+static void UpdateGauntletSpeedLimits()
 {
 	static float appliedMaxSpeedMph = *s_GauntletMaxSpeedMph;
 	static float appliedMaxSpeedKph = *s_GauntletMaxSpeedKph;
@@ -420,20 +417,20 @@ void UpdateGauntletSpeedLimits()
 		appliedMaxSpeedKph = requestedMaxSpeedKph;
 	}
 }
-}
+} // namespace RuiHookInternal
 
 DECLARE_HOOK(gamestate_info_ffa, ui(11).dll + 0x3E8E0, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiGamestateInfoFfaInstanceData* data)
 {
-	UpdateGamestateInfoFfa(api, globals, rui, data);
+	RuiHookInternal::UpdateGamestateInfoFfa(api, globals, rui, data);
 })
 
 DECLARE_HOOK(gamestate_info, ui(11).dll + 0x33AE0, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiGamestateInfoInputPrefix* data)
 {
-	UpdateGamestateInfoColors(globals, data->leftColor, data->rightColor);
+	RuiHookInternal::UpdateGamestateInfoColors(globals, data->leftColor, data->rightColor);
 	hook.Original(api, globals, rui, data);
 })
 
@@ -441,7 +438,7 @@ DECLARE_HOOK(gamestate_info_ps, ui(11).dll + 0x46280, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiGamestateInfoPsInstanceData* data)
 {
-	UpdateGamestateInfoColors(globals, data->leftColor, data->rightColor);
+	RuiHookInternal::UpdateGamestateInfoColors(globals, data->leftColor, data->rightColor);
 	hook.Original(api, globals, rui, data);
 })
 
@@ -449,9 +446,9 @@ DECLARE_HOOK(crosshair_plus, ui(11).dll + 0x1D560, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiCrosshairPlusInstanceData* data)
 {
-	if (Cvar_ion_use_custom_crosshair->GetBool())
+	if (RuiHookInternal::Cvar_ion_use_custom_crosshair->GetBool())
 	{
-		UpdateCrosshairPlus(api, globals, rui, data);
+		RuiHookInternal::UpdateCrosshairPlus(api, globals, rui, data);
 		return;
 	}
 	hook.Original(api, globals, rui, data);
@@ -461,14 +458,14 @@ DECLARE_HOOK(kraber_ammo_counter, ui(11).dll + 0x58BC0, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiKraberAmmoCounterInstanceData* data)
 {
-	UpdateKraberAmmoCounter(api, globals, rui, data);
+	RuiHookInternal::UpdateKraberAmmoCounter(api, globals, rui, data);
 })
 
 DECLARE_HOOK(mastiff_ammo_counter, ui(11).dll + 0x5D710, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiMastiffAmmoCounterInstanceData* data)
 {
-	UpdateMastiffAmmoCounter(api, globals, rui, data);
+	RuiHookInternal::UpdateMastiffAmmoCounter(api, globals, rui, data);
 })
 
 DECLARE_HOOK(pilot_speedometer, ui(11).dll + 0x6AA50, [](auto& hook,
@@ -477,13 +474,13 @@ DECLARE_HOOK(pilot_speedometer, ui(11).dll + 0x6AA50, [](auto& hook,
 {
 	static CMemory module = GetModuleHandleA("ui(11).dll");
 	static bool isAlwaysVisiblePatched = false;
-	const bool shouldAlwaysShow = Cvar_ion_speedometer_always_show->GetBool();
+	const bool shouldAlwaysShow = RuiHookInternal::Cvar_ion_speedometer_always_show->GetBool();
 	if (shouldAlwaysShow != isAlwaysVisiblePatched)
 	{
 		if (shouldAlwaysShow)
-			module.Offset(PILOT_SPEEDOMETER_VISIBILITY_BRANCH).Patch({0x90, 0x90});
+			module.Offset(RuiHookInternal::PILOT_SPEEDOMETER_VISIBILITY_BRANCH).Patch({0x90, 0x90});
 		else
-			module.Offset(PILOT_SPEEDOMETER_VISIBILITY_BRANCH).Patch({0x72, 0x2C});
+			module.Offset(RuiHookInternal::PILOT_SPEEDOMETER_VISIBILITY_BRANCH).Patch({0x72, 0x2C});
 		isAlwaysVisiblePatched = shouldAlwaysShow;
 	}
 
@@ -494,7 +491,7 @@ DECLARE_HOOK(gauntlet_hud, ui(11).dll + 0x4E030, [](auto& hook,
 	const RuiFunctionTable_t* api, RuiGlobalState* globals, RuiInstance* rui,
 	RuiGauntletHudInstanceData* data)
 {
-	UpdateGauntletSpeedLimits();
+	RuiHookInternal::UpdateGauntletSpeedLimits();
 	hook.Original(api, globals, rui, data);
 })
 
@@ -504,16 +501,13 @@ DECLARE_HOOK(RuiInstance_SetErrorWithReason, engine.dll + 0xF80D0, [](auto& hook
 	hook.Original(rui, reason);
 })
 
-ON_DLL_LOAD("ui(11).dll", RuiUiCallbacks, [](CModule module)
+ON_DLL_LOAD_CLIENT_RELIESON("ui(11).dll", RuiUiCallbacks, RuiConVars, [](CModule module)
 {
-	s_GauntletMaxSpeedMph = module.Offset(GAUNTLET_MAX_SPEED_MPH).RCast<float*>();
-	s_GauntletMaxSpeedKph = module.Offset(GAUNTLET_MAX_SPEED_KPH).RCast<float*>();
-	s_RuiUiModuleReady = true;
-	if (s_RuiConVarsReady && !s_RuiUiHooksDispatched)
-	{
-		RuiHooks.DispatchForModule("ui(11).dll");
-		s_RuiUiHooksDispatched = true;
-	}
+	RuiHookInternal::s_GauntletMaxSpeedMph =
+		module.Offset(RuiHookInternal::GAUNTLET_MAX_SPEED_MPH).RCast<float*>();
+	RuiHookInternal::s_GauntletMaxSpeedKph =
+		module.Offset(RuiHookInternal::GAUNTLET_MAX_SPEED_KPH).RCast<float*>();
+	RuiHooks.DispatchForModule("ui(11).dll");
 })
 
 ON_DLL_LOAD_CLIENT("engine.dll", RuiEngineHooks, [](CModule module)
@@ -525,47 +519,41 @@ ON_DLL_LOAD_CLIENT("engine.dll", RuiEngineHooks, [](CModule module)
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", RuiConVars, ConVar, [](CModule module)
 {
 	(void)module;
-	Cvar_ion_use_custom_crosshair = new ConVar(
+	RuiHookInternal::Cvar_ion_use_custom_crosshair = new ConVar(
 		"ion_use_custom_crosshair", "0", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Use custom crosshairs. 1 = enabled, 0 = disabled.");
-	Cvar_ion_crosshair_gap_v = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_gap_v = new ConVar(
 		"ion_crosshair_gap_v", "0.0074074", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Vertical arm gap from center.");
-	Cvar_ion_crosshair_length_v = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_length_v = new ConVar(
 		"ion_crosshair_length_v", "0.01200", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Vertical arm segment length.");
-	Cvar_ion_crosshair_inset_v = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_inset_v = new ConVar(
 		"ion_crosshair_inset_v", "0.00100", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Vertical arm inner shadow inset.");
-	Cvar_ion_crosshair_thickness_l = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_thickness_l = new ConVar(
 		"ion_crosshair_thickness_l", "0.00185", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Vertical arm thickness left of center.");
-	Cvar_ion_crosshair_thickness_r = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_thickness_r = new ConVar(
 		"ion_crosshair_thickness_r", "0.00833", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Vertical arm thickness right of center.");
-	Cvar_ion_crosshair_gap_h = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_gap_h = new ConVar(
 		"ion_crosshair_gap_h", "0.00417", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Horizontal arm gap from center.");
-	Cvar_ion_crosshair_length_h = new ConVar(
+	RuiHookInternal::Cvar_ion_crosshair_length_h = new ConVar(
 		"ion_crosshair_length_h", "0.00700", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Horizontal arm segment length.");
-	Cvar_ion_chroma_gameinfo = new ConVar(
+	RuiHookInternal::Cvar_ion_chroma_gameinfo = new ConVar(
 		"ion_chroma_gameinfo", "0", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Rainbow colors for game info. 1 = enabled, 0 = disabled.");
-	Cvar_ion_speedometer_always_show = new ConVar(
+	RuiHookInternal::Cvar_ion_speedometer_always_show = new ConVar(
 		"ion_speedometer_always_show", "0", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Always show speedometer. 1 = enabled, 0 = disabled.");
-	Cvar_gauntlet_timer_max_speed_metric = new ConVar(
+	RuiHookInternal::Cvar_gauntlet_timer_max_speed_metric = new ConVar(
 		"gauntlet_timer_max_speed_metric", "50.05047", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Max speed in gauntlet timer (metric).");
-	Cvar_gauntlet_timer_max_speed_imperial = new ConVar(
+	RuiHookInternal::Cvar_gauntlet_timer_max_speed_imperial = new ConVar(
 		"gauntlet_timer_max_speed_imperial", "31.1", FCVAR_ARCHIVE_PLAYERPROFILE,
 		"Max speed in gauntlet timer (imperial).");
 
-	s_RuiConVarsReady = true;
-	if (s_RuiUiModuleReady && !s_RuiUiHooksDispatched)
-	{
-		RuiHooks.DispatchForModule("ui(11).dll");
-		s_RuiUiHooksDispatched = true;
-	}
 })

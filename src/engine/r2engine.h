@@ -1,8 +1,8 @@
 #pragma once
-#include "shared/keyvalues.h"
-#include "engine/bitbuf.h"
+#include "tier1/keyvalues.h"
+#include "tier1/bitbuf.h"
 #include "engine/net.h"
-#include "engine/netmessages.h"
+#include "common/netmessages.h"
 
 // Cbuf
 enum class ECommandTarget_t
@@ -125,62 +125,48 @@ enum class GameMode_t : int
 class CGlobalVars
 {
 public:
-	// Absolute time (per frame still - Use Plat_FloatTime() for a high precision real time
-	//  perf clock, but not that it doesn't obey host_timescale/host_framerate)
-	double m_flRealTime; // 0x0 ( Size: 8 )
+	// Source's global timing prefix, with Titanfall's expanded current-time
+	// state. Retail engine stores the first two floats together as one qword.
+	double m_flRealTime;                    // 0x00
+	int m_nFrameCount;                      // 0x08
+	float m_flAbsoluteFrameTime;            // 0x0C
+	float m_flCurTime;                      // 0x10
+	float m_flCurTimeUnknown0;              // 0x14
+	float m_flCurTimeUnknown1;              // 0x18
+	float m_flCurTimeUnknown2;              // 0x1C
+	float m_flLastFrameTimeSincePause;      // 0x20
+	float m_flCurTimeUnknown3;              // 0x24
+	float m_flExactCurTime;                 // 0x28
+	float m_flCurTimeUnknown4;              // 0x2C
+	float m_flFrameTime;                    // 0x30
+	int m_nMaxClients;                      // 0x34
+	GameMode_t m_nGameMode;                 // 0x38
+	std::uint32_t m_nTickCount;             // 0x3C
+	float m_flTickInterval;                 // 0x40
 
-	// Absolute frame counter - continues to increase even if game is paused
-	int m_nFrameCount; // 0x8 ( Size: 4 )
-
-	// Non-paused frametime
-	float m_flAbsoluteFrameTime; // 0xc ( Size: 4 )
-
-	// Current time
-	//
-	// On the client, this (along with tickcount) takes a different meaning based on what
-	// piece of code you're in:
-	//
-	//   - While receiving network packets (like in PreDataUpdate/PostDataUpdate and proxies),
-	//     this is set to the SERVER TICKCOUNT for that packet. There is no interval between
-	//     the server ticks.
-	//     [server_current_Tick * tick_interval]
-	//
-	//   - While rendering, this is the exact client clock
-	//     [client_current_tick * tick_interval + interpolation_amount]
-	//
-	//   - During prediction, this is based on the client's current tick:
-	//     [client_current_tick * tick_interval]
-	float m_flCurTime; // 0x10 ( Size: 4 )
-
-	char _unk_0x14[28]; // 0x14 ( Size: 28 )
-
-	// Time spent on last server or client frame (has nothing to do with think intervals)
-	float m_flFrameTime; // 0x30 ( Size: 4 )
-
-	// current maxplayers setting
-	int m_nMaxClients; // 0x34 ( Size: 4 )
-	GameMode_t m_nGameMode; // 0x38 ( Size: 4 )
-
-	// Simulation ticks - does not increase when game is paused
-	//   this is weird and doesn't seem to increase once per frame?
-	uint32_t m_nTickCount; // 0x3c ( Size: 4 )
-
-	// Simulation tick interval
-	float m_flTickInterval; // 0x40 ( Size: 4 )
-	char _unk_0x44[28]; // 0x44 ( Size: 28 )
-
-	const char* m_pMapName; // 0x60 ( Size: 8 )
-	int m_nMapVersion; // 0x68 ( Size: 4 )
+	// The retail game DLL owns the semantics of this bounded extension. Engine
+	// references prove its extent and the following map fields, but do not
+	// distinguish the individual 0x44-0x5F members well enough to name them.
+	std::byte m_Reserved0044[0x1C];          // 0x44
+	const char* m_pMapName;                  // 0x60
+	int m_nMapVersion;                       // 0x68
+	std::byte m_Padding006C[4];              // 0x6C
 };
-static_assert(offsetof(CGlobalVars, m_flRealTime) == 0x0);
-static_assert(offsetof(CGlobalVars, m_nFrameCount) == 0x8);
-static_assert(offsetof(CGlobalVars, m_flAbsoluteFrameTime) == 0xc);
+
+static_assert(sizeof(CGlobalVars) == 0x70);
+static_assert(alignof(CGlobalVars) == 0x8);
+static_assert(offsetof(CGlobalVars, m_flRealTime) == 0x00);
+static_assert(offsetof(CGlobalVars, m_nFrameCount) == 0x08);
+static_assert(offsetof(CGlobalVars, m_flAbsoluteFrameTime) == 0x0C);
 static_assert(offsetof(CGlobalVars, m_flCurTime) == 0x10);
+static_assert(offsetof(CGlobalVars, m_flLastFrameTimeSincePause) == 0x20);
+static_assert(offsetof(CGlobalVars, m_flExactCurTime) == 0x28);
 static_assert(offsetof(CGlobalVars, m_flFrameTime) == 0x30);
 static_assert(offsetof(CGlobalVars, m_nMaxClients) == 0x34);
 static_assert(offsetof(CGlobalVars, m_nGameMode) == 0x38);
-static_assert(offsetof(CGlobalVars, m_nTickCount) == 0x3c);
+static_assert(offsetof(CGlobalVars, m_nTickCount) == 0x3C);
 static_assert(offsetof(CGlobalVars, m_flTickInterval) == 0x40);
+static_assert(offsetof(CGlobalVars, m_Reserved0044) == 0x44);
 static_assert(offsetof(CGlobalVars, m_pMapName) == 0x60);
 static_assert(offsetof(CGlobalVars, m_nMapVersion) == 0x68);
 

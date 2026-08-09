@@ -118,7 +118,7 @@ struct PakLoadFuncs_s
 	void (*WaitForUnloadCompletion)(PakHandle_t, Callback_t);
 	FARPROC (*GetModuleProcAddress)(PakHandle_t, const char*);
 	char* (*GetAssetBinding)(PakGuid_t);
-	char* (*GetAssetBindingFromFlag)(uint8_t);
+	void* (*GetAssetBindingByPath)(const char*);
 	uint64_t reserved70;
 	PakGuid_t (*GetLoadedAsset)(int, int);
 	void (*LinkAssetBinding)(
@@ -149,9 +149,12 @@ struct PakLoadFuncs_s
 static_assert(sizeof(PakLoadFuncs_s) == 0x110);
 static_assert(offsetof(PakLoadFuncs_s, AllocateEmptyPak) == 0x18);
 static_assert(offsetof(PakLoadFuncs_s, UnloadAndWait) == 0x30);
+static_assert(offsetof(PakLoadFuncs_s, GetAssetBindingByPath) == 0x68);
 static_assert(offsetof(PakLoadFuncs_s, LinkAssetBinding) == 0x80);
 static_assert(offsetof(PakLoadFuncs_s, UnlinkAssetBinding) == 0x88);
 static_assert(offsetof(PakLoadFuncs_s, OpenFile) == 0xC0);
+static_assert(offsetof(PakLoadFuncs_s, ReleaseFileHandle) == 0xC8);
+static_assert(offsetof(PakLoadFuncs_s, AddRefFileHandle) == 0xD0);
 static_assert(offsetof(PakLoadFuncs_s, GetWorkerThreadHandle) == 0x108);
 
 extern PakLoadFuncs_s* g_pakLoadApi;

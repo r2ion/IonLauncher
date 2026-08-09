@@ -1,6 +1,6 @@
 #include "modsystem/modmanager.h"
 #include "core/filesystem/filesystem.h"
-#include "shared/keyvalues.h"
+#include "tier1/keyvalues.h"
 #include "tier0/vanilla.h"
 
 #include <algorithm>

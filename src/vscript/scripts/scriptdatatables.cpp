@@ -1,9 +1,10 @@
 #include "vscript/squirrel/squirrel.h"
 #include "rtech/pakfilesystem.h"
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
+#include "core/convar/concommand.h"
 #include "dedicated/dedicated.h"
 #include "core/filesystem/filesystem.h"
-#include "core/math/vector.h"
+#include "mathlib/vector.h"
 #include "core/tier0.h"
 #include "engine/r2engine.h"
 #include <iostream>
@@ -95,7 +96,7 @@ REPLACE_SQFUNC(GetDataTable, (ScriptContext::UI | ScriptContext::CLIENT | Script
 			diskAssetPath /= fs::path(pAssetName);
 
 		std::string sDiskAssetPath(diskAssetPath.string());
-		if (g_pFilesystem->m_vtable2->FileExists(&g_pFilesystem->m_vtable2, sDiskAssetPath.c_str(), "GAME"))
+		if (static_cast<IBaseFileSystem*>(g_pFilesystem)->FileExists(sDiskAssetPath.c_str(), "GAME"))
 		{
 			std::string sTableCSV = ReadVPKFile(sDiskAssetPath.c_str());
 			if (!sTableCSV.size())

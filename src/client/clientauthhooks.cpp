@@ -1,5 +1,6 @@
-#include "client/r2client.h"
-#include "core/convar/convar.h"
+#include "engine/client/clientstate.h"
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 #include "tier0/vanilla.h"
 #include "masterserver/masterserver.h"
 

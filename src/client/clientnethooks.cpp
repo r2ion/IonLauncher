@@ -1,8 +1,9 @@
 #include "engine/r2engine.h"
-#include "client/r2client.h"
-#include "engine/netmessages.h"
+#include "engine/client/clientstate.h"
+#include "common/netmessages.h"
 #include "modsystem/moddownloader.h"
 #include "core/tier0.h"
+#include "tier1/cvar.h"
 
 DECLARE_MODULE(ClientNetHooks)
 
@@ -63,7 +64,7 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 
 				notifyType = msg.ReadLong();
 				serverNotifyTime = msg.ReadFloat();
-				clientNotifyTime = Plat_FloatTime();
+				clientNotifyTime = g_PlatFloatTime();
 
 				g_bReceivedAuthNotify = true;
 

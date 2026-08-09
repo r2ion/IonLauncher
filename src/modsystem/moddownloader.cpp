@@ -1,5 +1,5 @@
 #include "moddownloader.h"
-#include "engine/netmessages.h"
+#include "common/netmessages.h"
 #include "util/utils.h"
 #include "config/profile.h"
 #include "engine/r2engine.h"

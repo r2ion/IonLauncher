@@ -30,6 +30,8 @@ struct MilesSpatializationInfo
 
 static_assert(sizeof(MilesSpatializationInfo) == 0x28);
 
+// Prefix of the native event context consumed by Northstar. Known fields end at
+// byte 0x64; the C++ type includes four bytes of tail padding for pointer alignment.
 struct MilesEventContextPrefix
 {
     unsigned __int64 EventId;
@@ -48,12 +50,23 @@ struct MilesEventContextPrefix
     unsigned int ListenerMask;
 };
 
+static_assert(sizeof(MilesEventContextPrefix) == 0x68);
+static_assert(alignof(MilesEventContextPrefix) == 0x8);
+static_assert(offsetof(MilesEventContextPrefix, EventId) == 0x0);
+static_assert(offsetof(MilesEventContextPrefix, EventName) == 0x8);
+static_assert(offsetof(MilesEventContextPrefix, BankName) == 0x10);
+static_assert(offsetof(MilesEventContextPrefix, FilterActorPosition) == 0x18);
 static_assert(offsetof(MilesEventContextPrefix, FilterFlags) == 0x24);
 static_assert(offsetof(MilesEventContextPrefix, ActorPosition) == 0x28);
 static_assert(offsetof(MilesEventContextPrefix, ActorFacing) == 0x30);
+static_assert(offsetof(MilesEventContextPrefix, ActorUp) == 0x38);
+static_assert(offsetof(MilesEventContextPrefix, Unknown40) == 0x40);
 static_assert(offsetof(MilesEventContextPrefix, RateFactor) == 0x48);
 static_assert(offsetof(MilesEventContextPrefix, ControllerValues) == 0x50);
+static_assert(offsetof(MilesEventContextPrefix, Unknown4C) == 0x4C);
+static_assert(offsetof(MilesEventContextPrefix, SelectionValues) == 0x58);
 static_assert(offsetof(MilesEventContextPrefix, ListenerMask) == 0x60);
+static_assert(offsetof(MilesEventContextPrefix, ListenerMask) + sizeof(decltype(MilesEventContextPrefix::ListenerMask)) == 0x64);
 
 struct MilesQueuedControllerValue
 {

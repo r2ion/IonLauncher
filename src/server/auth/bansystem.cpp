@@ -1,11 +1,12 @@
 #include "bansystem.h"
 #include "serverauthentication.h"
 #include "core/convar/concommand.h"
+#include "tier1/cvar.h"
 #include "dedicated/dedicated.h"
 #include "server/r2server.h"
 #include "engine/r2engine.h"
-#include "engine/client.h"
-#include "client/r2client.h"
+#include "engine/client/client.h"
+#include "engine/client/clientstate.h"
 #include "config/profile.h"
 #include "shared/maxplayers.h"
 
@@ -199,7 +200,7 @@ void ConCommand_ban(const CCommand& args)
 	{
 		CClient* player = &g_pClientArray[i];
 
-		if (!strcmp(player->m_szServerName, args.Arg(1)) || !strcmp(player->m_szPlatformID, args.Arg(1)))
+		if (!strcmp(player->m_szClientName, args.Arg(1)) || !strcmp(player->m_szPlatformID, args.Arg(1)))
 		{
 			g_pBanSystem->BanUID(strtoull(player->m_szPlatformID, nullptr, 10));
 			player->Disconnect(REP_REMOVE_ONLY, "Banned from server");
@@ -239,13 +240,13 @@ int ConCommand_banCompletion(const char* const partial, char commands[COMMAND_CO
 		if (client->m_nSignonState < eSignonState::CONNECTED)
 			continue;
 
-		if (!strncmp(query, client->m_szServerName, queryLength))
+		if (!strncmp(query, client->m_szClientName, queryLength))
 		{
 			strncpy(commands[numCompletions], cmdName, cmdLength);
 			strncpy_s(
 				commands[numCompletions++] + cmdLength,
 				COMMAND_COMPLETION_ITEM_LENGTH,
-				client->m_szServerName,
+				client->m_szClientName,
 				COMMAND_COMPLETION_ITEM_LENGTH - cmdLength);
 		}
 

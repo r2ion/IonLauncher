@@ -14,6 +14,8 @@
 #include <vector>
 #include <commdlg.h>
 #include "cmaterialglue.h"
+#include "materialsystem/itextureinternal.h"
+#include "rendersystem/schema/texture.g.h"
 #include "materialsystem/dx11_device.h"
 #include "materialsystem/nscustomdxbuffer.h"
 #include "tier0/frametask.h"
@@ -21,6 +23,8 @@
 #include <wrl/client.h>
 #pragma comment(lib, "d3dcompiler.lib")
 #include "rtech/pakfilesystem.h"
+#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel/sqarray.h"
 
 struct Ns_Constant_Buffer
 {
@@ -29,6 +33,8 @@ struct Ns_Constant_Buffer
 
 static constexpr size_t kMaxCustomTextureBindings = 60;
 static constexpr uint32_t kCompileWaterGlueFlag2 = 0x00080000;
+static constexpr size_t kMaterialShaderDataOffset = 0x10;
+static_assert(offsetof(CMaterialGlue, guid) == kMaterialShaderDataOffset);
 static constexpr const char* kWaterReflectionTextureName = "_rt_WaterReflection";
 static constexpr const char* kWaterRefractionTextureName = "_rt_WaterRefraction";
 static constexpr uint16_t kDrawWaterRefraction = 0x0001;
@@ -52,9 +58,7 @@ struct MaterialNamedTextureMappings_t
 	}
 };
 
-using FindNamedTextureFn = void* (__fastcall*)(const char* textureName);
-using GetTextureHandleFn = uint64_t(__fastcall*)(void* texture, uint32_t frame);
-using GetDepthTextureHandleFn = uint64_t(__fastcall*)(void* texture);
+using FindNamedTextureFn = ITextureInternal* (__fastcall*)(const char* textureName);
 using BindPixelTextureHandleFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
 using ResolvePixelTextureAndSamplerFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
 using SetupWaterTextureBindingsFn = void(__fastcall*)(__int64 textureHandles, uint64_t textureCount);
@@ -115,7 +119,7 @@ static void RefreshRequestedWaterPasses()
 // VMT %compileWater. The client render-target producer still needs a separate
 // hook because engine.dll only creates its water records from BSP leafwaterdata.
 static void UpdateCompileWaterFlag(
-	CMaterialGlue_short* material, const MaterialNamedTextureMappings_t& mappings)
+	CMaterialGlue* material, const MaterialNamedTextureMappings_t& mappings)
 {
 	if (GetRequestedWaterPasses(mappings) != 0)
 	{
@@ -436,27 +440,17 @@ static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t sampler
 		return false;
 	}
 
-	void* texture = s_FindNamedTexture(textureName);
+	ITextureInternal* const texture = s_FindNamedTexture(textureName);
 	if (!texture)
 		return false;
 
-	auto* vtable = *reinterpret_cast<void***>(texture);
-	if (!vtable)
-		return false;
-
-	const auto getTextureHandle = reinterpret_cast<GetTextureHandleFn>(vtable[0x170 / sizeof(void*)]);
-	const auto getDepthTextureHandle =
-		reinterpret_cast<GetDepthTextureHandleFn>(vtable[0x178 / sizeof(void*)]);
-	if (!getTextureHandle || !getDepthTextureHandle)
-		return false;
-
-	const int16_t textureHandle = static_cast<int16_t>(getTextureHandle(texture, 0));
+	const int16_t textureHandle = static_cast<int16_t>(texture->GetTextureHandle(0));
 	if (!textureHandle)
 		return false;
 
 	BindTextureHandleToPixelShader(textureSlot, samplerSlot, textureHandle);
 
-	const int16_t depthTextureHandle = static_cast<int16_t>(getDepthTextureHandle(texture));
+	const int16_t depthTextureHandle = static_cast<int16_t>(texture->GetDepthTextureHandle());
 	if (depthTextureHandle)
 		BindTextureHandleToPixelShader(textureSlot + 1, samplerSlot + 1, depthTextureHandle);
 
@@ -534,21 +528,21 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 	return *reinterpret_cast<unsigned int*>(a4 + 8);
 })
 
-DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, CMaterialGlue_short* a4) -> __int64
+DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, void* rawMaterialData) -> __int64
 {
-	CMaterialGlue_short* internal_logic_material = a4;
-
-	auto subResult = hook.Original(a1, a2, a3, internal_logic_material); // IMPORTANT DO NOT REPLACE, NEEDS TO RUN BEFORE ANYTHING ELSE HAPPENS IN SHADEREXECUTE
+	auto subResult = hook.Original(a1, a2, a3, rawMaterialData); // IMPORTANT DO NOT REPLACE, NEEDS TO RUN BEFORE ANYTHING ELSE HAPPENS IN SHADEREXECUTE
+	auto* const material = reinterpret_cast<CMaterialGlue*>(
+		reinterpret_cast<std::uint8_t*>(rawMaterialData) - kMaterialShaderDataOffset);
 
 	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
 	if (!dx11)
 		return subResult;
 
 	//bind textures to slots if existing
-	if (NSMaterialTextureSlotBindings.contains(internal_logic_material->guid))
+	if (NSMaterialTextureSlotBindings.contains(material->guid))
 	{
 
-		auto& mappings = NSMaterialTextureSlotBindings[internal_logic_material->guid];
+		auto& mappings = NSMaterialTextureSlotBindings[material->guid];
 
 		for (size_t slot = 0; slot < mappings.m_Slots.size(); ++slot)
 		{
@@ -561,8 +555,8 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 			if (!texturePointer)
 				continue;
 
-			RpakTextureHeader* TextureHeader = (RpakTextureHeader*)texturePointer;
-			ID3D11ShaderResourceView* TextureSRV = TextureHeader->shaderResourceView;
+			auto* textureHeader = reinterpret_cast<TextureAsset_s*>(texturePointer);
+			ID3D11ShaderResourceView* TextureSRV = textureHeader->shaderResourceView;
 
 			if (!TextureSRV)
 				continue;
@@ -575,7 +569,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	MaterialNamedTextureMappings_t namedTextureMappings;
 	{
 		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
-		const auto mappings = s_MaterialNamedTextureSlotBindings.find(internal_logic_material->guid);
+		const auto mappings = s_MaterialNamedTextureSlotBindings.find(material->guid);
 		if (mappings != s_MaterialNamedTextureSlotBindings.end())
 			namedTextureMappings = mappings->second;
 	}
@@ -594,7 +588,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	}
 
 	//update custom buffer if material is registered in NSRegisteredCustomBufferMaterials
-	if(NSRegisteredCustomBufferMaterials.contains(internal_logic_material->guid))
+	if(NSRegisteredCustomBufferMaterials.contains(material->guid))
 	{
 		D3D11_BUFFER_DESC desc {};
 		desc.ByteWidth = sizeof(Ns_Constant_Buffer);
@@ -625,7 +619,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 		std::lock_guard<std::mutex> lock(NSCustomDXBufferMutex);
 
-		memcpy(pData, &NSCustomBuffersPerMaterial[internal_logic_material->guid], sizeof(Ns_Constant_Buffer));
+		memcpy(pData, &NSCustomBuffersPerMaterial[material->guid], sizeof(Ns_Constant_Buffer));
 
 		dx11.m_pContext->Unmap(resource, 0);
 		dx11.m_pContext->PSSetConstantBuffers(4, 1, &resource);
@@ -635,7 +629,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
     // If a custom pixel shader has been registered for this material, set it now
     {
         std::lock_guard<std::mutex> lock(NSMaterialPixelShadersMutex);
-        auto it = NSMaterialPixelShaders.find(internal_logic_material->guid);
+        auto it = NSMaterialPixelShaders.find(material->guid);
         if (it != NSMaterialPixelShaders.end() && it->second != nullptr)
         {
             dx11.m_pContext->PSSetShader(it->second.Get(), nullptr, 0);
@@ -689,18 +683,16 @@ template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIR
 		return SQRESULT_ERROR;
 	}
 
-	auto* base = reinterpret_cast<uint8_t*>(AssetFromGUID);
-	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
-	// We need to add 16 to the pointer; Pak_GetAssetBinding returns the full material glue.
-	if(!NSRegisteredCustomBufferMaterials.contains( GUIDMaterialGlue_short->guid))
+	auto* material = reinterpret_cast<CMaterialGlue*>(AssetFromGUID);
+	if(!NSRegisteredCustomBufferMaterials.contains(material->guid))
 	{
-		NS::log::SCRIPT_CL->info("Registered GUID: {} to use the NSCustomDXBuffer system", GUIDMaterialGlue_short->guid);
+		NS::log::SCRIPT_CL->info("Registered GUID: {} to use the NSCustomDXBuffer system", material->guid);
 
-		NSRegisteredCustomBufferMaterials.insert(GUIDMaterialGlue_short->guid);
+		NSRegisteredCustomBufferMaterials.insert(material->guid);
 	}
 	else
 	{
-		NS::log::SCRIPT_CL->warn("Attempted to register GUID: {} to the NSCustomDXBuffer system, GUID was already registered", GUIDMaterialGlue_short->guid);
+		NS::log::SCRIPT_CL->warn("Attempted to register GUID: {} to the NSCustomDXBuffer system, GUID was already registered", material->guid);
 	}
 
 
@@ -723,18 +715,16 @@ template <ScriptContext context> SQRESULT NSDeregisterCustomDXBufferForGUID(HSQU
 		return SQRESULT_ERROR;
 	}
 
-	auto* base = reinterpret_cast<uint8_t*>(AssetFromGUID);
-	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
-	// We need to add 16 to the pointer; Pak_GetAssetBinding returns the full material glue.
-	if (NSRegisteredCustomBufferMaterials.contains(GUIDMaterialGlue_short->guid))
+	auto* material = reinterpret_cast<CMaterialGlue*>(AssetFromGUID);
+	if (NSRegisteredCustomBufferMaterials.contains(material->guid))
 	{
-		NS::log::SCRIPT_CL->info("Deregistered GUID: {} from the NSCustomDXBuffer system", GUIDMaterialGlue_short->guid);
+		NS::log::SCRIPT_CL->info("Deregistered GUID: {} from the NSCustomDXBuffer system", material->guid);
 
-		NSRegisteredCustomBufferMaterials.erase(GUIDMaterialGlue_short->guid);
+		NSRegisteredCustomBufferMaterials.erase(material->guid);
 	}
 	else
 	{
-		NS::log::SCRIPT_CL->warn("Attempted to deregister GUID: {} from the NSCustomDXBuffer system, GUID was not registered", GUIDMaterialGlue_short->guid);
+		NS::log::SCRIPT_CL->warn("Attempted to deregister GUID: {} from the NSCustomDXBuffer system, GUID was not registered", material->guid);
 	}
 	return SQRESULT_NULL;
 }
@@ -817,8 +807,7 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 		return SQRESULT_ERROR;
 	}
 
-	auto* base = reinterpret_cast<uint8_t*>(MatAssetFromGUID);
-	auto* GUIDMaterialGlue_short = reinterpret_cast<CMaterialGlue_short*>(base + 16);
+	auto* material = reinterpret_cast<CMaterialGlue*>(MatAssetFromGUID);
 
 	if (!rPakTextureGUIDString == 0)
 	{
@@ -831,10 +820,10 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 				sqvm, fmt::format("Texture with GUID {} Doesnt Exist", rPakTextureGUIDString).c_str());
 			return SQRESULT_ERROR;
 		}
-		NSMaterialTextureSlotBindings[GUIDMaterialGlue_short->guid].m_Slots[rPakShaderSlotBindingInt] = rPakTextureGUID;
+		NSMaterialTextureSlotBindings[material->guid].m_Slots[rPakShaderSlotBindingInt] = rPakTextureGUID;
 	}
 	else
-		NSMaterialTextureSlotBindings[GUIDMaterialGlue_short->guid].m_Slots[rPakShaderSlotBindingInt] = 0;
+		NSMaterialTextureSlotBindings[material->guid].m_Slots[rPakShaderSlotBindingInt] = 0;
 
 		
 
@@ -895,8 +884,7 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 		return SQRESULT_ERROR;
 	}
 
-	auto* materialBase = reinterpret_cast<uint8_t*>(materialAsset);
-	auto* material = reinterpret_cast<CMaterialGlue_short*>(materialBase + 16);
+	auto* material = reinterpret_cast<CMaterialGlue*>(materialAsset);
 
 	{
 		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
@@ -953,8 +941,7 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 		return SQRESULT_ERROR;
 	}
 
-	auto* materialBase = reinterpret_cast<uint8_t*>(materialAsset);
-	auto* material = reinterpret_cast<CMaterialGlue_short*>(materialBase + 16);
+	auto* material = reinterpret_cast<CMaterialGlue*>(materialAsset);
 
 	{
 		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);

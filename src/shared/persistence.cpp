@@ -1,6 +1,5 @@
 #include "persistence.h"
-#include "engine/client.h"
-
+#include "engine/client/client.h"
 bool NET_SendPersistenceChecksum::ReadFromBuffer(bf_read* buffer)
 {
 	return true;

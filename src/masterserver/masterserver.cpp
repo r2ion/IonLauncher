@@ -1,5 +1,6 @@
 #include "masterserver/masterserver.h"
 #include "core/convar/concommand.h"
+#include "tier1/cvar.h"
 #include "core/tier0.h"
 #include "tier0/vanilla.h"
 #include "dedicated/dedicated.h"
@@ -16,7 +17,7 @@
 #include "rapidjson/error/en.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "client/origin.h"
 
 #include <cstring>
@@ -646,7 +647,7 @@ void MasterServerManager::AuthenticateWithOwnServer(const char* uid, const char*
                     notifyWriteBuffer.WriteChar(S2C_CLIENTNOTIFY);
                     notifyWriteBuffer.WriteLong(CLIENTNOTIFY_VERSION);
                     notifyWriteBuffer.WriteLong(NOTIFY_AUTHENTICATED);
-                    notifyWriteBuffer.WriteFloat(Plat_FloatTime());
+                    notifyWriteBuffer.WriteFloat(g_PlatFloatTime());
                     notifyWriteBuffer.WriteString(newToken);
 
                     NET_SendPacket(nullptr, NS_SERVER, &addr, notifyWriteBuffer.GetData(), notifyWriteBuffer.GetNumBytesWritten(), nullptr, false, 0, true);
@@ -1221,7 +1222,7 @@ void MasterServerPresenceReporter::ReportPresence(const ServerPresence* pServerP
 		}
 
 		// Make sure to wait til the cooldown is over for DUPLICATE_SERVER failures.
-		if (Plat_FloatTime() < m_fNextAddServerAttemptTime)
+		if (g_PlatFloatTime() < m_fNextAddServerAttemptTime)
 		{
 			return;
 		}
@@ -1326,7 +1327,7 @@ void MasterServerPresenceReporter::RunFrame(double flCurrentTime, const ServerPr
 		case MasterServerReportPresenceResult::FailedDuplicateServer:
 			++m_nNumRegistrationAttempts;
 			// Wait at least twenty seconds until we re-attempt to add the server.
-			m_fNextAddServerAttemptTime = Plat_FloatTime() + 20.0f;
+			m_fNextAddServerAttemptTime = g_PlatFloatTime() + 20.0f;
 			break;
 		}
 

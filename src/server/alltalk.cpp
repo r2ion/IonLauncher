@@ -1,8 +1,8 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 #include "engine/r2engine.h"
 #include "server/r2server.h"
-#include "engine/client.h"
-
+#include "engine/client/client.h"
 DECLARE_MODULE(ServerAllTalkHooks)
 
 size_t __fastcall ShouldAllowAlltalk()

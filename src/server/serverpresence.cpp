@@ -1,7 +1,7 @@
 #include "serverpresence.h"
 #include "shared/playlist.h"
 #include "core/tier0.h"
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 
 #include <regex>
 
@@ -78,27 +78,30 @@ void ServerPresenceManager::CreateConVars()
 	Cvar_ns_server_presence_update_rate = new ConVar(
 		"ns_server_presence_update_rate", "5000", FCVAR_GAMEDLL, "How often we update our server's presence on server lists in ms");
 
-	Cvar_ns_server_name = new ConVar("ns_server_name", "Unnamed Northstar Server", FCVAR_GAMEDLL | FCVAR_REPLICATED, "This server's name", false, 0, false, 0, [](ConVar* cvar, const char* pOldValue, float flOldValue) {
+	Cvar_ns_server_name = new ConVar("ns_server_name", "Unnamed Northstar Server", FCVAR_GAMEDLL | FCVAR_REPLICATED, "This server's name", false, 0, false, 0, [](IConVar* cvar, const char* pOldValue, float flOldValue, ChangeUserData_t userData) {
 			NOTE_UNUSED(cvar);
 			NOTE_UNUSED(pOldValue);
 			NOTE_UNUSED(flOldValue);
+			NOTE_UNUSED(userData);
 			g_pServerPresence->SetName(UnescapeUnicode(g_pServerPresence->Cvar_ns_server_name->GetString()));
 
 			// update engine hostname cvar
 			Cvar_hostname->SetValue(g_pServerPresence->Cvar_ns_server_name->GetString());
 		});
 
-	Cvar_ns_server_desc = new ConVar("ns_server_desc", "Default server description", FCVAR_GAMEDLL | FCVAR_REPLICATED, "This server's description", false, 0, false, 0, [](ConVar* cvar, const char* pOldValue, float flOldValue) {
+	Cvar_ns_server_desc = new ConVar("ns_server_desc", "Default server description", FCVAR_GAMEDLL | FCVAR_REPLICATED, "This server's description", false, 0, false, 0, [](IConVar* cvar, const char* pOldValue, float flOldValue, ChangeUserData_t userData) {
 			NOTE_UNUSED(cvar);
 			NOTE_UNUSED(pOldValue);
 			NOTE_UNUSED(flOldValue);
+			NOTE_UNUSED(userData);
 			g_pServerPresence->SetDescription(UnescapeUnicode(g_pServerPresence->Cvar_ns_server_desc->GetString()));
 		});
 
-	Cvar_ns_server_password = new ConVar("ns_server_password", "", FCVAR_GAMEDLL, "This server's password", false, 0, false, 0, [](ConVar* cvar, const char* pOldValue, float flOldValue) {
+	Cvar_ns_server_password = new ConVar("ns_server_password", "", FCVAR_GAMEDLL, "This server's password", false, 0, false, 0, [](IConVar* cvar, const char* pOldValue, float flOldValue, ChangeUserData_t userData) {
 			NOTE_UNUSED(cvar);
 			NOTE_UNUSED(pOldValue);
 			NOTE_UNUSED(flOldValue);
+			NOTE_UNUSED(userData);
 			g_pServerPresence->SetPassword(g_pServerPresence->Cvar_ns_server_password->GetString());
 		});
 

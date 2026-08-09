@@ -4,7 +4,7 @@
 
 #include "squirrelautobind.h"
 #include "squirrelclasstypes.h"
-#include "core/math/vector.h"
+#include "mathlib/vector.h"
 #include "modsystem/modmanager.h"
 #include "vscript/languages/squirrel_re/vsquirrel.h"
 

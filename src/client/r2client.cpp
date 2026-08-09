@@ -1,5 +1,4 @@
-#include "r2client.h"
-
+#include "engine/client/clientstate.h"
 char* g_pLocalPlayerUserID;
 char* g_pLocalPlayerOriginToken;
 GetBaseLocalClientType GetBaseLocalClient;

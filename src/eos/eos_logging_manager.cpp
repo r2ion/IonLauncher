@@ -10,18 +10,18 @@
 #include <string>
 #include <cwchar>
 
-#include "util/platform.h"
+#include "core/tier0.h"
 
 #include "eos_threading.h"
 
 #include <eos_logging.h>
 
-namespace
+namespace EosLoggingInternal
 {
 
-bool g_loggingInitialized = false;
+static bool g_loggingInitialized = false;
 
-bool HasCommandLineFlag(const wchar_t* flag)
+static bool HasCommandLineFlag(const wchar_t* flag)
 {
     if (!flag)
         return false;
@@ -31,10 +31,10 @@ bool HasCommandLineFlag(const wchar_t* flag)
     size_t convertedChars = 0;
     wcstombs_s(&convertedChars, narrowFlag, sizeof(narrowFlag), flag, _TRUNCATE);
 
-    return HasEngineCommandLineFlag(narrowFlag);
+    return CommandLine() && CommandLine()->FindParm(narrowFlag) != 0;
 }
 
-EOS_ELogLevel DetermineLogLevel()
+static EOS_ELogLevel DetermineLogLevel()
 {
 #if BUILD_DEBUG
     return EOS_ELogLevel::EOS_LOG_VeryVerbose;
@@ -45,7 +45,7 @@ EOS_ELogLevel DetermineLogLevel()
 #endif
 }
 
-void EOS_CALL OnLogMessageReceived(const EOS_LogMessage* message)
+static void EOS_CALL OnLogMessageReceived(const EOS_LogMessage* message)
 {
     if (!message || !message->Message)
         return;
@@ -74,20 +74,20 @@ void EOS_CALL OnLogMessageReceived(const EOS_LogMessage* message)
 	}
 }
 
-} // namespace
+} // namespace EosLoggingInternal
 
 namespace eos
 {
 
 void Logging::Initialize()
 {
-    if (g_loggingInitialized)
+    if (EosLoggingInternal::g_loggingInitialized)
         return;
 
     EOS_EResult callbackResult = EOS_EResult::EOS_UnexpectedError;
     {
         SdkLock lock(GetSdkMutex());
-        callbackResult = EOS_Logging_SetCallback(&OnLogMessageReceived);
+        callbackResult = EOS_Logging_SetCallback(&EosLoggingInternal::OnLogMessageReceived);
     }
     if (callbackResult != EOS_EResult::EOS_Success)
     {
@@ -95,7 +95,7 @@ void Logging::Initialize()
         return;
     }
 
-    const EOS_ELogLevel level = DetermineLogLevel();
+    const EOS_ELogLevel level = EosLoggingInternal::DetermineLogLevel();
     EOS_EResult levelResult = EOS_EResult::EOS_UnexpectedError;
     {
         SdkLock lock(GetSdkMutex());
@@ -106,12 +106,12 @@ void Logging::Initialize()
         NS::log::EOS->error("Failed to set log level ({})", static_cast<int>(levelResult));
     }
 
-    g_loggingInitialized = true;
+    EosLoggingInternal::g_loggingInitialized = true;
 }
 
 void Logging::Shutdown()
 {
-    if (!g_loggingInitialized)
+    if (!EosLoggingInternal::g_loggingInitialized)
         return;
 
     {
@@ -119,7 +119,7 @@ void Logging::Shutdown()
         EOS_Logging_SetCallback(nullptr);
     }
 
-    g_loggingInitialized = false;
+    EosLoggingInternal::g_loggingInitialized = false;
 }
 
 } // namespace eos

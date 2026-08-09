@@ -1,6 +1,5 @@
 #include "playlist.h"
 #include "core/convar/concommand.h"
-#include "core/convar/convar.h"
 #include "tier0/vanilla.h"
 #include "vscript/squirrel/squirrel.h"
 #include "engine/hoststate.h"

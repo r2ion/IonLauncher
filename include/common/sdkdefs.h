@@ -1,6 +1,16 @@
 #ifndef SDKDEFS_H
 #define SDKDEFS_H
 
+#include <Windows.h>
+
+#include <cstddef>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 // Common type declarations to reduce code verbosity.
 using std::pair;
 using std::string;

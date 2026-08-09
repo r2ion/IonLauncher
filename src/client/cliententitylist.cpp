@@ -17,5 +17,5 @@ DECLARE_HOOK(IsPlayerMutedOrBlockedByClientNum, client.dll + 0x55BF90, [](auto& 
 ON_DLL_LOAD("client.dll", ClientEntityList, [](CModule module)
 {
 	DISPATCH_MODULE(ClientEntityListHooks)
-	g_pClientEntityList = Sys_GetFactoryPtr("client.dll", "VClientEntityList003").RCast<IClientEntityList*>();
+	g_pClientEntityList = Sys_GetFactoryPtr("client.dll", VCLIENTENTITYLIST_INTERFACE_VERSION).RCast<IClientEntityList*>();
 })

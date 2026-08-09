@@ -1,6 +1,5 @@
 #include "vscript/squirrel/squirrel.h"
-#include "client/r2client.h"
-
+#include "engine/client/clientstate.h"
 ADD_SQFUNC("int", NSGetSignonState, "", "Returns the current signon state of the client.", ScriptContext::CLIENT | ScriptContext::UI)
 {
 	CClientState* client = GetBaseLocalClient();

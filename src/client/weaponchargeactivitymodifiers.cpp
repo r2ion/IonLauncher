@@ -5,7 +5,7 @@
 
 struct C_WeaponX;
 
-namespace
+namespace WeaponChargeActivityModifiers
 {
 constexpr int ACTIVITY_MODIFIER_CAPACITY = 32;
 constexpr std::uint16_t INVALID_ACTIVITY_MODIFIER = 0xFFFF;
@@ -42,12 +42,12 @@ using InternActivityModifierFn = std::uint16_t*(__fastcall*)(std::uint16_t* outp
 using GetWeaponChargeLevelFn = int(__fastcall*)(C_WeaponX* weapon);
 using GetWeaponChargeFractionFn = float(__fastcall*)(C_WeaponX* weapon);
 
-InternActivityModifierFn s_InternActivityModifier;
-GetWeaponChargeLevelFn s_GetWeaponChargeLevel;
-GetWeaponChargeFractionFn s_GetWeaponChargeFraction;
+static InternActivityModifierFn s_InternActivityModifier;
+static GetWeaponChargeLevelFn s_GetWeaponChargeLevel;
+static GetWeaponChargeFractionFn s_GetWeaponChargeFraction;
 
-std::once_flag s_ChargeModifierInit;
-std::array<std::uint16_t, 6> s_ChargeModifierSymbols = {
+static std::once_flag s_ChargeModifierInit;
+static std::array<std::uint16_t, 6> s_ChargeModifierSymbols = {
 	INVALID_ACTIVITY_MODIFIER,
 	INVALID_ACTIVITY_MODIFIER,
 	INVALID_ACTIVITY_MODIFIER,
@@ -56,10 +56,10 @@ std::array<std::uint16_t, 6> s_ChargeModifierSymbols = {
 	INVALID_ACTIVITY_MODIFIER,
 };
 
-thread_local C_WeaponX* s_ChargedAttackWeapon;
-thread_local LatchedChargeActivity s_ChargedAttack;
+static thread_local C_WeaponX* s_ChargedAttackWeapon;
+static thread_local LatchedChargeActivity s_ChargedAttack;
 
-void InitializeChargeModifierSymbols()
+static void InitializeChargeModifierSymbols()
 {
 	std::call_once(s_ChargeModifierInit, [] {
 		for (int i = 1; i < static_cast<int>(CHARGE_MODIFIER_NAMES.size()); ++i)
@@ -67,7 +67,7 @@ void InitializeChargeModifierSymbols()
 	});
 }
 
-LatchedChargeActivity GetAttackChargeActivity(C_WeaponX* weapon)
+static LatchedChargeActivity GetAttackChargeActivity(C_WeaponX* weapon)
 {
 	const float chargeFraction = std::clamp(s_GetWeaponChargeFraction(weapon), 0.0f, 1.0f);
 	const int nativeLevel = s_GetWeaponChargeLevel(weapon);
@@ -89,16 +89,18 @@ DECLARE_MODULE(WeaponChargeActivityModifierHooks)
 
 DECLARE_HOOK(C_WeaponX_PrimaryAttack_CaptureChargeLevel, client.dll + 0x5B48C0, [](auto& hook, C_WeaponX* weapon) -> char
 {
-	C_WeaponX* previousWeapon = s_ChargedAttackWeapon;
-	const LatchedChargeActivity previousCharge = s_ChargedAttack;
+	C_WeaponX* previousWeapon = WeaponChargeActivityModifiers::s_ChargedAttackWeapon;
+	const WeaponChargeActivityModifiers::LatchedChargeActivity previousCharge =
+		WeaponChargeActivityModifiers::s_ChargedAttack;
 
-	s_ChargedAttackWeapon = weapon;
-	s_ChargedAttack = GetAttackChargeActivity(weapon);
+	WeaponChargeActivityModifiers::s_ChargedAttackWeapon = weapon;
+	WeaponChargeActivityModifiers::s_ChargedAttack =
+		WeaponChargeActivityModifiers::GetAttackChargeActivity(weapon);
 
 	const char result = hook.Original(weapon);
 
-	s_ChargedAttackWeapon = previousWeapon;
-	s_ChargedAttack = previousCharge;
+	WeaponChargeActivityModifiers::s_ChargedAttackWeapon = previousWeapon;
+	WeaponChargeActivityModifiers::s_ChargedAttack = previousCharge;
 	return result;
 })
 
@@ -108,24 +110,28 @@ DECLARE_HOOK(C_WeaponX_BuildActivityModifiers_ChargeLevel, client.dll + 0xBAE00,
 {
 	int modifierCount = hook.Original(weapon, modifiers);
 
-	if (weapon != s_ChargedAttackWeapon || s_ChargedAttack.modifier == ChargeActivityModifier::Uncharged
-		|| modifierCount >= ACTIVITY_MODIFIER_CAPACITY)
+	if (weapon != WeaponChargeActivityModifiers::s_ChargedAttackWeapon
+		|| WeaponChargeActivityModifiers::s_ChargedAttack.modifier
+			== WeaponChargeActivityModifiers::ChargeActivityModifier::Uncharged
+		|| modifierCount >= WeaponChargeActivityModifiers::ACTIVITY_MODIFIER_CAPACITY)
 		return modifierCount;
 
-	InitializeChargeModifierSymbols();
+	WeaponChargeActivityModifiers::InitializeChargeModifierSymbols();
 
-	const int chargeModifierIndex = static_cast<int>(s_ChargedAttack.modifier);
-	const std::uint16_t modifier = s_ChargeModifierSymbols[chargeModifierIndex];
-	if (modifier != INVALID_ACTIVITY_MODIFIER)
+	const int chargeModifierIndex =
+		static_cast<int>(WeaponChargeActivityModifiers::s_ChargedAttack.modifier);
+	const std::uint16_t modifier =
+		WeaponChargeActivityModifiers::s_ChargeModifierSymbols[chargeModifierIndex];
+	if (modifier != WeaponChargeActivityModifiers::INVALID_ACTIVITY_MODIFIER)
 	{
 		modifiers[modifierCount++] = modifier;
 
-		if constexpr (LOG_CHARGE_ACTIVITY_MODIFIERS)
+		if constexpr (WeaponChargeActivityModifiers::LOG_CHARGE_ACTIVITY_MODIFIERS)
 		{
 			spdlog::info("[weapon activity] injected {} (fraction={:.3f}, nativeLevel={}, modifierCount={})",
-				CHARGE_MODIFIER_NAMES[chargeModifierIndex],
-				s_ChargedAttack.fraction,
-				s_ChargedAttack.nativeLevel,
+				WeaponChargeActivityModifiers::CHARGE_MODIFIER_NAMES[chargeModifierIndex],
+				WeaponChargeActivityModifiers::s_ChargedAttack.fraction,
+				WeaponChargeActivityModifiers::s_ChargedAttack.nativeLevel,
 				modifierCount);
 		}
 	}
@@ -135,9 +141,12 @@ DECLARE_HOOK(C_WeaponX_BuildActivityModifiers_ChargeLevel, client.dll + 0xBAE00,
 
 ON_DLL_LOAD_CLIENT("client.dll", WeaponChargeActivityModifierSetup, [](CModule module)
 {
-	s_InternActivityModifier = module.Offset(0x32FBF0).RCast<InternActivityModifierFn>();
-	s_GetWeaponChargeLevel = module.Offset(0x5A9540).RCast<GetWeaponChargeLevelFn>();
-	s_GetWeaponChargeFraction = module.Offset(0x5A6D60).RCast<GetWeaponChargeFractionFn>();
+	WeaponChargeActivityModifiers::s_InternActivityModifier =
+		module.Offset(0x32FBF0).RCast<WeaponChargeActivityModifiers::InternActivityModifierFn>();
+	WeaponChargeActivityModifiers::s_GetWeaponChargeLevel =
+		module.Offset(0x5A9540).RCast<WeaponChargeActivityModifiers::GetWeaponChargeLevelFn>();
+	WeaponChargeActivityModifiers::s_GetWeaponChargeFraction =
+		module.Offset(0x5A6D60).RCast<WeaponChargeActivityModifiers::GetWeaponChargeFractionFn>();
 
 	DISPATCH_MODULE(WeaponChargeActivityModifierHooks)
 })

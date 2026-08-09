@@ -39,11 +39,11 @@
 #include <vector>
 #include <windows.h>
 
-#include "tier0/memstd.h"
-
 #include "common/pseudodefs.h"
 #include "common/sdkdefs.h"
 #include "common/x86defs.h"
+
+#include "tier0/memstd.h"
 
 #include <d3d11.h>
 

@@ -1,5 +1,5 @@
 #include "vscript/squirrel/squirrel.h"
-#include "engine/client.h"
+#include "engine/client/client.h"
 #include "server/r2server.h"
 
 // clang-format off

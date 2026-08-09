@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rtech/pakasset.h"
+#include "rtech/rstdlib.h"
 #include "rtech/rui/rui_image_atlas_types.h"
 #include "tier0/module.h"
 
@@ -10,8 +11,6 @@
 #include <optional>
 #include <span>
 #include <vector>
-
-struct RHashMapU32;
 
 // Northstar-owned wrapper around one raw atlas slot. RuiImageAtlas remains an
 // ABI POD because RTech uses the lower part of the global array as allocator
@@ -70,11 +69,6 @@ private:
 	using FindDescriptorFn = RuiImageAssetDescriptor*(*)(
 		RHashMapU32* map,
 		uint32_t nameHash);
-	using FindOrReserveDescriptorFn = void*(*)(
-		RHashMapU32* map,
-		uint32_t nameHash,
-		uint8_t* reservedNewEntry);
-	using RemoveDescriptorFn = uint32_t*(*)(RHashMapU32* map, uint32_t nameHash);
 	using PakStringToGuidFn = uint64_t(*)(const char* path);
 
 	static std::optional<uint8_t> ReserveAtlasSlot();
@@ -98,8 +92,8 @@ private:
 	static CreateGpuBufferFn s_CreateGpuBuffer;
 	static DestroyGpuBufferFn s_DestroyGpuBuffer;
 	static FindDescriptorFn s_FindDescriptor;
-	static FindOrReserveDescriptorFn s_FindOrReserveDescriptor;
-	static RemoveDescriptorFn s_RemoveDescriptor;
+	static RHashMapU32FindOrReserveUnlockedFn s_FindOrReserveDescriptor;
+	static RHashMapU32RemoveExistingFn s_RemoveDescriptor;
 	static PakStringToGuidFn s_PakStringToGuidAligned;
 	static PakStringToGuidFn s_PakStringToGuidUnaligned;
 	static RHashMapU32* s_DescriptorMap;

@@ -6,6 +6,10 @@
 #ifndef COMMON_SDKINT_H
 #define COMMON_SDKINT_H
 
+#include <cstddef>
+#include <cstdint>
+#include <type_traits>
+
 //-----------------------------------------------------------------------------
 typedef           char     int8;
 typedef    signed char     sint8;
@@ -63,8 +67,8 @@ typedef          int64     b64;
 //-----------------------------------------------------------------------------
 // intp is an integer that can accommodate a pointer
 // (ie, sizeof(intp) >= sizeof(int) && sizeof(intp) >= sizeof(void *)
-typedef     intptr_t      intp;
-typedef    uintptr_t      uintp;
+typedef  std::intptr_t      intp;
+typedef std::uintptr_t      uintp;
 //-----------------------------------------------------------------------------
 // Signed size type
 typedef std::make_signed_t<std::size_t> ssize_t;

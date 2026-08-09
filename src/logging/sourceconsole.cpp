@@ -1,9 +1,9 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "sourceconsole.h"
 #include "core/tier1.h"
 #include "core/convar/concommand.h"
 #include "util/printcommands.h"
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "tier0/module.h"
 #include <core/tier0.h>
 
@@ -80,7 +80,7 @@ void SourceConsoleSink::flush_() {}
 
 // clang-format off
 HOOK(OnCommandSubmittedHook, OnCommandSubmitted,
-void, __fastcall, (CConsoleDialog* consoleDialog, const char* pCommand))
+void, __fastcall, (CGameConsoleDialog* consoleDialog, const char* pCommand))
 // clang-format on
 {
 	// just in case honestly
@@ -102,8 +102,8 @@ void, __fastcall, (CConsoleDialog* consoleDialog, const char* pCommand))
 void InitialiseConsoleOnInterfaceCreation()
 {
 	g_pGameConsole->Initialize();
-	// hook OnCommandSubmitted so we print inputted commands
-	OnCommandSubmittedHook.Dispatch((LPVOID)g_pGameConsole->m_pConsole->m_vtable->OnCommandSubmitted);
+	// Retail CGameConsoleDialog::OnCommandSubmitted is client.dll + 0x4A2550.
+	OnCommandSubmittedHook.Dispatch(CModule("client.dll").Offset(0x4A2550).RCast<LPVOID>());
 	CCommandLine* cmdLine = CommandLine();
 
 	if (cmdLine)
@@ -143,7 +143,7 @@ ON_DLL_LOAD_CLIENT("tier0.dll", Tier0ConsoleFunctions, [](CModule module)
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", SourceConsole, ConCommand, [](CModule module)
 {
-	g_pGameConsole = Sys_GetFactoryPtr("client.dll", "GameConsole004").RCast<CGameConsole*>();
+	g_pGameConsole = Sys_GetFactoryPtr("client.dll", GAMECONSOLE_INTERFACE_VERSION).RCast<CGameConsole*>();
 
 	RegisterConCommand("toggleconsole", ConCommand_toggleconsole, "Show/hide the console.", FCVAR_DONTRECORD);
 	RegisterConCommand("showconsole", ConCommand_showconsole, "Show the console.", FCVAR_DONTRECORD);

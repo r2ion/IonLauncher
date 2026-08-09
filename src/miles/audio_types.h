@@ -294,9 +294,10 @@ class ClientSoundEventDefinition
     std::string m_eventName;
 };
 
-// server.dll's sound digest stores one of these records for every networked
-// alias. Custom events use the same record contract without modifying the
-// fixed-size native digest table.
+// Northstar-owned fallback returned by the server sound lookup hooks. Its
+// scalar prefix matches the offsets server.dll consumes; EventName is
+// Northstar lifetime/logging metadata. This is not a native digest-table
+// record and deliberately has no native fixed-size contract.
 struct ServerSoundAliasDefinition
 {
     ServerSoundAliasDefinition(const std::string& eventName, const ModAudioEventDefinition& eventDefinition)
@@ -313,8 +314,10 @@ struct ServerSoundAliasDefinition
     std::string EventName;
 };
 
+static_assert(alignof(ServerSoundAliasDefinition) == 0x8);
 static_assert(offsetof(ServerSoundAliasDefinition, EventHash) == 0x0);
 static_assert(offsetof(ServerSoundAliasDefinition, SoundTags) == 0x8);
 static_assert(offsetof(ServerSoundAliasDefinition, NextEntryIndex) == 0xC);
 static_assert(offsetof(ServerSoundAliasDefinition, NetworkRadius) == 0x10);
 static_assert(offsetof(ServerSoundAliasDefinition, DurationSeconds) == 0x14);
+static_assert(offsetof(ServerSoundAliasDefinition, EventName) == 0x18);

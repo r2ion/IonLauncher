@@ -1,17 +1,43 @@
 #pragma once
 
-#include "vscript/languages/squirrel_re/include/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel/sqobject.h"
+
+#include <cstddef>
+#include <cstdint>
 
 class CSquirrelVM;
 struct SQCompiler;
 
-// TODO [Fifty]: Verify size
-struct StringTable
+struct StringTableEntry
 {
-	unsigned char gap_0[12];
-	int _numofslots;
-	unsigned char gap_10[200];
+	SQString* _string;
+	std::uint64_t _hash;
+	std::int32_t _firstChainOffset;
+	std::int32_t _nextEntryOffset;
 };
+
+struct alignas(8) StringTable
+{
+	StringTableEntry* _entries;
+	std::int32_t _capacityIndex;
+	std::int32_t _numofslots;
+	std::int32_t _slotused;
+	std::byte _padding14[4];
+};
+
+static_assert(sizeof(StringTableEntry) == 0x18);
+static_assert(alignof(StringTableEntry) == 0x8);
+static_assert(offsetof(StringTableEntry, _string) == 0x0);
+static_assert(offsetof(StringTableEntry, _hash) == 0x8);
+static_assert(offsetof(StringTableEntry, _firstChainOffset) == 0x10);
+static_assert(offsetof(StringTableEntry, _nextEntryOffset) == 0x14);
+
+static_assert(sizeof(StringTable) == 0x18);
+static_assert(alignof(StringTable) == 0x8);
+static_assert(offsetof(StringTable, _entries) == 0x0);
+static_assert(offsetof(StringTable, _capacityIndex) == 0x8);
+static_assert(offsetof(StringTable, _numofslots) == 0xC);
+static_assert(offsetof(StringTable, _slotused) == 0x10);
 
 struct SQSharedState
 {
@@ -117,4 +143,9 @@ struct SQSharedState
 	bool enableDebugInfo; // functionality stripped
 	unsigned char gap_43F1[23];
 };
-static_assert(sizeof(SQSharedState) == 17416);
+static_assert(sizeof(SQSharedState) == 0x4408);
+static_assert(alignof(SQSharedState) == 0x8);
+static_assert(offsetof(SQSharedState, _stringTable) == 0x4048);
+static_assert(offsetof(SQSharedState, pCompiler) == 0x4218);
+static_assert(offsetof(SQSharedState, cSquirrelVM) == 0x43E8);
+static_assert(offsetof(SQSharedState, enableDebugInfo) == 0x43F0);

@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "vscript/squirrel/squirrel.h"
-#include "core/math/color.h"
+#include "mathlib/color.h"
 
 void LogSys_CreateLogFiles();
 void LogSys_InitialiseLogging();

@@ -1,7 +1,7 @@
 #include "rtech/rui/dynamic_imageatlas.h"
 #include "rtech/rui/rui_core_types.h"
 #include "rtech/pakfilesystem.h"
-#include "materialsystem/cmaterialglue.h"
+#include "rendersystem/schema/texture.g.h"
 #include "dedicated/dedicated.h"
 #include "tier0/module.h"
 
@@ -356,7 +356,7 @@ bool CDynamicImageAtlas::MakeResident()
 	// borrows the bound TXTR record; owner-handle teardown does not cover script
 	// atlases, cross-pak textures, or provider fallback/unload. Listener setup
 	// must be serialized with the Pak FIFO and rebuild UVs when dimensions change.
-	auto* texture = reinterpret_cast<RpakTextureHeader*>(
+	auto* texture = reinterpret_cast<TextureAsset_s*>(
 		g_pakLoadApi->GetAssetBinding(textureGuid));
 	if (!texture)
 	{
@@ -654,10 +654,7 @@ void CDynamicImageAtlas::OnPakUnloading(PakHandle_t handle)
 	UnregisterForPakLocked(handle);
 }
 
-ON_DLL_LOAD("engine.dll", RuiDynamicImageAtlas, [](CModule module)
+ON_DLL_LOAD("engine.dll", RuiDynamicImageAtlas, [](CModule)
 {
-	// Keep this hook self-contained: the first lookup may happen immediately
-	// after it is enabled, before another engine callback gets a turn.
-	CImageAtlas::OnEngineLoaded(module);
 	DISPATCH_MODULE(RuiDynamicImageAtlasHooks);
 })

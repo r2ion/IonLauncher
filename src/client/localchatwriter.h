@@ -1,7 +1,7 @@
 #pragma once
-#include "core/math/color.h"
-
-class vgui_BaseRichText;
+#include "mathlib/color.h"
+#include "vgui_controls/RichText.h"
+#include <cstddef>
 
 class CHudChat
 {
@@ -21,11 +21,17 @@ public:
 
 	char unknown3[8];
 
-	vgui_BaseRichText* m_richText;
+	vgui::RichText* m_richText;
 
 	CHudChat* next;
 	CHudChat* previous;
 };
+
+static_assert(offsetof(CHudChat, m_sameTeamColor) == 0x2D0);
+static_assert(offsetof(CHudChat, m_unknownContext) == 0x2EC);
+static_assert(offsetof(CHudChat, m_richText) == 0x2F8);
+static_assert(offsetof(CHudChat, next) == 0x300);
+static_assert(sizeof(CHudChat) == 0x310);
 
 class LocalChatWriter
 {

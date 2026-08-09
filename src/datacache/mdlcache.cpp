@@ -10,10 +10,10 @@ CMDLCache* g_pMDLCache = nullptr;
 using FlushStudioDataFn = void (*)(CMDLCache* pMDLCache, StudioData_t* pStudioData);
 static FlushStudioDataFn s_FlushStudioData = nullptr;
 
-using FirstDictionaryHandleFn = MDLHandle_t (*)(MDLCacheDictionary_t* pDictionary);
-using NextDictionaryHandleFn = MDLHandle_t (*)(MDLCacheDictionary_t* pDictionary, MDLHandle_t handle);
-static FirstDictionaryHandleFn s_FirstDictionaryHandle = nullptr;
-static NextDictionaryHandleFn s_NextDictionaryHandle = nullptr;
+using FirstInorderFn = MDLHandle_t (*)(MDLCacheDictionary_t* pDictionary);
+using NextInorderFn = MDLHandle_t (*)(MDLCacheDictionary_t* pDictionary, MDLHandle_t handle);
+static FirstInorderFn s_FirstInorder = nullptr;
+static NextInorderFn s_NextInorder = nullptr;
 
 static bool ModelPathsEqual(const char* lhs, const char* rhs)
 {
@@ -35,16 +35,16 @@ static bool ModelPathsEqual(const char* lhs, const char* rhs)
 
 MDLHandle_t CMDLCache::FindExistingMDL(const char* pModelPath)
 {
-    if (!pModelPath || !s_FirstDictionaryHandle || !s_NextDictionaryHandle)
+    if (!pModelPath || !s_FirstInorder || !s_NextInorder)
         return InvalidMDLHandle;
 
     EnterCriticalSection(&m_MDLMutex);
     MDLHandle_t foundHandle = InvalidMDLHandle;
     if (m_MDLDictionary.m_pEntries)
     {
-        MDLHandle_t handle = s_FirstDictionaryHandle(&m_MDLDictionary);
-        for (uint32_t visited = 0; handle != InvalidMDLHandle && visited < m_MDLDictionary.m_nAllocationCount;
-             ++visited, handle = s_NextDictionaryHandle(&m_MDLDictionary, handle))
+        MDLHandle_t handle = s_FirstInorder(&m_MDLDictionary);
+        for (uint32_t visited = 0; handle != InvalidMDLHandle && visited < m_MDLDictionary.m_nElementCount;
+             ++visited, handle = s_NextInorder(&m_MDLDictionary, handle))
         {
             if (handle >= m_MDLDictionary.m_nAllocationCount)
                 break;
@@ -93,10 +93,10 @@ bool CMDLCache::FlushCacheByHandle(const MDLHandle_t handle)
 
 ON_DLL_LOAD("datacache.dll", MDLCache, [](CModule module)
 {
-    s_FirstDictionaryHandle = module.Offset(0x5A800).RCast<FirstDictionaryHandleFn>();
-    s_NextDictionaryHandle = module.Offset(0x5D3C0).RCast<NextDictionaryHandleFn>();
+    s_FirstInorder = module.Offset(0x5A800).RCast<FirstInorderFn>();
+    s_NextInorder = module.Offset(0x5D3C0).RCast<NextInorderFn>();
     s_FlushStudioData = module.Offset(0x5AAF0).RCast<FlushStudioDataFn>();
-    assert(s_FirstDictionaryHandle && s_NextDictionaryHandle);
+    assert(s_FirstInorder && s_NextInorder);
     assert(s_FlushStudioData);
 
     CreateInterfaceFn pCreateInterface = module.GetExportedFunction(CREATEINTERFACE_PROCNAME).RCast<CreateInterfaceFn>();

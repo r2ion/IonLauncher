@@ -1,25 +1,32 @@
 #pragma once
 
-#include "core/math/vector.h"
+#include <cstddef>
+#include <cstdint>
 
-// server entity stuff
+#include "mathlib/vector.h"
 
-#pragma pack(push, 1)
+// This is a bounded retail server entity mirror, not an ownership model.
+// Offset-named byte ranges are intentionally retained where neither R5SDK nor
+// the verified R1 server accessors prove Titanfall 2 member semantics.
+
 class CPlayer
 {
 public:
-	char _unk_0x0[88]; // 0x0 ( Size: 88 )
+	void** m_pVTable; // 0x0 (Size: 8), Source/R5 CBaseEntity virtual table
+	std::byte m_Reserved0008[0x50]; // 0x8; base-entity prefix not exposed by verified accessors
 	uint32_t m_nPlayerIndex; // 0x58 ( Size: 4 )
 	char _unk_0x5c[572]; // 0x5c ( Size: 572 )
 	int32_t m_fFlags; // 0x298 ( Size: 4 )
 	char _unk_0x29c[376]; // 0x29c ( Size: 376 )
 	int32_t m_hGroundEntity; // 0x414 ( Size: 4 )
-	char _unk_0x418[184]; // 0x418 ( Size: 184 )
+	char _unk_0x418[120]; // 0x418 ( Size: 120 )
+	Vector3 m_vecAbsOrigin; // 0x490 ( Size: 12 )
+	char _unk_0x49c[52]; // 0x49c ( Size: 52 )
 	int32_t m_iMaxHealth; // 0x4d0 ( Size: 4 )
 	int32_t m_iHealth; // 0x4d4 ( Size: 4 )
 	char _unk_0x4d8[25]; // 0x4d8 ( Size: 25 )
-	int32_t m_lifeState; // 0x4f1 ( Size: 4 )
-	char _unk_0x4f5[23]; // 0x4f5 ( Size: 23 )
+	std::uint8_t m_lifeState; // 0x4f1 ( Size: 1 )
+	char _unk_0x4f2[26]; // 0x4f2 ( Size: 26 )
 	float m_flMaxspeed; // 0x50c ( Size: 4 )
 	char _unk_0x510[1268]; // 0x510 ( Size: 1268 )
 	int32_t m_camoIndex; // 0xa04 ( Size: 4 )
@@ -36,7 +43,7 @@ public:
 	float m_zoomBaseTime; // 0x15a0 ( Size: 4 )
 	float m_zoomFullStartTime; // 0x15a4 ( Size: 4 )
 	char _unk_0x15a8[1080]; // 0x15a8 ( Size: 1080 )
-	int32_t m_PlayerFog__m_hCtrl; // 0x19e0 ( Size: 4 )
+	int32_t m_hPlayerFogController; // 0x19e0 ( Size: 4 )
 	char _unk_0x19e4[388]; // 0x19e4 ( Size: 388 )
 	int32_t m_hColorCorrectionCtrl; // 0x1b68 ( Size: 4 )
 	char _unk_0x1b6c[292]; // 0x1b6c ( Size: 292 )
@@ -47,10 +54,9 @@ public:
 	char m_hardwareIcon[16]; // 0x1cf1 ( Size: 16 )
 	bool m_happyHourActive; // 0x1d01 ( Size: 1 )
 	char _unk_0x1d02[6]; // 0x1d02 ( Size: 6 )
-	uint32_t m_platformUserId; // 0x1d08 ( Size: 4 )
-	char _unk_0x1d0c[4]; // 0x1d0c ( Size: 4 )
-	int32_t m_classModsActive; // 0x1d10 ( Size: 4 )
-	char _unk_0x1d14[120]; // 0x1d14 ( Size: 120 )
+	uint64_t m_platformUserId; // 0x1d08 ( Size: 8 )
+	uint64_t m_classModsActive; // 0x1d10 ( Size: 8 )
+	char _unk_0x1d18[116]; // 0x1d18 ( Size: 116 )
 	int32_t m_posClassModsActive; // 0x1d8c ( Size: 4 )
 	char _unk_0x1d90[60]; // 0x1d90 ( Size: 60 )
 	bool m_passives; // 0x1dcc ( Size: 1 )
@@ -81,14 +87,15 @@ public:
 	int32_t m_petTitan; // 0x2054 ( Size: 4 )
 	char _unk_0x2058[4]; // 0x2058 ( Size: 4 )
 	int32_t m_xp; // 0x205c ( Size: 4 )
-	int32_t m_generation; // 0x2060 ( Size: 4 )
-	int32_t m_rank; // 0x2064 ( Size: 4 )
+	int32_t m_level; // 0x2060 ( Size: 4 )
+	int32_t m_generation; // 0x2064 ( Size: 4 )
 	int32_t m_serverForceIncreasePlayerListGenerationParity; // 0x2068 ( Size: 4 )
 	bool m_isPlayingRanked; // 0x206c ( Size: 1 )
-	char _unk_0x206d[3]; // 0x206d ( Size: 3 )
+	bool m_hasHacking; // 0x206d ( Size: 1 )
+	char _unk_0x206e[2]; // 0x206e ( Size: 2 )
 	float m_skill_mu; // 0x2070 ( Size: 4 )
-	char _unk_0x2074[4]; // 0x2074 ( Size: 4 )
-	float m_nextTitanRespawnAvailable; // 0x2078 ( Size: 4 )
+	int32_t m_skill_totalMatches; // 0x2074 ( Size: 4 )
+	int32_t m_dlcMapGroups; // 0x2078 ( Size: 4 )
 	char _unk_0x207c[28]; // 0x207c ( Size: 28 )
 	int32_t m_hViewModel; // 0x2098 ( Size: 4 )
 	char _unk_0x209c[436]; // 0x209c ( Size: 436 )
@@ -97,7 +104,8 @@ public:
 	Vector3 m_StandHullMax; // 0x2260 ( Size: 12 )
 	Vector3 m_DuckHullMin; // 0x226c ( Size: 12 )
 	Vector3 m_DuckHullMax; // 0x2278 ( Size: 12 )
-	char _unk_0x2284[92]; // 0x2284 ( Size: 92 )
+	Vector3 m_upDir; // 0x2284 ( Size: 12 )
+	char _unk_0x2290[80]; // 0x2290 ( Size: 80 )
 	bool m_wallHanging; // 0x22e0 ( Size: 1 )
 	char _unk_0x22e1[11]; // 0x22e1 ( Size: 11 )
 	int32_t m_traversalType; // 0x22ec ( Size: 4 )
@@ -151,13 +159,15 @@ public:
 	int32_t m_playerScriptNetDataGlobal; // 0x345c ( Size: 4 )
 	char _unk_0x3460[5352]; // 0x3460 ( Size: 5352 )
 	int32_t m_selectedOffhand; // 0x4948 ( Size: 4 )
-	char _unk_0x494c[1030980]; // 0x494c ( Size: 1030980 )
-	Vector3 m_vecAbsOrigin; // 0x100490 ( Size: 12 )
-	char _unk_0x10049c[7656]; // 0x10049c ( Size: 7656 )
-	Vector3 m_upDir; // 0x102284 ( Size: 12 )
+	std::byte m_Padding494C[4]; // 0x494c ( Size: 4 )
 };
-#pragma pack(pop)
 
+static_assert(sizeof(CPlayer) == 0x4950);
+static_assert(alignof(CPlayer) == 0x8);
+static_assert(offsetof(CPlayer, m_pVTable) == 0x0);
+static_assert(offsetof(CPlayer, m_vecAbsOrigin) == 0x490);
+static_assert(offsetof(CPlayer, m_upDir) == 0x2284);
+static_assert(offsetof(CPlayer, m_Padding494C) == 0x494C);
 static_assert(offsetof(CPlayer, m_nPlayerIndex) == 0x58);
 
 static_assert(offsetof(CPlayer, m_grappleActive) == 0x23e8);
@@ -185,7 +195,7 @@ static_assert(offsetof(CPlayer, m_hViewModel) == 0x2098);
 static_assert(offsetof(CPlayer, m_ubEFNointerpParity) == 0x27E4);
 static_assert(offsetof(CPlayer, m_activeBurnCardIndex) == 0x1FA4);
 static_assert(offsetof(CPlayer, m_hColorCorrectionCtrl) == 0x1B68);
-static_assert(offsetof(CPlayer, m_PlayerFog__m_hCtrl) == 0x19E0);
+static_assert(offsetof(CPlayer, m_hPlayerFogController) == 0x19E0);
 static_assert(offsetof(CPlayer, m_bShouldDrawPlayerWhileUsingViewEntity) == 0x26BC);
 static_assert(offsetof(CPlayer, m_title) == 0x2848);
 static_assert(offsetof(CPlayer, m_useCredit) == 0x2964);
@@ -195,7 +205,7 @@ static_assert(offsetof(CPlayer, m_inPartyChat) == 0x1E8D);
 static_assert(offsetof(CPlayer, m_playerMoveSpeedScale) == 0x1E90);
 static_assert(offsetof(CPlayer, m_flDeathTime) == 0x1F58);
 static_assert(offsetof(CPlayer, m_iSpawnParity) == 0x25A8);
-static_assert(offsetof(CPlayer, m_upDir) == 0x102284);
+static_assert(offsetof(CPlayer, m_upDir) == 0x2284);
 static_assert(offsetof(CPlayer, m_lastDodgeTime) == 0x259C);
 static_assert(offsetof(CPlayer, m_wallHanging) == 0x22E0);
 static_assert(offsetof(CPlayer, m_traversalType) == 0x22EC);
@@ -222,14 +232,16 @@ static_assert(offsetof(CPlayer, m_StandHullMax) == 0x2260);
 static_assert(offsetof(CPlayer, m_DuckHullMin) == 0x226C);
 static_assert(offsetof(CPlayer, m_DuckHullMax) == 0x2278);
 static_assert(offsetof(CPlayer, m_xp) == 0x205C);
-static_assert(offsetof(CPlayer, m_generation) == 0x2060);
-static_assert(offsetof(CPlayer, m_rank) == 0x2064);
+static_assert(offsetof(CPlayer, m_level) == 0x2060);
+static_assert(offsetof(CPlayer, m_generation) == 0x2064);
 static_assert(offsetof(CPlayer, m_serverForceIncreasePlayerListGenerationParity) == 0x2068);
 static_assert(offsetof(CPlayer, m_isPlayingRanked) == 0x206C);
+static_assert(offsetof(CPlayer, m_hasHacking) == 0x206D);
 static_assert(offsetof(CPlayer, m_skill_mu) == 0x2070);
+static_assert(offsetof(CPlayer, m_skill_totalMatches) == 0x2074);
+static_assert(offsetof(CPlayer, m_dlcMapGroups) == 0x2078);
 static_assert(offsetof(CPlayer, m_titanSoulBeingRodeoed) == 0x1E80);
 static_assert(offsetof(CPlayer, m_entitySyncingWithMe) == 0x1E84);
-static_assert(offsetof(CPlayer, m_nextTitanRespawnAvailable) == 0x2078);
 static_assert(offsetof(CPlayer, m_hasBadReputation) == 0x1C90);
 static_assert(offsetof(CPlayer, m_communityName) == 0x1C91);
 static_assert(offsetof(CPlayer, m_communityClanTag) == 0x1CD1);
@@ -238,7 +250,6 @@ static_assert(offsetof(CPlayer, m_hardwareIcon) == 0x1CF1);
 static_assert(offsetof(CPlayer, m_happyHourActive) == 0x1D01);
 static_assert(offsetof(CPlayer, m_gestureAutoKillBitfield) == 0x1EF4);
 static_assert(offsetof(CPlayer, m_pilotClassIndex) == 0x2EA8);
-static_assert(offsetof(CPlayer, m_vecAbsOrigin) == 0x100490);
 static_assert(offsetof(CPlayer, m_isPerformingBoostAction) == 0x25BE);
 static_assert(offsetof(CPlayer, m_ziplineValid3pWeaponLayerAnim) == 0x240C);
 static_assert(offsetof(CPlayer, m_playerScriptNetDataGlobal) == 0x345C);

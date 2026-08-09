@@ -1,54 +1,8 @@
 #include "localchatwriter.h"
-#include "core/convar/cvar.h"
+#include "tier1/cvar.h"
 
 ConVar* Cvar_ns_write_raw_chat_to_console;
 
-class vgui_BaseRichText_vtable;
-
-class vgui_BaseRichText
-{
-public:
-	vgui_BaseRichText_vtable* vtable;
-};
-
-class vgui_BaseRichText_vtable
-{
-public:
-	char unknown1[1880];
-
-	void(* InsertChar)(vgui_BaseRichText* self, wchar_t ch);
-
-	// yes these are swapped from the Source 2013 code, who knows why
-	void(* InsertStringWide)(vgui_BaseRichText* self, const wchar_t* wszText);
-	void(* InsertStringAnsi)(vgui_BaseRichText* self, const char* text);
-
-	void(* SelectNone)(vgui_BaseRichText* self);
-	void(* SelectAllText)(vgui_BaseRichText* self);
-	void(* SelectNoText)(vgui_BaseRichText* self);
-	void(* CutSelected)(vgui_BaseRichText* self);
-	void(* CopySelected)(vgui_BaseRichText* self);
-	void(* SetPanelInteractive)(vgui_BaseRichText* self, bool bInteractive);
-	void(* SetUnusedScrollbarInvisible)(vgui_BaseRichText* self, bool bInvis);
-
-	void* unknown2;
-
-	void(* GotoTextStart)(vgui_BaseRichText* self);
-	void(* GotoTextEnd)(vgui_BaseRichText* self);
-
-	void* unknown3[3];
-
-	void(* SetVerticalScrollbar)(vgui_BaseRichText* self, bool state);
-	void(* SetMaximumCharCount)(vgui_BaseRichText* self, int maxChars);
-	void(* InsertColorChange)(vgui_BaseRichText* self, Color col);
-	void(* InsertIndentChange)(vgui_BaseRichText* self, int pixelsIndent);
-	void(* InsertClickableTextStart)(vgui_BaseRichText* self, const char* pchClickAction);
-	void(* InsertClickableTextEnd)(vgui_BaseRichText* self);
-	void(* InsertPossibleURLString)(vgui_BaseRichText* self, const char* text, Color URLTextColor, Color normalTextColor);
-	void(* InsertFade)(vgui_BaseRichText* self, float flSustain, float flLength);
-	void(* ResetAllFades)(vgui_BaseRichText* self, bool bHold, bool bOnlyExpired, float flNewSustain);
-	void(* SetToFullHeight)(vgui_BaseRichText* self);
-	int(* GetNumLines)(vgui_BaseRichText* self);
-};
 
 class CGameSettings
 {
@@ -314,7 +268,7 @@ void LocalChatWriter::InsertChar(wchar_t ch)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->vtable->InsertChar(hud->m_richText, ch);
+		hud->m_richText->InsertChar(ch);
 	}
 
 	if (ch != L'\n')
@@ -336,7 +290,7 @@ void LocalChatWriter::InsertText(const char* str)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->vtable->InsertStringWide(hud->m_richText, messageUnicode);
+		hud->m_richText->InsertString(messageUnicode);
 	}
 
 	InsertDefaultFade();
@@ -349,7 +303,7 @@ void LocalChatWriter::InsertText(const wchar_t* str)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->vtable->InsertStringWide(hud->m_richText, str);
+		hud->m_richText->InsertString(str);
 	}
 
 	InsertDefaultFade();
@@ -362,7 +316,7 @@ void LocalChatWriter::InsertColorChange(Color color)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->vtable->InsertColorChange(hud->m_richText, color);
+		hud->m_richText->InsertColorChange(color);
 	}
 }
 
@@ -392,7 +346,7 @@ void LocalChatWriter::InsertSwatchColorChange(SwatchColor swatchColor)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
-		hud->m_richText->vtable->InsertColorChange(hud->m_richText, GetHudSwatchColor(hud, swatchColor));
+		hud->m_richText->InsertColorChange(GetHudSwatchColor(hud, swatchColor));
 	}
 }
 
@@ -444,7 +398,7 @@ void LocalChatWriter::InsertDefaultFade()
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
-		hud->m_richText->vtable->InsertFade(hud->m_richText, fadeSustain, fadeLength);
+		hud->m_richText->InsertFade(fadeSustain, fadeLength);
 	}
 }
 

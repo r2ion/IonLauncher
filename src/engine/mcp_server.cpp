@@ -1,10 +1,10 @@
 #include "mcp_server.h"
 #include "mcp_script_function_search.h"
 
-#include "client/r2client.h"
+#include "engine/client/clientstate.h"
 #include "core/convar/concommand.h"
-#include "core/convar/convar.h"
-#include "core/convar/cvar.h"
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 #include "core/tier0.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
@@ -29,28 +29,30 @@
 
 namespace MCPServer
 {
-namespace
+namespace Json
 {
 using JSONAllocator = rapidjson::Document::AllocatorType;
 
-rapidjson::Value MakeJSONString(std::string_view value, JSONAllocator& allocator)
+static rapidjson::Value MakeJSONString(std::string_view value, JSONAllocator& allocator)
 {
     return rapidjson::Value(value.data(), static_cast<rapidjson::SizeType>(value.size()), allocator);
 }
 
-void AddStringMember(rapidjson::Value& object, const char* name, std::string_view value, JSONAllocator& allocator)
+static void AddStringMember(
+    rapidjson::Value& object, const char* name, std::string_view value, JSONAllocator& allocator)
 {
     object.AddMember(rapidjson::Value(name, allocator), MakeJSONString(value, allocator), allocator);
 }
 
-void AddValueMember(rapidjson::Value& object, const char* name, const rapidjson::Value& value, JSONAllocator& allocator)
+static void AddValueMember(
+    rapidjson::Value& object, const char* name, const rapidjson::Value& value, JSONAllocator& allocator)
 {
     rapidjson::Value copy;
     copy.CopyFrom(value, allocator);
     object.AddMember(rapidjson::Value(name, allocator), std::move(copy), allocator);
 }
 
-const rapidjson::Value* FindMember(const rapidjson::Value& object, const char* name)
+static const rapidjson::Value* FindMember(const rapidjson::Value& object, const char* name)
 {
     if (!object.IsObject())
         return nullptr;
@@ -58,7 +60,7 @@ const rapidjson::Value* FindMember(const rapidjson::Value& object, const char* n
     return member == object.MemberEnd() ? nullptr : &member->value;
 }
 
-std::string GetString(const rapidjson::Value& object, const char* name)
+static std::string GetString(const rapidjson::Value& object, const char* name)
 {
     const rapidjson::Value* value = FindMember(object, name);
     if (!value || !value->IsString())
@@ -66,7 +68,8 @@ std::string GetString(const rapidjson::Value& object, const char* name)
     return std::string(value->GetString(), value->GetStringLength());
 }
 
-std::string GetStringOr(const rapidjson::Value& object, const char* name, std::string_view defaultValue)
+static std::string GetStringOr(
+    const rapidjson::Value& object, const char* name, std::string_view defaultValue)
 {
     const rapidjson::Value* value = FindMember(object, name);
     if (!value || !value->IsString())
@@ -74,13 +77,13 @@ std::string GetStringOr(const rapidjson::Value& object, const char* name, std::s
     return std::string(value->GetString(), value->GetStringLength());
 }
 
-bool GetBoolOr(const rapidjson::Value& object, const char* name, bool defaultValue)
+static bool GetBoolOr(const rapidjson::Value& object, const char* name, bool defaultValue)
 {
     const rapidjson::Value* value = FindMember(object, name);
     return value && value->IsBool() ? value->GetBool() : defaultValue;
 }
 
-std::string SerializeJSON(const rapidjson::Value& value)
+static std::string SerializeJSON(const rapidjson::Value& value)
 {
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -88,7 +91,7 @@ std::string SerializeJSON(const rapidjson::Value& value)
     return std::string(buffer.GetString(), buffer.GetSize());
 }
 
-JSONDocument ParseJSON(std::string_view text)
+static JSONDocument ParseJSON(std::string_view text)
 {
     JSONDocument document;
     document.Parse(text.data(), text.size());
@@ -99,7 +102,18 @@ JSONDocument ParseJSON(std::string_view text)
     }
     return document;
 }
-} // namespace
+} // namespace Json
+
+using Json::AddStringMember;
+using Json::AddValueMember;
+using Json::FindMember;
+using Json::GetBoolOr;
+using Json::GetString;
+using Json::GetStringOr;
+using Json::JSONAllocator;
+using Json::MakeJSONString;
+using Json::ParseJSON;
+using Json::SerializeJSON;
 
 class Server::LogCaptureSink final : public spdlog::sinks::base_sink<std::mutex>
 {

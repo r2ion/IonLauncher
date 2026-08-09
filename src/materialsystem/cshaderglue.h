@@ -1,32 +1,39 @@
 #pragma once
 
-class CShaderGlue
+#include "materialsystem/ishader.h"
+
+#include <cstddef>
+#include <cstdint>
+
+class CShaderGlue : public IShaderDraw
 {
 public:
-	void* vftable;
-};
+	const char* GetName() const override;
+	std::uint64_t Unknown1() override;
+	void* Unknown2() override;
+	std::uint64_t Unknown3() override;
+	int SetupShader(
+		std::uint64_t count, std::uint64_t unknown, void* materialData) override;
 
-struct ShaderGlue_inner
-{
 	const char* name;
-	uint64_t flagsMaybe;
-
-	uint16_t resourceBindingSlot;
-	uint16_t textureInputCount;
-	int16_t shadowSamplerCount;
-	uint16_t unkBindingSlot;
-	uint16_t unkBindingCount;
-
-	uint8_t bytes_22[6];
-
-	uint64_t unk3[4];
-
+	std::uint64_t unknown10;
+	std::uint16_t resourceBindingSlot;
+	std::uint16_t textureInputCount;
+	std::uint16_t shadowSamplerCount;
+	std::uint16_t unknownBindingSlot;
+	std::uint16_t unknownBindingCount;
+	std::uint8_t unknown22[6];
+	std::uint64_t unknown28[4];
 	void* vertexShader;
 	void* pixelShader;
 };
-
-struct ShaderGlue
-{
-	void* vtable;
-	ShaderGlue_inner inner;
-};
+static_assert(sizeof(CShaderGlue) == 0x58);
+static_assert(offsetof(CShaderGlue, name) == 0x8);
+static_assert(offsetof(CShaderGlue, resourceBindingSlot) == 0x18);
+static_assert(offsetof(CShaderGlue, textureInputCount) == 0x1A);
+static_assert(offsetof(CShaderGlue, shadowSamplerCount) == 0x1C);
+static_assert(offsetof(CShaderGlue, unknownBindingSlot) == 0x1E);
+static_assert(offsetof(CShaderGlue, unknownBindingCount) == 0x20);
+static_assert(offsetof(CShaderGlue, unknown28) == 0x28);
+static_assert(offsetof(CShaderGlue, vertexShader) == 0x48);
+static_assert(offsetof(CShaderGlue, pixelShader) == 0x50);

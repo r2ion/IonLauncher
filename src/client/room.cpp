@@ -1,4 +1,5 @@
-#include "room.h"
+#include "core/convar/concommand.h"
+#include "tier1/cvar.h"
 #include "tier0/vanilla.h"
 
 typedef void* (*JoinPlayerGameRoom_t)(const char* roomId);

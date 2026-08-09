@@ -12,8 +12,6 @@
 #include "tier0/vanilla.h"
 #include "util/utils.h"
 
-#include "vscript/vscript.h"
-
 #include <any>
 #include <array>
 #include <cstddef>
@@ -360,7 +358,7 @@ template <ScriptContext context> SQInteger __fastcall sqstd_aux_printerrorHook(H
     if (IsUIVM(context, sqvm))
         realContext = ScriptContext::UI;
 
-    g_LastSQErrorTimes[static_cast<int>(realContext)] = Plat_FloatTime();
+    g_LastSQErrorTimes[static_cast<int>(realContext)] = g_PlatFloatTime();
 
     return sqstd_aux_printerror<context>(sqvm);
 }

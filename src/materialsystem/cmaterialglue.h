@@ -1,49 +1,13 @@
 #pragma once
 
 #include "materialsystem/cshaderglue.h"
+#include "materialsystem/imaterialinternal.h"
+#include "rendersystem/schema/texture.g.h"
+
 #include <cstddef>
 #include <cstdint>
+#include <d3d11.h>
 
-class RpakTextureHeader // Expected size: 0x130
-{
-public:
-	uint64_t guid;
-	const char* name;
-	uint16_t width;
-	uint16_t height;
-	int16_t depth;
-	uint16_t dxgiFormat;
-	uint32_t dataSize;
-	uint8_t compressionType;
-	uint8_t optStreamedMipCount;
-	uint8_t arraySize;
-	uint8_t layerCount;
-	uint8_t mipFlags;
-	uint8_t permanentMipCount;
-	uint8_t streamedMipCount;
-	uint8_t unk[13];
-	int64_t numPixels;
-	uint16_t unknownWord38;
-	uint8_t unknownByte3A;
-	uint8_t unknownByte3B;
-	uint32_t unknownDword3C;
-	uint32_t unknownDword40;
-	uint32_t unknownDword44;
-	float transform[16];
-	uint64_t unknownQword88;
-	uint64_t unknownQword90;
-	uint32_t unknownArray98[16];
-	uint32_t unknownArrayD8[16];
-	ID3D11Resource* d3d11Resource;
-	ID3D11ShaderResourceView* shaderResourceView;
-	uint8_t unknownByte128;
-	uint8_t padding[7];
-};
-static_assert(sizeof(RpakTextureHeader) == 0x130);
-static_assert(offsetof(RpakTextureHeader, width) == 0x10);
-static_assert(offsetof(RpakTextureHeader, transform) == 0x48);
-static_assert(offsetof(RpakTextureHeader, d3d11Resource) == 0x118);
-static_assert(offsetof(RpakTextureHeader, shaderResourceView) == 0x120);
 
 struct CBufUberStatic // sizeof = 0xE0
 {
@@ -86,46 +50,51 @@ struct CBufUberStatic // sizeof = 0xE0
 	float c_perfGloss;                  // 0xD0
 	float c_perfSpecColor[3];           // 0xD4
 };
+static_assert(sizeof(CBufUberStatic) == 0xE0);
 
-class CMaterialGlue;
-
-class CMaterialGlue_short
+class CMaterialGlue : public IMaterialInternal
 {
 public:
-	uint64_t guid;
+	std::uint8_t unknown08[8];
+	std::uint64_t guid;
 	const char* name;
-	uint64_t* surfaceProps[2];
+	const char* surfaceProps[2];
 	CMaterialGlue* DepthShadow_ref;
 	CMaterialGlue* DepthPrepass_ref;
 	CMaterialGlue* DepthVSM_ref;
 	CMaterialGlue* Colpass_ref;
-	uint8_t gap_50[64];
-	ShaderGlue* shaderSet;
-	RpakTextureHeader** textureHandles;
-	RpakTextureHeader** streamingTextures;
-	int16_t streamingTextureCount;
-	uint8_t samplersIndices[4];
-	int16_t unknown;
-	uint8_t gap_B0[12];
-	uint16_t unknownWord[2];
-	uint32_t flags;
-	uint32_t flags2;
-	uint16_t width;
-	uint16_t height;
-	uint8_t gap_CC[2];
-	uint16_t word_CE;
-	void** pointer_D0;
+	std::uint8_t gap_50[64];
+	CShaderGlue* shaderSet;
+	TextureAsset_s** textureHandles;
+	TextureAsset_s** streamingTextures;
+	std::uint16_t streamingTextureCount;
+	std::uint8_t samplerIndices[4];
+	std::uint16_t unknownAE;
+	std::uint8_t gap_B0[12];
+	std::uint16_t unknownWord[2];
+	std::uint32_t flags;
+	std::uint32_t flags2;
+	std::uint16_t width;
+	std::uint16_t height;
+	std::uint8_t gap_CC[2];
+	std::uint16_t animationFrameCount;
+	void* textureAnimation;
 	CBufUberStatic* cbufUberStatic;
 	ID3D11Buffer* buffer;
-	uint32_t* atlasBufferIndices;
-	uint32_t dword_F0;
-	uint8_t gap_F4[12];
+	std::uint32_t* atlasBufferIndices;
+	std::uint32_t unknownF0;
+	std::uint8_t gap_F4[12];
 };
-
-class CMaterialGlue
-{
-public:
-	void* m_pVFTable;
-	char m_unk[8];
-	CMaterialGlue_short material;
-};
+static_assert(sizeof(CMaterialGlue) == 0x100);
+static_assert(offsetof(CMaterialGlue, unknown08) == 0x8);
+static_assert(offsetof(CMaterialGlue, guid) == 0x10);
+static_assert(offsetof(CMaterialGlue, shaderSet) == 0x90);
+static_assert(offsetof(CMaterialGlue, textureHandles) == 0x98);
+static_assert(offsetof(CMaterialGlue, streamingTextures) == 0xA0);
+static_assert(offsetof(CMaterialGlue, flags) == 0xC0);
+static_assert(offsetof(CMaterialGlue, width) == 0xC8);
+static_assert(offsetof(CMaterialGlue, cbufUberStatic) == 0xD8);
+static_assert(offsetof(CMaterialGlue, buffer) == 0xE0);
+static_assert(offsetof(CMaterialGlue, atlasBufferIndices) == 0xE8);
+static_assert(offsetof(CMaterialGlue, unknownF0) == 0xF0);
+static_assert(offsetof(CMaterialGlue, gap_F4) == 0xF4);

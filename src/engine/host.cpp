@@ -1,4 +1,4 @@
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "core/tier0.h"
 #include "modsystem/modmanager.h"
 #include "r2engine.h"

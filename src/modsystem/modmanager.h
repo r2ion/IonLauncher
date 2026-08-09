@@ -1,5 +1,5 @@
 #pragma once
-#include "core/convar/convar.h"
+#include "tier1/convar.h"
 #include "tier0/memstd.h"
 #include "vscript/squirrel/squirrel.h"
 
@@ -18,6 +18,7 @@
 namespace fs = std::filesystem;
 
 class CModule;
+class CModelLoader;
 
 const fs::path MOD_FOLDER_SUFFIX = "mods";
 const fs::path PACKAGE_MOD_FOLDER_SUFFIX = "packages";
@@ -55,9 +56,8 @@ private:
 	std::unordered_set<std::string> m_StaleModModelFiles;
 	mutable std::mutex m_ModelReloadMutex;
 	bool m_bModelReloadPending = false;
-	void* m_pModelLoader = nullptr;
+	CModelLoader* m_pModelLoader = nullptr;
 	std::unordered_map<std::string, bool> m_EnabledStateOverrides;
-	void (*m_pFlushModelByName)(void* pModelLoader, const char* pModelPath) = nullptr;
 
 	void LoadMods();
 	bool UnloadMods(bool unloadRpaksNow);
