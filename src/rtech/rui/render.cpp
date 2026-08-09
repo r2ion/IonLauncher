@@ -3,6 +3,7 @@
 #include "rtech/rui/rui_core_types.h"
 #include "rtech/rui/rui_render_types.h"
 #include "rtech/rui/rui_runtime_types.h"
+#include "rtech/rui/topology.h"
 #include "tier0/frametask.h"
 #include "tier0/module.h"
 
@@ -735,6 +736,14 @@ static bool RuiRenderImageJob(RuiRenderContext* context, RuiInstance* rui, const
     return RuiDrawImageAtlasEntry(context->globals, rui, batch, &baseUv, transform, orientation, primaryAsset, &atlasUv, &geometryBounds, &texMins,
                                   &textureExtent);
 }
+
+DECLARE_HOOK(RuiRenderJobs, engine.dll + 0xF9530, [](auto& hook, RuiRenderContext* context, RuiInstance* rui, RuiDrawBatch* batch) -> bool
+{
+    if (RuiTopology_IsHidden(rui))
+        return true;
+
+    return hook.Original(context, rui, batch);
+})
 
 DECLARE_HOOK(RuiRenderImageJob, engine.dll + 0xF72F0,
              [](auto& hook, RuiRenderContext* context, RuiInstance* rui, const RuiImageRenderJob* job, RuiDrawBatch* batch) -> bool

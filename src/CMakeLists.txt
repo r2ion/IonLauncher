@@ -173,6 +173,8 @@ add_library(
     "rtech/rui/rui_hooks.cpp"
     "rtech/rui/render.cpp"
     "rtech/rui/render.h"
+    "rtech/rui/topology.cpp"
+    "rtech/rui/topology.h"
     "rtech/rui/rui_core_types.h"
     "rtech/rui/rui_callback_types.h"
     "rtech/rui/rui_image_atlas_types.h"
