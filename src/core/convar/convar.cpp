@@ -22,6 +22,9 @@ static ConVarRegisterType s_ConVarRegister;
 using ConVarCallbacksConstructorType = void (*)(CUtlVector<ConVar::CVChange_t>* callbacks, int growSize, int initialCapacity);
 static ConVarCallbacksConstructorType s_ConVarCallbacksConstructor;
 
+static void* s_ConVarVTable;
+static void* s_IConVarVTable;
+
 static constexpr std::pair<int, const char*> s_PrintCommandFlags[] = {
 	{FCVAR_UNREGISTERED, "UNREGISTERED"},
 	{FCVAR_DEVELOPMENTONLY, "DEVELOPMENTONLY"},
@@ -70,6 +73,8 @@ ON_DLL_LOAD("engine.dll", ConVar, [](CModule module)
 {
 	s_ConVarCallbacksConstructor = module.Offset(0x415C20).RCast<ConVarCallbacksConstructorType>();
 	s_ConVarRegister = module.Offset(0x417230).RCast<ConVarRegisterType>();
+	s_ConVarVTable = module.Offset(0x67FD28).RCast<void*>();
+	s_IConVarVTable = module.Offset(0x67FDC8).RCast<void*>();
 
 	g_pCVar = Sys_GetFactoryPtr("vstdlib.dll", CVAR_INTERFACE_VERSION).RCast<CCvar*>();
 })
@@ -81,6 +86,7 @@ ConVar::ConVar(const char* pszName, const char* pszDefaultValue, int nFlags, con
 {
 	spdlog::info("Registering Convar {}", pszName);
 
+	*reinterpret_cast<void**>(static_cast<ConCommandBase*>(this)) = s_ConVarVTable;
 	s_ConVarCallbacksConstructor(&m_fnChangeCallbacks, 0, 0);
 	s_ConVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, false, 0.0f, false, 0.0f, nullptr);
 }
@@ -101,11 +107,11 @@ ConVar::ConVar(
 {
 	spdlog::info("Registering Convar {}", pszName);
 
+	*reinterpret_cast<void**>(static_cast<ConCommandBase*>(this)) = s_ConVarVTable;
 	s_ConVarCallbacksConstructor(&m_fnChangeCallbacks, 0, 0);
 	s_ConVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, bMin, fMin, bMax, fMax, pCallback);
 }
 
-//-----------------------------------------------------------------------------
 // Purpose: destructor
 //-----------------------------------------------------------------------------
 ConVar::~ConVar()
