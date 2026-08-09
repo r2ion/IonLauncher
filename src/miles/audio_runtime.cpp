@@ -1,7 +1,7 @@
 #include "audio.h"
-#include "tier1/convar.h"
 #include "dedicated/dedicated.h"
 #include "logging/logging.h"
+#include "tier1/convar.h"
 
 #include <algorithm>
 #include <array>
@@ -66,8 +66,7 @@ static bool EnsureFlacDecoderRegistered(void* driver)
             reinterpret_cast<MilesDriverRegisterFlacAudio_Type>(GetProcAddress(s_flacDecoderModule, MILES_FLAC_REGISTER_EXPORT));
         if (!MilesDriverRegisterFlacAudio)
         {
-            NS::log::MILES->error("{} does not export {} (Windows error {})", MILES_FLAC_DECODER_DLL, MILES_FLAC_REGISTER_EXPORT,
-                                  GetLastError());
+            NS::log::MILES->error("{} does not export {} (Windows error {})", MILES_FLAC_DECODER_DLL, MILES_FLAC_REGISTER_EXPORT, GetLastError());
             return false;
         }
     }
@@ -103,12 +102,6 @@ static void ClearCustomMilesSampleDecoderType(void* sample)
 
 ConVar* Cvar_mileslog_enable;
 ConVar* Cvar_ns_print_played_sounds;
-
-// Empty stereo 48000 WAVE file used when a replacement intentionally has no
-// matching sample for the current event.
-static unsigned char EMPTY_WAVE[45] = {0x52, 0x49, 0x46, 0x46, 0x25, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74,
-                                       0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x44, 0xAC, 0x00, 0x00, 0x88, 0x58,
-                                       0x01, 0x00, 0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x74, 0x00, 0x00, 0x00, 0x00};
 
 typedef void (*MilesStopAll_Type)();
 MilesStopAll_Type MilesStopAll;
@@ -625,12 +618,7 @@ bool CModAudioRuntime::SelectAudioSample(const std::shared_ptr<ModAudioEventDefi
     std::lock_guard lock(definition->SampleSelectionMutex);
 
     if (definition->Samples.empty())
-    {
-        data = EMPTY_WAVE;
-        dataLength = sizeof(EMPTY_WAVE);
-        decoderType = MILES_SOURCE_AUTO;
-        return true;
-    }
+        return false;
 
     AudioSampleData* sample = nullptr;
     switch (definition->Strategy)
@@ -1232,8 +1220,7 @@ AudioPlayResult CModAudioRuntime::TryPlayEvent(void* eventSystem, const char* ev
         }
         else
         {
-            sourceLoaded =
-                MilesSampleSetSource(activeLayer.Sample, source->Data.get(), static_cast<unsigned int>(source->Size), source->DecoderType);
+            sourceLoaded = MilesSampleSetSource(activeLayer.Sample, source->Data.get(), static_cast<unsigned int>(source->Size), source->DecoderType);
         }
         s_loadingCustomMilesSample = false;
         if (!sourceLoaded)

@@ -1503,7 +1503,8 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             return;
         }
 
-        spdlog::warn("Audio override {} has no valid samples! Sounds will not play for this event.", path.string());
+        spdlog::warn("Audio override {} has no valid WAV or FLAC samples; ignoring it.", path.string());
+        return;
     }
 
     if (IsCustomEvent && !EventIdsRegex.empty())
