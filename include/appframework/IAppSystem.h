@@ -29,6 +29,8 @@ enum AppSystemTier_t
 class IAppSystem
 {
 public:
+	virtual ~IAppSystem() = default;
+
 	// Here's where the app systems get to learn about each other
 	virtual bool Connect(const CreateInterfaceFn factory) = 0;
 	virtual void Disconnect() = 0;
@@ -43,7 +45,6 @@ public:
 
 	// Returns all dependent libraries
 	virtual const AppSystemInfo_t* GetDependencies() { return NULL; }
-	virtual AppSystemTier_t GetTier() = 0;
 
 	// Reconnect to a particular interface
 	virtual void Reconnect(const CreateInterfaceFn factory, const char* const pInterfaceName) = 0;
@@ -59,10 +60,8 @@ public:
 	virtual InitReturnVal_t Init() { return INIT_OK; }
 	virtual void Shutdown() {}
 	virtual const AppSystemInfo_t* GetDependencies() { return NULL; }
-	virtual AppSystemTier_t GetTier() { return APP_SYSTEM_TIER_OTHER; }
 	virtual void Reconnect(const CreateInterfaceFn factory, const char* const pInterfaceName) {}
 };
-
 template<class IInterface>
 class CTier0AppSystem : public CBaseAppSystem<IInterface>
 {

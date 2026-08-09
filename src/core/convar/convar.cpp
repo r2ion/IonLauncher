@@ -87,6 +87,7 @@ ConVar::ConVar(const char* pszName, const char* pszDefaultValue, int nFlags, con
 	spdlog::info("Registering Convar {}", pszName);
 
 	*reinterpret_cast<void**>(static_cast<ConCommandBase*>(this)) = s_ConVarVTable;
+	*reinterpret_cast<void**>(static_cast<IConVar*>(this)) = s_IConVarVTable;
 	s_ConVarCallbacksConstructor(&m_fnChangeCallbacks, 0, 0);
 	s_ConVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, false, 0.0f, false, 0.0f, nullptr);
 }
@@ -108,6 +109,7 @@ ConVar::ConVar(
 	spdlog::info("Registering Convar {}", pszName);
 
 	*reinterpret_cast<void**>(static_cast<ConCommandBase*>(this)) = s_ConVarVTable;
+	*reinterpret_cast<void**>(static_cast<IConVar*>(this)) = s_IConVarVTable;
 	s_ConVarCallbacksConstructor(&m_fnChangeCallbacks, 0, 0);
 	s_ConVarRegister(this, pszName, pszDefaultValue, nFlags, pszHelpString, bMin, fMin, bMax, fMax, pCallback);
 }
