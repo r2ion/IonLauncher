@@ -5,52 +5,30 @@
 #include "vgui_controls/Panel.h"
 
 vgui::ISurface* g_pVGuiSurface = nullptr;
-vgui::Panel* g_pVGuiPanel = nullptr;
-namespace SurfaceInternal
-{
-constexpr size_t STREAM_OVERLAY_TEXT_CAPACITY = 4096 * 16;
-constexpr int STREAM_OVERLAY_DRAW_CHUNK_LENGTH = 2048;
 
 using TextureStreamMgr_GetStreamOverlayFn = void(__fastcall*)(char* output, size_t capacity, char* scratchBuffer);
 
-static TextureStreamMgr_GetStreamOverlayFn s_TextureStreamMgr_GetStreamOverlay;
-static char s_StreamOverlayText[STREAM_OVERLAY_TEXT_CAPACITY]{};
-static char s_StreamOverlayScratch[4096*8]{};
-
-static bool UpdateStreamOverlayText()
-{
-	s_StreamOverlayText[0] = '\0';
-	s_StreamOverlayText[std::size(s_StreamOverlayText) - 1] = '\0';
-	s_StreamOverlayScratch[0] = '\0';
-	s_TextureStreamMgr_GetStreamOverlay(s_StreamOverlayText, std::size(s_StreamOverlayText),
-		s_StreamOverlayScratch);
-
-	// Do not trust the engine function to terminate output that fills the buffer.
-	s_StreamOverlayText[std::size(s_StreamOverlayText) - 1] = '\0';
-	return s_StreamOverlayText[0] != '\0';
-}
-
-
+TextureStreamMgr_GetStreamOverlayFn GetStreamOverlayText;
 
 
 
 static void ConCommand_dump(const CCommand& args)
 {
-	if (!s_TextureStreamMgr_GetStreamOverlay)
+	if (!GetStreamOverlayText)
 	{
 		spdlog::warn("TextureStreamMgr_GetStreamOverlay is not available");
 		return;
 	}
 
-	if (!UpdateStreamOverlayText())
-	{
-		spdlog::info("Texture stream overlay returned no data");
-		return;
-	}
+	char text[65000]{};
+    char scratch[32768]{};
+    text[0] = '\0';
+    text[std::size(text) - 1] = '\0';
+    scratch[0] = '\0';
+    GetStreamOverlayText(text, std::size(text), scratch);
 
-	spdlog::info("{}", s_StreamOverlayText);
+	spdlog::info("{}", text);
 }
-} // namespace SurfaceInternal
 
 ON_DLL_LOAD_CLIENT("client.dll", VGuiSurface, [](CModule module)
 {
@@ -61,12 +39,10 @@ ON_DLL_LOAD_CLIENT("client.dll", VGuiSurface, [](CModule module)
 
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", StreamOverlayCommand, ConCommand, [](CModule module)
 {
-    RegisterConCommand("dump", SurfaceInternal::ConCommand_dump,
-        "Dumps the texture stream overlay to the log.", FCVAR_CLIENTDLL | FCVAR_DONTRECORD);
+    RegisterConCommand("dump", ConCommand_dump, "Dumps the texture stream overlay to log.", FCVAR_CLIENTDLL | FCVAR_DONTRECORD);
 })
 
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", StreamOverlay, [](CModule module)
 {
-	SurfaceInternal::s_TextureStreamMgr_GetStreamOverlay =
-		module.Offset(0x974D0).RCast<SurfaceInternal::TextureStreamMgr_GetStreamOverlayFn>();
+	GetStreamOverlayText = module.Offset(0x974D0).RCast<TextureStreamMgr_GetStreamOverlayFn>();
 })

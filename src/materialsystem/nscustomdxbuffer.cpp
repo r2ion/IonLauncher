@@ -30,27 +30,19 @@ struct Ns_Constant_Buffer
 {
 	float data[320];
 };
-
-static constexpr size_t kMaxCustomTextureBindings = 60;
-static constexpr uint32_t kCompileWaterGlueFlag2 = 0x00080000;
 static constexpr size_t kMaterialShaderDataOffset = 0x10;
 static_assert(offsetof(CMaterialGlue, guid) == kMaterialShaderDataOffset);
-static constexpr const char* kWaterReflectionTextureName = "_rt_WaterReflection";
-static constexpr const char* kWaterRefractionTextureName = "_rt_WaterRefraction";
-static constexpr uint16_t kDrawWaterRefraction = 0x0001;
-static constexpr uint16_t kDrawWaterReflection = 0x0002;
-static constexpr size_t kViewWaterPlaneOffset = 0x50890;
-static constexpr size_t kViewWaterDrawFlagsOffset = 0x508A4;
+
 
 struct MaterialTextureMappings_t
 {
-	std::array<uint64_t, kMaxCustomTextureBindings> m_Slots {};
+	std::array<uint64_t, 60> m_Slots {};
 };
 
 struct MaterialNamedTextureMappings_t
 {
-	std::array<std::string, kMaxCustomTextureBindings> m_Slots {};
-	std::array<int8_t, kMaxCustomTextureBindings> m_SamplerSlots;
+	std::array<std::string, 60> m_Slots {};
+	std::array<int8_t, 60> m_SamplerSlots;
 
 	MaterialNamedTextureMappings_t()
 	{
@@ -67,26 +59,26 @@ DECLARE_MODULE(NSCustomDXBufferHooks)
 
 static Ns_Constant_Buffer NSCustomDXBuffer;
 static std::mutex NSCustomDXBufferMutex;
-static std::mutex s_NamedTextureBindingsMutex;
+static std::mutex NamedTextureBindingsMutex;
 
 // map to later on associate guid > buffer
 static std::map<uint64_t, Ns_Constant_Buffer> NSCustomBuffersPerMaterial = {};
 static std::map<uint64_t, MaterialTextureMappings_t> NSMaterialTextureSlotBindings = {};
-static std::map<uint64_t, MaterialNamedTextureMappings_t> s_MaterialNamedTextureSlotBindings = {};
+static std::map<uint64_t, MaterialNamedTextureMappings_t> MaterialNamedTextureSlotBindings = {};
 // Tracks only flags applied by the named-texture binding system so unbinding
 // does not clear a compileWater flag authored in the RPAK material itself.
-static std::unordered_set<uint64_t> s_AutoCompileWaterMaterials = {};
-static std::atomic<uint16_t> s_RequestedWaterPasses {};
+static std::unordered_set<uint64_t> AutoCompileWaterMaterials = {};
+static std::atomic<uint16_t> RequestedWaterPasses {};
 static std::unordered_set<uint64_t> NSRegisteredCustomBufferMaterials = {};
 static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
-static FindNamedTextureFn s_FindNamedTexture = nullptr;
-static BindPixelTextureHandleFn s_BindPixelTextureHandle = nullptr;
-static ResolvePixelTextureAndSamplerFn s_ResolvePixelTextureAndSampler = nullptr;
-static SetupWaterTextureBindingsFn s_SetupWaterTextureBindings = nullptr;
-static ID3D11ShaderResourceView** s_StagedPixelTextures = nullptr;
-static ID3D11SamplerState** s_StagedPixelSamplers = nullptr;
-static uint64_t* s_StagedTextureBindingState = nullptr;
-static std::mutex s_TextureSamplerResolveMutex;
+static FindNamedTextureFn FindNamedTexture = nullptr;
+static BindPixelTextureHandleFn BindPixelTextureHandle = nullptr;
+static ResolvePixelTextureAndSamplerFn ResolvePixelTextureAndSampler = nullptr;
+static SetupWaterTextureBindingsFn SetupWaterTextureBindings = nullptr;
+static ID3D11ShaderResourceView** StagedPixelTextures = nullptr;
+static ID3D11SamplerState** StagedPixelSamplers = nullptr;
+static uint64_t* StagedTextureBindingState = nullptr;
+static std::mutex TextureSamplerResolveMutex;
 // map of material guid -> custom pixel shader
 static std::map<uint64_t, Microsoft::WRL::ComPtr<ID3D11PixelShader>> NSMaterialPixelShaders = {};
 static std::mutex NSMaterialPixelShadersMutex;
@@ -96,42 +88,41 @@ static uint16_t GetRequestedWaterPasses(const MaterialNamedTextureMappings_t& ma
 	uint16_t requestedPasses = 0;
 	for (const std::string& textureName : mappings.m_Slots)
 	{
-		if (_stricmp(textureName.c_str(), kWaterRefractionTextureName) == 0)
-			requestedPasses |= kDrawWaterRefraction;
-		else if (_stricmp(textureName.c_str(), kWaterReflectionTextureName) == 0)
-			requestedPasses |= kDrawWaterReflection;
+		if (_stricmp(textureName.c_str(), "_rt_WaterRefraction") == 0)
+			requestedPasses |= 0x0001;
+		else if (_stricmp(textureName.c_str(), "_rt_WaterReflection") == 0)
+			requestedPasses |= 0x0002;
 	}
 
 	return requestedPasses;
 }
 
-// Must be called while s_NamedTextureBindingsMutex is held.
 static void RefreshRequestedWaterPasses()
 {
 	uint16_t requestedPasses = 0;
-	for (const auto& materialMappings : s_MaterialNamedTextureSlotBindings)
+	for (const auto& materialMappings : MaterialNamedTextureSlotBindings)
 		requestedPasses |= GetRequestedWaterPasses(materialMappings.second);
 
-	s_RequestedWaterPasses.store(requestedPasses, std::memory_order_release);
+	RequestedWaterPasses.store(requestedPasses, std::memory_order_release);
 }
 
 // CMaterialGlue::IsWater reads flags2 bit 19, which is the RPAK equivalent of
-// VMT %compileWater. The client render-target producer still needs a separate
+// VMT %compileWater. The client render-target still needs a separate
 // hook because engine.dll only creates its water records from BSP leafwaterdata.
 static void UpdateCompileWaterFlag(
 	CMaterialGlue* material, const MaterialNamedTextureMappings_t& mappings)
 {
 	if (GetRequestedWaterPasses(mappings) != 0)
 	{
-		if ((material->flags2 & kCompileWaterGlueFlag2) == 0)
-			s_AutoCompileWaterMaterials.insert(material->guid);
+		if ((material->flags2 & 0x00080000) == 0)
+			AutoCompileWaterMaterials.insert(material->guid);
 
-		material->flags2 |= kCompileWaterGlueFlag2;
+		material->flags2 |= 0x00080000;
 		return;
 	}
 
-	if (s_AutoCompileWaterMaterials.erase(material->guid) != 0)
-		material->flags2 &= ~kCompileWaterGlueFlag2;
+	if (AutoCompileWaterMaterials.erase(material->guid) != 0)
+		material->flags2 &= ~0x00080000;
 }
 
 struct FXCWatcher_t
@@ -140,18 +131,15 @@ struct FXCWatcher_t
 	std::jthread m_Thread;
 };
 
-// Watchers remain joinable so map teardown can quiesce them before unloading
-// the materials their GUIDs refer to.
+
 static std::unordered_map<uint64_t, FXCWatcher_t> NSFXCWatchers = {};
 static std::mutex NSFXCWatchersMutex;
 
 bool isValidMaterialGUID(const std::string& str)
 {
-    // Must start with "0x" or "0X"
     if (str.size() != 18 || str[0] != '0' || (str[1] != 'x' && str[1] != 'X'))
         return false;
 
-    // Must contain exactly 16 hex digits after 0x
     for (size_t i = 2; i < str.size(); ++i)
     {
         if (!std::isxdigit(static_cast<unsigned char>(str[i])))
@@ -349,16 +337,6 @@ template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM 
     {
         guidStr = maybeGuid;
     }
-    else
-    {
-        MessageBoxA(NULL, "Please copy the material GUID (hex, e.g. 0xABC...) to the clipboard and press OK", "Enter Material GUID",
-                    MB_OK | MB_ICONINFORMATION);
-        //if (!ReadClipboardString(guidStr) || guidStr.empty())
-        //{
-        //    g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "No GUID found in clipboard");
-        //    return SQRESULT_ERROR;
-        //}
-    }
 
     if (!isValidMaterialGUID(guidStr))
     {
@@ -377,44 +355,31 @@ template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM 
 	return SQRESULT_NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Resolve the sampler state encoded in a material-system texture
-//          handle without leaving changes in the engine's staging arrays.
-//-----------------------------------------------------------------------------
 static ID3D11SamplerState* ResolveTextureSampler(int16_t textureHandle)
 {
-	assert(s_ResolvePixelTextureAndSampler);
-	assert(s_StagedPixelTextures);
-	assert(s_StagedPixelSamplers);
-	assert(s_StagedTextureBindingState);
-
-	if (!s_ResolvePixelTextureAndSampler || !s_StagedPixelTextures || !s_StagedPixelSamplers
-		|| !s_StagedTextureBindingState || textureHandle == 0)
+	if (!ResolvePixelTextureAndSampler || !StagedPixelTextures || !StagedPixelSamplers
+		|| !StagedTextureBindingState || textureHandle == 0)
 	{
 		return nullptr;
 	}
 
-	std::lock_guard<std::mutex> lock(s_TextureSamplerResolveMutex);
-	ID3D11ShaderResourceView* const previousTexture = s_StagedPixelTextures[0];
-	ID3D11SamplerState* const previousSampler = s_StagedPixelSamplers[0];
-	const uint64_t previousBindingState = *s_StagedTextureBindingState;
+	std::lock_guard<std::mutex> lock(TextureSamplerResolveMutex);
+	ID3D11ShaderResourceView* const previousTexture = StagedPixelTextures[0];
+	ID3D11SamplerState* const previousSampler = StagedPixelSamplers[0];
+	const uint64_t previousBindingState = *StagedTextureBindingState;
 
-	s_ResolvePixelTextureAndSampler(0, textureHandle);
-	ID3D11SamplerState* const sampler = s_StagedPixelSamplers[0];
+	ResolvePixelTextureAndSampler(0, textureHandle);
+	ID3D11SamplerState* const sampler = StagedPixelSamplers[0];
 
-	s_StagedPixelTextures[0] = previousTexture;
-	s_StagedPixelSamplers[0] = previousSampler;
-	*s_StagedTextureBindingState = previousBindingState;
+	StagedPixelTextures[0] = previousTexture;
+	StagedPixelSamplers[0] = previousSampler;
+	*StagedTextureBindingState = previousBindingState;
 	return sampler;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Bind one material-system texture handle and its engine-authored
-//          sampler state to the requested pixel-shader register.
-//-----------------------------------------------------------------------------
 static void BindTextureHandleToPixelShader(uint32_t textureSlot, uint32_t samplerSlot, int16_t textureHandle)
 {
-	s_BindPixelTextureHandle(textureSlot, textureHandle);
+	BindPixelTextureHandle(textureSlot, textureHandle);
 
 	ID3D11SamplerState* sampler = ResolveTextureSampler(textureHandle);
 	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
@@ -422,25 +387,15 @@ static void BindTextureHandleToPixelShader(uint32_t textureSlot, uint32_t sample
 		dx11.m_pContext->PSSetSamplers(samplerSlot, 1, &sampler);
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Resolve a material-system named texture and bind its color/depth
-//          handles to tN/tN+1 and its samplers to sM/sM+1.
-//-----------------------------------------------------------------------------
+
 static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t samplerSlot, const char* textureName)
 {
-	assert(s_FindNamedTexture);
-	assert(s_BindPixelTextureHandle);
-	assert(textureSlot < kMaxCustomTextureBindings - 1);
-	assert(samplerSlot < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1);
-	assert(textureName && textureName[0]);
-
-	if (!s_FindNamedTexture || !s_BindPixelTextureHandle || textureSlot >= kMaxCustomTextureBindings - 1
+	if (!FindNamedTexture || !BindPixelTextureHandle || textureSlot >= 59
 		|| samplerSlot >= D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1 || !textureName || !textureName[0])
 	{
 		return false;
 	}
-
-	ITextureInternal* const texture = s_FindNamedTexture(textureName);
+	ITextureInternal* const texture = FindNamedTexture(textureName);
 	if (!texture)
 		return false;
 
@@ -521,9 +476,9 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 	dx11.m_pContext->VSSetConstantBuffers(0, 1, constantBuffer);
 	dx11.m_pContext->PSSetConstantBuffers(0, 1, constantBuffer);
 
-	assert(s_SetupWaterTextureBindings);
-	if (s_SetupWaterTextureBindings)
-		s_SetupWaterTextureBindings(*reinterpret_cast<__int64*>(a4 + 0x78), 14);
+	assert(SetupWaterTextureBindings);
+	if (SetupWaterTextureBindings)
+		SetupWaterTextureBindings(*reinterpret_cast<__int64*>(a4 + 0x78), 14);
 
 	return *reinterpret_cast<unsigned int*>(a4 + 8);
 })
@@ -568,9 +523,9 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 	MaterialNamedTextureMappings_t namedTextureMappings;
 	{
-		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
-		const auto mappings = s_MaterialNamedTextureSlotBindings.find(material->guid);
-		if (mappings != s_MaterialNamedTextureSlotBindings.end())
+		std::lock_guard<std::mutex> lock(NamedTextureBindingsMutex);
+		const auto mappings = MaterialNamedTextureSlotBindings.find(material->guid);
+		if (mappings != MaterialNamedTextureSlotBindings.end())
 			namedTextureMappings = mappings->second;
 	}
 
@@ -639,26 +594,20 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	return subResult;
 })
 
-// The normal water path reaches this function with flags produced from
-// engine.dll's BSP leafwaterdata records. RPAK materials have no leaf record,
-// so add the pass bits requested by their named render-target bindings just
-// before the client decides which water render targets to update.
+
 DECLARE_HOOK(UpdateWaterRenderTargets, client.dll + 0x3756A0, [](auto& hook, __int64 viewRender, uint8_t* view, void* originalView, unsigned int clearFlags, __int64 finalRenderTarget) -> __int64
 {
-	const uint16_t requestedPasses = s_RequestedWaterPasses.load(std::memory_order_acquire);
+	const uint16_t requestedPasses = RequestedWaterPasses.load(std::memory_order_acquire);
 	if (view && requestedPasses != 0)
 	{
-		auto* waterDrawFlags = reinterpret_cast<uint16_t*>(view + kViewWaterDrawFlagsOffset);
+		auto* waterDrawFlags = reinterpret_cast<uint16_t*>(view + 0x508A4);
 		*waterDrawFlags |= requestedPasses;
 
-		if ((requestedPasses & kDrawWaterReflection) != 0)
+		if ((requestedPasses & 0x0002) != 0)
 		{
-			auto* waterPlane = reinterpret_cast<float*>(view + kViewWaterPlaneOffset);
+			auto* waterPlane = reinterpret_cast<float*>(view + 0x50890);
 			if (waterPlane[0] == 0.0f && waterPlane[1] == 0.0f && waterPlane[2] == 0.0f)
 			{
-				// A material has no geometry or transform from which to recover a
-				// reflection plane. Use a valid horizontal fallback so the target
-				// is populated; real BSP water keeps its authored plane above.
 				waterPlane[2] = 1.0f;
 				waterPlane[3] = reinterpret_cast<float*>(view)[2] - 64.0f;
 			}
@@ -731,8 +680,6 @@ template <ScriptContext context> SQRESULT NSDeregisterCustomDXBufferForGUID(HSQU
 
 template <ScriptContext context> SQRESULT NSUpdateCustomDXBufferForGUID(HSQUIRRELVM sqvm)
 {
-
-	// get the guid as a string to later conv
 	auto rPakMaterialGUIDString = (g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1));
 
 	std::vector<float> NSCustomBufferVector;
@@ -773,7 +720,6 @@ template <ScriptContext context> SQRESULT NSUpdateCustomDXBufferForGUID(HSQUIRRE
 	}
 	for (int vIdx = 0; vIdx < NSCustomBufferVector.size(); ++vIdx)
 	{
-		// assign buffer to the map using the guid as key
 		NSCustomBuffersPerMaterial[rPakMaterialGUID].data[vIdx] = NSCustomBufferVector.at(vIdx);
 	}
 	return SQRESULT_NULL;
@@ -781,7 +727,7 @@ template <ScriptContext context> SQRESULT NSUpdateCustomDXBufferForGUID(HSQUIRRE
 
 template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sqvm)
 {
-	
+
 	auto rPakMaterialGUIDString = (g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1));
 	auto rPakTextureGUIDString = (g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 2));
 	auto rPakShaderSlotBindingInt = (g_pSquirrel[ScriptContext::CLIENT]->getinteger(sqvm, 3));
@@ -789,13 +735,13 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 	uint64_t rPakMaterialGUID = std::stoull(rPakMaterialGUIDString, nullptr, 16);
 	char* MatAssetFromGUID = g_pakLoadApi->GetAssetBinding(rPakMaterialGUID);
 
-	if (rPakShaderSlotBindingInt < 0 || rPakShaderSlotBindingInt >= kMaxCustomTextureBindings)
+	if (rPakShaderSlotBindingInt < 0 || rPakShaderSlotBindingInt >= 60)
 	{
 		g_pSquirrel[ScriptContext::CLIENT]->raiseerror(
 			sqvm,
 			fmt::format(
 				"TextureOverrides only support shader binding slots 0-{}",
-				kMaxCustomTextureBindings - 1)
+				59)
 				.c_str());
 		return SQRESULT_ERROR;
 	}
@@ -825,15 +771,12 @@ template <ScriptContext context> SQRESULT NSBindTextureToMaterial(HSQUIRRELVM sq
 	else
 		NSMaterialTextureSlotBindings[material->guid].m_Slots[rPakShaderSlotBindingInt] = 0;
 
-		
+
 
 	return SQRESULT_NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Bind a material-system named texture to adjacent RPAK pixel-shader
-//          slots. Resolution is deferred until the material is drawn.
-//-----------------------------------------------------------------------------
+
 template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRRELVM sqvm)
 {
 	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);
@@ -853,13 +796,13 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 		return SQRESULT_ERROR;
 	}
 
-	if (textureBindingSlot < 0 || textureBindingSlot >= kMaxCustomTextureBindings - 1)
+	if (textureBindingSlot < 0 || textureBindingSlot >= 59)
 	{
 		g_pSquirrel[context]->raiseerror(
 			sqvm,
 			fmt::format(
 				"Named texture bindings only support base shader slots 0-{} because depth uses the adjacent slot",
-				kMaxCustomTextureBindings - 2)
+				58)
 				.c_str());
 		return SQRESULT_ERROR;
 	}
@@ -887,8 +830,8 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 	auto* material = reinterpret_cast<CMaterialGlue*>(materialAsset);
 
 	{
-		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
-		auto& mappings = s_MaterialNamedTextureSlotBindings[material->guid];
+		std::lock_guard<std::mutex> lock(NamedTextureBindingsMutex);
+		auto& mappings = MaterialNamedTextureSlotBindings[material->guid];
 		mappings.m_Slots[textureBindingSlot] = textureName;
 		mappings.m_SamplerSlots[textureBindingSlot] = static_cast<int8_t>(samplerBindingSlot);
 		UpdateCompileWaterFlag(material, mappings);
@@ -906,10 +849,6 @@ template <ScriptContext context> SQRESULT NSBindNamedTextureToMaterial(HSQUIRREL
 	return SQRESULT_NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Remove a material-system named texture override from an RPAK
-//          material's pixel-shader slot.
-//-----------------------------------------------------------------------------
 template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUIRRELVM sqvm)
 {
 	const char* materialGUIDString = g_pSquirrel[context]->getstring(sqvm, 1);
@@ -921,13 +860,13 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 		return SQRESULT_ERROR;
 	}
 
-	if (shaderBindingSlot < 0 || shaderBindingSlot >= kMaxCustomTextureBindings - 1)
+	if (shaderBindingSlot < 0 || shaderBindingSlot >= 59)
 	{
 		g_pSquirrel[context]->raiseerror(
 			sqvm,
 			fmt::format(
 				"Named texture bindings only support base shader slots 0-{} because depth uses the adjacent slot",
-				kMaxCustomTextureBindings - 2)
+				58)
 				.c_str());
 		return SQRESULT_ERROR;
 	}
@@ -944,9 +883,9 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 	auto* material = reinterpret_cast<CMaterialGlue*>(materialAsset);
 
 	{
-		std::lock_guard<std::mutex> lock(s_NamedTextureBindingsMutex);
-		const auto mappings = s_MaterialNamedTextureSlotBindings.find(material->guid);
-		if (mappings != s_MaterialNamedTextureSlotBindings.end())
+		std::lock_guard<std::mutex> lock(NamedTextureBindingsMutex);
+		const auto mappings = MaterialNamedTextureSlotBindings.find(material->guid);
+		if (mappings != MaterialNamedTextureSlotBindings.end())
 		{
 			mappings->second.m_Slots[shaderBindingSlot].clear();
 			mappings->second.m_SamplerSlots[shaderBindingSlot] = -1;
@@ -964,20 +903,13 @@ template <ScriptContext context> SQRESULT NSUnbindNamedTextureFromMaterial(HSQUI
 
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module)
 {
-	s_FindNamedTexture = module.Offset(0x96F00).RCast<FindNamedTextureFn>();
-	s_BindPixelTextureHandle = module.Offset(0x267D0).RCast<BindPixelTextureHandleFn>();
-	s_ResolvePixelTextureAndSampler = module.Offset(0x26430).RCast<ResolvePixelTextureAndSamplerFn>();
-	s_SetupWaterTextureBindings = module.Offset(0x264F0).RCast<SetupWaterTextureBindingsFn>();
-	s_StagedPixelTextures = module.Offset(0x19ACA70).RCast<ID3D11ShaderResourceView**>();
-	s_StagedPixelSamplers = module.Offset(0x19AC9F0).RCast<ID3D11SamplerState**>();
-	s_StagedTextureBindingState = module.Offset(0x19ACB30).RCast<uint64_t*>();
-	assert(s_FindNamedTexture);
-	assert(s_BindPixelTextureHandle);
-	assert(s_ResolvePixelTextureAndSampler);
-	assert(s_SetupWaterTextureBindings);
-	assert(s_StagedPixelTextures);
-	assert(s_StagedPixelSamplers);
-	assert(s_StagedTextureBindingState);
+	FindNamedTexture = module.Offset(0x96F00).RCast<FindNamedTextureFn>();
+	BindPixelTextureHandle = module.Offset(0x267D0).RCast<BindPixelTextureHandleFn>();
+	ResolvePixelTextureAndSampler = module.Offset(0x26430).RCast<ResolvePixelTextureAndSamplerFn>();
+	SetupWaterTextureBindings = module.Offset(0x264F0).RCast<SetupWaterTextureBindingsFn>();
+	StagedPixelTextures = module.Offset(0x19ACA70).RCast<ID3D11ShaderResourceView**>();
+	StagedPixelSamplers = module.Offset(0x19AC9F0).RCast<ID3D11SamplerState**>();
+	StagedTextureBindingState = module.Offset(0x19ACB30).RCast<uint64_t*>();
 
 	DISPATCH_HOOK(NSCustomDXBufferHooks, Water_Execute)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, ShaderExecute)
