@@ -3,6 +3,64 @@
 
 ConVar* Cvar_ns_write_raw_chat_to_console;
 
+class vgui_BaseRichText_vtable;
+
+class vgui_BaseRichText
+{
+public:
+	vgui_BaseRichText_vtable* vtable;
+};
+
+class vgui_BaseRichText_vtable
+{
+public:
+	char unknown1[1880];
+
+	void (*InsertChar)(vgui_BaseRichText* self, wchar_t ch);
+
+	// These are swapped from the Source 2013 order in the retail vtable.
+	void (*InsertStringWide)(vgui_BaseRichText* self, const wchar_t* text);
+	void (*InsertStringAnsi)(vgui_BaseRichText* self, const char* text);
+
+	void (*SelectNone)(vgui_BaseRichText* self);
+	void (*SelectAllText)(vgui_BaseRichText* self);
+	void (*SelectNoText)(vgui_BaseRichText* self);
+	void (*CutSelected)(vgui_BaseRichText* self);
+	void (*CopySelected)(vgui_BaseRichText* self);
+	void (*SetPanelInteractive)(vgui_BaseRichText* self, bool interactive);
+	void (*SetUnusedScrollbarInvisible)(vgui_BaseRichText* self, bool invisible);
+
+	void* unknown2;
+
+	void (*GotoTextStart)(vgui_BaseRichText* self);
+	void (*GotoTextEnd)(vgui_BaseRichText* self);
+
+	void* unknown3[3];
+
+	void (*SetVerticalScrollbar)(vgui_BaseRichText* self, bool state);
+	void (*SetMaximumCharCount)(vgui_BaseRichText* self, int maximumCharacters);
+	void (*InsertColorChange)(vgui_BaseRichText* self, Color color);
+	void (*InsertIndentChange)(vgui_BaseRichText* self, int pixelsIndent);
+	void (*InsertClickableTextStart)(vgui_BaseRichText* self, const char* clickAction);
+	void (*InsertClickableTextEnd)(vgui_BaseRichText* self);
+	void (*InsertPossibleURLString)(vgui_BaseRichText* self, const char* text, Color urlTextColor, Color normalTextColor);
+	void (*InsertFade)(vgui_BaseRichText* self, float sustain, float length);
+	void (*ResetAllFades)(vgui_BaseRichText* self, bool hold, bool onlyExpired, float newSustain);
+	void (*SetToFullHeight)(vgui_BaseRichText* self);
+	int (*GetNumLines)(vgui_BaseRichText* self);
+};
+
+static_assert(offsetof(vgui_BaseRichText_vtable, InsertChar) == 0x758);
+static_assert(offsetof(vgui_BaseRichText_vtable, InsertStringWide) == 0x760);
+static_assert(offsetof(vgui_BaseRichText_vtable, InsertStringAnsi) == 0x768);
+static_assert(offsetof(vgui_BaseRichText_vtable, InsertColorChange) == 0x7E8);
+static_assert(offsetof(vgui_BaseRichText_vtable, InsertFade) == 0x810);
+
+static vgui_BaseRichText* GetRawRichText(vgui::RichText* richText)
+{
+	return reinterpret_cast<vgui_BaseRichText*>(richText);
+}
+
 
 class CGameSettings
 {
@@ -268,7 +326,8 @@ void LocalChatWriter::InsertChar(wchar_t ch)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->InsertChar(ch);
+		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
+		richText->vtable->InsertChar(richText, ch);
 	}
 
 	if (ch != L'\n')
@@ -290,7 +349,8 @@ void LocalChatWriter::InsertText(const char* str)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->InsertString(messageUnicode);
+		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
+		richText->vtable->InsertStringWide(richText, messageUnicode);
 	}
 
 	InsertDefaultFade();
@@ -303,7 +363,8 @@ void LocalChatWriter::InsertText(const wchar_t* str)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->InsertString(str);
+		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
+		richText->vtable->InsertStringWide(richText, str);
 	}
 
 	InsertDefaultFade();
@@ -316,7 +377,8 @@ void LocalChatWriter::InsertColorChange(Color color)
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		hud->m_richText->InsertColorChange(color);
+		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
+		richText->vtable->InsertColorChange(richText, color);
 	}
 }
 
@@ -346,7 +408,8 @@ void LocalChatWriter::InsertSwatchColorChange(SwatchColor swatchColor)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
-		hud->m_richText->InsertColorChange(GetHudSwatchColor(hud, swatchColor));
+		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
+		richText->vtable->InsertColorChange(richText, GetHudSwatchColor(hud, swatchColor));
 	}
 }
 
@@ -398,7 +461,8 @@ void LocalChatWriter::InsertDefaultFade()
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
-		hud->m_richText->InsertFade(fadeSustain, fadeLength);
+		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
+		richText->vtable->InsertFade(richText, fadeSustain, fadeLength);
 	}
 }
 
