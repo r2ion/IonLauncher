@@ -139,7 +139,8 @@ template <> void CWeaponModHandler<ClientWeaponInfo_t>::Initialize(const CModule
     m_EntriesByWeapon.clear();
     m_pParseGroup = module.Offset(0x3D15D0).RCast<ParseWeaponModGroupFn<ClientWeaponInfo_t>>();
     m_pFieldDescriptors = module.Offset(0x942CA0).RCast<const WeaponFieldDescriptor_t*>();
-    m_pPrecacheFlag4Asset = module.Offset(0x195CD0).RCast<PrecacheWeaponModAssetFn>();
+    m_pPrecacheFlag4Asset = nullptr;
+    m_pPrecacheClientFlag4Asset = module.Offset(0x195CD0).RCast<PrecacheClientWeaponModFlag4AssetFn>();
     m_pPrecacheFlag8Asset = module.Offset(0x195F20).RCast<PrecacheWeaponModAssetFn>();
     m_pPrecacheString = module.Offset(0x3EDEB0).RCast<PrecacheWeaponModStringFn>();
     m_pGetWeaponInfo = module.Offset(0xBB4B0).RCast<GetWeaponModInfoFn<ClientWeaponInfo_t>>();
@@ -153,6 +154,7 @@ template <> void CWeaponModHandler<ServerWeaponInfo_t>::Initialize(const CModule
     m_pParseGroup = module.Offset(0x6CFDE0).RCast<ParseWeaponModGroupFn<ServerWeaponInfo_t>>();
     m_pFieldDescriptors = module.Offset(0x997DC0).RCast<const WeaponFieldDescriptor_t*>();
     m_pPrecacheFlag4Asset = module.Offset(0x159C00).RCast<PrecacheWeaponModAssetFn>();
+    m_pPrecacheClientFlag4Asset = nullptr;
     m_pPrecacheFlag8Asset = module.Offset(0x159E20).RCast<PrecacheWeaponModAssetFn>();
     m_pPrecacheString = module.Offset(0x429550).RCast<PrecacheWeaponModStringFn>();
     m_pGetWeaponInfo = module.Offset(0xF0CD0).RCast<GetWeaponModInfoFn<ServerWeaponInfo_t>>();
@@ -381,7 +383,7 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::ApplyActiveEntry(WeaponModCodeEntr
 
 template <typename WeaponInfo>
 void CWeaponModHandler<WeaponInfo>::PrecacheFlaggedAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group,
-                                                          const std::vector<WeaponModCodeEntry_t>& entries)
+                                                          const std::vector<WeaponModCodeEntry_t>& entries, float precacheValue)
 {
     std::size_t firstEntry;
     std::size_t entryCount;
@@ -403,7 +405,16 @@ void CWeaponModHandler<WeaponInfo>::PrecacheFlaggedAssets(WeaponInfo* pWeaponInf
             continue;
 
         if (descriptor.m_Flags & 4)
-            m_pPrecacheFlag4Asset(pValue);
+        {
+            if (m_pPrecacheClientFlag4Asset)
+            {
+                const std::uintptr_t descriptorOffset =
+                    static_cast<std::uintptr_t>(entry.m_FieldIndex) * sizeof(WeaponFieldDescriptor_t);
+                m_pPrecacheClientFlag4Asset(pValue, descriptorOffset, precacheValue);
+            }
+            else
+                m_pPrecacheFlag4Asset(pValue);
+        }
         else if (descriptor.m_Flags & 8)
             m_pPrecacheFlag8Asset(pValue);
     }
@@ -459,14 +470,13 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheAllClientStrings(WeaponInf
 }
 
 template <typename WeaponInfo>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void* pOwner, std::uint16_t fieldIndex, WeaponInfo* pWeaponInfo,
-                                                                           const std::vector<WeaponModCodeEntry_t>& entries)
+void CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void* pOwner, std::uint16_t fieldIndex, WeaponInfo* pWeaponInfo,
+                                                                 const std::vector<WeaponModCodeEntry_t>& entries)
 {
-    std::uintptr_t result = 0;
     const auto& descriptor = m_pFieldDescriptors[fieldIndex];
     const char* pDefaultValue = pWeaponInfo->m_CompiledData.template GetValue<const char*>(descriptor.m_CompiledOffset);
     if (pDefaultValue && *pDefaultValue)
-        result = m_pNotifyStringField(pOwner);
+        m_pNotifyStringField(pOwner, pDefaultValue);
 
     const WeaponModGroup_t* pGroups = GetModGroups(pWeaponInfo);
     const std::uint32_t groupCount = GetModGroupCount(pWeaponInfo);
@@ -480,17 +490,20 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void*
         for (std::size_t index = firstEntry; index < firstEntry + entryCount; ++index)
         {
             const auto& entry = entries[index];
-            if (entry.m_FieldIndex == fieldIndex && *pWeaponInfo->m_StringPool.GetString(entry.GetStringOffset()))
-                result = m_pNotifyStringField(pOwner);
+            if (entry.m_FieldIndex != fieldIndex)
+                continue;
+
+            const char* pValue = pWeaponInfo->m_StringPool.GetString(entry.GetStringOffset());
+            if (*pValue)
+                m_pNotifyStringField(pOwner, pValue);
         }
     }
-
-    return groupCount ? groupCount : result;
 }
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, OriginalFn&& original)
+void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, float precacheValue,
+                                                   OriginalFn&& original)
 {
     auto* pEntries = FindEntries(pWeaponInfo);
     if (!pEntries)
@@ -499,7 +512,7 @@ void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* pWeaponInfo, cons
         return;
     }
 
-    PrecacheFlaggedAssets(pWeaponInfo, group, *pEntries);
+    PrecacheFlaggedAssets(pWeaponInfo, group, *pEntries, precacheValue);
 }
 
 template <typename WeaponInfo>
@@ -534,11 +547,14 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheAllStrings(WeaponInfo* pWe
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::NotifyStringField(void* pOwner, std::uint16_t fieldIndex, OriginalFn&& original)
+void CWeaponModHandler<WeaponInfo>::NotifyStringField(void* pOwner, std::uint16_t fieldIndex, OriginalFn&& original)
 {
     WeaponInfo* pWeaponInfo = m_pGetWeaponInfo(pOwner);
     auto* pEntries = FindEntries(pWeaponInfo);
-    return pEntries ? NotifyStringFieldFromEntries(pOwner, fieldIndex, pWeaponInfo, *pEntries) : original();
+    if (pEntries)
+        NotifyStringFieldFromEntries(pOwner, fieldIndex, pWeaponInfo, *pEntries);
+    else
+        original();
 }
 
 DECLARE_HOOK(InitializeWeaponInfo_Client, client.dll + 0x3CC990, [](auto& hook, ClientWeaponInfo_t* pWeaponInfo) -> std::uintptr_t
@@ -622,12 +638,15 @@ DECLARE_HOOK(ApplyWeaponModEntry_Server, server.dll + 0x6C75D0,
 });
 
 DECLARE_HOOK(PrecacheWeaponModAssets_Client, client.dll + 0x3D1ED0,
-             [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> void
-{ g_ClientWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, [&]() { hook.Original(pWeaponInfo, pGroup); }); });
+             [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup, float precacheValue) -> void
+{
+    g_ClientWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, precacheValue,
+                                      [&]() { hook.Original(pWeaponInfo, pGroup, precacheValue); });
+});
 
 DECLARE_HOOK(PrecacheWeaponModAssets_Server, server.dll + 0x6D0190,
              [](auto& hook, ServerWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> void
-{ g_ServerWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, [&]() { hook.Original(pWeaponInfo, pGroup); }); });
+{ g_ServerWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, 0.0f, [&]() { hook.Original(pWeaponInfo, pGroup); }); });
 
 DECLARE_HOOK(PrecacheWeaponModStrings_Client, client.dll + 0x3D23E0,
              [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> std::uintptr_t
@@ -640,11 +659,11 @@ DECLARE_HOOK(PrecacheWeaponModStrings_Server, server.dll + 0x6D0680,
 DECLARE_HOOK(PrecacheAllWeaponModStrings_Client, client.dll + 0x3D2480, [](auto& hook, ClientWeaponInfo_t* pWeaponInfo) -> std::uintptr_t
 { return g_ClientWeaponMods.PrecacheAllStrings(pWeaponInfo, [&]() { return hook.Original(pWeaponInfo); }); });
 
-DECLARE_HOOK(NotifyWeaponModStringField_Client, client.dll + 0x3D41E0, [](auto& hook, void* pOwner, std::uint16_t fieldIndex) -> std::uintptr_t
-{ return g_ClientWeaponMods.NotifyStringField(pOwner, fieldIndex, [&]() { return hook.Original(pOwner, fieldIndex); }); });
+DECLARE_HOOK(NotifyWeaponModStringField_Client, client.dll + 0x3D41E0, [](auto& hook, void* pOwner, std::uint16_t fieldIndex) -> void
+{ g_ClientWeaponMods.NotifyStringField(pOwner, fieldIndex, [&]() { hook.Original(pOwner, fieldIndex); }); });
 
-DECLARE_HOOK(NotifyWeaponModStringField_Server, server.dll + 0x6D1970, [](auto& hook, void* pOwner, std::uint16_t fieldIndex) -> std::uintptr_t
-{ return g_ServerWeaponMods.NotifyStringField(pOwner, fieldIndex, [&]() { return hook.Original(pOwner, fieldIndex); }); });
+DECLARE_HOOK(NotifyWeaponModStringField_Server, server.dll + 0x6D1970, [](auto& hook, void* pOwner, std::uint16_t fieldIndex) -> void
+{ g_ServerWeaponMods.NotifyStringField(pOwner, fieldIndex, [&]() { hook.Original(pOwner, fieldIndex); }); });
 
 ON_DLL_LOAD("server.dll", WeaponMods_Server, [](CModule module)
 {

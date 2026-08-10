@@ -102,12 +102,13 @@ struct ServerWeaponInfo_t
 
 template <typename WeaponInfo> using ParseWeaponModGroupFn = std::uintptr_t (*)(KeyValues*, WeaponInfo*, const char*, WeaponModGroup_t*);
 
-using PrecacheWeaponModAssetFn = void (*)(const char*);
+using PrecacheWeaponModAssetFn = std::uintptr_t (*)(const char*);
+using PrecacheClientWeaponModFlag4AssetFn = std::uintptr_t (*)(const char*, std::uintptr_t, float);
 using PrecacheWeaponModStringFn = std::uintptr_t (*)(const char*);
 
 template <typename WeaponInfo> using GetWeaponModInfoFn = WeaponInfo* (*)(void*);
 
-using NotifyWeaponModStringFieldFn = std::uintptr_t (*)(void*);
+using NotifyWeaponModStringFieldFn = void (*)(void*, const char*);
 using InsertWeaponModAssemblyItemFn = std::uintptr_t (*)(WeaponModCodeEntry_t*, const WeaponFieldDescriptor_t*, WeaponModAssemblyItem_t*);
 template <typename WeaponInfo> class CScopedWeaponModAssembly;
 
@@ -131,7 +132,8 @@ template <typename WeaponInfo> class CWeaponModHandler
     static bool HasActiveAssembly();
     static std::uintptr_t ApplyActiveEntry(WeaponModCodeEntry_t* pEntry, std::uintptr_t setBaseValue, std::uintptr_t remove);
 
-    template <typename OriginalFn> void PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, OriginalFn&& original);
+    template <typename OriginalFn>
+    void PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, float precacheValue, OriginalFn&& original);
 
     template <typename OriginalFn> std::uintptr_t PrecacheStrings(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, OriginalFn&& original);
 
@@ -139,7 +141,7 @@ template <typename WeaponInfo> class CWeaponModHandler
 
     template <typename OriginalFn> std::uintptr_t PrecacheAllStrings(WeaponInfo* pWeaponInfo, OriginalFn&& original);
 
-    template <typename OriginalFn> std::uintptr_t NotifyStringField(void* pOwner, std::uint16_t fieldIndex, OriginalFn&& original);
+    template <typename OriginalFn> void NotifyStringField(void* pOwner, std::uint16_t fieldIndex, OriginalFn&& original);
 
   private:
     friend class CScopedWeaponModAssembly<WeaponInfo>;
@@ -157,15 +159,17 @@ template <typename WeaponInfo> class CWeaponModHandler
     std::vector<WeaponModCodeEntry_t>* FindEntries(WeaponInfo* pWeaponInfo);
     bool GetGroupRange(const std::vector<WeaponModCodeEntry_t>& entries, const WeaponModGroup_t& group, std::size_t& firstEntry,
                        std::size_t& entryCount) const;
-    void PrecacheFlaggedAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, const std::vector<WeaponModCodeEntry_t>& entries);
+    void PrecacheFlaggedAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, const std::vector<WeaponModCodeEntry_t>& entries,
+                               float precacheValue);
     std::uintptr_t PrecacheStringEntries(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, const std::vector<WeaponModCodeEntry_t>& entries);
     std::uintptr_t PrecacheAllClientStrings(WeaponInfo* pWeaponInfo, const std::vector<WeaponModCodeEntry_t>& entries);
-    std::uintptr_t NotifyStringFieldFromEntries(void* pOwner, std::uint16_t fieldIndex, WeaponInfo* pWeaponInfo,
-                                                const std::vector<WeaponModCodeEntry_t>& entries);
+    void NotifyStringFieldFromEntries(void* pOwner, std::uint16_t fieldIndex, WeaponInfo* pWeaponInfo,
+                                      const std::vector<WeaponModCodeEntry_t>& entries);
 
     ParseWeaponModGroupFn<WeaponInfo> m_pParseGroup = nullptr;
     const WeaponFieldDescriptor_t* m_pFieldDescriptors = nullptr;
     PrecacheWeaponModAssetFn m_pPrecacheFlag4Asset = nullptr;
+    PrecacheClientWeaponModFlag4AssetFn m_pPrecacheClientFlag4Asset = nullptr;
     PrecacheWeaponModAssetFn m_pPrecacheFlag8Asset = nullptr;
     PrecacheWeaponModStringFn m_pPrecacheString = nullptr;
     GetWeaponModInfoFn<WeaponInfo> m_pGetWeaponInfo = nullptr;
