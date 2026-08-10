@@ -1689,5 +1689,11 @@ std::vector<std::string> CCrashHandler::FormatStackMemoryDump(PCONTEXT context, 
 	return MakeHexDumpLines(sp, buffer.data(), buffer.size());
 }
 
+ON_DLL_LOAD("tier0.dll", Tier0CrashPatches, [](CModule module)
+{
+	CMemory abortSite = module.Offset(0x26170);
+	abortSite.Patch({0x0F, 0x0B});
+})
+
 //-----------------------------------------------------------------------------
 CCrashHandler* g_pCrashHandler = nullptr;
