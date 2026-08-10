@@ -14,15 +14,13 @@ Always assert your assumptions!
 
 Use PascalCase for all names.
 
-Suffix structs with `_t`.
+Suffix structs with `_t` or `_t`.
 
 Prefix classes with `C` (class) and `I` (abstract class).
 
 Prefix all class member variables with `m_`.
 
 Prefixes `g_` for global variables and `s_` for static variables are welcome.
-
-For hooking we use `o_<function name>` for function pointers pointing to the original implementation and `h_<function name>` for functions we replace them with.
 
 Document all function implementations and their arguments (if the argument is self explanatory you don't need to document it) valve style:
 ```
