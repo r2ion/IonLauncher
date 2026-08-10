@@ -52,10 +52,13 @@ void PatchTier0FatalAppExit()
 	CModule tier0(GetModuleHandleA("tier0.dll"));
 	if (!tier0.GetModuleBase())
 		return;
-
+    
 	CMemory abortSite = tier0.Offset(0x26170);
 	if (!abortSite.CheckOpCodes({0xCD, 0x29}))
 		return;
+
+	CMemory coreCheck = tier0.Offset(0x1A685);
+    coreCheck.Patch({0x48,0xC7, 0x45, 0x1B, 0x01, 0x00, 0x00, 0x00});
 
 	abortSite.Patch({0x0F, 0x0B});
 	s_pTier0FatalAppExit = abortSite.RCast<void*>();
