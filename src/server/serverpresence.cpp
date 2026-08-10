@@ -1,5 +1,5 @@
 #include "serverpresence.h"
-#include "shared/playlist.h"
+#include "engine/shared/playlist.h"
 #include "core/tier0.h"
 #include "tier1/convar.h"
 

@@ -5,7 +5,7 @@
 #include "tier1/keyvalues.h"
 #include "tier1/utlvector.h"
 #include "engine/server/datablock_sender.h"
-#include "shared/signonstate.h"
+#include "engine/shared/signonstate.h"
 
 #include <cstddef>
 #include <cstdint>

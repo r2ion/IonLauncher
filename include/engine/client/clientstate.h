@@ -4,7 +4,7 @@
 #include "inetmessage.h"
 #include "irecipientfilter.h"
 
-#include "shared/signonstate.h"
+#include "engine/shared/signonstate.h"
 #include "engine/net_chan.h"
 #include "engine/clockdriftmgr.h"
 #include "engine/framesnapshot.h"

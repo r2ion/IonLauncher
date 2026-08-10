@@ -5,7 +5,7 @@
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
 #include "server/auth/serverauthentication.h"
-#include "shared/playlist.h"
+#include "engine/shared/playlist.h"
 #include "tier1/cvar.h"
 #include "util/printcommands.h"
 #include "util/utils.h"

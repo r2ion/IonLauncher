@@ -1,6 +1,6 @@
 #include "cliententitylist.h"
 #include "core/tier1.h"
-#include "shared/maxplayers.h"
+#include "engine/shared/maxplayers.h"
 
 DECLARE_MODULE(ClientEntityListHooks)
 

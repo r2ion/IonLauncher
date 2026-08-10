@@ -8,8 +8,8 @@
 #include "modsystem/modmanager.h"
 #include "server/auth/bansystem.h"
 #include "server/auth/serverauthentication.h"
-#include "shared/misccommands.h"
-#include "shared/playlist.h"
+#include "engine/shared/misccommands.h"
+#include "engine/shared/playlist.h"
 #include "util/utils.h"
 #include "util/version.h"
 

@@ -2,7 +2,7 @@
 #include "core/tier0.h"
 #include "modsystem/modmanager.h"
 #include "r2engine.h"
-#include "shared/misccommands.h"
+#include "engine/shared/misccommands.h"
 #include "util/printcommands.h"
 #include "util/printmaps.h"
 #include "client/ckf.h"

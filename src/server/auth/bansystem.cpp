@@ -8,7 +8,7 @@
 #include "engine/client/client.h"
 #include "engine/client/clientstate.h"
 #include "config/profile.h"
-#include "shared/maxplayers.h"
+#include "engine/shared/maxplayers.h"
 
 #include <filesystem>
 #include <stdio.h>

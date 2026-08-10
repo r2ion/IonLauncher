@@ -1296,6 +1296,8 @@ template <typename HookT> struct LambdaHookRegistrationProc
         using FullArgs = typename Traits::args_tuple;                                                                                                \
         static_assert(std::tuple_size_v<FullArgs> >= 1, "Hook lambda must take hook ref as first arg");                                              \
         using ArgsTuple = typename HookSys::tuple_tail<FullArgs>::type;                                                                              \
+        static constexpr bool kVarargs = Traits::is_variadic;                                                                                        \
+        using FixedArgsTuple = ArgsTuple;                                                                                                            \
         template <typename... Args> struct Helper                                                                                                    \
         {                                                                                                                                            \
             using OriginalFn = ReturnT(callingConvention*)(Args...);                                                                                 \
@@ -1308,10 +1310,19 @@ template <typename HookT> struct LambdaHookRegistrationProc
                     return Self::Instance().Invoke(args...);                                                                                         \
             }                                                                                                                                        \
         };                                                                                                                                           \
-        using HelperT = typename HookSys::apply_tuple<Helper, ArgsTuple>::type;                                                                      \
+        template <typename... Args> struct VarargHelper                                                                                              \
+        {                                                                                                                                            \
+            static_assert(sizeof...(Args) > 0, "Varargs hooks require at least one fixed argument");                                                 \
+            static_assert(sizeof...(Args) <= 8, "Varargs hooks support up to 8 fixed args");                                                         \
+        };                                                                                                                                           \
+        HOOKSYS_DEFINE_VARARG_HELPERS_NESTED_CC(callingConvention)                                                                                   \
+        using HelperT = std::conditional_t<kVarargs, typename HookSys::apply_tuple<VarargHelper, FixedArgsTuple>::type,                              \
+                                           typename HookSys::apply_tuple<Helper, ArgsTuple>::type>;                                                  \
         using OriginalFn = typename HelperT::OriginalFn;                                                                                             \
         inline static OriginalFn s_original = nullptr;                                                                                               \
         inline static thread_local void* s_returnAddress = nullptr;                                                                                  \
+        inline static thread_local bool s_hasVaList = false;                                                                                         \
+        inline static thread_local va_list s_vaList;                                                                                                 \
         inline static LambdaT s_lambda = CONCAT2(__lambdaHookProcLambda_, __LINE__);                                                                 \
         static Self& Instance()                                                                                                                      \
         {                                                                                                                                            \
@@ -1322,7 +1333,24 @@ template <typename HookT> struct LambdaHookRegistrationProc
         {                                                                                                                                            \
             return s_returnAddress;                                                                                                                  \
         }                                                                                                                                            \
+        bool HasVarArgs() const                                                                                                                      \
+        {                                                                                                                                            \
+            return s_hasVaList;                                                                                                                      \
+        }                                                                                                                                            \
+        va_list* VarArgs()                                                                                                                           \
+        {                                                                                                                                            \
+            assert(s_hasVaList && "VarArgs() called without active varargs");                                                                        \
+            return &s_vaList;                                                                                                                        \
+        }                                                                                                                                            \
         template <typename... Args> ReturnT Invoke(Args... args)                                                                                     \
+        {                                                                                                                                            \
+            HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
+            if constexpr (std::is_void_v<ReturnT>)                                                                                                   \
+                s_lambda(Instance(), args...);                                                                                                       \
+            else                                                                                                                                     \
+                return s_lambda(Instance(), args...);                                                                                                \
+        }                                                                                                                                            \
+        template <typename... Args> ReturnT InvokeVarargs(Args... args)                                                                              \
         {                                                                                                                                            \
             HookSys::HookInvocationScope<HookDebugName> hookInvocationScope;                                                                         \
             if constexpr (std::is_void_v<ReturnT>)                                                                                                   \

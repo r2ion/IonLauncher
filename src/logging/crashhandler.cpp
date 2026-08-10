@@ -10,7 +10,6 @@
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
 #include "tier0/hooks.h"
-#include "tier0/module.h"
 #include "util/version.h"
 #include "util/utils.h"
 
@@ -37,7 +36,10 @@ typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 #define CRASHHANDLER_GETMODULEHANDLE_FAIL "<unknown module>"
 #define CRASHHANDLER_NULL_INSTRUCTION_PTR "<null instruction pointer>"
 
-static void* s_pTier0FatalAppExit = nullptr;
+#define ENGINE_ERROR_EXCEPTION_CODE 0xE0000001
+#define ENGINE_ERROR_MESSAGE_CAPCITY 0x1000
+
+DECLARE_MODULE(CrashHandlerHooks)
 
 struct GPUInfo_s
 {
@@ -47,26 +49,26 @@ struct GPUInfo_s
 	std::vector<std::pair<std::string, uint64_t>> allAdapters; // name, vram
 };
 
-void PatchTier0FatalAppExit()
+DECLARE_HOOK_PROC_CC(Tier0Error, tier0.dll, Error, __cdecl, [](auto& hook, const char* pszFormat, ...) -> char
 {
-	CModule tier0(GetModuleHandleA("tier0.dll"));
-	if (!tier0.GetModuleBase())
-		return;
+	char szMessage[ENGINE_ERROR_MESSAGE_CAPCITY] = {};
+	if (pszFormat && hook.HasVarArgs())
+	{
+		va_list argList;
+		va_copy(argList, *hook.VarArgs());
+		vsnprintf_s(szMessage, sizeof(szMessage), _TRUNCATE, pszFormat, argList);
+		va_end(argList);
+	}
+	else
+	{
+		strcpy_s(szMessage, pszFormat ? pszFormat : "<null Tier0 Error format>");
+	}
 
-	CMemory abortSite = tier0.Offset(0x26170);
-	if (!abortSite.CheckOpCodes({0xCD, 0x29}))
-		return;
+	if (g_pCrashHandler)
+		g_pCrashHandler->HandleTier0Error(szMessage);
 
-	abortSite.Patch({0x0F, 0x0B});
-	s_pTier0FatalAppExit = abortSite.RCast<void*>();
-	FlushInstructionCache(GetCurrentProcess(), s_pTier0FatalAppExit, 2);
-}
-
-bool IsTier0FatalAppExit(const EXCEPTION_RECORD* exception)
-{
-	return s_pTier0FatalAppExit && exception && exception->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION &&
-		exception->ExceptionAddress == s_pTier0FatalAppExit;
-}
+	return hook.Original("%s", szMessage);
+})
 
 //-----------------------------------------------------------------------------
 // Purpose: Vectored exception callback
@@ -148,6 +150,13 @@ void CCrashHandler::CapturePreCrashLog(size_t maxLines)
 	m_PreCrashLogLines = NS::log::GetRecentLogLines(maxLines);
 }
 
+void CCrashHandler::HandleTier0Error(const char* pszMessage)
+{
+	m_svCrashReason = pszMessage ? pszMessage : "<null Tier0 Error message>";
+	RaiseException(ENGINE_ERROR_EXCEPTION_CODE, EXCEPTION_NONCONTINUABLE, 0, nullptr);
+	ExitProcess(1);
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: console control signal handler
 //-----------------------------------------------------------------------------
@@ -197,7 +206,7 @@ CCrashHandler::~CCrashHandler()
 void CCrashHandler::Init()
 {
 	m_hExceptionFilter = AddVectoredExceptionHandler(TRUE, ExceptionFilter);
-	PatchTier0FatalAppExit();
+	DISPATCH_MODULE(CrashHandlerHooks)
 	m_bHasSetConsolehandler = SetConsoleCtrlHandler(ConsoleCtrlRoutine, TRUE);
 
 	SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
@@ -498,9 +507,6 @@ void CCrashHandler::SetCrashedModule()
 
 const CHAR* CCrashHandler::GetExceptionString() const
 {
-	if (IsTier0FatalAppExit(m_pExceptionInfos->ExceptionRecord))
-		return "FAST_FAIL_FATAL_APP_EXIT";
-
 	return GetExceptionString(m_pExceptionInfos->ExceptionRecord->ExceptionCode);
 }
 
@@ -512,6 +518,7 @@ const CHAR* CCrashHandler::GetExceptionString(DWORD dwExceptionCode) const
 	// clang-format off
 	switch (dwExceptionCode)
 	{
+	case ENGINE_ERROR_EXCEPTION_CODE:          return "TIER0_ERROR";
 	case EXCEPTION_ACCESS_VIOLATION:         return "EXCEPTION_ACCESS_VIOLATION";
 	case EXCEPTION_DATATYPE_MISALIGNMENT:    return "EXCEPTION_DATATYPE_MISALIGNMENT";
 	case EXCEPTION_BREAKPOINT:               return "EXCEPTION_BREAKPOINT";
@@ -556,6 +563,7 @@ bool CCrashHandler::IsExceptionFatal(DWORD dwExceptionCode) const
 	// clang-format off
 	switch (dwExceptionCode)
 	{
+	case ENGINE_ERROR_EXCEPTION_CODE:
 	case EXCEPTION_ACCESS_VIOLATION:
 	case EXCEPTION_DATATYPE_MISALIGNMENT:
 	case EXCEPTION_BREAKPOINT:
@@ -615,6 +623,8 @@ void CCrashHandler::FormatException()
 	spdlog::error("-------------------------------------------");
 	spdlog::error("Northstar has crashed!");
 	spdlog::error("\tVersion: {}", version);
+	if (!m_svCrashReason.empty())
+		spdlog::error("\tCrash reason: {}", m_svCrashReason);
 	if (!m_svError.empty())
 	{
 		spdlog::info("\tEncountered an error when gathering crash information!");
@@ -1205,6 +1215,8 @@ void CCrashHandler::WriteCrashComment()
 	commentFile << "Timestamp: " << std::put_time(&currentTime, "%Y-%m-%d %H-%M-%S") << "\n";
 	commentFile << fmt::format("Version: {}\n", version);
 	commentFile << fmt::format("Patch: {}\n", ION_PATCH);
+	if (!m_svCrashReason.empty())
+		commentFile << fmt::format("Crash reason: {}\n", m_svCrashReason);
 	if (!m_svError.empty())
 	{
 		commentFile << fmt::format("Encountered an error when gathering crash information!\n");

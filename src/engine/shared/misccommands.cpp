@@ -1,7 +1,7 @@
 #include "misccommands.h"
 #include "core/convar/concommand.h"
 #include "tier1/cvar.h"
-#include "shared/playlist.h"
+#include "engine/shared/playlist.h"
 #include "engine/r2engine.h"
 #include "engine/client/clientstate.h"
 #include "core/tier0.h"

@@ -35,6 +35,7 @@ public:
 	// Exception helpers
 	//-----------------------------------------------------------------------------
 	void SetExceptionInfos(EXCEPTION_POINTERS* pExceptionPointers);
+	void HandleTier0Error(const char* pszMessage);
 
 	void SetCrashedModule();
 
@@ -102,6 +103,7 @@ private:
 	const char* m_pszActiveHookName;
 
 	std::string m_svError;
+	std::string m_svCrashReason;
 
 	std::vector<std::string> m_PreCrashLogLines;
 

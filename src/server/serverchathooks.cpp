@@ -1,5 +1,5 @@
 #include "serverchathooks.h"
-#include "shared/exploit_fixes/ns_limits.h"
+#include "engine/shared/exploit_fixes/ns_limits.h"
 #include "vscript/squirrel/squirrel.h"
 #include "server/r2server.h"
 #include "util/utils.h"

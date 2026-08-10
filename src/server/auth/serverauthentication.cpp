@@ -1,5 +1,5 @@
 #include "serverauthentication.h"
-#include "shared/exploit_fixes/ns_limits.h"
+#include "engine/shared/exploit_fixes/ns_limits.h"
 #include "tier1/cvar.h"
 #include "masterserver/masterserver.h"
 #include "server/serverpresence.h"
