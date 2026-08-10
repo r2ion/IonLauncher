@@ -466,7 +466,7 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void*
     const auto& descriptor = m_pFieldDescriptors[fieldIndex];
     const char* pDefaultValue = pWeaponInfo->m_CompiledData.template GetValue<const char*>(descriptor.m_CompiledOffset);
     if (pDefaultValue && *pDefaultValue)
-        result = m_pNotifyStringField(pOwner);
+        result = m_pNotifyStringField(pOwner, pDefaultValue);
 
     const WeaponModGroup_t* pGroups = GetModGroups(pWeaponInfo);
     const std::uint32_t groupCount = GetModGroupCount(pWeaponInfo);
@@ -480,8 +480,12 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void*
         for (std::size_t index = firstEntry; index < firstEntry + entryCount; ++index)
         {
             const auto& entry = entries[index];
-            if (entry.m_FieldIndex == fieldIndex && *pWeaponInfo->m_StringPool.GetString(entry.GetStringOffset()))
-                result = m_pNotifyStringField(pOwner);
+            if (entry.m_FieldIndex != fieldIndex)
+                continue;
+
+            const char* pValue = pWeaponInfo->m_StringPool.GetString(entry.GetStringOffset());
+            if (*pValue)
+                result = m_pNotifyStringField(pOwner, pValue);
         }
     }
 

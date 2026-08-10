@@ -765,8 +765,16 @@ void ModManager::SearchFilesystemForMods()
             spdlog::warn("Mod file at '{}' failed to load", (modDir / "mod.json").string());
     }
 
-    // sort by load prio, lowest-highest
-    std::sort(m_LoadedMods.begin(), m_LoadedMods.end(), [](Mod& a, Mod& b) { return a.LoadPriority < b.LoadPriority; });
+    std::sort(m_LoadedMods.begin(), m_LoadedMods.end(), [](const Mod& a, const Mod& b)
+    {
+        if (a.LoadPriority != b.LoadPriority)
+            return a.LoadPriority < b.LoadPriority;
+        if (a.Name != b.Name)
+            return a.Name < b.Name;
+        if (a.Version != b.Version)
+            return a.Version < b.Version;
+        return a.m_ModDirectory.native() < b.m_ModDirectory.native();
+    });
 }
 
 void ModManager::DisableMultipleModVersions()

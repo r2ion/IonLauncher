@@ -727,7 +727,7 @@ void ConnectionManager::ReloadModsAndConnect(std::vector<RemoteModInfo> required
 			else if (loaded.RequiredOnClient)
 				loaded.m_bEnabled = false;
 
-			if (!wasEnabled && loaded.m_bEnabled && loaded.RequiredOnClient)
+			if (wasEnabled != loaded.m_bEnabled)
 				shouldReloadMods = true;
 		}
 

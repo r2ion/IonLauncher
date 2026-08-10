@@ -107,7 +107,7 @@ using PrecacheWeaponModStringFn = std::uintptr_t (*)(const char*);
 
 template <typename WeaponInfo> using GetWeaponModInfoFn = WeaponInfo* (*)(void*);
 
-using NotifyWeaponModStringFieldFn = std::uintptr_t (*)(void*);
+using NotifyWeaponModStringFieldFn = std::uintptr_t (*)(void*, const char*);
 using InsertWeaponModAssemblyItemFn = std::uintptr_t (*)(WeaponModCodeEntry_t*, const WeaponFieldDescriptor_t*, WeaponModAssemblyItem_t*);
 template <typename WeaponInfo> class CScopedWeaponModAssembly;
 

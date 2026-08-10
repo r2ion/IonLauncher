@@ -39,6 +39,10 @@ public:
 	VanillaCompatibility::CompatibilityMode m_lastCompatibilityMode;
 	std::vector<std::string> m_VanillaKeyvaluePaths;
 	std::vector<std::string> m_NorthstarKeyvaluePaths;
+	std::vector<std::string> m_VanillaRequiredKeyvalueOrderPaths;
+	std::vector<std::string> m_NorthstarRequiredKeyvalueOrderPaths;
+	std::vector<std::string> m_VanillaOptionalKeyvalueOrderPaths;
+	std::vector<std::string> m_NorthstarOptionalKeyvalueOrderPaths;
 };
 
 class ModManager
