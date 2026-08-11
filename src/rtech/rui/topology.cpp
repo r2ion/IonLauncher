@@ -5,6 +5,7 @@
 #include "vscript/squirrel/squirrel.h"
 
 #include <array>
+#include <bit>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -14,13 +15,16 @@ using GetTopologyArgumentFn = RuiTopology* (*)(HSQUIRRELVM sqvm, int argumentInd
 static GetTopologyArgumentFn s_GetTopologyArgument;
 static std::atomic<uint64_t> s_HiddenTopologyMask = 0;
 static std::array<std::atomic<RuiTopologyHandle>, RUI_TOPOLOGY_CAPACITY> s_HiddenTopologyHandles{};
+static std::array<std::atomic<const RuiTopology*>, RUI_TOPOLOGY_CAPACITY> s_HiddenTopologies{};
 
-static void RuiTopology_SetHidden(RuiTopologyHandle topologyHandle, bool hidden)
+static void RuiTopology_SetHidden(const RuiTopology* topology, bool hidden)
 {
+    const RuiTopologyHandle topologyHandle = topology->handle;
     const size_t topologyIndex = topologyHandle & RUI_TOPOLOGY_INDEX_MASK;
     const uint64_t topologyBit = uint64_t{1} << topologyIndex;
     if (hidden)
     {
+        s_HiddenTopologies[topologyIndex].store(topology, std::memory_order_relaxed);
         s_HiddenTopologyHandles[topologyIndex].store(topologyHandle, std::memory_order_relaxed);
         s_HiddenTopologyMask.fetch_or(topologyBit, std::memory_order_release);
         return;
@@ -55,7 +59,7 @@ ADD_SQFUNC("void", RuiTopology_Hide, "var topology", "Prevents RUI instances usi
     if (!topology)
         return SQRESULT_ERROR;
 
-	RuiTopology_SetHidden(topology->handle, true);
+	RuiTopology_SetHidden(topology, true);
     return SQRESULT_NULL;
 }
 
@@ -65,32 +69,31 @@ ADD_SQFUNC("void", RuiTopology_Show, "var topology", "Allows RUI instances using
     if (!topology)
         return SQRESULT_ERROR;
 
-	RuiTopology_SetHidden(topology->handle, false);
+	RuiTopology_SetHidden(topology, false);
     return SQRESULT_NULL;
 }
 
-static const RuiTopology* RuiTopology_GetFromInstance(const RuiInstance* rui) noexcept
-{
-    if (!rui || !rui->drawInfo)
-        return nullptr;
-
-    const std::byte* drawInfo = reinterpret_cast<const std::byte*>(rui->drawInfo);
-    return reinterpret_cast<const RuiTopology*>(drawInfo - offsetof(RuiTopology, drawInfo));
-}
 
 bool RuiTopology_IsHidden(const RuiInstance* rui) noexcept
 {
-    const RuiTopology* topology = RuiTopology_GetFromInstance(rui);
-    if (!topology)
+    if (!rui || !rui->drawInfo)
         return false;
 
-    const size_t topologyIndex = topology->handle & RUI_TOPOLOGY_INDEX_MASK;
-    const uint64_t hiddenMask = s_HiddenTopologyMask.load(std::memory_order_acquire);
-    if ((hiddenMask & (uint64_t{1} << topologyIndex)) == 0)
-        return false;
+    uint64_t hiddenMask = s_HiddenTopologyMask.load(std::memory_order_acquire);
+    while (hiddenMask != 0)
+    {
+        const size_t topologyIndex = std::countr_zero(hiddenMask);
+        const RuiTopology* topology = s_HiddenTopologies[topologyIndex].load(std::memory_order_relaxed);
+        if (topology && rui->drawInfo == &topology->drawInfo.base)
+        {
+            const RuiTopologyHandle hiddenHandle = s_HiddenTopologyHandles[topologyIndex].load(std::memory_order_relaxed);
+            return hiddenHandle == topology->handle;
+        }
 
-    const RuiTopologyHandle hiddenHandle = s_HiddenTopologyHandles[topologyIndex].load(std::memory_order_relaxed);
-    return hiddenHandle == topology->handle;
+        hiddenMask &= hiddenMask - 1;
+    }
+
+    return false;
 }
 
 ON_DLL_LOAD_CLIENT("client.dll", RuiTopology, [](CModule module)
