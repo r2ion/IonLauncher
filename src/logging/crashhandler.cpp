@@ -541,7 +541,6 @@ const CHAR* CCrashHandler::GetExceptionString(DWORD dwExceptionCode) const
 	// clang-format off
 	switch (dwExceptionCode)
 	{
-	case ENGINE_ERROR_EXCEPTION_CODE:          return "TIER0_ERROR";
 	case EXCEPTION_ACCESS_VIOLATION:         return "EXCEPTION_ACCESS_VIOLATION";
 	case EXCEPTION_DATATYPE_MISALIGNMENT:    return "EXCEPTION_DATATYPE_MISALIGNMENT";
 	case EXCEPTION_BREAKPOINT:               return "EXCEPTION_BREAKPOINT";
@@ -647,13 +646,15 @@ void CCrashHandler::FormatException()
 	spdlog::error("Northstar has crashed!");
 	spdlog::error("\tVersion: {}", version);
 	if (!m_svCrashReason.empty())
-		spdlog::error("\tCrash reason: {}", m_svCrashReason);
+		spdlog::error("\tEngine Error: {}", m_svCrashReason);
 	if (!m_svError.empty())
 	{
 		spdlog::info("\tEncountered an error when gathering crash information!");
 		spdlog::info("\tWinApi Error: {}", m_svError.c_str());
 	}
-	spdlog::error("\t{}", GetExceptionString());
+
+	if(m_svCrashReason.empty())
+		spdlog::error("\t{}", GetExceptionString());
 
 	DWORD dwExceptionCode = m_pExceptionInfos->ExceptionRecord->ExceptionCode;
 	if (dwExceptionCode == EXCEPTION_ACCESS_VIOLATION || dwExceptionCode == EXCEPTION_IN_PAGE_ERROR)
