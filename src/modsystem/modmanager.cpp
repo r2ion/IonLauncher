@@ -1199,20 +1199,24 @@ bool ModManager::GetModVPKModelSource(const fs::path& path, std::string& vpkPath
 void ModManager::CompileAssetsForFile(const char* filename)
 {
     const std::string normalisedPath = NormaliseModFilePath(fs::path(filename));
-    size_t fileHash = STR_HASH(normalisedPath);
+    const size_t fileHash = STR_HASH(normalisedPath);
 
-    for (auto& file : m_CompiledAssetFiles)
+    const auto compiledFile = m_CompiledAssetFiles.find(normalisedPath);
+    if (compiledFile != m_CompiledAssetFiles.end())
     {
-        if (fileHash == STR_HASH(file.second.m_Path.string()))
+        const VanillaCompatibility::CompatibilityMode compatibilityMode = g_pVanillaCompatibility->GetVanillaCompatibility()
+                                                                              ? VanillaCompatibility::CompatibilityMode::Vanilla
+                                                                              : VanillaCompatibility::CompatibilityMode::Northstar;
+        if (compiledFile->second != compatibilityMode)
         {
-            TryChangeoverKeyValues(filename, file.second);
-
-            // weapon_reparse removes weapon paths from m_CompiledFiles to
-            // invalidate the filesystem cache. The generated wrapper and all
-            // of its #base files are still valid, so reactivate the full set.
-            RegisterCompiledKeyValuesFiles(filename, file.second);
-            return;
+            m_CompiledFiles.erase(normalisedPath);
+            TryBuildKeyValues(filename);
         }
+        else
+        {
+            m_CompiledFiles.insert(normalisedPath);
+        }
+        return;
     }
 
     if (fileHash == m_hScriptsRsonHash)
@@ -1306,5 +1310,5 @@ ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer, Engine
     RegisterConCommand("reload_mods", ConCommand_reload_mods, "reloads mods", FCVAR_NONE);
     RegisterConCommand(
         "ns_dump_compiled_keyvalues", ConCommand_dump_compiled_keyvalues,
-        "Writes compiled KeyValues with all #base files applied to runtime/compiled_keyvalues_dump.", FCVAR_DONTRECORD);
+        "Writes resolved compiled KeyValues to runtime/compiled_keyvalues_dump.", FCVAR_DONTRECORD);
 })

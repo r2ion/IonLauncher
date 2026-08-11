@@ -5,9 +5,11 @@
 #include <cstdint>
 #include <cstring>
 #include <cwchar>
+#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <string_view>
 #include <winnt.h>
 
 // implementation of the ConVar class
@@ -24,6 +26,58 @@
 static int (*s_UTF8ToUnicode)(const char* pUTF8, wchar_t* pwchDest, int cubDestSizeInBytes);
 static int (*s_UnicodeToUTF8)(const wchar_t* pUnicode, char* pUTF8, int cubDestSizeInBytes);
 KeyValuesSystemFn KeyValuesSystem = nullptr;
+
+static void WriteKeyValuesIndent(std::ostream& output, const std::size_t depth)
+{
+	for (std::size_t index = 0; index < depth; ++index)
+		output << '\t';
+}
+
+static void WriteKeyValuesString(
+	std::ostream& output, const std::string_view value, const bool useEscapeSequences)
+{
+	for (const char character : value)
+	{
+		if (character == '"')
+			output << "\\\"";
+		else if (character == '\\' && useEscapeSequences)
+			output << "\\\\";
+		else if (character == '\r')
+			output << "\\r";
+		else if (character == '\n')
+			output << "\\n";
+		else if (character == '\t')
+			output << "\\t";
+		else
+			output << character;
+	}
+}
+
+static void WriteKeyValuesNode(std::ostream& output, const KeyValues& keyValues, const std::size_t depth)
+{
+	WriteKeyValuesIndent(output, depth);
+	output << '"';
+	WriteKeyValuesString(output, keyValues.GetName() ? keyValues.GetName() : "", keyValues.m_bHasEscapeSequences);
+	output << '"';
+
+	if (keyValues.m_pSub || keyValues.GetDataType() == TYPE_NONE)
+	{
+		output << "\n";
+		WriteKeyValuesIndent(output, depth);
+		output << "{\n";
+
+		for (const KeyValues* child = keyValues.m_pSub; child; child = child->m_pPeer)
+			WriteKeyValuesNode(output, *child, depth + 1);
+
+		WriteKeyValuesIndent(output, depth);
+		output << "}\n";
+		return;
+	}
+
+	output << "\t\t\"";
+	WriteKeyValuesString(output, keyValues.GetStringValue(), keyValues.m_bHasEscapeSequences);
+	output << "\"\n";
+}
 
 KeyValues::KeyValues() {} // default constructor for copying and such
 
@@ -136,6 +190,11 @@ void KeyValues::Init(void)
 	m_pValue = nullptr;
 
 	m_bHasEscapeSequences = 0;
+}
+
+void KeyValues::UsesEscapeSequences(bool state)
+{
+	m_bHasEscapeSequences = state;
 }
 
 //-----------------------------------------------------------------------------
@@ -1226,6 +1285,27 @@ void KeyValues::RecursiveCopyKeyValues(KeyValues& src)
 	}
 }
 
+void KeyValues::RecursiveMergeKeyValues(const KeyValues& baseKeyValues)
+{
+	for (const KeyValues* baseChild = baseKeyValues.m_pSub; baseChild; baseChild = baseChild->m_pPeer)
+	{
+		KeyValues* matchingChild = nullptr;
+		for (KeyValues* child = m_pSub; child; child = child->m_pPeer)
+		{
+			if (!strcmp(baseChild->GetName(), child->GetName()))
+			{
+				matchingChild = child;
+				break;
+			}
+		}
+
+		if (matchingChild)
+			matchingChild->RecursiveMergeKeyValues(*baseChild);
+		else
+			AddSubKey(baseChild->MakeCopy());
+	}
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Make a new copy of all subkeys, add them all to the passed-in keyvalues
 // Input  : *pParent -
@@ -1263,6 +1343,7 @@ KeyValues* KeyValues::MakeCopy(void) const
 	KeyValues* pNewKeyValue = new KeyValues;
 
 	pNewKeyValue->Init();
+	pNewKeyValue->UsesEscapeSequences(m_bHasEscapeSequences != 0);
 	pNewKeyValue->SetName(GetName());
 
 	// copy data
@@ -1321,6 +1402,22 @@ KeyValues* KeyValues::MakeCopy(void) const
 	return pNewKeyValue;
 }
 
+bool KeyValues::SaveToFile(const char* fileName) const
+{
+	if (!fileName)
+		return false;
+
+	std::ofstream output(fileName, std::ios::binary | std::ios::trunc);
+	if (!output)
+		return false;
+
+	for (const KeyValues* root = this; root; root = root->m_pPeer)
+		WriteKeyValuesNode(output, *root, 0);
+
+	output.close();
+	return !output.fail();
+}
+
 ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 {
 	s_UTF8ToUnicode = module.GetExportedFunction("V_UTF8ToUnicode").RCast<int (*)(const char*, wchar_t*, int)>();
@@ -1360,7 +1457,6 @@ DECLARE_HOOK(KeyValues__LoadFromBuffer, engine.dll + 0x426C30,
 		pSavedFilesystemPtr = pFileSystem;
 	if (!pFileSystem && !strcmp(pResourceName, "playlists"))
 		pFileSystem = pSavedFilesystemPtr;
-
 	return hook.Original(self, pResourceName, pBuffer, pFileSystem, a5, a6, a7);
 })
 

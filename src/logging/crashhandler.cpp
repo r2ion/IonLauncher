@@ -12,7 +12,6 @@
 #include "tier0/hooks.h"
 #include "util/version.h"
 #include "util/utils.h"
-
 #include <DbgHelp.h>
 #include <Mmsystem.h>
 #include <cctype>
@@ -38,6 +37,7 @@ typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 
 #define ENGINE_ERROR_EXCEPTION_CODE 0xE0000001
 #define ENGINE_ERROR_MESSAGE_CAPCITY 0x1000
+static void* s_pTier0FatalAppExit = nullptr;
 
 DECLARE_MODULE(CrashHandlerHooks)
 
@@ -48,6 +48,27 @@ struct GPUInfo_s
 	uint64_t dedicatedVramBytes = 0;
 	std::vector<std::pair<std::string, uint64_t>> allAdapters; // name, vram
 };
+
+bool IsTier0FatalAppExit(const EXCEPTION_RECORD* pException)
+{
+	return s_pTier0FatalAppExit && pException && pException->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION &&
+		pException->ExceptionAddress == s_pTier0FatalAppExit;
+}
+
+void PatchTier0FatalAppExit(CModule module)
+{
+	CMemory abortSite = module.Offset(0x26170);
+	if (!abortSite.CheckOpCodes({0xCD, 0x29}))
+	{
+		if (abortSite.CheckOpCodes({0x0F, 0x0B}))
+			s_pTier0FatalAppExit = abortSite.RCast<void*>();
+		return;
+	}
+
+	abortSite.Patch({0x0F, 0x0B});
+	s_pTier0FatalAppExit = abortSite.RCast<void*>();
+}
+
 
 DECLARE_HOOK_PROC_CC(Tier0Error, tier0.dll, Error, __cdecl, [](auto& hook, const char* pszFormat, ...) -> char
 {
@@ -63,7 +84,6 @@ DECLARE_HOOK_PROC_CC(Tier0Error, tier0.dll, Error, __cdecl, [](auto& hook, const
 	{
 		strcpy_s(szMessage, pszFormat ? pszFormat : "<null Tier0 Error format>");
 	}
-
 	if (g_pCrashHandler)
 		g_pCrashHandler->HandleTier0Error(szMessage);
 
@@ -507,6 +527,9 @@ void CCrashHandler::SetCrashedModule()
 
 const CHAR* CCrashHandler::GetExceptionString() const
 {
+	if (IsTier0FatalAppExit(m_pExceptionInfos->ExceptionRecord))
+		return "FAST_FAIL_FATAL_APP_EXIT";
+
 	return GetExceptionString(m_pExceptionInfos->ExceptionRecord->ExceptionCode);
 }
 
@@ -1691,8 +1714,7 @@ std::vector<std::string> CCrashHandler::FormatStackMemoryDump(PCONTEXT context, 
 
 ON_DLL_LOAD("tier0.dll", Tier0CrashPatches, [](CModule module)
 {
-	CMemory abortSite = module.Offset(0x26170);
-	abortSite.Patch({0x0F, 0x0B});
+	PatchTier0FatalAppExit(module);
 })
 
 //-----------------------------------------------------------------------------

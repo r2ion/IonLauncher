@@ -40,6 +40,11 @@ struct ModFilesystemState_s
 };
 
 static ModFilesystemState_s s_ModFilesystem;
+using BaseFileSystemSizeByNameFn = std::int64_t(__fastcall*)(IBaseFileSystem*, const char*, const char*);
+
+static BaseFileSystemSizeByNameFn s_BaseFileSystemSizeByName = nullptr;
+static constexpr std::size_t BASE_FILESYSTEM_SIZE_BY_NAME_VTABLE_INDEX = 6;
+
 
 std::string ReadVPKFile(const char* path)
 {
@@ -180,6 +185,15 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
 
     return false;
 }
+static std::int64_t __fastcall BaseFileSystemSizeByName(
+    IBaseFileSystem* fileSystem, const char* pPath, const char* pPathID)
+{
+    if (pPath)
+        TryReplaceFile(pPath, true, pPathID);
+
+    return s_BaseFileSystemSizeByName(fileSystem, pPath, pPathID);
+}
+
 
 DECLARE_HOOK(ReadFromCache, filesystem_stdio.dll + 0xFE50, [](auto& hook, IFileSystem* filesystem, const char* pPath, void* result) -> bool
 {
@@ -338,6 +352,12 @@ ON_DLL_LOAD("filesystem_stdio.dll", Filesystem, [](CModule)
     g_pFilesystem = Sys_GetFactoryPtr("filesystem_stdio.dll", "VFileSystem017").RCast<IFileSystem*>();
 
     DISPATCH_MODULE(FilesystemHooks)
+    IBaseFileSystem* const baseFileSystem = static_cast<IBaseFileSystem*>(g_pFilesystem);
+    void** const baseFileSystemVTable = *reinterpret_cast<void***>(baseFileSystem);
+    s_BaseFileSystemSizeByName =
+        reinterpret_cast<BaseFileSystemSizeByNameFn>(baseFileSystemVTable[BASE_FILESYSTEM_SIZE_BY_NAME_VTABLE_INDEX]);
+    HookAttach(reinterpret_cast<PVOID*>(&s_BaseFileSystemSizeByName), reinterpret_cast<PVOID>(BaseFileSystemSizeByName));
+
 
     s_ModFilesystem.m_AddSearchPath = HookSys::GetOriginalFunction<AddSearchPathFn>(HookSys::FindHook("AddSearchPath"));
     s_ModFilesystem.m_MountVPK = HookSys::GetOriginalFunction<MountVPKFn>(HookSys::FindHook("MountVPK"));

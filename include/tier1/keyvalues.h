@@ -119,6 +119,9 @@ public:
 	void RecursiveCopyKeyValues(KeyValues& src);
 	void CopySubkeys(KeyValues* pParent) const;
 	KeyValues* MakeCopy(void) const;
+	void RecursiveMergeKeyValues(const KeyValues& baseKeyValues);
+	bool SaveToFile(const char* fileName) const;
+	void UsesEscapeSequences(bool state);
 
 public:
 	uint32_t m_iKeyName : 24; // 0x0000

@@ -7,55 +7,8 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
-#include <string_view>
 #include <vector>
 
-static void WriteKeyValuesIndent(std::ostream& output, const size_t depth)
-{
-	for (size_t i = 0; i < depth; ++i)
-		output << '\t';
-}
-
-static void WriteEscapedKeyValuesString(std::ostream& output, const std::string_view value)
-{
-	for (const char character : value)
-	{
-		if (character == '"')
-			output << "\\\"";
-		else if (character == '\r')
-			output << "\\r";
-		else if (character == '\n')
-			output << "\\n";
-		else
-			output << character;
-	}
-}
-
-static void WriteResolvedKeyValues(std::ostream& output, const KeyValues& keyValues, const size_t depth)
-{
-	WriteKeyValuesIndent(output, depth);
-	output << '"';
-	WriteEscapedKeyValuesString(output, keyValues.GetName() ? keyValues.GetName() : "");
-	output << '"';
-
-	if (keyValues.m_pSub || keyValues.GetDataType() == TYPE_NONE)
-	{
-		output << "\n";
-		WriteKeyValuesIndent(output, depth);
-		output << "{\n";
-
-		for (const KeyValues* child = keyValues.m_pSub; child; child = child->m_pPeer)
-			WriteResolvedKeyValues(output, *child, depth + 1);
-
-		WriteKeyValuesIndent(output, depth);
-		output << "}\n";
-		return;
-	}
-
-	output << "\t\t\"";
-	WriteEscapedKeyValuesString(output, keyValues.GetStringValue());
-	output << "\"\n";
-}
 
 static bool IsSafeKeyValuesDumpPath(const fs::path& path)
 {
@@ -81,93 +34,60 @@ static void AppendWeaponModNames(KeyValues& keyValues, std::vector<std::string>&
 	}
 }
 
-static bool AppendWeaponModOrderFile(
-	const fs::path& filePath, const std::string& resourceName, std::vector<std::string>& weaponModNames)
+static void ReorderWeaponMods(KeyValues& keyValues, const std::vector<std::string>& weaponModOrder)
+{
+	KeyValues* mods = keyValues.FindKey("Mods");
+	if (!mods)
+		return;
+
+	KeyValues* remaining = mods->m_pSub;
+	mods->m_pSub = nullptr;
+	KeyValues* orderedTail = nullptr;
+
+	const auto appendNode = [&](KeyValues* node)
+	{
+		node->m_pPeer = nullptr;
+		if (orderedTail)
+			orderedTail->m_pPeer = node;
+		else
+			mods->m_pSub = node;
+		orderedTail = node;
+	};
+
+	for (const std::string& weaponModName : weaponModOrder)
+	{
+		KeyValues** link = &remaining;
+		while (*link && strcmp((*link)->GetName(), weaponModName.c_str()))
+			link = &(*link)->m_pPeer;
+
+		if (!*link)
+			continue;
+
+		KeyValues* node = *link;
+		*link = node->m_pPeer;
+		appendNode(node);
+	}
+
+	while (remaining)
+	{
+		KeyValues* node = remaining;
+		remaining = remaining->m_pPeer;
+		appendNode(node);
+	}
+}
+
+static bool ReadConditionalKeyValues(const fs::path& filePath, const bool keepNorthstar, std::string& contents)
 {
 	std::ifstream input(filePath, std::ios::binary);
 	if (!input)
 		return false;
 
-	std::ostringstream contents;
-	contents << input.rdbuf();
-	const std::string contentsText = contents.str();
-
-	KeyValues keyValues(resourceName.c_str());
-	if (!KeyValues_LoadFromBuffer(&keyValues, resourceName.c_str(), contentsText.c_str(), g_pFilesystem))
-		return false;
-
-	AppendWeaponModNames(keyValues, weaponModNames);
-	return true;
-}
-
-static bool WriteKeyValuesOrderBase(
-	const fs::path& outputPath,
-	const std::string& resourceName,
-	const std::string& originalContents,
-	const char* rootName,
-	const std::vector<std::string>& requiredPatchPaths,
-	const std::vector<std::string>& optionalPatchPaths)
-{
-	if (strcmp(rootName, "WeaponData"))
-		return false;
-
-	KeyValues originalKeyValues(resourceName.c_str());
-	if (!KeyValues_LoadFromBuffer(&originalKeyValues, resourceName.c_str(), originalContents.c_str(), g_pFilesystem))
-		return false;
-
-	std::vector<std::string> weaponModNames;
-
-	for (const std::string& patchPath : requiredPatchPaths)
-	{
-		if (!AppendWeaponModOrderFile(outputPath.parent_path() / patchPath, resourceName, weaponModNames))
-			return false;
-	}
-
-	AppendWeaponModNames(originalKeyValues, weaponModNames);
-
-	for (const std::string& patchPath : optionalPatchPaths)
-	{
-		if (!AppendWeaponModOrderFile(outputPath.parent_path() / patchPath, resourceName, weaponModNames))
-			return false;
-	}
-
-	if (weaponModNames.empty())
-		return false;
-
-	std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
-	if (!output)
-	{
-		spdlog::warn("Could not write weapon mod order base {}.", outputPath.string());
-		return false;
-	}
-
-	output << '"';
-	WriteEscapedKeyValuesString(output, rootName);
-	output << "\"\n{\n\t\"Mods\"\n\t{\n";
-
-	for (const std::string& weaponModName : weaponModNames)
-	{
-		output << "\t\t\"";
-		WriteEscapedKeyValuesString(output, weaponModName);
-		output << "\"\n\t\t{\n\t\t}\n";
-	}
-
-	output << "\t}\n}\n";
-	return output.good();
-}
-
-void ModManager::ProcessConditionalBlocks(const fs::path& filePath, bool keepNorthstar)
-{
-	std::ifstream inFile(filePath, std::ios::binary);
-	if (!inFile)
-		return;
-
-	std::ostringstream processed;
+	contents.clear();
 	std::string line;
 	bool inConditional = false;
 	bool keepBlock = true;
 
-	while (std::getline(inFile, line))
+	while (std::getline(input, line))
 	{
 		if (!line.empty() && line.back() == '\r')
 			line.pop_back();
@@ -178,7 +98,7 @@ void ModManager::ProcessConditionalBlocks(const fs::path& filePath, bool keepNor
 			keepBlock = !keepNorthstar;
 			continue;
 		}
-		else if (line.find("///if NORTHSTAR") != std::string::npos)
+		if (line.find("///if NORTHSTAR") != std::string::npos)
 		{
 			inConditional = true;
 			keepBlock = keepNorthstar;
@@ -192,34 +112,15 @@ void ModManager::ProcessConditionalBlocks(const fs::path& filePath, bool keepNor
 		}
 
 		if (!inConditional || keepBlock)
-			processed << line << "\n";
+		{
+			contents.append(line);
+			contents.push_back('\n');
+		}
 	}
-	inFile.close();
 
-	std::ofstream outFile(filePath, std::ios::binary | std::ios::trunc);
-	outFile << processed.str();
-	outFile.close();
+	return !input.bad();
 }
 
-void ModManager::RegisterCompiledKeyValuesFiles(const char* filename, const ModOverrideFile& modFile)
-{
-	const fs::path kvPath(filename);
-	const fs::path kvDirectory = kvPath.parent_path();
-
-	// KeyValues opens every #base through the filesystem independently. Mark
-	// each generated dependency so it cannot resolve against a stale mod path.
-	m_CompiledFiles.insert(NormaliseModFilePath(kvPath));
-	m_CompiledFiles.insert(NormaliseModFilePath(kvDirectory / ("mod_original_" + kvPath.filename().string())));
-
-	if (!modFile.m_KeyValuesOrderPath.empty())
-		m_CompiledFiles.insert(NormaliseModFilePath(kvDirectory / modFile.m_KeyValuesOrderPath));
-
-	for (const std::string& patchPath : modFile.m_VanillaKeyvaluePaths)
-		m_CompiledFiles.insert(NormaliseModFilePath(kvDirectory / patchPath));
-
-	for (const std::string& patchPath : modFile.m_NorthstarKeyvaluePaths)
-		m_CompiledFiles.insert(NormaliseModFilePath(kvDirectory / patchPath));
-}
 
 void ModManager::DumpCompiledKeyValues()
 {
@@ -260,11 +161,11 @@ void ModManager::DumpCompiledKeyValues()
 
 	size_t dumpedFiles = 0;
 	size_t failedFiles = 0;
-	for (const auto& [normalisedPath, compiledFile] : m_CompiledAssetFiles)
+	for (const auto& [normalisedPath, compatibilityMode] : m_CompiledAssetFiles)
 	{
-		NOTE_UNUSED(normalisedPath);
+		NOTE_UNUSED(compatibilityMode);
 
-		const fs::path relativePath = compiledFile.m_Path;
+		const fs::path relativePath = normalisedPath;
 		if (!IsSafeKeyValuesDumpPath(relativePath))
 		{
 			spdlog::warn("Refusing to dump compiled KeyValues with unsafe path {}.", relativePath.string());
@@ -287,12 +188,10 @@ void ModManager::DumpCompiledKeyValues()
 
 		const std::string resourceName = relativePath.generic_string();
 		KeyValues resolvedKeyValues(resourceName.c_str());
-		const bool loaded =
-			KeyValues_LoadFromBuffer(&resolvedKeyValues, resourceName.c_str(), compiledContents.c_str(), g_pFilesystem);
-		const char* resolvedRootName = resolvedKeyValues.GetName();
-		if (!loaded || !resolvedRootName || !resolvedRootName[0])
+		resolvedKeyValues.UsesEscapeSequences(true);
+		if (!KeyValues_LoadFromBuffer(&resolvedKeyValues, resourceName.c_str(), compiledContents.c_str(), g_pFilesystem))
 		{
-			spdlog::warn("Could not resolve #base files for compiled KeyValues file {}.", resourceName);
+			spdlog::warn("Could not parse compiled KeyValues file {}.", resourceName);
 			++failedFiles;
 			continue;
 		}
@@ -307,17 +206,13 @@ void ModManager::DumpCompiledKeyValues()
 			continue;
 		}
 
-		std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
-		if (!output)
+		if (!resolvedKeyValues.SaveToFile(outputPath.string().c_str()))
 		{
 			spdlog::warn("Could not write resolved KeyValues file {}.", outputPath.string());
 			++failedFiles;
 			continue;
 		}
 
-		output << "// AUTOGENERATED: RESOLVED COMPILED KEYVALUES\n";
-		for (const KeyValues* root = &resolvedKeyValues; root; root = root->m_pPeer)
-			WriteResolvedKeyValues(output, *root, 0);
 		++dumpedFiles;
 	}
 
@@ -325,240 +220,100 @@ void ModManager::DumpCompiledKeyValues()
 		"Dumped {} resolved compiled KeyValues files to {} ({} failed).", dumpedFiles, dumpDirectory.string(), failedFiles);
 }
 
-void ModManager::TryChangeoverKeyValues(const char* filename, ModOverrideFile& modFile)
-{
-	if (g_pVanillaCompatibility->GetVanillaCompatibility() ==
-		(modFile.m_lastCompatibilityMode == VanillaCompatibility::CompatibilityMode::Vanilla))
-		return;
-
-	spdlog::info("Trying to changeover KeyValues for file {}", filename);
-
-	fs::path compiledPath = GetCompiledAssetsPath() / filename;
-	fs::path compiledDir = compiledPath.parent_path();
-
-	if (modFile.m_KeyValuesRootName.empty())
-	{
-		spdlog::warn("Cannot change over KeyValues file {} because its root name is missing.", filename);
-		return;
-	}
-
-	modFile.m_lastCompatibilityMode = g_pVanillaCompatibility->GetVanillaCompatibility()
-										  ? VanillaCompatibility::CompatibilityMode::Vanilla
-										  : VanillaCompatibility::CompatibilityMode::Northstar;
-
-	std::ofstream writeStream(compiledPath, std::ios::binary);
-
-	constexpr std::string_view generatedHeader = "// AUTOGENERATED: MOD PATCH KV\n";
-	std::string newKvs(generatedHeader);
-
-	std::vector<std::string>& patchesVec =
-		g_pVanillaCompatibility->GetVanillaCompatibility() ? modFile.m_VanillaKeyvaluePaths : modFile.m_NorthstarKeyvaluePaths;
-	const std::vector<std::string>& requiredOrderPatchesVec = g_pVanillaCompatibility->GetVanillaCompatibility()
-																 ? modFile.m_VanillaRequiredKeyvalueOrderPaths
-																 : modFile.m_NorthstarRequiredKeyvalueOrderPaths;
-	const std::vector<std::string>& optionalOrderPatchesVec = g_pVanillaCompatibility->GetVanillaCompatibility()
-																 ? modFile.m_VanillaOptionalKeyvalueOrderPaths
-																 : modFile.m_NorthstarOptionalKeyvalueOrderPaths;
-
-	fs::path kvPath(filename);
-	std::string ogFilePath = "mod_original_";
-	ogFilePath += kvPath.filename().string();
-
-	if (!modFile.m_KeyValuesOrderPath.empty())
-	{
-		const fs::path orderFilePath = compiledDir / modFile.m_KeyValuesOrderPath;
-		fs::remove(orderFilePath);
-
-		std::ifstream originalInput(compiledDir / ogFilePath, std::ios::binary);
-		if (originalInput)
-		{
-			std::ostringstream originalContents;
-			originalContents << originalInput.rdbuf();
-			const std::string originalResourcePath = NormaliseModFilePath(kvPath.parent_path() / ogFilePath);
-			if (WriteKeyValuesOrderBase(
-					orderFilePath,
-					originalResourcePath,
-					originalContents.str(),
-					modFile.m_KeyValuesRootName.c_str(),
-					requiredOrderPatchesVec,
-					optionalOrderPatchesVec))
-			{
-				newKvs += "#base \"";
-				newKvs += modFile.m_KeyValuesOrderPath;
-				newKvs += "\"\n";
-			}
-		}
-	}
-
-	for (auto& patchFilePath : patchesVec)
-	{
-		if (fs::exists(compiledDir / patchFilePath))
-		{
-			newKvs += "#base \"";
-			newKvs += patchFilePath;
-			newKvs += "\"\n";
-		}
-		else
-		{
-			spdlog::warn("Patch file {} does not exist, skipping.", patchFilePath);
-			continue;
-		}
-	}
-
-	newKvs += "#base \"";
-	newKvs += ogFilePath;
-	newKvs += "\"\n";
-	newKvs += modFile.m_KeyValuesRootName;
-	newKvs += "\n{\n}\n";
-
-	writeStream << newKvs;
-	writeStream.close();
-}
 
 void ModManager::TryBuildKeyValues(const char* filename)
 {
 	spdlog::info("Building KeyValues for file {}", filename);
 
-	std::string normalisedPath = g_pModManager->NormaliseModFilePath(fs::path(filename));
-	fs::path compiledPath = GetCompiledAssetsPath() / filename;
-	fs::path compiledDir = compiledPath.parent_path();
-	fs::create_directories(compiledDir);
+	const std::string normalisedPath = NormaliseModFilePath(fs::path(filename));
+	const fs::path compiledPath = GetCompiledAssetsPath() / normalisedPath;
+	fs::create_directories(compiledPath.parent_path());
 
-	fs::path kvPath(filename);
-	std::string ogFilePath = "mod_original_";
-	ogFilePath += kvPath.filename().string();
-
-	constexpr std::string_view generatedHeader = "// AUTOGENERATED: MOD PATCH KV\n";
-	std::string newKvs(generatedHeader);
-
-	int patchNum = 0;
-
-	ModOverrideFile overrideFile;
-
-	// copy over patch kv files, and add #bases to new file, last mods' patches should be applied first
-	// note: #include should be identical but it's actually just broken, thanks respawn
-	for (int64_t i = m_LoadedMods.size() - 1; i > -1; i--)
+	const std::string originalContents = ReadVPKFile(filename, FileSourceType_ModOverride | FileSourceType_Original);
+	if (originalContents.empty())
 	{
-		if (!m_LoadedMods[i].m_bEnabled)
-			continue;
-
-		size_t fileHash = STR_HASH(normalisedPath);
-		auto modKv = m_LoadedMods[i].KeyValues.find(fileHash);
-		if (modKv != m_LoadedMods[i].KeyValues.end())
-		{
-			// should result in smth along the lines of #include "mod_patch_5_mp_weapon_car.txt"
-
-			constexpr const char* patchPrefix = "mod_patch_";
-			patchNum++;
-
-			std::string vanillaPatchPath = std::string(patchPrefix) + std::to_string(patchNum++) + "_v_" + kvPath.filename().string();
-			std::string northstarPatchPath = std::string(patchPrefix) + std::to_string(patchNum++) + "_n_" + kvPath.filename().string();
-			std::string& patchFilePath = (g_pVanillaCompatibility->GetVanillaCompatibility() ? vanillaPatchPath : northstarPatchPath);
-
-			newKvs += "#base \"";
-			newKvs += patchFilePath;
-			newKvs += "\"\n";
-
-			overrideFile.m_VanillaKeyvaluePaths.push_back(vanillaPatchPath);
-			overrideFile.m_NorthstarKeyvaluePaths.push_back(northstarPatchPath);
-
-			if (m_LoadedMods[i].RequiredOnClient)
-			{
-				overrideFile.m_VanillaRequiredKeyvalueOrderPaths.push_back(vanillaPatchPath);
-				overrideFile.m_NorthstarRequiredKeyvalueOrderPaths.push_back(northstarPatchPath);
-			}
-			else
-			{
-				overrideFile.m_VanillaOptionalKeyvalueOrderPaths.push_back(vanillaPatchPath);
-				overrideFile.m_NorthstarOptionalKeyvalueOrderPaths.push_back(northstarPatchPath);
-			}
-
-			fs::remove(compiledDir / vanillaPatchPath);
-			fs::remove(compiledDir / northstarPatchPath);
-
-			fs::copy_file(m_LoadedMods[i].m_ModDirectory / "keyvalues" / filename, compiledDir / vanillaPatchPath);
-			fs::copy_file(m_LoadedMods[i].m_ModDirectory / "keyvalues" / filename, compiledDir / northstarPatchPath);
-
-			ProcessConditionalBlocks(compiledDir / vanillaPatchPath, false);
-			ProcessConditionalBlocks(compiledDir / northstarPatchPath, true);
-		}
-	}
-
-	// add original #base last, #bases don't override preexisting keys, including the ones we've just done
-	newKvs += "#base \"";
-	newKvs += ogFilePath;
-	newKvs += "\"\n";
-
-	// load original file, so we can parse out the name of the root obj (e.g. WeaponData for weapons)
-	std::string originalFile = ReadVPKFile(filename, FileSourceType_ModOverride | FileSourceType_Original);
-
-	if (!originalFile.length())
-	{
-		spdlog::warn("Tried to patch kv {} but no base kv was found!", ogFilePath);
+		spdlog::warn("Tried to patch KeyValues file {} but no base file was found.", filename);
 		return;
 	}
 
-	char rootName[64];
-	memset(rootName, 0, sizeof(rootName));
-
-	// iterate until we hit an ascii char that isn't in a # command or comment to get root obj name
-	int i = 0;
-	while (!(originalFile[i] >= 65 && originalFile[i] <= 122))
+	KeyValues originalKeyValues(normalisedPath.c_str());
+	originalKeyValues.UsesEscapeSequences(true);
+	if (!KeyValues_LoadFromBuffer(
+			&originalKeyValues, normalisedPath.c_str(), originalContents.c_str(), g_pFilesystem))
 	{
-		// if we hit a comment or # thing, iterate until end of line
-		if (originalFile[i] == '/' || originalFile[i] == '#')
-			while (originalFile[i] != '\n')
-				i++;
-
-		i++;
+		spdlog::warn("Could not parse original KeyValues file {}.", filename);
+		return;
 	}
 
-	int j = 0;
-	for (int j = 0; originalFile[i] >= 65 && originalFile[i] <= 122; j++)
-		rootName[j] = originalFile[i++];
-
-	// empty kv, all the other stuff gets #base'd
-	newKvs += rootName;
-	newKvs += "\n{\n}\n";
-
-	std::ofstream originalFileWriteStream(compiledDir / ogFilePath, std::ios::binary);
-	originalFileWriteStream << originalFile;
-	originalFileWriteStream.close();
-
-	const std::string orderFilePath = "mod_order_" + kvPath.filename().string();
-	fs::remove(compiledDir / orderFilePath);
-	const std::string originalResourcePath = NormaliseModFilePath(kvPath.parent_path() / ogFilePath);
-	const std::vector<std::string>& requiredOrderPatchesVec = g_pVanillaCompatibility->GetVanillaCompatibility()
-																 ? overrideFile.m_VanillaRequiredKeyvalueOrderPaths
-																 : overrideFile.m_NorthstarRequiredKeyvalueOrderPaths;
-	const std::vector<std::string>& optionalOrderPatchesVec = g_pVanillaCompatibility->GetVanillaCompatibility()
-																 ? overrideFile.m_VanillaOptionalKeyvalueOrderPaths
-																 : overrideFile.m_NorthstarOptionalKeyvalueOrderPaths;
-	if (WriteKeyValuesOrderBase(
-			compiledDir / orderFilePath,
-			originalResourcePath,
-			originalFile,
-			rootName,
-			requiredOrderPatchesVec,
-			optionalOrderPatchesVec))
+	const char* rootName = originalKeyValues.GetName();
+	if (!rootName || !*rootName)
 	{
-		overrideFile.m_KeyValuesOrderPath = orderFilePath;
-		newKvs.insert(generatedHeader.size(), "#base \"" + orderFilePath + "\"\n");
+		spdlog::warn("Could not determine the root name of KeyValues file {}.", filename);
+		return;
 	}
 
-	std::ofstream writeStream(compiledPath, std::ios::binary);
-	writeStream << newKvs;
-	writeStream.close();
+	KeyValues compiledKeyValues(rootName);
+	compiledKeyValues.UsesEscapeSequences(true);
+	const bool isWeaponData = !strcmp(rootName, "WeaponData");
+	const bool keepNorthstar = !g_pVanillaCompatibility->GetVanillaCompatibility();
+	const size_t fileHash = STR_HASH(normalisedPath);
+	std::vector<std::string> weaponModOrder;
+	bool foundPatch = false;
 
-	overrideFile.m_pOwningMod = nullptr;
-	overrideFile.m_Path = normalisedPath;
-	overrideFile.m_KeyValuesRootName = rootName;
-	overrideFile.m_lastCompatibilityMode = g_pVanillaCompatibility->GetVanillaCompatibility()
-											   ? VanillaCompatibility::CompatibilityMode::Vanilla
-											   : VanillaCompatibility::CompatibilityMode::Northstar;
+	for (int64_t index = static_cast<int64_t>(m_LoadedMods.size()) - 1; index >= 0; --index)
+	{
+		Mod& mod = m_LoadedMods[index];
+		if (!mod.m_bEnabled)
+			continue;
 
-	// Compiled wrappers are output files, not mod overrides. Keeping them out of
-	// m_ModFiles preserves the real owning mod used when selecting the base file.
-	m_CompiledAssetFiles.insert_or_assign(normalisedPath, overrideFile);
-	RegisterCompiledKeyValuesFiles(filename, overrideFile);
+		const auto modKeyValues = mod.KeyValues.find(fileHash);
+		if (modKeyValues == mod.KeyValues.end())
+			continue;
+
+		const fs::path patchPath = mod.m_ModDirectory / "keyvalues" / fs::path(modKeyValues->second);
+		std::string patchContents;
+		if (!ReadConditionalKeyValues(patchPath, keepNorthstar, patchContents))
+		{
+			spdlog::warn("Could not read KeyValues patch {} from mod {}.", patchPath.string(), mod.Name);
+			return;
+		}
+
+		KeyValues patchKeyValues(normalisedPath.c_str());
+		patchKeyValues.UsesEscapeSequences(true);
+		if (!KeyValues_LoadFromBuffer(
+				&patchKeyValues, normalisedPath.c_str(), patchContents.c_str(), g_pFilesystem))
+		{
+			spdlog::warn("Could not parse KeyValues patch {} from mod {}.", patchPath.string(), mod.Name);
+			return;
+		}
+
+		if (isWeaponData && mod.RequiredOnClient)
+			AppendWeaponModNames(patchKeyValues, weaponModOrder);
+
+		compiledKeyValues.RecursiveMergeKeyValues(patchKeyValues);
+		foundPatch = true;
+	}
+
+	if (!foundPatch)
+		return;
+
+	if (isWeaponData)
+		AppendWeaponModNames(originalKeyValues, weaponModOrder);
+
+	compiledKeyValues.RecursiveMergeKeyValues(originalKeyValues);
+
+	if (isWeaponData)
+		ReorderWeaponMods(compiledKeyValues, weaponModOrder);
+
+	if (!compiledKeyValues.SaveToFile(compiledPath.string().c_str()))
+	{
+		spdlog::warn("Could not write compiled KeyValues file {}.", compiledPath.string());
+		return;
+	}
+
+	const VanillaCompatibility::CompatibilityMode compatibilityMode = g_pVanillaCompatibility->GetVanillaCompatibility()
+																		  ? VanillaCompatibility::CompatibilityMode::Vanilla
+																		  : VanillaCompatibility::CompatibilityMode::Northstar;
+	m_CompiledAssetFiles.insert_or_assign(normalisedPath, compatibilityMode);
+	m_CompiledFiles.insert(normalisedPath);
 }

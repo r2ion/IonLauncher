@@ -34,15 +34,6 @@ struct ModOverrideFile
 public:
 	Mod* m_pOwningMod;
 	fs::path m_Path;
-	std::string m_KeyValuesRootName;
-	std::string m_KeyValuesOrderPath;
-	VanillaCompatibility::CompatibilityMode m_lastCompatibilityMode;
-	std::vector<std::string> m_VanillaKeyvaluePaths;
-	std::vector<std::string> m_NorthstarKeyvaluePaths;
-	std::vector<std::string> m_VanillaRequiredKeyvalueOrderPaths;
-	std::vector<std::string> m_NorthstarRequiredKeyvalueOrderPaths;
-	std::vector<std::string> m_VanillaOptionalKeyvalueOrderPaths;
-	std::vector<std::string> m_NorthstarOptionalKeyvalueOrderPaths;
 };
 
 class ModManager
@@ -81,7 +72,7 @@ private:
 public:
 	std::vector<Mod> m_LoadedMods;
 	std::unordered_map<std::string, ModOverrideFile> m_ModFiles;
-	std::unordered_map<std::string, ModOverrideFile> m_CompiledAssetFiles;
+	std::unordered_map<std::string, VanillaCompatibility::CompatibilityMode> m_CompiledAssetFiles;
 	std::unordered_set<std::string> m_CompiledFiles;
 	std::unordered_map<std::string, std::string> m_DependencyConstants;
 	std::unordered_set<std::string> m_PluginDependencyConstants;
@@ -119,8 +110,6 @@ private:
 	 * @returns nothing
 	 **/
 	void SearchFilesystemForMods();
-	void ProcessConditionalBlocks(const fs::path& filePath, bool keepNorthstar);
-	void RegisterCompiledKeyValuesFiles(const char* filename, const ModOverrideFile& modFile);
 
 	/**
 	 * Prevents crashes caused by mods being installed several times.
@@ -164,7 +153,6 @@ public:
 	void BuildLocalPackageIcons();
 	void DumpCompiledKeyValues();
 	void TryBuildKeyValues(const char* filename);
-	void TryChangeoverKeyValues(const char* filename, ModOverrideFile& modFile);
 	void BuildPdef();
 	void BuildKBActionsList();
 };
