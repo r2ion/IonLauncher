@@ -213,7 +213,7 @@ bool ModDownloader::DownloadModWorkshop(const modentry_s& requested, const ModWo
 		modState.version = requested.version;
 		modState.progress = static_cast<int>(std::min<uint64_t>(operation->progress, std::numeric_limits<int>::max()));
 		modState.total = static_cast<int>(std::min<uint64_t>(operation->total, std::numeric_limits<int>::max()));
-		modState.ratio = operation->ratio;
+		modState.ratio = roundf(operation->ratio * 100.0f);
 
 		switch (operation->state)
 		{
@@ -670,6 +670,7 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 	modState.state = EXTRACTING;
 	modState.total = GetModArchiveSize(file, gi);
 	modState.progress = 0;
+	modState.ratio = 0.0f;
 
 	// extracts the file in the archive at zipFilename to fileDestination on disk
 	auto extractFile = [&](fs::path fileDestination, char* zipFilename) -> bool
@@ -764,7 +765,7 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 				}
 
 				// Update extraction stats
-				modState.progress += bufferSize;
+				modState.progress += err;
 				modState.ratio = roundf(static_cast<float>(modState.progress) / modState.total * 100);
 			} while (err > 0);
 
