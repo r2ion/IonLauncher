@@ -227,7 +227,11 @@ CPMAddPackage(
         "HTTPLIB_USE_ZLIB_IF_AVAILABLE OFF"
         "HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF"
 )
-CPMAddPackage("gh:m417z/minhook-detours@1.0.6")
+CPMAddPackage(
+    NAME minhook-detours
+    GITHUB_REPOSITORY sonny-tel/minhook-detours
+    GIT_TAG main
+)
 
 CPMAddPackage(
 	NAME minizip-ng

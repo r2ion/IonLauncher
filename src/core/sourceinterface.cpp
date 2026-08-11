@@ -6,7 +6,7 @@ DECLARE_MODULE(SourceInterfaceHooks)
 
 // really wanted to do a modular callback system here but honestly couldn't be bothered so hardcoding stuff for now: todo later
 
-DECLARE_HOOK_PROC(ClientCreateInterface, client.dll, CreateInterface, [](auto& hook, const char* pName, const int* pReturnCode) -> void*
+DECLARE_HOOK_PROC(ClientCreateInterface, client.dll, CreateInterface, [](auto& hook, const char* pName, int* pReturnCode) -> void*
 {
 	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface CLIENT {}", pName);
@@ -17,7 +17,7 @@ DECLARE_HOOK_PROC(ClientCreateInterface, client.dll, CreateInterface, [](auto& h
 	return ret;
 })
 
-DECLARE_HOOK_PROC(ServerCreateInterface, server.dll, CreateInterface, [](auto& hook, const char* pName, const int* pReturnCode) -> void*
+DECLARE_HOOK_PROC(ServerCreateInterface, server.dll, CreateInterface, [](auto& hook, const char* pName, int* pReturnCode) -> void*
 {
 	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface SERVER {}", pName);
@@ -25,7 +25,7 @@ DECLARE_HOOK_PROC(ServerCreateInterface, server.dll, CreateInterface, [](auto& h
 	return ret;
 })
 
-DECLARE_HOOK_PROC(EngineCreateInterface, engine.dll, CreateInterface, [](auto& hook, const char* pName, const int* pReturnCode) -> void*
+DECLARE_HOOK_PROC(EngineCreateInterface, engine.dll, CreateInterface, [](auto& hook, const char* pName, int* pReturnCode) -> void*
 {
 	void* ret = hook.Original(pName, pReturnCode);
 	spdlog::info("CreateInterface ENGINE {}", pName);
@@ -35,15 +35,15 @@ DECLARE_HOOK_PROC(EngineCreateInterface, engine.dll, CreateInterface, [](auto& h
 
 ON_DLL_LOAD("client.dll", ClientInterface, [](CModule module)
 {
-	DISPATCH_MODULE(SourceInterfaceHooks)
+	DISPATCH_HOOK(SourceInterfaceHooks, ClientCreateInterface)
 })
 
 ON_DLL_LOAD("server.dll", ServerInterface, [](CModule module)
 {
-	DISPATCH_MODULE(SourceInterfaceHooks)
+	DISPATCH_HOOK(SourceInterfaceHooks, ServerCreateInterface)
 })
 
 ON_DLL_LOAD("engine.dll", EngineInterface, [](CModule module)
 {
-	DISPATCH_MODULE(SourceInterfaceHooks)
+	DISPATCH_HOOK(SourceInterfaceHooks, EngineCreateInterface)
 })
