@@ -17,11 +17,8 @@
 #include "materialsystem/itextureinternal.h"
 #include "rendersystem/schema/texture.g.h"
 #include "materialsystem/dx11_device.h"
-#include "materialsystem/nscustomdxbuffer.h"
 #include "tier0/frametask.h"
-#include <d3dcompiler.h>
 #include <wrl/client.h>
-#pragma comment(lib, "d3dcompiler.lib")
 #include "rtech/pakfilesystem.h"
 #include "vscript/squirrel/squirrel.h"
 #include "vscript/languages/squirrel_re/squirrel/sqarray.h"
@@ -147,212 +144,6 @@ bool isValidMaterialGUID(const std::string& str)
     }
 
     return true;
-}
-
-
-static void QueuePixelShaderHotReload(
-	std::vector<uint8_t> bytecode,
-	std::wstring filePath,
-	uint64_t materialGUID,
-	std::shared_ptr<std::atomic<bool>> active)
-{
-	RunInMainThread(
-		[bytecode = std::move(bytecode), filePath = std::move(filePath), materialGUID, active = std::move(active)]()
-		{
-			if (!active->load(std::memory_order_acquire))
-				return;
-
-			const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
-			if (!dx11)
-				return;
-
-			Microsoft::WRL::ComPtr<ID3D11PixelShader> newShader;
-			const HRESULT result = dx11.m_pDevice->CreatePixelShader(
-				bytecode.data(), bytecode.size(), nullptr, newShader.GetAddressOf());
-			if (FAILED(result))
-			{
-				spdlog::error(
-					"Failed to hotload pixel shader from {} for GUID {:016X} (HRESULT 0x{:08X})",
-					std::string(filePath.begin(), filePath.end()),
-					materialGUID,
-					static_cast<uint32_t>(result));
-				return;
-			}
-
-			std::lock_guard<std::mutex> lock(NSMaterialPixelShadersMutex);
-			if (!active->load(std::memory_order_acquire))
-				return;
-
-			NSMaterialPixelShaders[materialGUID] = std::move(newShader);
-			spdlog::info(
-				"Hotloaded pixel shader from {} for GUID {:016X}",
-				std::string(filePath.begin(), filePath.end()),
-				materialGUID);
-		});
-}
-
-static bool WatchFXCAndHotReload(std::wstring filePath, uint64_t materialGUID)
-{
-	std::lock_guard<std::mutex> lock(NSFXCWatchersMutex);
-	if (NSFXCWatchers.contains(materialGUID))
-		return false;
-
-	auto active = std::make_shared<std::atomic<bool>>(true);
-	std::jthread watcher([filePath = std::move(filePath), materialGUID, active](std::stop_token stopToken)
-	{
-		using namespace std::chrono_literals;
-		std::condition_variable_any wakeCondition;
-		std::mutex wakeMutex;
-		std::error_code ec;
-		auto lastWrite = std::filesystem::last_write_time(filePath, ec);
-
-		while (!stopToken.stop_requested())
-		{
-			std::unique_lock waitLock(wakeMutex);
-			wakeCondition.wait_for(waitLock, stopToken, 500ms, [] { return false; });
-			waitLock.unlock();
-			if (stopToken.stop_requested())
-				break;
-
-			auto curr = std::filesystem::last_write_time(filePath, ec);
-			if (ec)
-				continue;
-			if (curr != lastWrite)
-			{
-				lastWrite = curr;
-				std::vector<uint8_t> bytecode;
-				const std::wstring ext = std::filesystem::path(filePath).extension().wstring();
-				try
-				{
-					if (_wcsicmp(ext.c_str(), L".cso") == 0 || _wcsicmp(ext.c_str(), L".bin") == 0)
-					{
-						Microsoft::WRL::ComPtr<ID3DBlob> blob;
-						if (SUCCEEDED(D3DReadFileToBlob(filePath.c_str(), blob.GetAddressOf())) && blob)
-						{
-							const auto* begin = static_cast<const uint8_t*>(blob->GetBufferPointer());
-							bytecode.assign(begin, begin + blob->GetBufferSize());
-						}
-					}
-					else
-					{
-						Microsoft::WRL::ComPtr<ID3DBlob> code;
-						Microsoft::WRL::ComPtr<ID3DBlob> error;
-						const UINT flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-						const HRESULT hr = D3DCompileFromFile(
-							filePath.c_str(),
-							nullptr,
-							D3D_COMPILE_STANDARD_FILE_INCLUDE,
-							"main",
-							"ps_5_0",
-							flags,
-							0,
-							code.GetAddressOf(),
-							error.GetAddressOf());
-						if (FAILED(hr))
-						{
-							if (error)
-								spdlog::error(
-									"Shader compile error: {}",
-									std::string(
-										static_cast<const char*>(error->GetBufferPointer()),
-										error->GetBufferSize()));
-						}
-						else if (code)
-						{
-							const auto* begin = static_cast<const uint8_t*>(code->GetBufferPointer());
-							bytecode.assign(begin, begin + code->GetBufferSize());
-						}
-					}
-				}
-				catch (...)
-				{
-				}
-
-				if (!bytecode.empty() && !stopToken.stop_requested())
-					QueuePixelShaderHotReload(std::move(bytecode), filePath, materialGUID, active);
-			}
-		}
-	});
-
-	NSFXCWatchers.emplace(materialGUID, FXCWatcher_t {std::move(active), std::move(watcher)});
-	return true;
-}
-
-void StopFXCAndHotReloadWatchers()
-{
-	std::vector<std::jthread> watcherThreads;
-	{
-		std::lock_guard<std::mutex> lock(NSFXCWatchersMutex);
-		watcherThreads.reserve(NSFXCWatchers.size());
-		for (auto& [materialGUID, watcher] : NSFXCWatchers)
-		{
-			NOTE_UNUSED(materialGUID);
-			watcher.m_Active->store(false, std::memory_order_release);
-			watcher.m_Thread.request_stop();
-			watcherThreads.push_back(std::move(watcher.m_Thread));
-		}
-		NSFXCWatchers.clear();
-	}
-
-	// Join outside the bookkeeping lock. The stop-aware wait wakes immediately.
-	watcherThreads.clear();
-
-	std::lock_guard<std::mutex> shaderLock(NSMaterialPixelShadersMutex);
-	NSMaterialPixelShaders.clear();
-}
-
-template <ScriptContext context> SQRESULT NSWatchFXCAndHotReload_SQ(HSQUIRRELVM sqvm)
-{
-    // 1: optional guid string
-    const char* maybeGuid = nullptr;
-    try
-    {
-        maybeGuid = g_pSquirrel[ScriptContext::CLIENT]->getstring(sqvm, 1);
-    }
-    catch (...)
-    {
-        maybeGuid = nullptr;
-    }
-
-    // Open file dialog to select fxc file
-    OPENFILENAMEW ofn = {};
-    wchar_t szFile[MAX_PATH] = {0};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFilter = L"FXC or FX\0*.fxc;*.fx\0All\0*.*\0";
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-    ofn.lpstrDefExt = L"fxc";
-
-    if (!GetOpenFileNameW(&ofn))
-    {
-        g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "File selection cancelled or failed");
-        return SQRESULT_ERROR;
-    }
-
-    std::wstring filePath(szFile);
-
-    std::string guidStr;
-    if (maybeGuid && strlen(maybeGuid) > 0)
-    {
-        guidStr = maybeGuid;
-    }
-
-    if (!isValidMaterialGUID(guidStr))
-    {
-        g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "Malformed Material GUID");
-        return SQRESULT_ERROR;
-    }
-
-    uint64_t matGUID = std::stoull(guidStr, nullptr, 16);
-
-	if (!WatchFXCAndHotReload(std::move(filePath), matGUID))
-	{
-		g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "A watcher is already running for this material GUID");
-		return SQRESULT_ERROR;
-	}
-
-	return SQRESULT_NULL;
 }
 
 static ID3D11SamplerState* ResolveTextureSampler(int16_t textureHandle)
@@ -961,8 +752,7 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 		"string rPakMaterialGUID int shaderBindingSlot",
 		"",
 		clientUnbindNamedTexture);
-    auto clientWatchFXC = NSWatchFXCAndHotReload_SQ<ScriptContext::CLIENT>;
-	g_pSquirrel[ScriptContext::CLIENT]->AddFuncRegistration("void", "NSWatchFXCAndHotReload", "string optionalMaterialGUID", "", clientWatchFXC);
+   
 })
 
 ON_DLL_LOAD_CLIENT("client.dll", CustomWaterRenderTargets, [](CModule module)
