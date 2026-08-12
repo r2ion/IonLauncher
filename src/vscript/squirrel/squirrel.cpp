@@ -11,6 +11,7 @@
 #include "squirreldocumentation.h"
 #include "tier0/vanilla.h"
 #include "util/utils.h"
+#include "vscript/languages/squirrel_re/squirrel/sqcompiler.h"
 
 #include <any>
 #include <array>
@@ -22,6 +23,8 @@
 SquirrelManagerManager g_pSquirrel;
 
 float g_LastSQErrorTimes[3] = {0.0f, 0.0f, 0.0f};
+// worlds first practical use of thread_local
+thread_local SQCompiler* s_pIfDirectiveCompiler;
 
 class CSquirrelDocumentationCatalog final
 {
@@ -362,10 +365,45 @@ template <ScriptContext context> SQInteger __fastcall sqstd_aux_printerrorHook(H
 
     return sqstd_aux_printerror<context>(sqvm);
 }
+template <ScriptContext context> std::int64_t (*SQCompiler_ParseDirective)(SQCompiler* pCompiler);
+template <ScriptContext context> std::int64_t __fastcall SQCompiler_ParseDirectiveHook(SQCompiler* pCompiler)
+{
+	SQCompiler* pPreviousCompiler = s_pIfDirectiveCompiler;
+	s_pIfDirectiveCompiler = pCompiler;
+	const std::int64_t result = SQCompiler_ParseDirective<context>(pCompiler);
+	s_pIfDirectiveCompiler = pPreviousCompiler;
+	return result;
+}
+
+template <ScriptContext context>
+bool (*SQCompiler_ResolveLocalOrConstant)(void* pFunctionState, SQObject* pIdentifier, SQObject* pValue, std::uintptr_t* pType);
+template <ScriptContext context>
+bool __fastcall SQCompiler_ResolveLocalOrConstantHook(
+    void* pFunctionState, SQObject* pIdentifier, SQObject* pValue, std::uintptr_t* pType)
+{
+	if (SQCompiler_ResolveLocalOrConstant<context>(pFunctionState, pIdentifier, pValue, pType))
+		return true;
+
+	if (!s_pIfDirectiveCompiler || s_pIfDirectiveCompiler->preprocessorDepth <= 0)
+		return false;
+
+	// evaluate to 0 if we're doing directives because #if with a compile error is stupid
+	pValue->_Type = OT_INTEGER;
+	pValue->structNumber = 0;
+	pValue->_VAL.as64Integer = 0;
+	constexpr std::uint32_t typeHash = 0x9E3779B9u - 0x61C88647u * static_cast<std::uint32_t>(OT_INTEGER);
+	constexpr std::size_t typeIndex = (typeHash / 0xF499u) & 0x3FFFu;
+	SQSharedState* pSharedState = s_pIfDirectiveCompiler->pSQVM->sharedState;
+	*pType = reinterpret_cast<std::uintptr_t>(&pSharedState->compilerTypeDescriptors[typeIndex]);
+	return true;
+}
+
 
 template <ScriptContext context> void* (*sq_compiler_create)(HSQUIRRELVM sqvm, void* a2, void* a3, SQBool bShouldThrowError);
 template <ScriptContext context> void* __fastcall sq_compiler_createHook(HSQUIRRELVM sqvm, void* a2, void* a3, SQBool bShouldThrowError)
 {
+	s_pIfDirectiveCompiler = nullptr;
+
     // store whether errors generated from this compile should be fatal
     if (IsUIVM(context, sqvm))
         g_pSquirrel[ScriptContext::UI]->m_bFatalCompilationErrors = bShouldThrowError;
@@ -825,6 +863,11 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module
 
     MAKEHOOK(module.Offset(0x79540), &sqstd_aux_printerrorHook<ScriptContext::CLIENT>, &sqstd_aux_printerror<ScriptContext::CLIENT>);
     MAKEHOOK(module.Offset(0x8AD0), &sq_compiler_createHook<ScriptContext::CLIENT>, &sq_compiler_create<ScriptContext::CLIENT>);
+	MAKEHOOK(module.Offset(0x58590), &SQCompiler_ParseDirectiveHook<ScriptContext::CLIENT>,
+	         &SQCompiler_ParseDirective<ScriptContext::CLIENT>);
+	MAKEHOOK(module.Offset(0x65CB0), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::CLIENT>,
+	         &SQCompiler_ResolveLocalOrConstant<ScriptContext::CLIENT>);
+
 
     MAKEHOOK(module.Offset(0x12B00), &SQPrintHook<ScriptContext::CLIENT>, &SQPrint<ScriptContext::CLIENT>);
     MAKEHOOK(module.Offset(0x12BA0), &SQPrintHook<ScriptContext::UI>, &SQPrint<ScriptContext::UI>);
@@ -902,6 +945,11 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module
     MAKEHOOK(module.Offset(0x1DD10), &RegisterSquirrelFunctionHook<ScriptContext::SERVER>, &g_pSquirrel[ScriptContext::SERVER]->RegisterSquirrelFunc);
 
     MAKEHOOK(module.Offset(0x8AA0), &sq_compiler_createHook<ScriptContext::SERVER>, &sq_compiler_create<ScriptContext::SERVER>);
+	MAKEHOOK(module.Offset(0x58530), &SQCompiler_ParseDirectiveHook<ScriptContext::SERVER>,
+	         &SQCompiler_ParseDirective<ScriptContext::SERVER>);
+	MAKEHOOK(module.Offset(0x65C50), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::SERVER>,
+	         &SQCompiler_ResolveLocalOrConstant<ScriptContext::SERVER>);
+
 
     MAKEHOOK(module.Offset(0x1FE90), &SQPrintHook<ScriptContext::SERVER>, &SQPrint<ScriptContext::SERVER>);
     MAKEHOOK(module.Offset(0x260E0), &CreateNewVMHook<ScriptContext::SERVER>, &CreateNewVM<ScriptContext::SERVER>);

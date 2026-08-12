@@ -84,7 +84,9 @@ struct SQSharedState
 	SQTable* _entityTypesMaybe;
 	SQObjectType unknownTable2Type;
 	SQTable* unknownTable2;
-	unsigned char gap_41D8[64];
+	unsigned char gap_41D8[16];
+	SQObject* compilerTypeDescriptors;
+	unsigned char gap_41F0[40];
 	SQCompiler* pCompiler;
 	SQObjectType _compilerKeywordsType;
 	SQTable* _compilerKeywords;
@@ -146,6 +148,7 @@ struct SQSharedState
 static_assert(sizeof(SQSharedState) == 0x4408);
 static_assert(alignof(SQSharedState) == 0x8);
 static_assert(offsetof(SQSharedState, _stringTable) == 0x4048);
+static_assert(offsetof(SQSharedState, compilerTypeDescriptors) == 0x41E8);
 static_assert(offsetof(SQSharedState, pCompiler) == 0x4218);
 static_assert(offsetof(SQSharedState, cSquirrelVM) == 0x43E8);
 static_assert(offsetof(SQSharedState, enableDebugInfo) == 0x43F0);
