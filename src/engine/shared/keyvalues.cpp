@@ -919,7 +919,18 @@ std::string KeyValues::GetStringValue(void) const
 	{
 		std::ostringstream value;
 		value << std::setprecision(std::numeric_limits<float>::max_digits10) << m_flValue;
-		return value.str();
+		std::string result = value.str();
+
+		// The default stream formatting renders integral floats such as 8.0f as
+		// "8", which changes the value's type to int when the compiled .set
+		// loader and script bridge consume it. Keep a float representation by
+		// preserving the decimal point unless the value is already scientific
+		// notation or a non-finite placeholder.
+		if (result.find_first_of(".eE") == std::string::npos && result.find("nan") == std::string::npos &&
+		    result.find("inf") == std::string::npos)
+			result += ".0";
+
+		return result;
 	}
 	case TYPE_PTR:
 		return std::to_string(reinterpret_cast<uintptr_t>(m_pValue));

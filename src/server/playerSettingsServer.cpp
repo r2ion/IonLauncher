@@ -1,4 +1,5 @@
 #include "tier0/hooks.h"
+#include "tier1/keyvalues.h"
 #include "vscript/squirrel/squirrel.h"
 
 #include <array>
@@ -35,6 +36,33 @@ static void (*s_PlayerSettingsLog)(const char* format, ...);
 static const void* s_pPlayerSettingsGlobalFieldTable;
 static const void* s_pPlayerSettingsSecondaryFieldTable;
 static const void* s_pPlayerSettingsPoseFieldTable;
+
+// The compiled .set loader can preserve small integer values using KeyValues'
+// compact integer tags. The legacy script bridge at server.dll+0x29BC70 only
+// handles TYPE_STRING, TYPE_INT, and TYPE_FLOAT, so normalize the equivalent
+// compact encodings before exposing the record through Ion's dynamic storage.
+static void NormalizeCompiledIntegerKeyValues(KeyValues* keyValues)
+{
+    for (KeyValues* node = keyValues; node; node = node->m_pPeer)
+    {
+        NormalizeCompiledIntegerKeyValues(node->m_pSub);
+
+        switch (node->m_iDataType)
+        {
+        case TYPE_COMPILED_INT_BYTE:
+            node->m_iDataType = TYPE_INT;
+            break;
+        case TYPE_COMPILED_INT_0:
+            node->m_iValue = 0;
+            node->m_iDataType = TYPE_INT;
+            break;
+        case TYPE_COMPILED_INT_1:
+            node->m_iValue = 1;
+            node->m_iDataType = TYPE_INT;
+            break;
+        }
+    }
+}
 
 // server.dll keeps player .set records in a fixed 60-element inline array. This
 // replacement uses stable heap allocations so native consumers retain stable
@@ -290,6 +318,7 @@ char* CPlayerSettingsServer::GetCurrentPose(const char* poseName)
 void CPlayerSettingsServer::LoadRecord(void* keyValues)
 {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    NormalizeCompiledIntegerKeyValues(static_cast<KeyValues*>(keyValues));
     const size_t index = m_Records.size();
     auto record = std::make_unique<PlayerSettingsRecord>();
     std::byte* recordData = record->m_Data.data();
