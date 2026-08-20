@@ -17,8 +17,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <stdexcept>
 #include <ns_version.h>
+#include <stdexcept>
 
 SquirrelManagerManager g_pSquirrel;
 
@@ -28,56 +28,56 @@ thread_local SQCompiler* s_pIfDirectiveCompiler;
 
 class CSquirrelDocumentationCatalog final
 {
-public:
-	static void RegisterClient(CModule module)
-	{
-		Register(module, ScriptContext::CLIENT, CLIENT_CATALOG_OFFSETS);
-		Register(module, ScriptContext::UI, UI_CATALOG_OFFSETS);
-	}
+  public:
+    static void RegisterClient(CModule module)
+    {
+        Register(module, ScriptContext::CLIENT, CLIENT_CATALOG_OFFSETS);
+        Register(module, ScriptContext::UI, UI_CATALOG_OFFSETS);
+    }
 
-	static void RegisterServer(CModule module)
-	{
-		Register(module, ScriptContext::SERVER, SERVER_CATALOG_OFFSETS);
-	}
+    static void RegisterServer(CModule module)
+    {
+        Register(module, ScriptContext::SERVER, SERVER_CATALOG_OFFSETS);
+    }
 
-private:
-	struct SQFuncRegistrationVector_t
-	{
-		const SQFuncRegistration* m_pFunctions;
-		std::byte m_AllocatorState[16];
-		int32_t m_Count;
-		int32_t m_Padding;
-	};
+  private:
+    struct SQFuncRegistrationVector_t
+    {
+        const SQFuncRegistration* m_pFunctions;
+        std::byte m_AllocatorState[16];
+        int32_t m_Count;
+        int32_t m_Padding;
+    };
 
-	static_assert(offsetof(SQFuncRegistrationVector_t, m_Count) == 24);
-	static_assert(sizeof(SQFuncRegistrationVector_t) == 32);
-	static_assert(sizeof(SQFuncRegistration) == 104);
+    static_assert(offsetof(SQFuncRegistrationVector_t, m_Count) == 24);
+    static_assert(sizeof(SQFuncRegistrationVector_t) == 32);
+    static_assert(sizeof(SQFuncRegistration) == 104);
 
-	static constexpr int32_t MAX_FUNCTIONS_PER_CATALOG = 4096;
-	static constexpr std::array<uintptr_t, 6> CLIENT_CATALOG_OFFSETS = {
-	    0xBFC190, 0xC10360, 0xC217C0, 0x26CF6C0, 0x2909600, 0x2E34E70,
-	};
-	static constexpr std::array<uintptr_t, 1> UI_CATALOG_OFFSETS = {
-	    0x294F200,
-	};
-	static constexpr std::array<uintptr_t, 10> SERVER_CATALOG_OFFSETS = {
-	    0xBE81A0, 0xBEBF50, 0x105ACC0, 0x1128CE0, 0x14DAA40, 0x1500E20, 0x1504820, 0x15FB750, 0x1600F90, 0x1601500,
-	};
+    static constexpr int32_t MAX_FUNCTIONS_PER_CATALOG = 4096;
+    static constexpr std::array<uintptr_t, 6> CLIENT_CATALOG_OFFSETS = {
+        0xBFC190, 0xC10360, 0xC217C0, 0x26CF6C0, 0x2909600, 0x2E34E70,
+    };
+    static constexpr std::array<uintptr_t, 1> UI_CATALOG_OFFSETS = {
+        0x294F200,
+    };
+    static constexpr std::array<uintptr_t, 10> SERVER_CATALOG_OFFSETS = {
+        0xBE81A0, 0xBEBF50, 0x105ACC0, 0x1128CE0, 0x14DAA40, 0x1500E20, 0x1504820, 0x15FB750, 0x1600F90, 0x1601500,
+    };
 
-	template <size_t Count> static void Register(CModule module, ScriptContext context, const std::array<uintptr_t, Count>& offsets)
-	{
-		SquirrelDocumentation& documentation = SquirrelDocumentation::GetInstance();
-		for (const uintptr_t offset : offsets)
-		{
-			const auto* catalog = module.Offset(offset).RCast<const SQFuncRegistrationVector_t*>();
-			if (!catalog->m_pFunctions || catalog->m_Count <= 0 || catalog->m_Count > MAX_FUNCTIONS_PER_CATALOG)
-			{
-				spdlog::warn("Ignoring invalid {} Squirrel documentation catalog at offset 0x{:X}", CSquirrelContext::GetName(context), offset);
-				continue;
-			}
-			documentation.RegisterStaticFunctions(context, catalog->m_pFunctions, static_cast<size_t>(catalog->m_Count));
-		}
-	}
+    template <size_t Count> static void Register(CModule module, ScriptContext context, const std::array<uintptr_t, Count>& offsets)
+    {
+        SquirrelDocumentation& documentation = SquirrelDocumentation::GetInstance();
+        for (const uintptr_t offset : offsets)
+        {
+            const auto* catalog = module.Offset(offset).RCast<const SQFuncRegistrationVector_t*>();
+            if (!catalog->m_pFunctions || catalog->m_Count <= 0 || catalog->m_Count > MAX_FUNCTIONS_PER_CATALOG)
+            {
+                spdlog::warn("Ignoring invalid {} Squirrel documentation catalog at offset 0x{:X}", CSquirrelContext::GetName(context), offset);
+                continue;
+            }
+            documentation.RegisterStaticFunctions(context, catalog->m_pFunctions, static_cast<size_t>(catalog->m_Count));
+        }
+    }
 };
 
 std::shared_ptr<spdlog::logger> CSquirrelContext::GetLogger(ScriptContext context)
@@ -91,8 +91,8 @@ std::shared_ptr<spdlog::logger> CSquirrelContext::GetLogger(ScriptContext contex
     case ScriptContext::SERVER:
         return NS::log::SCRIPT_SV;
     default:
-		throw std::invalid_argument("CSquirrelContext::GetLogger called with invalid context");
-	}
+        throw std::invalid_argument("CSquirrelContext::GetLogger called with invalid context");
+    }
 }
 
 eSQReturnType SQReturnTypeFromString(const char* pReturnType)
@@ -174,7 +174,11 @@ const char* SQTypeNameFromID(int type)
 
 void SquirrelManager::VMCreated(CSquirrelVM* newSqvm)
 {
-    m_pSQVM = newSqvm;
+    {
+        std::scoped_lock lock(m_vmLifecycleMutex);
+        m_bAcceptAsyncCalls = false;
+        m_pSQVM = newSqvm;
+    }
 
     for (SQFuncRegistration* funcReg : m_funcRegistrations)
     {
@@ -222,14 +226,22 @@ void SquirrelManager::VMCreated(CSquirrelVM* newSqvm)
 
     defconst(m_pSQVM, "VANILLA", g_pVanillaCompatibility->GetVanillaCompatibility());
 
-    m_messageBuffer = new SquirrelMessageBuffer();
+    {
+        std::scoped_lock lock(m_vmLifecycleMutex);
+        m_messageBuffer = new SquirrelMessageBuffer();
+        m_bAcceptAsyncCalls = true;
+    }
     g_pPluginManager->InformSqvmCreated(newSqvm);
 }
 
 void SquirrelManager::VMDestroyed()
 {
-    // Call all registered mod Destroy callbacks.
-    if (g_pModManager)
+    {
+        std::scoped_lock lock(m_vmLifecycleMutex);
+        m_bAcceptAsyncCalls = false;
+    }
+
+	if (g_pModManager)
     {
         m_logger->info("Calling Destroy callbacks for all loaded mods.");
 
@@ -254,10 +266,14 @@ void SquirrelManager::VMDestroyed()
     g_pPluginManager->InformSqvmDestroying(m_pSQVM);
 
     // Discard the previous vm and delete the message buffer.
-    m_pSQVM = nullptr;
-
-    delete m_messageBuffer;
-    m_messageBuffer = nullptr;
+    SquirrelMessageBuffer* messageBuffer = nullptr;
+    {
+        std::scoped_lock lock(m_vmLifecycleMutex);
+        m_pSQVM = nullptr;
+        messageBuffer = m_messageBuffer;
+        m_messageBuffer = nullptr;
+    }
+    delete messageBuffer;
 }
 
 SquirrelExecutionResult SquirrelManager::ExecuteCode(const char* pCode, const char* pLogCode)
@@ -368,41 +384,39 @@ template <ScriptContext context> SQInteger __fastcall sqstd_aux_printerrorHook(H
 template <ScriptContext context> std::int64_t (*SQCompiler_ParseDirective)(SQCompiler* pCompiler);
 template <ScriptContext context> std::int64_t __fastcall SQCompiler_ParseDirectiveHook(SQCompiler* pCompiler)
 {
-	SQCompiler* pPreviousCompiler = s_pIfDirectiveCompiler;
-	s_pIfDirectiveCompiler = pCompiler;
-	const std::int64_t result = SQCompiler_ParseDirective<context>(pCompiler);
-	s_pIfDirectiveCompiler = pPreviousCompiler;
-	return result;
+    SQCompiler* pPreviousCompiler = s_pIfDirectiveCompiler;
+    s_pIfDirectiveCompiler = pCompiler;
+    const std::int64_t result = SQCompiler_ParseDirective<context>(pCompiler);
+    s_pIfDirectiveCompiler = pPreviousCompiler;
+    return result;
 }
 
 template <ScriptContext context>
 bool (*SQCompiler_ResolveLocalOrConstant)(void* pFunctionState, SQObject* pIdentifier, SQObject* pValue, std::uintptr_t* pType);
 template <ScriptContext context>
-bool __fastcall SQCompiler_ResolveLocalOrConstantHook(
-    void* pFunctionState, SQObject* pIdentifier, SQObject* pValue, std::uintptr_t* pType)
+bool __fastcall SQCompiler_ResolveLocalOrConstantHook(void* pFunctionState, SQObject* pIdentifier, SQObject* pValue, std::uintptr_t* pType)
 {
-	if (SQCompiler_ResolveLocalOrConstant<context>(pFunctionState, pIdentifier, pValue, pType))
-		return true;
+    if (SQCompiler_ResolveLocalOrConstant<context>(pFunctionState, pIdentifier, pValue, pType))
+        return true;
 
-	if (!s_pIfDirectiveCompiler || s_pIfDirectiveCompiler->preprocessorDepth <= 0)
-		return false;
+    if (!s_pIfDirectiveCompiler || s_pIfDirectiveCompiler->preprocessorDepth <= 0)
+        return false;
 
-	// evaluate to 0 if we're doing directives because #if with a compile error is stupid
-	pValue->_Type = OT_INTEGER;
-	pValue->structNumber = 0;
-	pValue->_VAL.as64Integer = 0;
-	constexpr std::uint32_t typeHash = 0x9E3779B9u - 0x61C88647u * static_cast<std::uint32_t>(OT_INTEGER);
-	constexpr std::size_t typeIndex = (typeHash / 0xF499u) & 0x3FFFu;
-	SQSharedState* pSharedState = s_pIfDirectiveCompiler->pSQVM->sharedState;
-	*pType = reinterpret_cast<std::uintptr_t>(&pSharedState->compilerTypeDescriptors[typeIndex]);
-	return true;
+    // evaluate to 0 if we're doing directives because #if with a compile error is stupid
+    pValue->_Type = OT_INTEGER;
+    pValue->structNumber = 0;
+    pValue->_VAL.as64Integer = 0;
+    constexpr std::uint32_t typeHash = 0x9E3779B9u - 0x61C88647u * static_cast<std::uint32_t>(OT_INTEGER);
+    constexpr std::size_t typeIndex = (typeHash / 0xF499u) & 0x3FFFu;
+    SQSharedState* pSharedState = s_pIfDirectiveCompiler->pSQVM->sharedState;
+    *pType = reinterpret_cast<std::uintptr_t>(&pSharedState->compilerTypeDescriptors[typeIndex]);
+    return true;
 }
-
 
 template <ScriptContext context> void* (*sq_compiler_create)(HSQUIRRELVM sqvm, void* a2, void* a3, SQBool bShouldThrowError);
 template <ScriptContext context> void* __fastcall sq_compiler_createHook(HSQUIRRELVM sqvm, void* a2, void* a3, SQBool bShouldThrowError)
 {
-	s_pIfDirectiveCompiler = nullptr;
+    s_pIfDirectiveCompiler = nullptr;
 
     // store whether errors generated from this compile should be fatal
     if (IsUIVM(context, sqvm))
@@ -514,11 +528,11 @@ template <ScriptContext context> void __fastcall ScriptCompileErrorHook(HSQUIRRE
     {
         realContext = ScriptContext::UI;
         bIsFatalError = g_pSquirrel[ScriptContext::UI]->m_bFatalCompilationErrors;
-	}
+    }
 
-	auto logger = CSquirrelContext::GetLogger(realContext);
+    auto logger = CSquirrelContext::GetLogger(realContext);
 
-	const char* ownerName = "Vanilla";
+    const char* ownerName = "Vanilla";
     std::string filePath = g_pModManager->NormaliseModFilePath(fs::path("scripts/vscripts") / file);
     auto it = g_pModManager->m_ModFiles.find(filePath);
     if (it != g_pModManager->m_ModFiles.end())
@@ -549,10 +563,11 @@ template <ScriptContext context> void __fastcall ScriptCompileErrorHook(HSQUIRRE
         }
         else
         {
-            Cbuf_AddText(
-                Cbuf_GetCurrentPlayer(),
-			             fmt::format("disconnect \"Encountered {} script compilation error, see console for details.\"", CSquirrelContext::GetName(realContext)).c_str(),
-			             cmd_source_t::kCommandSrcCode);
+            Cbuf_AddText(Cbuf_GetCurrentPlayer(),
+                         fmt::format("disconnect \"Encountered {} script compilation error, see console for details.\"",
+                                     CSquirrelContext::GetName(realContext))
+                             .c_str(),
+                         cmd_source_t::kCommandSrcCode);
 
             // likely temp: show console so user can see any errors, as error message wont display if ui is dead
             // maybe we could disable all mods other than the coremods and try a reload before doing this?
@@ -703,8 +718,13 @@ template <ScriptContext context> void StubUnsafeSQFuncs()
 
 void SquirrelManager::ProcessMessageBuffer()
 {
-    while (std::optional<SquirrelMessage> maybeMessage = m_messageBuffer->pop())
+    std::scoped_lock lock(m_vmLifecycleMutex);
+    while (m_bAcceptAsyncCalls && m_pSQVM && m_pSQVM->sqvm && m_messageBuffer)
     {
+        std::optional<SquirrelMessage> maybeMessage = m_messageBuffer->pop();
+        if (!maybeMessage)
+            return;
+
         SquirrelMessage message = maybeMessage.value();
 
         SQObject functionobj{};
@@ -764,9 +784,9 @@ ADD_SQFUNC("string", NSGetCallingModName, "int depth = 0", "Returns the mod name
 ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module)
 {
     HookSys::GetOrCreateFileHookModule(__FILE__, "SquirrelHooksModule").DispatchForModule("client.dll");
-	CSquirrelDocumentationCatalog::RegisterClient(module);
+    CSquirrelDocumentationCatalog::RegisterClient(module);
 
-	g_pSquirrel[ScriptContext::CLIENT]->__sq_defconst = module.Offset(0x12120).RCast<sq_defconstType>();
+    g_pSquirrel[ScriptContext::CLIENT]->__sq_defconst = module.Offset(0x12120).RCast<sq_defconstType>();
     g_pSquirrel[ScriptContext::UI]->__sq_defconst = g_pSquirrel[ScriptContext::CLIENT]->__sq_defconst;
 
     g_pSquirrel[ScriptContext::CLIENT]->__sq_compilebuffer = module.Offset(0x3110).RCast<sq_compilebufferType>();
@@ -863,11 +883,9 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module
 
     MAKEHOOK(module.Offset(0x79540), &sqstd_aux_printerrorHook<ScriptContext::CLIENT>, &sqstd_aux_printerror<ScriptContext::CLIENT>);
     MAKEHOOK(module.Offset(0x8AD0), &sq_compiler_createHook<ScriptContext::CLIENT>, &sq_compiler_create<ScriptContext::CLIENT>);
-	MAKEHOOK(module.Offset(0x58590), &SQCompiler_ParseDirectiveHook<ScriptContext::CLIENT>,
-	         &SQCompiler_ParseDirective<ScriptContext::CLIENT>);
-	MAKEHOOK(module.Offset(0x65CB0), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::CLIENT>,
-	         &SQCompiler_ResolveLocalOrConstant<ScriptContext::CLIENT>);
-
+    MAKEHOOK(module.Offset(0x58590), &SQCompiler_ParseDirectiveHook<ScriptContext::CLIENT>, &SQCompiler_ParseDirective<ScriptContext::CLIENT>);
+    MAKEHOOK(module.Offset(0x65CB0), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::CLIENT>,
+             &SQCompiler_ResolveLocalOrConstant<ScriptContext::CLIENT>);
 
     MAKEHOOK(module.Offset(0x12B00), &SQPrintHook<ScriptContext::CLIENT>, &SQPrint<ScriptContext::CLIENT>);
     MAKEHOOK(module.Offset(0x12BA0), &SQPrintHook<ScriptContext::UI>, &SQPrint<ScriptContext::UI>);
@@ -890,9 +908,9 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module
 ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module)
 {
     HookSys::GetOrCreateFileHookModule(__FILE__, "SquirrelHooksModule").DispatchForModule("server.dll");
-	CSquirrelDocumentationCatalog::RegisterServer(module);
+    CSquirrelDocumentationCatalog::RegisterServer(module);
 
-	g_pSquirrel[ScriptContext::SERVER]->__sq_defconst = module.Offset(0x1F550).RCast<sq_defconstType>();
+    g_pSquirrel[ScriptContext::SERVER]->__sq_defconst = module.Offset(0x1F550).RCast<sq_defconstType>();
 
     g_pSquirrel[ScriptContext::SERVER]->__sq_compilebuffer = module.Offset(0x3110).RCast<sq_compilebufferType>();
     g_pSquirrel[ScriptContext::SERVER]->__sq_pushroottable = module.Offset(0x5840).RCast<sq_pushroottableType>();
@@ -945,11 +963,9 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module
     MAKEHOOK(module.Offset(0x1DD10), &RegisterSquirrelFunctionHook<ScriptContext::SERVER>, &g_pSquirrel[ScriptContext::SERVER]->RegisterSquirrelFunc);
 
     MAKEHOOK(module.Offset(0x8AA0), &sq_compiler_createHook<ScriptContext::SERVER>, &sq_compiler_create<ScriptContext::SERVER>);
-	MAKEHOOK(module.Offset(0x58530), &SQCompiler_ParseDirectiveHook<ScriptContext::SERVER>,
-	         &SQCompiler_ParseDirective<ScriptContext::SERVER>);
-	MAKEHOOK(module.Offset(0x65C50), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::SERVER>,
-	         &SQCompiler_ResolveLocalOrConstant<ScriptContext::SERVER>);
-
+    MAKEHOOK(module.Offset(0x58530), &SQCompiler_ParseDirectiveHook<ScriptContext::SERVER>, &SQCompiler_ParseDirective<ScriptContext::SERVER>);
+    MAKEHOOK(module.Offset(0x65C50), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::SERVER>,
+             &SQCompiler_ResolveLocalOrConstant<ScriptContext::SERVER>);
 
     MAKEHOOK(module.Offset(0x1FE90), &SQPrintHook<ScriptContext::SERVER>, &SQPrint<ScriptContext::SERVER>);
     MAKEHOOK(module.Offset(0x260E0), &CreateNewVMHook<ScriptContext::SERVER>, &CreateNewVM<ScriptContext::SERVER>);

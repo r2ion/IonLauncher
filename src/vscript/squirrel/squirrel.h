@@ -56,23 +56,23 @@ static constexpr int operator|(int first, ScriptContext second)
 
 class CSquirrelContext final
 {
-public:
-	static const char* GetName(ScriptContext context)
-	{
-		switch (context)
-		{
-		case ScriptContext::CLIENT:
-			return "CLIENT";
-		case ScriptContext::SERVER:
-			return "SERVER";
-		case ScriptContext::UI:
-			return "UI";
-		default:
-			return "UNKNOWN";
-		}
-	}
+  public:
+    static const char* GetName(ScriptContext context)
+    {
+        switch (context)
+        {
+        case ScriptContext::CLIENT:
+            return "CLIENT";
+        case ScriptContext::SERVER:
+            return "SERVER";
+        case ScriptContext::UI:
+            return "UI";
+        default:
+            return "UNKNOWN";
+        }
+    }
 
-	static std::shared_ptr<spdlog::logger> GetLogger(ScriptContext context);
+    static std::shared_ptr<spdlog::logger> GetLogger(ScriptContext context);
 };
 
 eSQReturnType SQReturnTypeFromString(const char* pReturnType);
@@ -81,7 +81,7 @@ ScriptContext ScriptContextFromString(std::string string);
 
 struct SquirrelExecutionResult
 {
-	SQRESULT compileResult = SQRESULT_ERROR;
+    SQRESULT compileResult = SQRESULT_ERROR;
     SQRESULT callResult = SQRESULT_ERROR;
     bool called = false;
 
@@ -93,10 +93,23 @@ struct SquirrelExecutionResult
 
 class SquirrelManager
 {
-protected:
+  protected:
     std::vector<SQFuncRegistration*> m_funcRegistrations;
 
-public:
+  private:
+    std::recursive_mutex m_vmLifecycleMutex;
+    bool m_bAcceptAsyncCalls = false;
+
+    bool CanQueueAsyncCallLocked(const std::string& funcname) const
+    {
+        if (m_bAcceptAsyncCalls && m_pSQVM && m_pSQVM->sqvm && m_messageBuffer)
+            return true;
+
+        spdlog::error("AsyncCall {} was called on context {} while its VM was not ready.", funcname, CSquirrelContext::GetName(m_context));
+        return false;
+    }
+
+  public:
     ScriptContext m_context;
     std::shared_ptr<spdlog::logger> m_logger;
     CSquirrelVM* m_pSQVM;
@@ -105,20 +118,20 @@ public:
 
     bool m_bFatalCompilationErrors = false;
 
-public:
+  public:
     SquirrelManager(ScriptContext context)
     {
         m_pSQVM = nullptr;
         m_context = context;
-		m_logger = CSquirrelContext::GetLogger(m_context);
-	}
+        m_logger = CSquirrelContext::GetLogger(m_context);
+    }
     std::shared_ptr<spdlog::logger> logger;
     CHudScriptElement* rootHudScriptElement = nullptr;
 
     void VMCreated(CSquirrelVM* newSqvm);
     void VMDestroyed();
     SquirrelExecutionResult ExecuteCode(const char* code, const char* logCode = nullptr);
-	void AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func);
+    void AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func);
     SQRESULT setupfunc(const SQChar* funcname);
     void AddFuncOverride(std::string name, SQFunction func);
     void ProcessMessageBuffer();
@@ -384,17 +397,15 @@ public:
 #pragma endregion
 
 #pragma region MessageBuffer
-    SquirrelMessageBuffer* m_messageBuffer;
+    SquirrelMessageBuffer* m_messageBuffer = nullptr;
 
     template <typename... Args> SquirrelMessage AsyncCall(std::string funcname, Args... args)
     {
         // This function schedules a call to be executed on the next frame
         // This is useful for things like threads and plugins, which do not run on the main thread
-        if (!m_pSQVM || !m_pSQVM->sqvm)
-        {
-            spdlog::error("AsyncCall {} was called on context {} while VM was not initialized.", funcname, CSquirrelContext::GetName(m_context));
+        std::scoped_lock lock(m_vmLifecycleMutex);
+        if (!CanQueueAsyncCallLocked(funcname))
             return SquirrelMessage();
-        }
         FunctionVector functionVector;
         SqRecurseArgs(this, functionVector, args...);
         SquirrelMessage message = {funcname, functionVector};
@@ -406,11 +417,9 @@ public:
     {
         // This function schedules a call to be executed on the next frame
         // This is useful for things like threads and plugins, which do not run on the main thread
-        if (!m_pSQVM || !m_pSQVM->sqvm)
-        {
-            spdlog::error("AsyncCall {} was called on context {} while VM was not initialized.", funcname, CSquirrelContext::GetName(m_context));
+        std::scoped_lock lock(m_vmLifecycleMutex);
+        if (!CanQueueAsyncCallLocked(funcname))
             return SquirrelMessage();
-        }
         FunctionVector functionVector = {};
         SquirrelMessage message = {funcname, functionVector};
         m_messageBuffer->push(message);
