@@ -231,6 +231,13 @@ add_library(
     "shell.h"
     "engine/shared/playlist.cpp"
     "engine/shared/playlist.h"
+    "tier1/uniqueid.cpp"
+    "tools/particleeditor/particledocument.cpp"
+    "tools/particleeditor/particledocument.h"
+    "tools/particleeditor/particleeditorwindow.cpp"
+    "tools/particleeditor/particleeditorwindow.h"
+    "tools/particleeditor/particletoolssystem.cpp"
+    "tools/particleeditor/particletoolssystem.h"
     "engine/shared/signonstate.h"
     "tier0/hooks.cpp"
     "tier0/callbacks.cpp"
@@ -339,6 +346,7 @@ target_link_libraries(
             crypt32.lib
             cryptui.lib
             ole32.lib
+            rpcrt4.lib
             windowscodecs.lib
             dbghelp.lib
             wldap32.lib
@@ -348,6 +356,8 @@ target_link_libraries(
             winmm.lib
             dxgi.lib
             shlwapi.lib
+            comctl32.lib
+            comdlg32.lib
             ${EOS_LIB}
             spdlog
             libcurl

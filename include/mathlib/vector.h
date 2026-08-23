@@ -104,7 +104,14 @@ public:
 	Vector3 operator/(const Vector3& v) const;
 	Vector3 operator*(float fl) const;
 	Vector3 operator/(float fl) const;
+
+	float* Base() { return &x; }
+	const float* Base() const { return &x; }
+	float& operator[](int index) { return Base()[index]; }
+	float operator[](int index) const { return Base()[index]; }
 };
+
+using Vector = Vector3;
 
 FORCEINLINE void VectorAdd(const Vector3& a, const Vector3& b, Vector3& result);
 FORCEINLINE void VectorSubtract(const Vector3& a, const Vector3& b, Vector3& result);
@@ -360,6 +367,10 @@ public:
 	}
 
 	Vector3 GetNormal() const;
+	float* Base() { return &x; }
+	const float* Base() const { return &x; }
+	float& operator[](int index) { return Base()[index]; }
+	float operator[](int index) const { return Base()[index]; }
 
 	// todo: more operators maybe
 	bool operator==(const QAngle& other) { return x == other.x && y == other.y && z == other.z; }
@@ -369,4 +380,26 @@ inline Vector3 QAngle::GetNormal() const
 {
 	Vector3 ret(cos(DEG2RAD(y)), sin(DEG2RAD(y)), -sin(DEG2RAD(x)));
 	return ret;
+}
+
+inline void AngleVectors(const QAngle& angles, Vector* forward, Vector* right = nullptr, Vector* up = nullptr)
+{
+	const float pitch = DEG2RAD(angles.x);
+	const float yaw = DEG2RAD(angles.y);
+	const float roll = DEG2RAD(angles.z);
+	const float sinPitch = std::sin(pitch);
+	const float cosPitch = std::cos(pitch);
+	const float sinYaw = std::sin(yaw);
+	const float cosYaw = std::cos(yaw);
+	const float sinRoll = std::sin(roll);
+	const float cosRoll = std::cos(roll);
+
+	if (forward)
+		*forward = Vector(cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+	if (right)
+		*right = Vector(-sinRoll * sinPitch * cosYaw + cosRoll * sinYaw,
+			-sinRoll * sinPitch * sinYaw - cosRoll * cosYaw, -sinRoll * cosPitch);
+	if (up)
+		*up = Vector(cosRoll * sinPitch * cosYaw + sinRoll * sinYaw,
+			cosRoll * sinPitch * sinYaw - sinRoll * cosYaw, cosRoll * cosPitch);
 }

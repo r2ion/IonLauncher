@@ -4,8 +4,6 @@
 
 class IBaseInterface
 {
-public:
-	virtual ~IBaseInterface() = default;
 };
 
 enum class InterfaceStatus : int

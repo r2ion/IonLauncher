@@ -1065,9 +1065,10 @@ void KeyValues::SetFloat(const char* pszKeyName, float flValue)
 //-----------------------------------------------------------------------------
 void KeyValues::SetName(const char* pszSetName)
 {
-	HKeySymbol hCaseSensitiveKeyName = INVALID_KEY_SYMBOL, hCaseInsensitiveKeyName = INVALID_KEY_SYMBOL;
+	HKeySymbol hCaseSensitiveKeyName = INVALID_KEY_SYMBOL;
+	HKeySymbol hCaseInsensitiveKeyName = INVALID_KEY_SYMBOL;
 	hCaseSensitiveKeyName =
-		KeyValuesSystem()->GetSymbolForStringCaseSensitive(hCaseInsensitiveKeyName, pszSetName, false);
+		KeyValuesSystem()->GetSymbolForStringCaseSensitive(hCaseInsensitiveKeyName, pszSetName, true);
 
 	m_iKeyName = hCaseInsensitiveKeyName;
 	SPLIT_3_BYTES_INTO_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2, hCaseSensitiveKeyName);

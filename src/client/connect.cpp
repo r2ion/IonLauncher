@@ -783,6 +783,14 @@ void ConnectionManager::FinaliseJoiningLocalServer()
 void ConnectionManager::ConnectToLocalServer()
 {
 	g_pVanillaCompatibility->SetCompatabilityMode(VanillaCompatibility::CompatibilityMode::Northstar);
+	ConVar* allowInsecure = g_pCVar->FindVar("ns_auth_allow_insecure");
+	if (allowInsecure->GetBool())
+	{
+		m_bAuthSucessful = true;
+		FinaliseJoiningLocalServer();
+		Cbuf_Execute();
+		return;
+	}
 
 	std::thread authThread(
 		[&]()
@@ -963,6 +971,7 @@ DECLARE_HOOK(concommand_connect, engine.dll + 0x76720, [](auto& hook, const CCom
 
 		auto mode = g_pConnectionManager->DetermineModeFromAddress(address);
 
+
 		const char* mp_gamemode = g_pCVar->FindVar("mp_gamemode") ? g_pCVar->FindVar("mp_gamemode")->GetString() : "";
 		bool isSolo = (mp_gamemode && strcmp(mp_gamemode, "solo") == 0);
 
@@ -1001,6 +1010,13 @@ DECLARE_HOOK(connectWithKey, engine.dll + 0x768C0, [](auto& hook, const CCommand
 			return hook.Original(args);
 
 		const char* address = args->Arg(1);
+		if (CommandLine()->CheckParm("-particletools") && std::string_view(address).starts_with("127.0.0.1"))
+		{
+			g_pVanillaCompatibility->SetCompatabilityMode(VanillaCompatibility::CompatibilityMode::Northstar);
+			spdlog::info("[ParticleTools] Connecting directly to keyed local preview server at '{}'", address);
+			return hook.Original(args);
+		}
+
 
 		auto mode = g_pConnectionManager->DetermineModeFromAddress(address);
 		if (g_pConnectionManager->IsRetrying())

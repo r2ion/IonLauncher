@@ -143,7 +143,8 @@ public:
 	virtual void CacheUsedMaterials(void *callback) = 0; // 89
 	virtual void ReloadTextures(bool reloadMode, void (*callback)()) = 0; // 90
 	virtual void ReloadMaterials(const char *nameSubstring) = 0; // 91
-	virtual IMaterial * CreateMaterial(const char *materialName, int materialType) = 0; // 92
+	virtual IMaterial * CreateMaterial(const char *materialName, int materialType,
+		KeyValues *materialKeyValues) = 0; // 92
 	virtual IMaterial * FindOrCreateMaterialFromVmtPatch(const char *materialName,
 		void *materialSource, KeyValues *patchValues) = 0; // 93
 	virtual IMaterial* FindMaterial(const char* materialName, std::uint32_t textureGroup,
@@ -156,7 +157,7 @@ public:
 	virtual int GetNumMaterials() = 0; // 100
 	virtual ITexture* FindTexture(const char* textureName, std::uint32_t textureGroup,
 		std::uint32_t flags, int additionalCreationFlags, std::uint32_t unknown) = 0; // 101
-	virtual bool IsTextureLoaded(const char *textureName) = 0; // 102
+	virtual ITexture* FindLoadedTexture(const char* textureName, bool complain) = 0; // 102
 	virtual bool HasTextureBackingResource(ITexture *texture) = 0; // 103
 	virtual ITexture * CreateProceduralTexture(const char *textureName, std::uint32_t textureGroup,
 		int width, int height, int format, std::uint32_t flags) = 0; // 104

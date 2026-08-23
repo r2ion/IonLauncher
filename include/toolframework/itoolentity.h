@@ -46,7 +46,7 @@ public:
 	virtual bool DrawSprite(IClientRenderable* pRenderable, float scale, float frame, int renderMode, int renderFx,
 		const Color& color, float proxyRadius, int* pVisibilityHandle) = 0;
 	virtual EntitySearchResult GetLocalPlayer() = 0;
-	virtual bool GetLocalPlayerEyePosition(Vector3& origin, QAngle& angles, float& fov) = 0;
+	virtual bool GetLocalPlayerEyePosition(Vector& origin, QAngle& angles, float& fov) = 0;
 	virtual int GetOwningWeaponEntIndex(int entityIndex) = 0;
 	virtual int GetEntIndex(EntitySearchResult entity) = 0;
 	virtual EntitySearchResult GetOwnerEntity(EntitySearchResult entity) = 0;
@@ -60,7 +60,7 @@ public:
 	virtual bool IsSprite(EntitySearchResult entity) = 0;
 	virtual bool IsProp(EntitySearchResult entity) = 0;
 	virtual bool IsBrush(EntitySearchResult entity) = 0;
-	virtual Vector3 GetAbsOrigin(HTOOLHANDLE handle) = 0;
+	virtual Vector GetAbsOrigin(HTOOLHANDLE handle) = 0;
 	virtual QAngle GetAbsAngles(HTOOLHANDLE handle) = 0;
 	virtual void ReloadParticleDefinitions(const char* pFileName, const void* pBufferData, int length) = 0;
 	virtual void EnableParticleSystems(bool enable) = 0;
@@ -77,10 +77,11 @@ struct CEntityRespawnInfo
 class IServerTools : public IBaseInterface
 {
 public:
+	virtual ~IServerTools() = default;
 	virtual IServerEntity* GetIServerEntity(IClientEntity* pClientEntity) = 0;
-	virtual bool SnapPlayerToPosition(const Vector3& origin, const QAngle& angles,
+	virtual bool SnapPlayerToPosition(const Vector& origin, const QAngle& angles,
 		IClientEntity* pClientPlayer = nullptr) = 0;
-	virtual bool GetPlayerPosition(Vector3& origin, QAngle& angles,
+	virtual bool GetPlayerPosition(Vector& origin, QAngle& angles,
 		IClientEntity* pClientPlayer = nullptr) = 0;
 	virtual bool IsInNoClipMode(IClientEntity* pClientPlayer = nullptr) = 0;
 	virtual CBaseEntity* FirstEntity() = 0;
@@ -90,14 +91,14 @@ public:
 		std::uint32_t valueCapacity) = 0;
 	virtual bool SetKeyValue(CBaseEntity* pEntity, const char* pField, const char* pValue) = 0;
 	virtual bool SetKeyValue(CBaseEntity* pEntity, const char* pField, float value) = 0;
-	virtual bool SetKeyValue(CBaseEntity* pEntity, const char* pField, const Vector3& value) = 0;
+	virtual bool SetKeyValue(CBaseEntity* pEntity, const char* pField, const Vector& value) = 0;
 	virtual CBaseEntity* CreateEntityByName(const char* pClassName) = 0;
 	virtual void DispatchSpawn(CBaseEntity* pEntity) = 0;
 	virtual bool DestroyEntityByHammerId(int hammerId) = 0;
 	virtual bool RespawnEntitiesWithEdits(const CEntityRespawnInfo* pInfos, int infoCount) = 0;
 	virtual void ReloadParticleDefinitions(const char* pFileName, const void* pBufferData,
 		int length) = 0;
-	virtual void MoveEngineViewTo(const Vector3& position, const QAngle& angles) = 0;
+	virtual void MoveEngineViewTo(const Vector& position, const QAngle& angles) = 0;
 	virtual void RemoveEntity(int hammerId) = 0;
 };
 

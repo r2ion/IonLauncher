@@ -230,7 +230,7 @@ CPMAddPackage(
 CPMAddPackage(
     NAME minhook-detours
     GITHUB_REPOSITORY sonny-tel/minhook-detours
-    GIT_TAG main
+    GIT_TAG 54107dccdb8e59935bd57980cdfc540063bbca42
 )
 
 CPMAddPackage(

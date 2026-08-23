@@ -14,6 +14,7 @@ inline constexpr char GAMECONSOLE_INTERFACE_VERSION[] = "GameConsole004";
 class IGameConsole : public IBaseInterface
 {
 public:
+	virtual ~IGameConsole() = default;
 	virtual void Activate() = 0;
 	virtual void Initialize() = 0;
 	virtual void Hide() = 0;

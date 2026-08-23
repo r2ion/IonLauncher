@@ -4,7 +4,7 @@
 #include "tier1/convar.h"
 #include "vgui_controls/Panel.h"
 
-vgui::ISurface* g_pVGuiSurface = nullptr;
+vgui::ISurface* vgui::g_pVGuiSurface = nullptr;
 
 using TextureStreamMgr_GetStreamOverlayFn = void(__fastcall*)(char* output, size_t capacity, char* scratchBuffer);
 
@@ -32,7 +32,7 @@ static void ConCommand_dump(const CCommand& args)
 
 ON_DLL_LOAD_CLIENT("client.dll", VGuiSurface, [](CModule module)
 {
-	g_pVGuiSurface = Sys_GetFactoryPtr("vguimatsurface.dll", "VGUI_Surface031").RCast<vgui::ISurface*>();
+	vgui::g_pVGuiSurface = Sys_GetFactoryPtr("vguimatsurface.dll", "VGUI_Surface031").RCast<vgui::ISurface*>();
 })
 
 
