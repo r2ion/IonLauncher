@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -104,6 +105,34 @@ static bool ReadConditionalKeyValues(const fs::path& filePath, const bool keepNo
     }
 
     return !input.bad();
+}
+
+static void ResolveNorthstarGameModeConditionals(std::string& contents)
+{
+    std::istringstream input(contents);
+    std::string resolved;
+    std::string line;
+    while (std::getline(input, line))
+    {
+        // The generic KeyValues loader used for compiled mod assets does not
+        // establish the player-settings game-mode symbols. Resolve the
+        // game-mode suffixes that are meaningful for Northstar here instead.
+        constexpr std::string_view mpCondition = "[$mp]";
+        constexpr std::string_view spCondition = "[$sp]";
+        constexpr std::string_view atCondition = "[$at]";
+        if (const size_t condition = line.find(mpCondition); condition != std::string::npos)
+        {
+            line.erase(condition, mpCondition.size());
+        }
+        else if (line.find(spCondition) != std::string::npos || line.find(atCondition) != std::string::npos)
+        {
+            continue;
+        }
+
+        resolved.append(line);
+        resolved.push_back('\n');
+    }
+    contents = std::move(resolved);
 }
 
 void ModManager::DumpCompiledKeyValues()
@@ -263,6 +292,7 @@ void ModManager::TryBuildKeyValues(const char* filename)
             spdlog::warn("Could not read KeyValues patch {} from mod {}.", patchPath.string(), mod.Name);
             return;
         }
+        ResolveNorthstarGameModeConditionals(patchContents);
 
         KeyValues patchKeyValues(normalisedPath.c_str());
         patchKeyValues.UsesEscapeSequences(true);
