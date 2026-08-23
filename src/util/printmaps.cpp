@@ -233,18 +233,19 @@ DECLARE_HOOK(Host_Map_f, engine.dll + 0x15B340, [](auto& hook, const CCommand& a
 			return Host_Map_helper(args, nullptr);
 	}
 
-	if(state == server_state_t::ss_dead && !g_pConnectionManager->IsConnecting() && !IsDedicatedServer())
+
+	if (state == server_state_t::ss_dead && !g_pConnectionManager->IsConnecting() && !IsDedicatedServer())
 	{
+
 		bool scrPlaque = true;
 
-		if(g_pConnectionManager->IsFailed())
+		if (g_pConnectionManager->IsFailed())
 			g_pConnectionManager->ResetState();
 
-		if(args.ArgC() == 3)
+		if (args.ArgC() == 3)
 			atoi(args.Arg(2)) == 1 ? scrPlaque = true : scrPlaque = false;
 
 		std::string map = args.Arg(1);
-
 		g_pConnectionManager->Connect(scrPlaque, map);
 		return;
 	}

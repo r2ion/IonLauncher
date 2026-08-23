@@ -1,13 +1,13 @@
 #include "pakfilesystem.h"
-#include "modsystem/modmanager.h"
-#include "dedicated/dedicated.h"
 #include "core/tier0.h"
-#include "util/utils.h"
+#include "dedicated/dedicated.h"
+#include "modsystem/modmanager.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
 #include "rtech/rui/dynamic_imageatlas.h"
-#include <mutex>
+#include "util/utils.h"
 #include <algorithm>
+#include <mutex>
 
 DECLARE_MODULE(PakFilesystemHooks)
 
@@ -587,211 +587,238 @@ static void HandlePakAliases(std::string& originalPath)
 		if (mod->RpakAliases.find(originalPath) != mod->RpakAliases.end())
 		{
 			originalPath = mod->RpakAliases[originalPath];
-			return;
-		}
-	}
+            return;
+        }
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 DECLARE_HOOK(LoadMapRpaks, engine.dll + 0x15A8C0, [](auto& hook, char* mapPath) -> bool
 {
-	NOTE_UNUSED(hook);
-	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
-		return false;
+    NOTE_UNUSED(hook);
+    if (g_pPakLoadManager->HasUnsafeLoadedPaks())
+    {
 
-	const bool forceModelReload = g_pPakLoadManager->GetForceReloadOnMapLoad();
+        return false;
+    }
 
-	// unload all mod rpaks that are marked for unload
-	g_pPakLoadManager->UnloadMarkedPaks();
-	g_pPakLoadManager->CleanUpUnloadedPaks();
+    const bool forceModelReload = g_pPakLoadManager->GetForceReloadOnMapLoad();
 
-	// strip file extension
-	const std::string mapName = fs::path(mapPath).replace_extension().string();
+    // unload all mod rpaks that are marked for unload
+    g_pPakLoadManager->UnloadMarkedPaks();
+    g_pPakLoadManager->CleanUpUnloadedPaks();
 
-	// load mp_common, sp_common etc.
-	o_pLoadGametypeSpecificRpaks(mapName.c_str());
+    // strip file extension
+    const std::string mapName = fs::path(mapPath).replace_extension().string();
 
-	// unload old modded map paks
-	g_pPakLoadManager->UnloadModPaks();
-	// load modded map paks
-	g_pPakLoadManager->LoadModPaksForMap(mapName.c_str());
+    // load mp_common, sp_common etc.
+    o_pLoadGametypeSpecificRpaks(mapName.c_str());
 
-	// don't load/unload anything when going to the lobby, presumably to save load times when going back to the same map
-	if (!g_pPakLoadManager->GetForceReloadOnMapLoad() && !strcmp("mp_lobby", mapName.c_str()))
-		return false;
+    // unload old modded map paks
+    g_pPakLoadManager->UnloadModPaks();
+    // load modded map paks
+    g_pPakLoadManager->LoadModPaksForMap(mapName.c_str());
 
-	if (g_pPakLoadManager->GetForceReloadOnMapLoad())
-	{
-		g_pPakLoadManager->LoadPreloadPaks();
-		g_pPakLoadManager->ReloadPostloadPaks();
-	}
+    // don't load/unload anything when going to the lobby, presumably to save load times when going back to the same map
+    if (!g_pPakLoadManager->GetForceReloadOnMapLoad() && !strcmp("mp_lobby", mapName.c_str()))
+    {
 
-	char mapRpakStr[272];
-	snprintf(mapRpakStr, 272, "%s.rpak", mapName.c_str());
+        return false;
+    }
 
-	// if level being loaded is the same as current level, do nothing
-	if (!g_pPakLoadManager->GetForceReloadOnMapLoad() && !strcmp(mapRpakStr, pszCurrentMapRpakPath))
-		return true;
+    if (g_pPakLoadManager->GetForceReloadOnMapLoad())
+    {
+        g_pPakLoadManager->LoadPreloadPaks();
+        g_pPakLoadManager->ReloadPostloadPaks();
+    }
 
-	strcpy(pszCurrentMapRpakPath, mapRpakStr);
+    char mapRpakStr[272];
+    snprintf(mapRpakStr, 272, "%s.rpak", mapName.c_str());
 
-	(*o_pCleanMaterialSystemStuff)();
-	o_pLoadlevelLoadscreen(mapName.c_str());
+    // if level being loaded is the same as current level, do nothing
+    if (!g_pPakLoadManager->GetForceReloadOnMapLoad() && !strcmp(mapRpakStr, pszCurrentMapRpakPath))
+    {
 
-	// unload old map rpaks
-	PakHandle_t curHandle = *piCurrentMapRpakHandle;
-	PakHandle_t curPatchHandle = *piCurrentMapPatchRpakHandle;
-	if (curHandle != PAK_INVALID_HANDLE)
-	{
-		(*o_pCModelLoader_UnreferenceAllModels)(*ppModelLoader);
-		(*o_pCleanMaterialSystemStuff)();
-		g_pakLoadApi->UnloadAndWait(curHandle, *o_pCleanMaterialSystemStuff);
-		*piCurrentMapRpakHandle = PAK_INVALID_HANDLE;
-	}
-	if (curPatchHandle != PAK_INVALID_HANDLE)
-	{
-		(*o_pCModelLoader_UnreferenceAllModels)(*ppModelLoader);
-		(*o_pCleanMaterialSystemStuff)();
-		g_pakLoadApi->UnloadAndWait(curPatchHandle, *o_pCleanMaterialSystemStuff);
-		*piCurrentMapPatchRpakHandle = PAK_INVALID_HANDLE;
-	}
+        return true;
+    }
 
-	*piCurrentMapRpakHandle = g_pakLoadApi->AllocateEmptyPak(mapRpakStr, *g_pPakAllocator, 7);
+    strcpy(pszCurrentMapRpakPath, mapRpakStr);
 
-	// load special _patch rpak (seemingly used for dev things?)
-	char levelPatchRpakStr[272];
-	snprintf(levelPatchRpakStr, 272, "%s_patch.rpak", mapName.c_str());
-	*piCurrentMapPatchRpakHandle = g_pakLoadApi->AllocateEmptyPak(levelPatchRpakStr, *g_pPakAllocator, 7);
+    (*o_pCleanMaterialSystemStuff)();
 
-	// we just reloaded the paks, so we don't need to force it again
-	g_pPakLoadManager->SetForceReloadOnMapLoad(false);
-	if (forceModelReload)
-		g_pModManager->RequestModelReload();
-	return true;
+    o_pLoadlevelLoadscreen(mapName.c_str());
+
+    // unload old map rpaks
+    PakHandle_t curHandle = *piCurrentMapRpakHandle;
+    PakHandle_t curPatchHandle = *piCurrentMapPatchRpakHandle;
+
+    if (curHandle != PAK_INVALID_HANDLE)
+    {
+        (*o_pCModelLoader_UnreferenceAllModels)(*ppModelLoader);
+
+        (*o_pCleanMaterialSystemStuff)();
+
+        g_pakLoadApi->UnloadAndWait(curHandle, *o_pCleanMaterialSystemStuff);
+
+        *piCurrentMapRpakHandle = PAK_INVALID_HANDLE;
+    }
+    if (curPatchHandle != PAK_INVALID_HANDLE)
+    {
+        (*o_pCModelLoader_UnreferenceAllModels)(*ppModelLoader);
+
+        (*o_pCleanMaterialSystemStuff)();
+
+        g_pakLoadApi->UnloadAndWait(curPatchHandle, *o_pCleanMaterialSystemStuff);
+
+        *piCurrentMapPatchRpakHandle = PAK_INVALID_HANDLE;
+    }
+
+    *piCurrentMapRpakHandle = g_pakLoadApi->AllocateEmptyPak(mapRpakStr, *g_pPakAllocator, 7);
+
+    // load special _patch rpak (seemingly used for dev things?)
+    char levelPatchRpakStr[272];
+    snprintf(levelPatchRpakStr, 272, "%s_patch.rpak", mapName.c_str());
+
+    *piCurrentMapPatchRpakHandle = g_pakLoadApi->AllocateEmptyPak(levelPatchRpakStr, *g_pPakAllocator, 7);
+
+    // we just reloaded the paks, so we don't need to force it again
+    g_pPakLoadManager->SetForceReloadOnMapLoad(false);
+    if (forceModelReload)
+        g_pModManager->RequestModelReload();
+
+    return true;
 })
 
 DECLARE_HOOK(Pak_AllocateEmptyPak, rtech_game.DLL + 0xB0F0, [](auto& hook, const char* pPath, PakAllocator_s* allocator, int flags) -> PakHandle_t
 {
-	// make a copy of the path for comparing to determine whether we should load this pak on dedi, before it could get overwritten
-	std::string svOriginalPath(pPath);
+    // make a copy of the path for comparing to determine whether we should load this pak on dedi, before it could get overwritten
+    std::string svOriginalPath(pPath);
 
-	std::string resultingPath(pPath);
-	HandlePakAliases(resultingPath);
+    std::string resultingPath(pPath);
+    HandlePakAliases(resultingPath);
 
-	if (g_pPakLoadManager->IsVanillaCall())
-	{
-		g_pPakLoadManager->LoadPreloadPaks();
-		g_pPakLoadManager->FixupPakPath(resultingPath);
+    if (g_pPakLoadManager->IsVanillaCall())
+    {
+        g_pPakLoadManager->LoadPreloadPaks();
+        g_pPakLoadManager->FixupPakPath(resultingPath);
 
-		// do this after custom paks load and in bShouldLoadPaks so we only ever call this on the root pakload call
-		// todo: could probably add some way to flag custom paks to not be loaded on dedicated servers in rpak.json
+        // do this after custom paks load and in bShouldLoadPaks so we only ever call this on the root pakload call
+        // todo: could probably add some way to flag custom paks to not be loaded on dedicated servers in rpak.json
 
-		// dedicated only needs common, common_mp, common_sp, and sp_<map> rpaks
-		// sp_<map> rpaks contain tutorial ghost data
-		// sucks to have to load the entire rpak for that but sp was never meant to be done on dedi
-		if (IsDedicatedServer() &&
-			(CommandLine()->CheckParm("-nopakdedi") || strncmp(&svOriginalPath[0], "common", 6) && strncmp(&svOriginalPath[0], "sp_", 3) && (strncmp(&svOriginalPath[0], "mp_", 3) || strstr(&svOriginalPath[0], "loadscreen"))))
-		{
-			NS::log::rpak->info("Not loading pak {} for dedicated server", svOriginalPath);
-			return PAK_INVALID_HANDLE;
-		}
-	}
+        // dedicated only needs common, common_mp, common_sp, and sp_<map> rpaks
+        // sp_<map> rpaks contain tutorial ghost data
+        // sucks to have to load the entire rpak for that but sp was never meant to be done on dedi
+        if (IsDedicatedServer() &&
+            (CommandLine()->CheckParm("-nopakdedi") || strncmp(&svOriginalPath[0], "common", 6) && strncmp(&svOriginalPath[0], "sp_", 3) &&
+                                                           (strncmp(&svOriginalPath[0], "mp_", 3) || strstr(&svOriginalPath[0], "loadscreen"))))
+        {
+            NS::log::rpak->info("Not loading pak {} for dedicated server", svOriginalPath);
+            return PAK_INVALID_HANDLE;
+        }
+    }
 
-	PakHandle_t iPakHandle = hook.Original(resultingPath.c_str(), allocator, flags);
-	NS::log::rpak->info("AllocateEmptyPak {} {}", resultingPath, static_cast<int>(iPakHandle));
+    PakHandle_t iPakHandle = hook.Original(resultingPath.c_str(), allocator, flags);
+    NS::log::rpak->info("AllocateEmptyPak {} {}", resultingPath, static_cast<int>(iPakHandle));
 
-	g_pPakLoadManager->OnPakLoaded(svOriginalPath, resultingPath, iPakHandle);
-	return iPakHandle;
+    g_pPakLoadManager->OnPakLoaded(svOriginalPath, resultingPath, iPakHandle);
+    return iPakHandle;
 })
 
 DECLARE_HOOK(Pak_UnloadAndWait, rtech_game.DLL + 0xB280, [](auto& hook, PakHandle_t nPakHandle, PakLoadFuncs_s::Callback_t callback)
 {
-	// Native UnloadAndWait enters Pak_BeginUnload, whose hook owns the one-shot
-	// manager and atlas transition. This outer hook only gates known quarantine.
-	if (g_pPakLoadManager->HasUnsafeLoadedPaks())
-		return;
+    // Native UnloadAndWait enters Pak_BeginUnload, whose hook owns the one-shot
+    // manager and atlas transition. This outer hook only gates known quarantine.
+    if (g_pPakLoadManager->HasUnsafeLoadedPaks())
+    {
 
-	PakGlobalState_s* pakGlobals = Pak_GetGlobals();
-	if (!pakGlobals)
-	{
-		hook.Original(nPakHandle, callback);
-		return;
-	}
-	auto pakInfo = &pakGlobals->loadedPaks[nPakHandle & PAK_MAX_LOADED_PAKS_MASK];
-	NS::log::rpak->info("UnloadAndWait {},Handle {},Status: {}", pakInfo->filename, static_cast<int>(pakInfo->handle), static_cast<int>(pakInfo->status));
-	hook.Original(nPakHandle, callback);
+        return;
+    }
+
+    PakGlobalState_s* pakGlobals = Pak_GetGlobals();
+    if (!pakGlobals)
+    {
+
+        hook.Original(nPakHandle, callback);
+
+        return;
+    }
+    auto pakInfo = &pakGlobals->loadedPaks[nPakHandle & PAK_MAX_LOADED_PAKS_MASK];
+    NS::log::rpak->info("UnloadAndWait {}, Handle {}, Status: {}", pakInfo->filename, static_cast<int>(pakInfo->handle),
+                        static_cast<int>(pakInfo->status));
+
+    hook.Original(nPakHandle, callback);
 })
 
 // we hook this exclusively for resolving stbsp paths, but seemingly it's also used for other stuff like vpk, rpak, mprj and starpak loads
 // tbh this actually might be for memory mapped files or something, would make sense i think
 DECLARE_HOOK(Pak_OpenFile, rtech_game.DLL + 0x1E20, [](auto& hook, const char* pPath, uint64_t* fileSize) -> PakHandle_t
 {
-	// NOTE [Fifty]: For some reason some users are getting pPath as null when
-	//               loading a server, Pak_OpenFile uses CreateFileA and checks
-	//               its return value so this is completely safe
-	// Additionally, guard against non-userland/sentinel pointers (e.g. 0xFFFFFFFFFFFFFFFF)
-	// to avoid AVs when rtech passes an invalid pointer.
-	const uintptr_t pathPtr = reinterpret_cast<uintptr_t>(pPath);
-	if (pPath == NULL || (pathPtr & 0xFFFF000000000000ull) == 0xFFFF000000000000ull)
-	{
-		//NS::log::rpak->warn("OpenFile called with invalid pPath pointer: 0x{:X}", pathPtr);
-		return PAK_INVALID_HANDLE;
-	}
+    // NOTE [Fifty]: For some reason some users are getting pPath as null when
+    //               loading a server, Pak_OpenFile uses CreateFileA and checks
+    //               its return value so this is completely safe
+    // Additionally, guard against non-userland/sentinel pointers (e.g. 0xFFFFFFFFFFFFFFFF)
+    // to avoid AVs when rtech passes an invalid pointer.
+    const uintptr_t pathPtr = reinterpret_cast<uintptr_t>(pPath);
+    if (pPath == NULL || (pathPtr & 0xFFFF000000000000ull) == 0xFFFF000000000000ull)
+    {
+        // NS::log::rpak->warn("OpenFile called with invalid pPath pointer: 0x{:X}", pathPtr);
+        return PAK_INVALID_HANDLE;
+    }
 
-	fs::path path(pPath);
-	std::string newPath = "";
-	fs::path filename = path.filename();
+    fs::path path(pPath);
+    std::string newPath = "";
+    fs::path filename = path.filename();
 
-	if (path.extension() == ".stbsp")
-	{
-		if (IsDedicatedServer())
-			return PAK_INVALID_HANDLE;
+    if (path.extension() == ".stbsp")
+    {
+        if (IsDedicatedServer())
+            return PAK_INVALID_HANDLE;
 
-		NS::log::rpak->info("LoadStreamBsp: {}", filename.string());
+        NS::log::rpak->info("LoadStreamBsp: {}", filename.string());
 
-		// resolve modded stbsp path so we can load mod stbsps
-		auto modFile = g_pModManager->m_ModFiles.find(g_pModManager->NormaliseModFilePath(fs::path("maps" / filename)));
-		if (modFile != g_pModManager->m_ModFiles.end())
-		{
-			newPath = (modFile->second.m_pOwningMod->m_ModDirectory / "mod" / modFile->second.m_Path).string();
-			pPath = newPath.c_str();
-		}
-	}
-	else if (path.extension() == ".starpak")
-	{
-		if (IsDedicatedServer())
-			return PAK_INVALID_HANDLE;
+        // resolve modded stbsp path so we can load mod stbsps
+        auto modFile = g_pModManager->m_ModFiles.find(g_pModManager->NormaliseModFilePath(fs::path("maps" / filename)));
+        if (modFile != g_pModManager->m_ModFiles.end())
+        {
+            newPath = (modFile->second.m_pOwningMod->m_ModDirectory / "mod" / modFile->second.m_Path).string();
+            pPath = newPath.c_str();
+        }
+    }
+    else if (path.extension() == ".starpak")
+    {
+        if (IsDedicatedServer())
+            return PAK_INVALID_HANDLE;
 
-		// code for this is mostly stolen from above
+        // code for this is mostly stolen from above
 
-		// unfortunately I can't find a way to get the rpak that is causing this function call, so I have to
-		// store them on mod init and then compare the current path with the stored paths
+        // unfortunately I can't find a way to get the rpak that is causing this function call, so I have to
+        // store them on mod init and then compare the current path with the stored paths
 
-		// game adds r2\ to every path, so assume that a starpak path that begins with r2\paks\ is a vanilla one
-		// modded starpaks will be in the mod's paks folder (but can be in folders within the paks folder)
+        // game adds r2\ to every path, so assume that a starpak path that begins with r2\paks\ is a vanilla one
+        // modded starpaks will be in the mod's paks folder (but can be in folders within the paks folder)
 
-		// this might look a bit confusing, but its just an iterator over the various directories in a path.
-		// path.begin() being the first directory, r2 in this case, which is guaranteed anyway,
-		// so increment the iterator with ++ to get the first actual directory, * just gets the actual value
-		// then we compare to "paks" to determine if it's a vanilla rpak or not
-		if (*++path.begin() != "paks")
-		{
-			// remove the r2\ from the start used for path lookups
-			std::string starpakPath = path.string().substr(3);
-			// hash the starpakPath to compare with stored entries
-			size_t hashed = STR_HASH(starpakPath);
+        // this might look a bit confusing, but its just an iterator over the various directories in a path.
+        // path.begin() being the first directory, r2 in this case, which is guaranteed anyway,
+        // so increment the iterator with ++ to get the first actual directory, * just gets the actual value
+        // then we compare to "paks" to determine if it's a vanilla rpak or not
+        if (*++path.begin() != "paks")
+        {
+            // remove the r2\ from the start used for path lookups
+            std::string starpakPath = path.string().substr(3);
+            // hash the starpakPath to compare with stored entries
+            size_t hashed = STR_HASH(starpakPath);
 
-			// loop through all loaded mods
-			for (Mod& mod : g_pModManager->m_LoadedMods)
-			{
-				// ignore non-loaded mods
-				if (!mod.m_bEnabled)
-					continue;
+            // loop through all loaded mods
+            for (Mod& mod : g_pModManager->m_LoadedMods)
+            {
+                // ignore non-loaded mods
+                if (!mod.m_bEnabled)
+                    continue;
 
-				// loop through the stored starpak paths
-				for (size_t hash : mod.StarpakPaths)
-				{
+                // loop through the stored starpak paths
+                for (size_t hash : mod.StarpakPaths)
+                {
 					if (hash == hashed)
 					{
 						// construct new path
@@ -801,14 +828,14 @@ DECLARE_HOOK(Pak_OpenFile, rtech_game.DLL + 0x1E20, [](auto& hook, const char* p
 						goto LOG_STARPAK;
 					}
 				}
-			}
-		}
+            }
+        }
 
-	LOG_STARPAK:
+    LOG_STARPAK:
 		NS::log::rpak->info("LoadStreamPak: {}", filename.string());
-	}
+    }
 
-	return hook.Original(pPath, fileSize);
+    return hook.Original(pPath, fileSize);
 })
 
 DECLARE_HOOK(Pak_RunRePak, rtech_game.DLL + 0xA9F0, [](auto& hook, PakLoadedInfo_s* info) -> bool

@@ -2,6 +2,7 @@
 
 #include "engine/createinterface.h"
 #include "inputsystem/InputEnums.h"
+#include "vgui.h"
 
 #include <cstdint>
 
@@ -32,7 +33,7 @@ class IEngineVGui
 {
 public:
 	virtual ~IEngineVGui() = default; // 0
-	virtual std::uintptr_t GetPanel(VGuiPanel_t panelType) = 0; // 1
+	virtual vgui::VPANEL GetPanel(VGuiPanel_t panelType) = 0; // 1
 	virtual bool IsGameUIVisible() = 0; // 2
 	virtual bool IsConsoleVisible() = 0; // 3
 	virtual bool IsGameUILoadingProgressActive() = 0; // 4
@@ -78,7 +79,7 @@ public:
 	virtual void SessionSearchResult(int searchIndex, void* pHostData, void* pResult, int ping) = 0; // 43
 	virtual void OnCreditsFinished() = 0; // 44
 	virtual void BonusMapUnlock(const char* pFileName, const char* pMapName) = 0; // 45
-	virtual void SetLoadingBackgroundDialog(std::uintptr_t panel) = 0; // 46
+	virtual void SetLoadingBackgroundDialog(vgui::VPANEL panel) = 0; // 46
 	virtual void SetNotAllowedToHideGameUI(bool notAllowed) = 0; // 47
 	virtual void SetNotAllowedToShowGameUI(bool notAllowed) = 0; // 48
 	virtual void SetEngineToolsPanelVisible(bool visible) = 0; // 49

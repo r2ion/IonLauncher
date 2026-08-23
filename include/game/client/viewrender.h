@@ -21,43 +21,6 @@ struct CPitchDrift
 	double m_LastStopTime;
 };
 
-struct CViewRenderView
-{
-	float m_ProjectionParameters[16];
-	VMatrix m_ViewMatrix;
-	VMatrix m_ProjectionMatrix;
-	VMatrix m_ViewProjectionMatrix;
-	VMatrix m_UnjitteredViewMatrix;
-	VMatrix m_UnjitteredProjectionMatrix;
-	float m_TanHalfFovX;
-	float m_TanHalfFovY;
-	float m_ZNear;
-	float m_ProjectionOffset;
-	int m_ViewportX;
-	int m_ViewportY;
-	int m_ViewportWidth;
-	int m_ViewportHeight;
-	int m_UnscaledViewportX;
-	int m_UnscaledViewportY;
-	int m_UnscaledViewportWidth;
-	float m_ViewportScale;
-	std::uint8_t m_Pad01B0[8];
-	int m_Orthographic;
-	std::uint8_t m_Pad01BC[4];
-	float m_ZFar;
-	float m_TanHalfFovYSecondary;
-	float m_TanHalfViewModelFovX;
-	float m_ZFarSecondary;
-	float m_TanHalfViewModelFovY;
-	Vector3 m_UnreflectedOrigin;
-	QAngle m_UnreflectedAngles;
-	bool m_DoBloomAndToneMapping;
-	std::uint8_t m_Pad01ED[3];
-	int m_OutputViewportX;
-	int m_OutputViewportY;
-	int m_OutputViewportWidth;
-	int m_OutputViewportHeight;
-};
 
 class CViewRender
 {

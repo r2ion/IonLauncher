@@ -17,7 +17,7 @@ public:
 	virtual void PopRenderTarget() = 0; // 4
 	virtual void SetGlobalRenderContextPointer5(void *value) = 0; // 5
 	virtual void ClearGlobalRenderContextPointer6() = 0; // 6
-	virtual void CopyRenderTargetToTexture(ITexture *texture) = 0; // 7
+	virtual void SetRenderTarget(ITexture *texture) = 0; // 7
 	virtual void CopyRenderTargetToTextureEx(ITexture *texture, int renderTargetId,
 		const void *sourceRect, const void *destinationRect) = 0; // 8
 	virtual void CopyTextureToRenderTarget(ITexture *texture) = 0; // 9
@@ -36,7 +36,7 @@ public:
 	virtual void SetGlobalFloatState21(float value) = 0; // 21
 	virtual void ClearBuffers(bool clearColor, bool clearDepth, bool clearStencil = false) = 0; // 22
 	virtual void ReadPixels(int x, int y, int width, int height, unsigned char *data,
-		int destinationFormat, bool readBackBuffer) = 0; // 23
+		int destinationFormat, bool readFullFrameBufferTexture) = 0; // 23
 	virtual void SetLightingState(const MaterialLightingState_t *state) = 0; // 24
 	virtual void SetGlobalFloatState25(float value) = 0; // 25
 	virtual void SetLights(const void *lights, int count) = 0; // 26
@@ -146,7 +146,7 @@ public:
 	virtual void PushRenderTargetAndViewport() = 0; // 129
 	virtual void PopRenderTargetAndViewport() = 0; // 130
 	virtual void BindLightmapTexture(ITexture *lightmapTexture) = 0; // 131
-	virtual void CopyTextureSubresource(ITexture *source, ITexture *destination, std::uint32_t subresource) = 0; // 132
+	virtual void CopyTextureSubresource(ITexture *destination, ITexture *source, std::uint32_t subresource) = 0; // 132
 	virtual void DispatchTextureCopy133(ITexture *texture, std::uint32_t subresource, const void *sourceRegion, void *destination) = 0; // 133
 	virtual void ClearRenderingParameter(std::uint32_t parameter) = 0; // 134
 	virtual void SynchronizeRenderTargets() = 0; // 135

@@ -8,6 +8,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -570,6 +571,56 @@ class LambdaHookBase
         m_procName = procName ? procName : "";
     }
 
+    bool Install(LPVOID detour, LPVOID* original)
+    {
+        std::scoped_lock lock(m_dispatchMutex);
+        if (m_enabled)
+            return true;
+
+        if (m_addrMode != AddressMode::AbsoluteAddress)
+        {
+            if (m_moduleName.empty())
+            {
+                spdlog::error("Hook {} has no target module", DebugName());
+                return false;
+            }
+
+            if (!GetModuleHandleA(m_moduleName.c_str()))
+                return false;
+        }
+
+        const uintptr_t address = ResolveAddress();
+        if (!address)
+        {
+            spdlog::error("Address for hook {} is invalid after target module {} loaded", DebugName(), ModuleName());
+            return false;
+        }
+
+        const MH_STATUS createStatus =
+            MH_CreateHook(reinterpret_cast<LPVOID>(address), detour, original);
+        if (createStatus != MH_OK)
+        {
+            spdlog::error("MH_CreateHook failed for {} at 0x{:X}: {}", DebugName(), address, MH_StatusToString(createStatus));
+            return false;
+        }
+
+        const MH_STATUS enableStatus = MH_EnableHook(reinterpret_cast<LPVOID>(address));
+        if (enableStatus != MH_OK)
+        {
+            spdlog::error("MH_EnableHook failed for {} at 0x{:X}: {}", DebugName(), address, MH_StatusToString(enableStatus));
+
+            const MH_STATUS removeStatus = MH_RemoveHook(reinterpret_cast<LPVOID>(address));
+            if (removeStatus != MH_OK)
+                spdlog::error("MH_RemoveHook cleanup failed for {} at 0x{:X}: {}", DebugName(), address, MH_StatusToString(removeStatus));
+
+            return false;
+        }
+
+        m_enabled = true;
+        spdlog::info("Enabling hook {}", DebugName());
+        return true;
+    }
+
     uintptr_t ResolveAddress() const
     {
         switch (m_addrMode)
@@ -579,7 +630,10 @@ class LambdaHookBase
         case AddressMode::AbsoluteAddress:
             return m_absoluteAddress;
         case AddressMode::ProcAddress:
-            return reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA(m_moduleName.c_str()), m_procName.c_str()));
+        {
+            const HMODULE module = GetModuleHandleA(m_moduleName.c_str());
+            return module ? reinterpret_cast<uintptr_t>(GetProcAddress(module, m_procName.c_str())) : 0;
+        }
         }
 
         return 0;
@@ -607,6 +661,8 @@ class LambdaHookBase
     std::string m_procName;
     AddressMode m_addrMode = AddressMode::OffsetString;
     uintptr_t m_absoluteAddress = 0;
+    std::mutex m_dispatchMutex;
+    bool m_enabled = false;
 };
 
 class HookModule
@@ -893,25 +949,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         bool Dispatch() override                                                                                                                     \
         {                                                                                                                                            \
-            const uintptr_t addr = ResolveAddress();                                                                                                 \
-            if (!addr)                                                                                                                               \
-            {                                                                                                                                        \
-                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
-                return false;                                                                                                                        \
-            }                                                                                                                                        \
-            if (MH_CreateHook(reinterpret_cast<LPVOID>(addr), reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original)) == \
-                MH_OK)                                                                                                                               \
-            {                                                                                                                                        \
-                if (MH_EnableHook(reinterpret_cast<LPVOID>(addr)) == MH_OK)                                                                          \
-                {                                                                                                                                    \
-                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
-                    return true;                                                                                                                     \
-                }                                                                                                                                    \
-                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
-            }                                                                                                                                        \
-            else                                                                                                                                     \
-                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
-            return false;                                                                                                                            \
+            return Install(reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original));                                     \
         }                                                                                                                                            \
         void* GetOriginalRaw() const override                                                                                                        \
         {                                                                                                                                            \
@@ -1018,25 +1056,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         bool Dispatch() override                                                                                                                     \
         {                                                                                                                                            \
-            const uintptr_t addr = ResolveAddress();                                                                                                 \
-            if (!addr)                                                                                                                               \
-            {                                                                                                                                        \
-                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
-                return false;                                                                                                                        \
-            }                                                                                                                                        \
-            if (MH_CreateHook(reinterpret_cast<LPVOID>(addr), reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original)) == \
-                MH_OK)                                                                                                                               \
-            {                                                                                                                                        \
-                if (MH_EnableHook(reinterpret_cast<LPVOID>(addr)) == MH_OK)                                                                          \
-                {                                                                                                                                    \
-                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
-                    return true;                                                                                                                     \
-                }                                                                                                                                    \
-                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
-            }                                                                                                                                        \
-            else                                                                                                                                     \
-                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
-            return false;                                                                                                                            \
+            return Install(reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original));                                     \
         }                                                                                                                                            \
         void* GetOriginalRaw() const override                                                                                                        \
         {                                                                                                                                            \
@@ -1120,25 +1140,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         bool Dispatch() override                                                                                                                     \
         {                                                                                                                                            \
-            const uintptr_t addrResolved = ResolveAddress();                                                                                         \
-            if (!addrResolved)                                                                                                                       \
-            {                                                                                                                                        \
-                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
-                return false;                                                                                                                        \
-            }                                                                                                                                        \
-            if (MH_CreateHook(reinterpret_cast<LPVOID>(addrResolved), reinterpret_cast<LPVOID>(&HelperT::Detour),                                    \
-                              reinterpret_cast<LPVOID*>(&s_original)) == MH_OK)                                                                      \
-            {                                                                                                                                        \
-                if (MH_EnableHook(reinterpret_cast<LPVOID>(addrResolved)) == MH_OK)                                                                  \
-                {                                                                                                                                    \
-                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
-                    return true;                                                                                                                     \
-                }                                                                                                                                    \
-                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
-            }                                                                                                                                        \
-            else                                                                                                                                     \
-                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
-            return false;                                                                                                                            \
+            return Install(reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original));                                     \
         }                                                                                                                                            \
         void* GetOriginalRaw() const override                                                                                                        \
         {                                                                                                                                            \
@@ -1245,25 +1247,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         bool Dispatch() override                                                                                                                     \
         {                                                                                                                                            \
-            const uintptr_t addrResolved = ResolveAddress();                                                                                         \
-            if (!addrResolved)                                                                                                                       \
-            {                                                                                                                                        \
-                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
-                return false;                                                                                                                        \
-            }                                                                                                                                        \
-            if (MH_CreateHook(reinterpret_cast<LPVOID>(addrResolved), reinterpret_cast<LPVOID>(&HelperT::Detour),                                    \
-                              reinterpret_cast<LPVOID*>(&s_original)) == MH_OK)                                                                      \
-            {                                                                                                                                        \
-                if (MH_EnableHook(reinterpret_cast<LPVOID>(addrResolved)) == MH_OK)                                                                  \
-                {                                                                                                                                    \
-                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
-                    return true;                                                                                                                     \
-                }                                                                                                                                    \
-                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
-            }                                                                                                                                        \
-            else                                                                                                                                     \
-                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
-            return false;                                                                                                                            \
+            return Install(reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original));                                     \
         }                                                                                                                                            \
         void* GetOriginalRaw() const override                                                                                                        \
         {                                                                                                                                            \
@@ -1375,25 +1359,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         bool Dispatch() override                                                                                                                     \
         {                                                                                                                                            \
-            const uintptr_t addrResolved = ResolveAddress();                                                                                         \
-            if (!addrResolved)                                                                                                                       \
-            {                                                                                                                                        \
-                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
-                return false;                                                                                                                        \
-            }                                                                                                                                        \
-            if (MH_CreateHook(reinterpret_cast<LPVOID>(addrResolved), reinterpret_cast<LPVOID>(&HelperT::Detour),                                    \
-                              reinterpret_cast<LPVOID*>(&s_original)) == MH_OK)                                                                      \
-            {                                                                                                                                        \
-                if (MH_EnableHook(reinterpret_cast<LPVOID>(addrResolved)) == MH_OK)                                                                  \
-                {                                                                                                                                    \
-                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
-                    return true;                                                                                                                     \
-                }                                                                                                                                    \
-                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
-            }                                                                                                                                        \
-            else                                                                                                                                     \
-                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
-            return false;                                                                                                                            \
+            return Install(reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original));                                     \
         }                                                                                                                                            \
         void* GetOriginalRaw() const override                                                                                                        \
         {                                                                                                                                            \
@@ -1500,25 +1466,7 @@ template <typename HookT> struct LambdaHookRegistrationProc
         }                                                                                                                                            \
         bool Dispatch() override                                                                                                                     \
         {                                                                                                                                            \
-            const uintptr_t addrResolved = ResolveAddress();                                                                                         \
-            if (!addrResolved)                                                                                                                       \
-            {                                                                                                                                        \
-                spdlog::error("Address for hook {} is invalid", DebugName());                                                                        \
-                return false;                                                                                                                        \
-            }                                                                                                                                        \
-            if (MH_CreateHook(reinterpret_cast<LPVOID>(addrResolved), reinterpret_cast<LPVOID>(&HelperT::Detour),                                    \
-                              reinterpret_cast<LPVOID*>(&s_original)) == MH_OK)                                                                      \
-            {                                                                                                                                        \
-                if (MH_EnableHook(reinterpret_cast<LPVOID>(addrResolved)) == MH_OK)                                                                  \
-                {                                                                                                                                    \
-                    spdlog::info("Enabling hook {}", DebugName());                                                                                   \
-                    return true;                                                                                                                     \
-                }                                                                                                                                    \
-                spdlog::error("MH_EnableHook failed for function {}", DebugName());                                                                  \
-            }                                                                                                                                        \
-            else                                                                                                                                     \
-                spdlog::error("MH_CreateHook failed for function {}", DebugName());                                                                  \
-            return false;                                                                                                                            \
+            return Install(reinterpret_cast<LPVOID>(&HelperT::Detour), reinterpret_cast<LPVOID*>(&s_original));                                     \
         }                                                                                                                                            \
         void* GetOriginalRaw() const override                                                                                                        \
         {                                                                                                                                            \

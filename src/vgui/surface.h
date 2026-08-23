@@ -1,6 +1,7 @@
 #pragma once
 
 #include "appframework/IAppSystem.h"
+#include "vgui/vgui.h"
 
 #include "mathlib/vector2d.h"
 
@@ -236,7 +237,7 @@ enum ImageFormat
 };
 
 // Retail VGUI_Surface031 uses the canonical IAppSystem contract at absolute
-// slots 0-7. ISurface begins at slot 8 and runs through slot 161.
+// slots 0-7. ISurface begins at slot 8 and runs through slot 163.
 class ISurface : public IAppSystem
 {
 public:
@@ -244,16 +245,16 @@ public:
 	virtual void RunFrame() = 0; // 8
 
 	// hierarchy root
-	virtual uintptr_t GetEmbeddedPanel() = 0;
-	virtual void SetEmbeddedPanel(Panel* pPanel) = 0;
+	virtual VPANEL GetEmbeddedPanel() = 0;
+	virtual void SetEmbeddedPanel(VPANEL panel) = 0;
 
 	// drawing context
-	virtual void PushMakeCurrent(Panel* panel, bool useInsets) = 0;
-	virtual void PopMakeCurrent(Panel* panel) = 0;
+	virtual void PushMakeCurrent(VPANEL panel, bool useInsets) = 0;
+	virtual void PopMakeCurrent(VPANEL panel) = 0;
 
 	// rendering functions
-	virtual void DrawSetColor(Color col) = 0;
 	virtual void DrawSetColor(int r, int g, int b, int a) = 0;
+	virtual void DrawSetColor(Color col) = 0;
 	virtual void DrawGetColor(Color& col) = 0; // dg: r1 add
 
 	virtual void DrawFilledRect(int x0, int y0, int x1, int y1) = 0;
@@ -269,8 +270,8 @@ public:
 
 	virtual void DrawSetTextFont(HFont font) = 0;
 	virtual HFont DrawGetTextFont() = 0; // dg: r1 add
-	virtual void DrawSetTextColor(Color col) = 0;
 	virtual void DrawSetTextColor(int r, int g, int b, int a) = 0;
+	virtual void DrawSetTextColor(Color col) = 0;
 	virtual void DrawSetTextPos(int x, int y) = 0;
 	virtual void DrawGetTextPos(int& x, int& y) = 0;
 	virtual void DrawPrintText(const wchar_t* text, int textLen, FontDrawType_t drawType = FONT_DRAW_DEFAULT) = 0;
@@ -315,20 +316,20 @@ public:
 
 	virtual void GetScreenSize(int& wide, int& tall) = 0;
 
-	virtual void SetAsTopMost(Panel* panel, bool state) = 0;
-	virtual void BringToFront(Panel* panel) = 0;
-	virtual void SetForegroundWindow(Panel* panel) = 0;
-	virtual void SetPanelVisible(Panel* panel, bool state) = 0;
-	virtual void SetMinimized(Panel* panel, bool state) = 0;
-	virtual bool IsMinimized(Panel* panel) = 0;
-	virtual void FlashWindow(Panel* panel, bool state) = 0;
-	virtual void SetTitle(Panel* panel, const wchar_t* title) = 0;
-	virtual void SetAsToolBar(Panel* panel, bool state) = 0;		// removes the window's task bar entry (for context menu's, etc.)
+	virtual void SetAsTopMost(VPANEL panel, bool state) = 0;
+	virtual void BringToFront(VPANEL panel) = 0;
+	virtual void SetForegroundWindow(VPANEL panel) = 0;
+	virtual void SetPanelVisible(VPANEL panel, bool state) = 0;
+	virtual void SetMinimized(VPANEL panel, bool state) = 0;
+	virtual bool IsMinimized(VPANEL panel) = 0;
+	virtual void FlashWindow(VPANEL panel, bool state) = 0;
+	virtual void SetTitle(VPANEL panel, const wchar_t* title) = 0;
+	virtual void SetAsToolBar(VPANEL panel, bool state) = 0;		// removes the window's task bar entry (for context menu's, etc.)
 
 	// windows stuff
-	virtual void CreatePopup(Panel* panel, bool minimised, bool showTaskbarIcon = true, bool disabled = false, bool mouseInput = true, bool kbInput = true) = 0;
-	virtual void SwapBuffers(Panel* panel) = 0;
-	virtual void Invalidate(Panel* panel) = 0;
+	virtual void CreatePopup(VPANEL panel, bool minimised, bool showTaskbarIcon = true, bool disabled = false, bool mouseInput = true, bool kbInput = true) = 0;
+	virtual void SwapBuffers(VPANEL panel) = 0;
+	virtual void Invalidate(VPANEL panel) = 0;
 	virtual void SetCursor(HCursor cursor) = 0;
 	virtual bool IsCursorVisible() = 0;
 	virtual void ApplyChanges() = 0;
@@ -361,16 +362,16 @@ public:
 	// virtual void RestrictPaintToSinglePanel(VPANEL panel, bool bForceAllowNonModalSurface = false) = 0; // dg: r1 removed
 
 	// these two functions obselete, use IInput::SetAppModalSurface() instead
-	virtual void SetModalPanel(Panel*) = 0;
-	virtual Panel* GetModalPanel() = 0;
+	virtual void SetModalPanel(VPANEL panel) = 0;
+	virtual VPANEL GetModalPanel() = 0;
 
 	virtual void UnlockCursor() = 0;
 	virtual void LockCursor() = 0;
 	// virtual void SetTranslateExtendedKeys(bool state) = 0; // dg: r1 removed
-	virtual Panel* GetTopmostPopup() = 0;
+	virtual VPANEL GetTopmostPopup() = 0;
 
 	// engine-only focus handling (replacing WM_FOCUS windows handling)
-	virtual void SetTopLevelFocus(Panel* panel) = 0;
+	virtual void SetTopLevelFocus(VPANEL panel) = 0;
 
 	// fonts
 	// creates an empty handle to a vgui font.  windows fonts can be add to this via SetFontGlyphSet().
@@ -389,9 +390,17 @@ public:
 	virtual int GetCharacterWidth(HFont font, int ch) = 0;
 	virtual void GetTextSize(HFont font, const wchar_t* text, int& wide, int& tall) = 0;
 
+	// R2-only font helpers at absolute VGUI_Surface031 slots 87-89.
+	// Their signatures are intentionally opaque until a caller needs them; the retail
+	// implementations respectively measure converted UTF-8 text, calculate a scaled
+	// character width, and test whether a font has initialized backing data.
+	virtual void R2_GetUtf8TextSize() = 0;
+	virtual void R2_GetScaledCharacterWidth() = 0;
+	virtual void R2_IsFontInitialized() = 0;
+
 	// notify icons?!?
-	virtual Panel* GetNotifyPanel() = 0;
-	virtual void SetNotifyIcon(Panel* context, HTexture icon, Panel* panelToReceiveMessages, const char* text) = 0;
+	virtual VPANEL GetNotifyPanel() = 0;
+	virtual void SetNotifyIcon(VPANEL context, HTexture icon, VPANEL panelToReceiveMessages, const char* text) = 0;
 
 	// plays a sound
 	virtual void PlaySound(const char* fileName) = 0;
@@ -399,18 +408,18 @@ public:
 	//!! these functions should not be accessed directly, but only through other vgui items
 	//!! need to move these to seperate interface
 	virtual int GetPopupCount() = 0;
-	virtual Panel* GetPopup(int index) = 0;
-	virtual bool ShouldPaintChildPanel(Panel* childPanel) = 0;
-	virtual bool RecreateContext(Panel* panel) = 0;
-	virtual void AddPanel(Panel* panel) = 0;
-	virtual void ReleasePanel(Panel* panel) = 0;
-	virtual void MovePopupToFront(Panel* panel) = 0;
-	virtual void MovePopupToBack(Panel* panel) = 0;
+	virtual VPANEL GetPopup(int index) = 0;
+	virtual bool ShouldPaintChildPanel(VPANEL childPanel) = 0;
+	virtual bool RecreateContext(VPANEL panel) = 0;
+	virtual void AddPanel(VPANEL panel) = 0;
+	virtual void ReleasePanel(VPANEL panel) = 0;
+	virtual void MovePopupToFront(VPANEL panel) = 0;
+	virtual void MovePopupToBack(VPANEL panel) = 0;
 
-	virtual void SolveTraverse(Panel* panel, bool forceApplySchemeSettings = false) = 0;
-	virtual void PaintTraverse(Panel* panel) = 0;
+	virtual void SolveTraverse(VPANEL panel, bool forceApplySchemeSettings = false) = 0;
+	virtual void PaintTraverse(VPANEL panel) = 0;
 
-	virtual void EnableMouseCapture(Panel* panel, bool state) = 0;
+	virtual void EnableMouseCapture(VPANEL panel, bool state) = 0;
 
 	// returns the size of the workspace
 	virtual void GetWorkspaceBounds(int& x, int& y, int& wide, int& tall) = 0;
@@ -434,7 +443,7 @@ public:
 	virtual void DrawTexturedPolyLine(const Vertex_t* p, int n) = 0; // (Note: this connects the first and last points).
 	virtual void DrawTexturedSubRect(int x0, int y0, int x1, int y1, float texs0, float text0, float texs1, float text1) = 0;
 	virtual void DrawTexturedPolygon(int n, Vertex_t* pVertice, bool bClipVertices = true) = 0;
-	virtual const wchar_t* GetTitle(Panel* panel) = 0;
+	virtual const wchar_t* GetTitle(VPANEL panel) = 0;
 	virtual bool IsCursorLocked(void) const = 0;
 	virtual void SetWorkspaceInsets(int left, int top, int right, int bottom) = 0;
 
@@ -464,17 +473,15 @@ public:
 	// create IVguiMatInfo object ( IMaterial wrapper in VguiMatSurface, NULL in CWin32Surface )
 	virtual IVguiMatInfo* DrawGetTextureMatInfoFactory(int id) = 0;
 
-	virtual void PaintTraverseEx(Panel* panel, bool paintPopups = false) = 0;
+	virtual void PaintTraverseEx(VPANEL panel, bool paintPopups = false) = 0;
 
 	virtual float GetZPos() const = 0;
 
 	// From the Xbox
-	virtual void SetPanelForInput(Panel* vpanel) = 0;
+	virtual void SetPanelForInput(VPANEL panel) = 0;
 	virtual void DrawFilledRectFastFade(int x0, int y0, int x1, int y1, int fadeStartPt, int fadeEndPt, unsigned int alpha0, unsigned int alpha1, bool bHorizontal) = 0;
 	virtual void DrawFilledRectFade(int x0, int y0, int x1, int y1, unsigned int alpha0, unsigned int alpha1, bool bHorizontal) = 0;
 	virtual void DrawSetTextureRGBAEx(int id, const unsigned char* rgba, int wide, int tall, ImageFormat imageFormat) = 0;
-	virtual void DrawSetTextScale(float sx, float sy) = 0;
-	virtual bool SetBitmapFontGlyphSet(HFont font, const char* windowsFontName, float scalex, float scaley, int flags) = 0;
 	// adds a bitmap font file
 	virtual bool AddBitmapFontFile(const char* fontFileName) = 0;
 	// sets a symbol for the bitmap font
@@ -511,6 +518,10 @@ public:
 	virtual void GetClipRect(int& x0, int& y0, int& x1, int& y1) = 0;
 	virtual void SetClipRect(int x0, int y0, int x1, int y1) = 0;
 
+	// R2 enables polygon clipping independently of the active clip rectangle.
+	virtual void SetClippingEnabled(bool enabled) = 0;
+	virtual bool IsClippingEnabled() const = 0;
+
 	virtual void DrawTexturedRectEx(DrawTexturedRectParms_t* pDrawParms) = 0;
 
 	virtual void GetKernedCharWidth(HFont font, wchar_t ch, wchar_t chBefore, wchar_t chAfter, float& wide, float& abcA, float& abcC) = 0;
@@ -522,7 +533,6 @@ public:
 
 	virtual const char* GetWebkitHTMLUserAgentString() = 0;
 
-	virtual void* Deprecated_AccessChromeHTMLController() = 0; // 161
 };
 
 static_assert(std::is_base_of_v<IAppSystem, ISurface>);

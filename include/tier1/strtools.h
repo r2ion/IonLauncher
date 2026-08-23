@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tier0/annotations.h"
+#include <cstring>
 
 #ifdef _WIN32
 #define CORRECT_PATH_SEPARATOR '\\'
@@ -31,6 +32,11 @@
 /// similar to FastASCIIToLower
 #define FastASCIIToLower( c ) ( ( ( (c) >= 'A' ) && ( (c) <= 'Z' ) ) ? ( (c) + 32 ) : (c) )
 
+#define V_memset std::memset
+#define V_memcpy std::memcpy
+#define V_memmove std::memmove
+#define V_memcmp std::memcmp
+
 #define V_vsnprintf vsnprintf
 #define V_snprintf snprintf
 #define V_strlower _strlwr
@@ -46,6 +52,11 @@
 #define V_strcat strcat
 
 #define V_strcasecmp V_stricmp
+
+#define Q_memset V_memset
+#define Q_memcpy V_memcpy
+#define Q_memmove V_memmove
+#define Q_memcmp V_memcmp
 
 #define Q_vsnprintf V_vsnprintf
 #define Q_snprintf V_snprintf

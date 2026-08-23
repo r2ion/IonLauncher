@@ -86,7 +86,9 @@ bool CModInstallService::HasPackageIcon(const fs::path& packageRoot)
 
 std::string CModInstallService::LowerAscii(std::string value)
 {
-	std::ranges::transform(value, value.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+	std::ranges::transform(value, value.begin(), [](unsigned char character) {
+		return static_cast<char>(character >= 'A' && character <= 'Z' ? character + ('a' - 'A') : character);
+	});
 	return value;
 }
 
@@ -99,7 +101,8 @@ bool CModInstallService::NormalizeAbsolutePath(const fs::path& path, fs::path& n
 
 std::string CModInstallService::PathKey(const fs::path& path)
 {
-	return LowerAscii(path.generic_string());
+	const std::u8string utf8Path = path.generic_u8string();
+	return LowerAscii(std::string(reinterpret_cast<const char*>(utf8Path.data()), utf8Path.size()));
 }
 
 bool CModInstallService::TryGetDirectChildRoot(const fs::path& path, const fs::path& allowedRoot, fs::path& directChild)
