@@ -287,9 +287,9 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 			"Enable crouch kick fix logging. 1 = enabled, 0 = disabled.");
 })
 
-ON_DLL_LOAD(
+ON_DLL_LOAD_CLIENT_RELIESON(
 	"inputsystem.dll",
-	CKFInputSystem,
+	CKFInputSystem, ConVar,
 	[](CModule module)
 	{
 	v_CInputSystem__PostEvent = module.Offset(0x7EC0).RCast<decltype(v_CInputSystem__PostEvent)>();
