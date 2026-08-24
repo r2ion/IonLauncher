@@ -1098,6 +1098,28 @@ void CParticleToolSystem::AdjustPreviewCamera(float yawDelta, float pitchDelta, 
     CenterPreviewCamera();
 }
 
+void CParticleToolSystem::PanPreviewCamera(float mouseDeltaX, float mouseDeltaY)
+{
+    if (!m_PreviewCameraValid || !std::isfinite(mouseDeltaX) || !std::isfinite(mouseDeltaY))
+    {
+        return;
+    }
+
+    Vector forward;
+    Vector right;
+    Vector up;
+    AngleVectors(m_PreviewCameraAngles, &forward, &right, &up);
+
+    // Grab-and-drag panning: move the orbit focus (and therefore the camera) in
+    // the camera's screen plane. The `right`/`up` vectors from AngleVectors
+    // match screen-right/screen-up at the current orientation. Pan speed scales
+    // with distance so the motion feels consistent whether zoomed in or out.
+    const float panScale = m_PreviewCameraDistance * 0.0015f;
+    m_PreviewFocus += right * (mouseDeltaX * panScale);
+    m_PreviewFocus -= up * (mouseDeltaY * panScale);
+    CenterPreviewCamera();
+}
+
 bool CParticleToolSystem::IsEditorInputEnabled() const
 {
     return m_ToolsInputEnabled.load(std::memory_order_acquire);
