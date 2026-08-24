@@ -19,6 +19,7 @@ namespace fs = std::filesystem;
 
 class CModule;
 class CModelLoader;
+class KeyValues;
 
 const fs::path MOD_FOLDER_SUFFIX = "mods";
 const fs::path PACKAGE_MOD_FOLDER_SUFFIX = "packages";
@@ -131,6 +132,13 @@ private:
 	 * @returns nothing
 	 **/
 	void BuildModInfo();
+	bool IsSafeKeyValuesDumpPath(const fs::path& path);
+	void AppendWeaponModNames(KeyValues& keyValues, std::vector<std::string>& weaponModNames);
+	void MergeKeyValuesRoots(KeyValues& keyValues, const KeyValues& baseKeyValues);
+	bool WriteKeyValuesTextFile(const fs::path& path, const std::string& contents);
+	bool WriteWeaponModOrderFile(const fs::path& path, const char* rootName, const std::vector<std::string>& weaponModOrder);
+	bool ReadConditionalKeyValues(const fs::path& filePath, bool keepNorthstar, std::string& contents);
+	static bool EvaluateGameModeKeyValuesSymbol(const char* symbol);
 
 public:
 	explicit ModManager(const CModule& engineModule);

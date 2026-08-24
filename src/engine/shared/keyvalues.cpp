@@ -1439,18 +1439,21 @@ ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 
 DECLARE_MODULE(KeyValuesHooks)
 
-using KeyValuesLoadFromTextBufferFn = char(__fastcall*)(KeyValues*, const char*, const char*, void*, void*, void*, int);
+using KeyValuesLoadFromTextBufferFn =
+	char(__fastcall*)(KeyValues*, const char*, const char*, void*, void*, KeyValuesEvaluateSymbolFn, int);
 static KeyValuesLoadFromTextBufferFn s_KeyValuesLoadFromTextBuffer = nullptr;
 
-bool KeyValues_LoadFromBuffer(KeyValues* keyValues, const char* resourceName, const char* buffer, IFileSystem* fileSystem)
+bool KeyValues_LoadFromBuffer(KeyValues* keyValues,
+	const char* resourceName,
+	const char* buffer,
+	IFileSystem* fileSystem,
+	KeyValuesEvaluateSymbolFn evaluateSymbol)
 {
 	if (!s_KeyValuesLoadFromTextBuffer || !keyValues || !resourceName || !buffer)
 		return false;
 
-	// The engine KeyValues loader takes the +0x8 IBaseFileSystem subobject.
-	// A C++ base conversion performs the retail-proven pointer adjustment.
 	IBaseFileSystem* baseFileSystem = fileSystem ? static_cast<IBaseFileSystem*>(fileSystem) : nullptr;
-	return s_KeyValuesLoadFromTextBuffer(keyValues, resourceName, buffer, baseFileSystem, nullptr, nullptr, 2) != 0;
+	return s_KeyValuesLoadFromTextBuffer(keyValues, resourceName, buffer, baseFileSystem, nullptr, evaluateSymbol, 2) != 0;
 }
 
 // clang-format off

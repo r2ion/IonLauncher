@@ -8,6 +8,8 @@
 
 class IFileSystem;
 
+using KeyValuesEvaluateSymbolFn = bool (*)(const char* symbol);
+
 enum KeyValuesTypes_t : char
 {
 	TYPE_NONE = 0x0,
@@ -157,4 +159,8 @@ static_assert(offsetof(KeyValues, m_pPeer) == 0x30);
 static_assert(offsetof(KeyValues, m_pSub) == 0x38);
 static_assert(offsetof(KeyValues, m_pChain) == 0x40);
 
-bool KeyValues_LoadFromBuffer(KeyValues* keyValues, const char* resourceName, const char* buffer, IFileSystem* fileSystem);
+bool KeyValues_LoadFromBuffer(KeyValues* keyValues,
+	const char* resourceName,
+	const char* buffer,
+	IFileSystem* fileSystem,
+	KeyValuesEvaluateSymbolFn evaluateSymbol = nullptr);

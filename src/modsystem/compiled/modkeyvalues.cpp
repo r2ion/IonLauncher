@@ -1,16 +1,17 @@
 #include "core/filesystem/filesystem.h"
+#include "engine/r2engine.h"
 #include "modsystem/modmanager.h"
 #include "tier0/vanilla.h"
 #include "tier1/keyvalues.h"
+#include "tier1/strtools.h"
 
 #include <algorithm>
 #include <fstream>
 #include <sstream>
-#include <string_view>
 #include <utility>
 #include <vector>
 
-static bool IsSafeKeyValuesDumpPath(const fs::path& path)
+bool ModManager::IsSafeKeyValuesDumpPath(const fs::path& path)
 {
     if (path.empty() || path.is_absolute())
         return false;
@@ -18,7 +19,7 @@ static bool IsSafeKeyValuesDumpPath(const fs::path& path)
     return std::ranges::none_of(path, [](const fs::path& component) { return component == ".."; });
 }
 
-static void AppendWeaponModNames(KeyValues& keyValues, std::vector<std::string>& weaponModNames)
+void ModManager::AppendWeaponModNames(KeyValues& keyValues, std::vector<std::string>& weaponModNames)
 {
     for (KeyValues* root = &keyValues; root; root = root->m_pPeer)
     {
@@ -36,13 +37,13 @@ static void AppendWeaponModNames(KeyValues& keyValues, std::vector<std::string>&
         }
     }
 }
-static void MergeKeyValuesRoots(KeyValues& keyValues, const KeyValues& baseKeyValues)
+void ModManager::MergeKeyValuesRoots(KeyValues& keyValues, const KeyValues& baseKeyValues)
 {
     for (const KeyValues* baseRoot = &baseKeyValues; baseRoot; baseRoot = baseRoot->m_pPeer)
         keyValues.RecursiveMergeKeyValues(*baseRoot);
 }
 
-static bool WriteKeyValuesTextFile(const fs::path& path, const std::string& contents)
+bool ModManager::WriteKeyValuesTextFile(const fs::path& path, const std::string& contents)
 {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
@@ -52,7 +53,7 @@ static bool WriteKeyValuesTextFile(const fs::path& path, const std::string& cont
     return output.good();
 }
 
-static bool WriteWeaponModOrderFile(const fs::path& path, const char* rootName, const std::vector<std::string>& weaponModOrder)
+bool ModManager::WriteWeaponModOrderFile(const fs::path& path, const char* rootName, const std::vector<std::string>& weaponModOrder)
 {
     KeyValues orderKeyValues(rootName);
     KeyValues* mods = orderKeyValues.FindKey("Mods", true);
@@ -62,7 +63,7 @@ static bool WriteWeaponModOrderFile(const fs::path& path, const char* rootName, 
     return orderKeyValues.SaveToFile(path.string().c_str());
 }
 
-static bool ReadConditionalKeyValues(const fs::path& filePath, const bool keepNorthstar, std::string& contents)
+bool ModManager::ReadConditionalKeyValues(const fs::path& filePath, const bool keepNorthstar, std::string& contents)
 {
     std::ifstream input(filePath, std::ios::binary);
     if (!input)
@@ -107,32 +108,16 @@ static bool ReadConditionalKeyValues(const fs::path& filePath, const bool keepNo
     return !input.bad();
 }
 
-static void ResolveNorthstarGameModeConditionals(std::string& contents)
+bool ModManager::EvaluateGameModeKeyValuesSymbol(const char* symbol)
 {
-    std::istringstream input(contents);
-    std::string resolved;
-    std::string line;
-    while (std::getline(input, line))
-    {
-        // The generic KeyValues loader used for compiled mod assets does not
-        // establish the player-settings game-mode symbols. Resolve the
-        // game-mode suffixes that are meaningful for Northstar here instead.
-        constexpr std::string_view mpCondition = "[$mp]";
-        constexpr std::string_view spCondition = "[$sp]";
-        constexpr std::string_view atCondition = "[$at]";
-        if (const size_t condition = line.find(mpCondition); condition != std::string::npos)
-        {
-            line.erase(condition, mpCondition.size());
-        }
-        else if (line.find(spCondition) != std::string::npos || line.find(atCondition) != std::string::npos)
-        {
-            continue;
-        }
+	if (!symbol)
+		return false;
 
-        resolved.append(line);
-        resolved.push_back('\n');
-    }
-    contents = std::move(resolved);
+	if (*symbol == '$')
+		++symbol;
+
+	const char* activeMode = g_pGlobals && g_pGlobals->m_nGameMode == GameMode_t::SP_MODE ? "sp" : "mp";
+	return V_stricmp(symbol, activeMode) == 0;
 }
 
 void ModManager::DumpCompiledKeyValues()
@@ -292,11 +277,14 @@ void ModManager::TryBuildKeyValues(const char* filename)
             spdlog::warn("Could not read KeyValues patch {} from mod {}.", patchPath.string(), mod.Name);
             return;
         }
-        ResolveNorthstarGameModeConditionals(patchContents);
-
         KeyValues patchKeyValues(normalisedPath.c_str());
         patchKeyValues.UsesEscapeSequences(true);
-        if (!KeyValues_LoadFromBuffer(&patchKeyValues, normalisedPath.c_str(), patchContents.c_str(), g_pFilesystem))
+        if (!KeyValues_LoadFromBuffer(
+                &patchKeyValues,
+                normalisedPath.c_str(),
+                patchContents.c_str(),
+                g_pFilesystem,
+                EvaluateGameModeKeyValuesSymbol))
         {
             spdlog::warn("Could not parse KeyValues patch {} from mod {}.", patchPath.string(), mod.Name);
             return;
