@@ -225,7 +225,7 @@ void SquirrelManager::VMCreated(CSquirrelVM* newSqvm)
     defconst(m_pSQVM, "ION_PATCH", ION_PATCH);
 
     defconst(m_pSQVM, "VANILLA", g_pVanillaCompatibility->GetVanillaCompatibility());
-
+    defconst(m_pSQVM, "ION", 1);
     {
         std::scoped_lock lock(m_vmLifecycleMutex);
         m_messageBuffer = new SquirrelMessageBuffer();
