@@ -962,6 +962,7 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module
 
     MAKEHOOK(module.Offset(0x1DD10), &RegisterSquirrelFunctionHook<ScriptContext::SERVER>, &g_pSquirrel[ScriptContext::SERVER]->RegisterSquirrelFunc);
 
+    MAKEHOOK(module.Offset(0x794D0), &sqstd_aux_printerrorHook<ScriptContext::SERVER>, &sqstd_aux_printerror<ScriptContext::SERVER>);
     MAKEHOOK(module.Offset(0x8AA0), &sq_compiler_createHook<ScriptContext::SERVER>, &sq_compiler_create<ScriptContext::SERVER>);
     MAKEHOOK(module.Offset(0x58530), &SQCompiler_ParseDirectiveHook<ScriptContext::SERVER>, &SQCompiler_ParseDirective<ScriptContext::SERVER>);
     MAKEHOOK(module.Offset(0x65C50), &SQCompiler_ResolveLocalOrConstantHook<ScriptContext::SERVER>,
