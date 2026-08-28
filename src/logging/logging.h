@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "mathlib/color.h"
 
 void LogSys_CreateLogFiles();

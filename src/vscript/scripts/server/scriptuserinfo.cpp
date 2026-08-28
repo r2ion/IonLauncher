@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "engine/client/client.h"
 #include "server/r2server.h"
 

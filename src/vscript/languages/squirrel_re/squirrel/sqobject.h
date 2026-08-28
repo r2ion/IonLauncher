@@ -94,38 +94,48 @@ enum SQObjectType : int
 	OT_ASSET = 0x8000400,
 	OT_THREAD = 0x8001000,
 	OT_FUNCPROTO = 0x8002000,
-	OT_CLAAS = 0x8004000,
+	OT_CLASS = 0x8004000,
 	OT_STRUCT = 0x8200000,
 	OT_WEAKREF = 0x8010000,
-	OT_TABLE = 0xA000020,
-	OT_USERDATA = 0xA000080,
-	OT_INSTANCE = 0xA008000,
-	OT_ENTITY = 0xA400000,
+    OT_TABLE = 0xA000020,
+    OT_USERDATA = 0xA000080,
+    OT_INSTANCE = 0xA008000,
+    OT_ENTITY = 0xA400000,
 };
+#define ISREFCOUNTED(t) (t & SQOBJECT_REF_COUNTED)
 
 union SQObjectValue
 {
-	SQString* asString;
-	SQTable* asTable;
-	SQClosure* asClosure;
-	SQFunctionProto* asFuncProto;
-	SQStructDef* asStructDef;
-	long long as64Integer;
-	SQNativeClosure* asNativeClosure;
-	SQArray* asArray;
-	HSQUIRRELVM asThread;
-	float asFloat;
-	int asInteger;
-	SQUserData* asUserdata;
-	SQStructInstance* asStructInstance;
+    SQString* asString;
+    SQRefCounted* asRefCounted;
+    SQTable* asTable;
+    SQClosure* asClosure;
+    SQFunctionProto* asFuncProto;
+    SQStructDef* asStructDef;
+    long long as64Integer;
+    SQNativeClosure* asNativeClosure;
+    SQArray* asArray;
+    HSQUIRRELVM asThread;
+    float asFloat;
+    int asInteger;
+    SQUserData* asUserdata;
+    SQStructInstance* asStructInstance;
 };
 
 struct SQObject
 {
-	SQObjectType _Type;
-	int structNumber;
-	SQObjectValue _VAL;
+    SQObjectType _Type;
+    int structNumber;
+    SQObjectValue _VAL;
 };
+#define _integer(obj) ((obj)._VAL.asInteger)
+#define _float(obj) ((obj)._VAL.asFloat)
+#define _bool(obj) ((obj)._VAL.asInteger)
+#define _string(obj) ((obj)._VAL.asString)
+#define _refcounted(obj) ((obj)._VAL.asRefCounted)
+#define _rawval(obj) ((obj)._VAL.as64Integer)
+#define _stringval(obj) ((obj)._VAL.asString->_val)
+#define _vector(obj) (reinterpret_cast<const SQFloat*>(&(obj).structNumber))
 
 static_assert(sizeof(SQObjectType) == 0x4);
 static_assert(sizeof(SQObjectValue) == 0x8);

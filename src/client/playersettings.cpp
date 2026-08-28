@@ -1,7 +1,6 @@
 #include "tier0/hooks.h"
 #include "tier1/keyvalues.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>

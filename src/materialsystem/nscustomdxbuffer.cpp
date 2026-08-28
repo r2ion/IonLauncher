@@ -20,7 +20,7 @@
 #include "tier0/frametask.h"
 #include <wrl/client.h>
 #include "rtech/pakfilesystem.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "vscript/languages/squirrel_re/squirrel/sqarray.h"
 
 struct Ns_Constant_Buffer

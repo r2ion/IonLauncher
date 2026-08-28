@@ -1,6 +1,6 @@
 #include "scripthttprequesthandler.h"
 #include "util/version.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "vscript/languages/squirrel_re/squirrel/sqarray.h"
 #include "vscript/languages/squirrel_re/squirrel/sqstring.h"
 #include "vscript/languages/squirrel_re/squirrel/sqtable.h"

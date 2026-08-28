@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "engine/r2engine.h"
 #include "common/netmessages.h"
 #include "masterserver/masterserver.h"

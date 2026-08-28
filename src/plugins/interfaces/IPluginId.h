@@ -2,7 +2,7 @@
 #define IPLUGIN_ID_H
 
 #include <stdint.h>
-#include "vscript/squirrel/squirrelclasstypes.h"
+#include "vscript/languages/squirrel_re/squirrelclasstypes.h"
 
 #define PLUGIN_ID_VERSION "PluginId001"
 

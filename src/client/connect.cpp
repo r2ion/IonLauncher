@@ -9,7 +9,7 @@
 #include "masterserver/masterserver.h"
 #include "modsystem/modmanager.h"
 #include "server/auth/serverauthentication.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "core/convar/concommand.h"
 #include "tier1/cvar.h"
 

@@ -2,8 +2,7 @@
 
 #include "rtech/rui/rui_core_types.h"
 #include "tier0/module.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <array>
 #include <bit>
 #include <atomic>

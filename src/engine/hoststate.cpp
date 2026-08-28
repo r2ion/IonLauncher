@@ -13,8 +13,7 @@
 #include "tier0/frametask.h"
 #include "tier0/vanilla.h"
 #include "tier1/cvar.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 DECLARE_MODULE(HostStateHooks)
 
 CHostState* g_pHostState;

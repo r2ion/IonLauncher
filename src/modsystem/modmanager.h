@@ -1,7 +1,7 @@
 #pragma once
 #include "tier1/convar.h"
 #include "tier0/memstd.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 
 #include "rapidjson/document.h"
 #include <string>

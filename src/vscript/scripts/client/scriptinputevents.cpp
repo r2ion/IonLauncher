@@ -1,5 +1,5 @@
 #include "tier1/convar.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "client/ckf.h"
 #include "logging/sourceconsole.h"
 

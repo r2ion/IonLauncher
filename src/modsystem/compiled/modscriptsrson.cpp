@@ -1,7 +1,6 @@
 #include "modsystem/modmanager.h"
 #include "core/filesystem/filesystem.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <fstream>
 
 const std::string MOD_SCRIPTS_RSON_SUFFIX = "scripts/vscripts/scripts.rson";

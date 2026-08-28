@@ -1,7 +1,6 @@
 #include "rtech/rui/workshop_thumbnail_atlas.h"
 #include "rtech/rui/workshop_thumbnail_service.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 ADD_SQFUNC("bool", NSMWSInitializeThumbnailAtlas, "", "Initializes the fixed ModWorkshop thumbnail texture atlas.", ScriptContext::UI)
 {
 	NOTE_UNUSED(sqvm);

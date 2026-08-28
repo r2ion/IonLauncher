@@ -1,6 +1,6 @@
 #include "plugins.h"
 #include "pluginmanager.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "util/wininfo.h"
 #include "logging/logging.h"
 #include "dedicated/dedicated.h"

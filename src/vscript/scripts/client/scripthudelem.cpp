@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "engine/cdll_int.h"
 #include "vgui/basemodui.h"
 #include "vgui_controls/Panel.h"

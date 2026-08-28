@@ -18,8 +18,7 @@
 #include "vgui/ienginevgui.h"
 #include "vgui/IInput.h"
 #include "vgui/surface.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <algorithm>
 #include <array>
 #include <cctype>

@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "masterserver/masterserver.h"
 #include "server/auth/serverauthentication.h"
 #include "engine/r2engine.h"

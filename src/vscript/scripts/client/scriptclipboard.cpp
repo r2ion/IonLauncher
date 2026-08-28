@@ -1,5 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 ADD_SQFUNC("void", NSCopyToClipboard, "string text", "", ScriptContext::UI)
 {
 	const SQChar* text = g_pSquirrel[context]->getstring(sqvm, 1);

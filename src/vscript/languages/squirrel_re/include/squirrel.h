@@ -22,15 +22,21 @@ typedef long SQInteger;
 typedef unsigned long SQUnsignedInteger;
 typedef char SQChar;
 typedef SQUnsignedInteger SQBool;
+#define _SC(a) a
+#define SQTrue (1)
+#define SQFalse (0)
 
 typedef SQVM* HSQUIRRELVM;
 
 enum SQRESULT : SQInteger
 {
-	SQRESULT_ERROR = -1,
-	SQRESULT_NULL = 0,
-	SQRESULT_NOTNULL = 1,
+    SQRESULT_ERROR = -1,
+    SQRESULT_NULL = 0,
+    SQRESULT_NOTNULL = 1,
 };
+#define sq_type(o) ((o)._Type)
+#define SQ_FAILED(res) (res < 0)
+#define SQ_SUCCEEDED(res) (res >= 0)
 
 enum class eSQReturnType
 {
@@ -89,7 +95,7 @@ struct SQFuncRegistration
 
 struct alignas(8) SQStackInfos
 {
-	char* _name;
-	char* _sourceName;
-	int _line;
+    const SQChar* funcname;
+    const SQChar* source;
+    SQInteger line;
 };

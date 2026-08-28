@@ -1,9 +1,8 @@
 #include "mcp_script_function_search.h"
 
 #include "core/filesystem/filesystem.h"
-#include "vscript/squirrel/squirrel.h"
-#include "vscript/squirrel/squirreldocumentation.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
+#include "vscript/languages/squirrel_re/squirreldocumentation.h"
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 

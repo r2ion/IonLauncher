@@ -5,7 +5,7 @@
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
 #include "server/serverpresence.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "modsystem/modshellext.h"
 #include "shell.h"
 #include "util/version.h"

@@ -165,6 +165,7 @@ typedef SQBool (*sq_getthisentityType)(HSQUIRRELVM, void** ppEntity);
 typedef void (*sq_getobjectType)(HSQUIRRELVM, SQInteger iStackPos, SQObject* pOutObj);
 
 typedef long long (*sq_stackinfosType)(HSQUIRRELVM sqvm, int iLevel, SQStackInfos* pOutObj, int iCallStackSize);
+typedef const SQChar* (*sq_getlocalType)(HSQUIRRELVM sqvm, int iLevel, SQUnsignedInteger iSequence, uint64_t* pTypeId);
 
 // sq stack userpointer funcs
 typedef void* (*sq_createuserdataType)(HSQUIRRELVM sqvm, SQInteger iSize);

@@ -3,8 +3,7 @@
 #include "modsystem/modworkshop_service.h"
 #include "modsystem/platform/modworkshop.h"
 #include "rtech/rui/workshop_thumbnail_service.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <Windows.h>
 #include <shellapi.h>
 

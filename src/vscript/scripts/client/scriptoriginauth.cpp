@@ -2,7 +2,7 @@
 #include "tier0/vanilla.h"
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "client/connect.h"
 #include "tier1/cvar.h"
 

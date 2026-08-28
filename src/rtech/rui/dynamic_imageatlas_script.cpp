@@ -1,6 +1,5 @@
 #include "rtech/rui/dynamic_imageatlas.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <charconv>
 #include <cstdint>
 #include <optional>

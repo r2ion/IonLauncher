@@ -1,6 +1,5 @@
 #include "engine/demo.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 ADD_SQFUNC("bool", Demo_IsPlayingBack, "", "", ScriptContext::UI)
 {
 	g_pSquirrel[context]->pushbool(sqvm, s_ClientDemoPlayer->IsPlayingBack());

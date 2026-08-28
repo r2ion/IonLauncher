@@ -10,7 +10,7 @@
 #include "dedicated/dedicated.h"
 #include "modsystem/modmanager.h"
 #include "server/auth/serverauthentication.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "client/connect.h"
 
 void ConCommand_force_newgame(const CCommand& arg)

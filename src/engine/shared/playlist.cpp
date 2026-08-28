@@ -1,7 +1,7 @@
 #include "playlist.h"
 #include "core/convar/concommand.h"
 #include "tier0/vanilla.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "engine/hoststate.h"
 #include "engine/r2engine.h"
 #include "server/serverpresence.h"

@@ -10,8 +10,7 @@
 #include "engine/r2engine.h"
 #include "logging/logging.h"
 #include "tier0/frametask.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <httplib.h>
 #include <rapidjson/error/en.h>
 #include <rapidjson/stringbuffer.h>

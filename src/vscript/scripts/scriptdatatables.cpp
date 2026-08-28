@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "rtech/pakfilesystem.h"
 #include "tier1/convar.h"
 #include "core/convar/concommand.h"

@@ -2,7 +2,7 @@
 
 #include "engine/net.h"
 #include "mod.h"
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 
 #include <optional>
 #include <atomic>

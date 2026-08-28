@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "util/wininfo.h"
 
 ADD_SQFUNC("vector ornull", NSGetCursorPosition, "", "", ScriptContext::UI)

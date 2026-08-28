@@ -1,5 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 bool g_bNSClearPlaylistOverrides = false;
 
 ADD_SQFUNC(

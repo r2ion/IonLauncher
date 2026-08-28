@@ -3,7 +3,7 @@
 
 #include <windows.h>
 #include <stdint.h>
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 
 // can't use bitwise ops on enum classes but I don't want these in the global namespace (user defined operators suck)
 namespace PluginContext

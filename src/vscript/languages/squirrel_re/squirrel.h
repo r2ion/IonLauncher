@@ -172,6 +172,7 @@ class SquirrelManager
     sq_getobjectType __sq_getobject;
 
     sq_stackinfosType __sq_stackinfos;
+    sq_getlocalType __sq_getlocal;
 
     sq_createuserdataType __sq_createuserdata;
     sq_setuserdatatypeidType __sq_setuserdatatypeid;
@@ -324,27 +325,66 @@ class SquirrelManager
         return __sq_getasset(sqvm, stackpos, result);
     }
 
-    inline long long sq_stackinfos(HSQUIRRELVM sqvm, int level, SQStackInfos& out)
+    inline SQRESULT sq_stackinfos(HSQUIRRELVM sqvm, int level, SQStackInfos& out)
     {
-        return __sq_stackinfos(sqvm, level, &out, sqvm->_callstacksize);
+        if (level < 0 || level >= sqvm->_callstacksize)
+            return SQRESULT_ERROR;
+
+        return __sq_stackinfos(sqvm, level, &out, sqvm->_callstacksize) < 0 ? SQRESULT_ERROR : SQRESULT_NULL;
+    }
+
+    inline const SQChar* getlocal(HSQUIRRELVM sqvm, int level, SQUnsignedInteger sequence)
+    {
+        uint64_t typeId = 0;
+        return __sq_getlocal(sqvm, level, sequence, &typeId);
+    }
+
+    inline void pop(HSQUIRRELVM sqvm, SQInteger elementsToPop)
+    {
+        while (elementsToPop-- > 0)
+        {
+            assert(sqvm->_top > 0);
+
+            SQObject& object = sqvm->_stack[--sqvm->_top];
+            SQRefCounted* reference = ISREFCOUNTED(sq_type(object)) ? _refcounted(object) : nullptr;
+
+            object._Type = OT_NULL;
+            object.structNumber = 0;
+            object._VAL.as64Integer = 0;
+
+            if (reference && reference->_uiRef-- == 1)
+                reference->Release();
+        }
+    }
+
+    inline Mod* getmodfromsource(const char* sourceName)
+    {
+        if (!g_pModManager || !sourceName || !*sourceName)
+            return nullptr;
+
+        std::string sourcePath = sourceName;
+        if (sourcePath.front() == '@')
+            sourcePath.erase(0, 1);
+        std::replace(sourcePath.begin(), sourcePath.end(), '/', '\\');
+
+        std::string normalisedPath = g_pModManager->NormaliseModFilePath(sourcePath);
+        if (!normalisedPath.starts_with("scripts\\vscripts\\"))
+            normalisedPath = g_pModManager->NormaliseModFilePath(fs::path("scripts\\vscripts") / sourcePath);
+
+        const auto modFile = g_pModManager->m_ModFiles.find(normalisedPath);
+        return modFile != g_pModManager->m_ModFiles.end() ? modFile->second.m_pOwningMod : nullptr;
     }
 
     inline Mod* getcallingmod(HSQUIRRELVM sqvm, int depth = 0)
     {
-        SQStackInfos stackInfo{};
-        if (1 + depth >= sqvm->_callstacksize)
-        {
+        if (depth < 0 || 1 + depth >= sqvm->_callstacksize)
             return nullptr;
-        }
-        sq_stackinfos(sqvm, 1 + depth, stackInfo);
-        std::string sourceName = stackInfo._sourceName;
-        std::replace(sourceName.begin(), sourceName.end(), '/', '\\');
-        std::string filename = g_pModManager->NormaliseModFilePath(fs::path("scripts\\vscripts\\" + sourceName));
-        if (auto res = g_pModManager->m_ModFiles.find(filename); res != g_pModManager->m_ModFiles.end())
-        {
-            return res->second.m_pOwningMod;
-        }
-        return nullptr;
+
+        SQStackInfos stackInfo{};
+        if (sq_stackinfos(sqvm, 1 + depth, stackInfo) < 0)
+            return nullptr;
+
+        return getmodfromsource(stackInfo.source);
     }
     template <typename T> inline SQRESULT getuserdata(HSQUIRRELVM sqvm, const SQInteger stackpos, T* data, uint64_t* typeId)
     {

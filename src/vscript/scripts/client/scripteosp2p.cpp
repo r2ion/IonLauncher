@@ -1,4 +1,4 @@
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "eos/eos_layer.h"
 #include "engine/client/clientstate.h"
 #include "engine/r2engine.h"

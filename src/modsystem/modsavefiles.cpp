@@ -1,7 +1,7 @@
 #include <filesystem>
 #include <sstream>
 #include <fstream>
-#include "vscript/squirrel/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include "util/utils.h"
 #include "modsystem/modmanager.h"
 #include "modsavefiles.h"

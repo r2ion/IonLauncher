@@ -12,6 +12,7 @@
 #include "tier0/vanilla.h"
 #include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel/sqcompiler.h"
+#include "sqstdlib/sqstdaux.h"
 
 #include <any>
 #include <array>
@@ -154,7 +155,7 @@ const char* SQTypeNameFromID(int type)
         return "thread";
     case OT_FUNCPROTO:
         return "function";
-    case OT_CLAAS:
+    case OT_CLASS:
         return "class";
     case OT_WEAKREF:
         return "weakref";
@@ -379,7 +380,12 @@ template <ScriptContext context> SQInteger __fastcall sqstd_aux_printerrorHook(H
 
     g_LastSQErrorTimes[static_cast<int>(realContext)] = g_PlatFloatTime();
 
-    return sqstd_aux_printerror<context>(sqvm);
+    void* const printCallback = sqvm->sharedState->fnPrintCallback;
+    sqvm->sharedState->fnPrintCallback = nullptr;
+    const SQInteger result = sqstd_aux_printerror<context>(sqvm);
+    sqvm->sharedState->fnPrintCallback = printCallback;
+    sqstd_printerror(sqvm);
+    return result;
 }
 template <ScriptContext context> std::int64_t (*SQCompiler_ParseDirective)(SQCompiler* pCompiler);
 template <ScriptContext context> std::int64_t __fastcall SQCompiler_ParseDirectiveHook(SQCompiler* pCompiler)
@@ -699,7 +705,7 @@ template <ScriptContext context> SQRESULT SQ_StubbedFunc(HSQUIRRELVM sqvm)
     SQStackInfos si;
     g_pSquirrel[context]->sq_stackinfos(sqvm, 0, si);
 
-    spdlog::warn("Blocking call to stubbed function {} in {}", si._name, CSquirrelContext::GetName(context));
+    spdlog::warn("Blocking call to stubbed function {} in {}", si.funcname, CSquirrelContext::GetName(context));
     return SQRESULT_NULL;
 }
 
@@ -866,6 +872,8 @@ ON_DLL_LOAD_RELIESON("client.dll", ClientSquirrel, ConCommand, [](CModule module
     g_pSquirrel[ScriptContext::UI]->__sq_getfunction = g_pSquirrel[ScriptContext::CLIENT]->__sq_getfunction;
     g_pSquirrel[ScriptContext::CLIENT]->__sq_stackinfos = module.Offset(0x35970).RCast<sq_stackinfosType>();
     g_pSquirrel[ScriptContext::UI]->__sq_stackinfos = g_pSquirrel[ScriptContext::CLIENT]->__sq_stackinfos;
+    g_pSquirrel[ScriptContext::CLIENT]->__sq_getlocal = module.Offset(0x8210).RCast<sq_getlocalType>();
+    g_pSquirrel[ScriptContext::UI]->__sq_getlocal = g_pSquirrel[ScriptContext::CLIENT]->__sq_getlocal;
 
     // Structs
     g_pSquirrel[ScriptContext::CLIENT]->__sq_pushnewstructinstance = module.Offset(0x5400).RCast<sq_pushnewstructinstanceType>();
@@ -955,6 +963,7 @@ ON_DLL_LOAD_RELIESON("server.dll", ServerSquirrel, ConCommand, [](CModule module
     // Message buffer stuff
     g_pSquirrel[ScriptContext::SERVER]->__sq_getfunction = module.Offset(0x6C80).RCast<sq_getfunctionType>();
     g_pSquirrel[ScriptContext::SERVER]->__sq_stackinfos = module.Offset(0x35920).RCast<sq_stackinfosType>();
+    g_pSquirrel[ScriptContext::SERVER]->__sq_getlocal = module.Offset(0x81E0).RCast<sq_getlocalType>();
 
     // Structs
     g_pSquirrel[ScriptContext::SERVER]->__sq_pushnewstructinstance = module.Offset(0x53e0).RCast<sq_pushnewstructinstanceType>();

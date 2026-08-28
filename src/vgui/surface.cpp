@@ -7,8 +7,7 @@
 #include "tier1/convar.h"
 #include "tier1/strtools.h"
 #include "vgui/IPanel.h"
-#include "vscript/squirrel/squirrel.h"
-
+#include "vscript/languages/squirrel_re/squirrel.h"
 #include <algorithm>
 #include <array>
 #include <cassert>
