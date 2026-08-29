@@ -9,6 +9,23 @@ void* (*GetWeaponOwner)(uint64_t weapon_entity);
 
 ConVar* Cvar_ns_enable_weapon_attack_callback;
 
+static thread_local CPlayer* s_pObserverCycleInProgress;
+
+DECLARE_HOOK(CPlayer::CycleObserverTarget, server.dll + 0x57BFD0, [](auto& hook, CPlayer* player, bool reverse) -> bool
+{
+	if (!player || s_pObserverCycleInProgress != player)
+	{
+		CPlayer* previousPlayer = s_pObserverCycleInProgress;
+		s_pObserverCycleInProgress = player;
+		const bool result = hook.Original(player, reverse);
+		s_pObserverCycleInProgress = previousPlayer;
+		return result;
+	}
+
+	spdlog::warn("Prevented recursive observer target cycling for player {}", player->m_nPlayerIndex);
+	return true;
+})
+
 DECLARE_HOOK(PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, void* weapon, int attackIndex) -> bool
 {
 	if(!Cvar_ns_enable_weapon_attack_callback->GetBool())
