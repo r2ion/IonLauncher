@@ -26,27 +26,80 @@
 #include "rapidjson/ostreamwrapper.h"
 #include "rapidjson/prettywriter.h"
 #include <cctype>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <new>
 #include <sstream>
 #include <string>
 #include <vector>
 
 ModManager* g_pModManager;
 
+static fs::path NormalizeModPathForComparison(const fs::path& path)
+{
+    std::error_code error;
+    fs::path normalized = fs::absolute(path, error);
+    if (error)
+        normalized = path;
+    normalized = normalized.lexically_normal();
+    while (normalized.has_relative_path() && normalized.filename().empty())
+        normalized = normalized.parent_path();
+    return normalized;
+}
+
+static bool ModPathComponentsEqual(const fs::path& left, const fs::path& right)
+{
+    const std::wstring& leftValue = left.native();
+    const std::wstring& rightValue = right.native();
+    if (leftValue.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        rightValue.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+    {
+        return false;
+    }
+    return CompareStringOrdinal(leftValue.data(), static_cast<int>(leftValue.size()), rightValue.data(), static_cast<int>(rightValue.size()), TRUE) ==
+           CSTR_EQUAL;
+}
+
+bool ModPaths::Equal(const fs::path& left, const fs::path& right)
+{
+    const fs::path normalizedLeft = NormalizeModPathForComparison(left);
+    const fs::path normalizedRight = NormalizeModPathForComparison(right);
+    auto leftComponent = normalizedLeft.begin();
+    auto rightComponent = normalizedRight.begin();
+    for (; leftComponent != normalizedLeft.end() && rightComponent != normalizedRight.end(); ++leftComponent, ++rightComponent)
+    {
+        if (!ModPathComponentsEqual(*leftComponent, *rightComponent))
+            return false;
+    }
+    return leftComponent == normalizedLeft.end() && rightComponent == normalizedRight.end();
+}
+
+bool ModPaths::IsAtOrBelow(const fs::path& path, const fs::path& root)
+{
+    const fs::path normalizedPath = NormalizeModPathForComparison(path);
+    const fs::path normalizedRoot = NormalizeModPathForComparison(root);
+    auto pathComponent = normalizedPath.begin();
+    for (auto rootComponent = normalizedRoot.begin(); rootComponent != normalizedRoot.end(); ++rootComponent, ++pathComponent)
+    {
+        if (pathComponent == normalizedPath.end() || !ModPathComponentsEqual(*pathComponent, *rootComponent))
+            return false;
+    }
+    return true;
+}
+
 class CModDirectoryCollector final
 {
 public:
-	CModDirectoryCollector(std::vector<fs::path>& directories, const fs::path& legacyRoot)
-	    : m_Directories(directories), m_LegacyRoot(legacyRoot.string())
-	{
-	}
+  CModDirectoryCollector(std::vector<fs::path>& directories, const fs::path& legacyRoot) : m_Directories(directories), m_LegacyRoot(legacyRoot)
+  {
+  }
 
 	void Add(const fs::path& directory)
 	{
-		const std::string path = directory.string();
-		if (!m_WarnedAboutLegacyRoot && path.starts_with(m_LegacyRoot))
-		{
+        if (!m_WarnedAboutLegacyRoot && ModPaths::IsAtOrBelow(directory, m_LegacyRoot))
+        {
 			spdlog::warn("Loading mods from legacy directory '{}'. This path is deprecated; move mods into the packages directory.", m_LegacyRoot);
 			m_WarnedAboutLegacyRoot = true;
 		}
@@ -55,8 +108,8 @@ public:
 
 private:
 	std::vector<fs::path>& m_Directories;
-	std::string m_LegacyRoot;
-	bool m_WarnedAboutLegacyRoot = false;
+    fs::path m_LegacyRoot;
+    bool m_WarnedAboutLegacyRoot = false;
 };
 
 ModManager::ModManager(const CModule& engineModule)
@@ -172,27 +225,6 @@ bool ModManager::UnloadModsForFilesystemMutation()
 	return unloaded;
 }
 
-std::string ModManager::PackagePathKey(const fs::path& path)
-{
-	std::error_code error;
-	std::string key = fs::absolute(path, error).lexically_normal().generic_string();
-	if (error)
-		key = path.lexically_normal().generic_string();
-	std::ranges::transform(key, key.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-	return key;
-}
-
-bool ModManager::IsPathAtOrBelow(const fs::path& path, const fs::path& root)
-{
-	const std::string pathValue = PackagePathKey(path);
-	std::string rootValue = PackagePathKey(root);
-	if (pathValue == rootValue)
-		return true;
-	if (!rootValue.ends_with('/'))
-		rootValue.push_back('/');
-	return pathValue.starts_with(rootValue);
-}
-
 std::unordered_map<std::string, bool> ModManager::CaptureEnabledStatesForPackages(std::span<const fs::path> packageRoots) const
 {
 	std::unordered_map<std::string, bool> states;
@@ -200,10 +232,9 @@ std::unordered_map<std::string, bool> ModManager::CaptureEnabledStatesForPackage
 	{
 		for (const fs::path& root : packageRoots)
 		{
-			const bool belongsToPackage =
-			    IsPathAtOrBelow(mod.m_ModDirectory, root) ||
-			                              (!mod.m_PackageDirectory.empty() && PackagePathKey(mod.m_PackageDirectory) == PackagePathKey(root));
-			if (belongsToPackage)
+            const bool belongsToPackage =
+                ModPaths::IsAtOrBelow(mod.m_ModDirectory, root) || (!mod.m_PackageDirectory.empty() && ModPaths::Equal(mod.m_PackageDirectory, root));
+            if (belongsToPackage)
 			{
 				states.insert_or_assign(mod.Name, mod.m_bEnabled);
 				break;
@@ -263,293 +294,323 @@ void ModManager::LoadMods()
     {
         if (!mod.m_bEnabled)
             continue;
-
-        // register convars
-        // for reloads, this is sorta barebones, when we have a good findconvar method, we could probably reset flags and stuff on
-        // preexisting convars note: we don't delete convars if they already exist because they're used for script stuff, unfortunately this
-        // causes us to leak memory on reload, but not much, potentially find a way to not do this at some point
-        for (ModConVar* convar : mod.ConVars)
+        try
         {
-            // make sure convar isn't registered yet, unsure if necessary but idk what
-            // behaviour is for defining same convar multiple times
-            if (!g_pCVar->FindVar(convar->Name.c_str()))
+
+            // register convars
+            // for reloads, this is sorta barebones, when we have a good findconvar method, we could probably reset flags and stuff on
+            // preexisting convars note: we don't delete convars if they already exist because they're used for script stuff, unfortunately this
+            // causes us to leak memory on reload, but not much, potentially find a way to not do this at some point
+            for (ModConVar* convar : mod.ConVars)
             {
-                new ConVar(convar->Name.c_str(), convar->DefaultValue.c_str(), convar->Flags, convar->HelpString.c_str());
-            }
-        }
-
-        for (ModConCommand* command : mod.ConCommands)
-        {
-            // make sure command isnt't registered multiple times.
-            if (!g_pCVar->FindCommand(command->Name.c_str()))
-            {
-                RegisterConCommand(command->Name.c_str(), ModConCommandCallback, command->HelpString.c_str(), command->Flags);
-            }
-        }
-
-        // read vpk paths
-        if (fs::exists(mod.m_ModDirectory / "vpk"))
-        {
-            // read vpk cfg
-            std::ifstream vpkJsonStream(mod.m_ModDirectory / "vpk/vpk.json");
-            std::stringstream vpkJsonStringStream;
-
-            bool bUseVPKJson = false;
-            rapidjson::Document dVpkJson;
-
-            if (!vpkJsonStream.fail())
-            {
-                while (vpkJsonStream.peek() != EOF)
-                    vpkJsonStringStream << (char)vpkJsonStream.get();
-
-                vpkJsonStream.close();
-                dVpkJson.Parse<rapidjson::ParseFlag::kParseCommentsFlag | rapidjson::ParseFlag::kParseTrailingCommasFlag>(
-                    vpkJsonStringStream.str().c_str());
-
-                bUseVPKJson = !dVpkJson.HasParseError() && dVpkJson.IsObject();
-            }
-
-            for (fs::directory_entry file : fs::directory_iterator(mod.m_ModDirectory / "vpk"))
-            {
-                // a bunch of checks to make sure we're only adding dir vpks and their paths are good
-                // note: the game will literally only load vpks with the english prefix
-                if (fs::is_regular_file(file) && file.path().extension() == ".vpk" && file.path().string().find("english") != std::string::npos &&
-                    file.path().string().find(".bsp.pak000_dir") != std::string::npos)
+                // make sure convar isn't registered yet, unsure if necessary but idk what
+                // behaviour is for defining same convar multiple times
+                if (!g_pCVar->FindVar(convar->Name.c_str()))
                 {
-                    std::string formattedPath = file.path().filename().string();
-
-                    // this really fucking sucks but it'll work
-                    std::string vpkName = formattedPath.substr(strlen("english"), formattedPath.find(".bsp") - 3);
-
-                    ModVPKEntry& modVpk = mod.Vpks.emplace_back();
-                    modVpk.m_bAutoLoad = !bUseVPKJson || (dVpkJson.HasMember("Preload") && dVpkJson["Preload"].IsObject() &&
-                                                          dVpkJson["Preload"].HasMember(vpkName) && dVpkJson["Preload"][vpkName].IsTrue());
-                    modVpk.m_sVpkPath = (file.path().parent_path() / vpkName).string();
-
-                    VPKDirectory_GetFileList(file.path(), "mdl", modVpk.m_ModelPaths);
-
-                    bool modelsAvailable = IsVPKMounted(modVpk.m_sVpkPath.c_str());
-                    if (modVpk.m_bAutoLoad)
-                    {
-                        if (m_bHasLoadedMods)
-                            modelsAvailable = MountVPKDirect(modVpk.m_sVpkPath.c_str()) != nullptr;
-                        else
-                            modelsAvailable = true;
-                    }
-
-                    if (modelsAvailable)
-                        RegisterMountedVPKModels(modVpk);
+                    new ConVar(convar->Name.c_str(), convar->DefaultValue.c_str(), convar->Flags, convar->HelpString.c_str());
                 }
             }
-        }
 
-        // read rpak paths
-        if (fs::exists(mod.m_ModDirectory / "paks"))
-        {
-            // read rpak cfg
-            std::ifstream rpakJsonStream(mod.m_ModDirectory / "paks/rpak.json");
-            std::stringstream rpakJsonStringStream;
-
-            bool bUseRpakJson = false;
-            rapidjson::Document dRpakJson;
-
-            if (!rpakJsonStream.fail())
+            for (ModConCommand* command : mod.ConCommands)
             {
-                while (rpakJsonStream.peek() != EOF)
-                    rpakJsonStringStream << (char)rpakJsonStream.get();
-
-                rpakJsonStream.close();
-                dRpakJson.Parse<rapidjson::ParseFlag::kParseCommentsFlag | rapidjson::ParseFlag::kParseTrailingCommasFlag>(
-                    rpakJsonStringStream.str().c_str());
-
-                bUseRpakJson = !dRpakJson.HasParseError() && dRpakJson.IsObject();
+                // make sure command isnt't registered multiple times.
+                if (!g_pCVar->FindCommand(command->Name.c_str()))
+                {
+                    RegisterConCommand(command->Name.c_str(), ModConCommandCallback, command->HelpString.c_str(), command->Flags);
+                }
             }
 
-            // read pak aliases
-            if (bUseRpakJson && dRpakJson.HasMember("Aliases") && dRpakJson["Aliases"].IsObject())
+            // read vpk paths
+            if (fs::exists(mod.m_ModDirectory / "vpk"))
             {
-                for (rapidjson::Value::ConstMemberIterator iterator = dRpakJson["Aliases"].MemberBegin();
-                     iterator != dRpakJson["Aliases"].MemberEnd(); iterator++)
+                // read vpk cfg
+                std::ifstream vpkJsonStream(mod.m_ModDirectory / "vpk/vpk.json");
+                std::stringstream vpkJsonStringStream;
+
+                bool bUseVPKJson = false;
+                rapidjson::Document dVpkJson;
+
+                if (!vpkJsonStream.fail())
                 {
-                    if (!iterator->name.IsString() || !iterator->value.IsString())
+                    while (vpkJsonStream.peek() != EOF)
+                        vpkJsonStringStream << (char)vpkJsonStream.get();
+
+                    vpkJsonStream.close();
+                    dVpkJson.Parse<rapidjson::ParseFlag::kParseCommentsFlag | rapidjson::ParseFlag::kParseTrailingCommasFlag>(
+                        vpkJsonStringStream.str().c_str());
+
+                    bUseVPKJson = !dVpkJson.HasParseError() && dVpkJson.IsObject();
+                }
+
+                for (fs::directory_entry file : fs::directory_iterator(mod.m_ModDirectory / "vpk"))
+                {
+                    // a bunch of checks to make sure we're only adding dir vpks and their paths are good
+                    // note: the game will literally only load vpks with the english prefix
+                    const fs::path filename = file.path().filename();
+                    const std::wstring filenameValue = filename.native();
+                    if (fs::is_regular_file(file) && file.path().extension() == ".vpk" && filenameValue.find(L"english") != std::wstring::npos &&
+                        filenameValue.find(L".bsp.pak000_dir") != std::wstring::npos)
+                    {
+                        std::string formattedPath = filename.string();
+
+                        // this really fucking sucks but it'll work
+                        std::string vpkName = formattedPath.substr(strlen("english"), formattedPath.find(".bsp") - 3);
+
+                        ModVPKEntry& modVpk = mod.Vpks.emplace_back();
+                        modVpk.m_bAutoLoad = !bUseVPKJson || (dVpkJson.HasMember("Preload") && dVpkJson["Preload"].IsObject() &&
+                                                              dVpkJson["Preload"].HasMember(vpkName) && dVpkJson["Preload"][vpkName].IsTrue());
+                        modVpk.m_sVpkPath = (file.path().parent_path() / vpkName).string();
+
+                        VPKDirectory_GetFileList(file.path(), "mdl", modVpk.m_ModelPaths);
+
+                        bool modelsAvailable = IsVPKMounted(modVpk.m_sVpkPath.c_str());
+                        if (modVpk.m_bAutoLoad)
+                        {
+                            if (m_bHasLoadedMods)
+                                modelsAvailable = MountVPKDirect(modVpk.m_sVpkPath.c_str()) != nullptr;
+                            else
+                                modelsAvailable = true;
+                        }
+
+                        if (modelsAvailable)
+                            RegisterMountedVPKModels(modVpk);
+                    }
+                }
+            }
+
+            // read rpak paths
+            if (fs::exists(mod.m_ModDirectory / "paks"))
+            {
+                // read rpak cfg
+                std::ifstream rpakJsonStream(mod.m_ModDirectory / "paks/rpak.json");
+                std::stringstream rpakJsonStringStream;
+
+                bool bUseRpakJson = false;
+                rapidjson::Document dRpakJson;
+
+                if (!rpakJsonStream.fail())
+                {
+                    while (rpakJsonStream.peek() != EOF)
+                        rpakJsonStringStream << (char)rpakJsonStream.get();
+
+                    rpakJsonStream.close();
+                    dRpakJson.Parse<rapidjson::ParseFlag::kParseCommentsFlag | rapidjson::ParseFlag::kParseTrailingCommasFlag>(
+                        rpakJsonStringStream.str().c_str());
+
+                    bUseRpakJson = !dRpakJson.HasParseError() && dRpakJson.IsObject();
+                }
+
+                // read pak aliases
+                if (bUseRpakJson && dRpakJson.HasMember("Aliases") && dRpakJson["Aliases"].IsObject())
+                {
+                    for (rapidjson::Value::ConstMemberIterator iterator = dRpakJson["Aliases"].MemberBegin();
+                         iterator != dRpakJson["Aliases"].MemberEnd(); iterator++)
+                    {
+                        if (!iterator->name.IsString() || !iterator->value.IsString())
+                            continue;
+
+                        mod.RpakAliases.insert(std::make_pair(iterator->name.GetString(), iterator->value.GetString()));
+                    }
+                }
+
+                for (fs::directory_entry file : fs::directory_iterator(mod.m_ModDirectory / "paks"))
+                {
+                    // ensure we're only loading rpaks
+                    if (!fs::is_regular_file(file) || file.path().extension() != ".rpak")
                         continue;
 
-                    mod.RpakAliases.insert(std::make_pair(iterator->name.GetString(), iterator->value.GetString()));
-                }
-            }
+                    std::string pakName(file.path().filename().string());
+                    ModRpakEntry& modPak = mod.Rpaks.emplace_back(mod);
 
-            for (fs::directory_entry file : fs::directory_iterator(mod.m_ModDirectory / "paks"))
-            {
-                // ensure we're only loading rpaks
-                if (!fs::is_regular_file(file) || file.path().extension() != ".rpak")
-                    continue;
+                    modPak.m_pakName = pakName;
 
-                std::string pakName(file.path().filename().string());
-                ModRpakEntry& modPak = mod.Rpaks.emplace_back(mod);
-
-                modPak.m_pakName = pakName;
-
-                if (!bUseRpakJson)
-                {
-                    spdlog::warn("Mod {} contains rpaks without valid rpak.json, rpaks might not be loaded", mod.Name);
-                }
-                else
-                {
-                    modPak.m_preload = (dRpakJson.HasMember("Preload") && dRpakJson["Preload"].IsObject() &&
-                                        dRpakJson["Preload"].HasMember(pakName) && dRpakJson["Preload"][pakName].IsTrue());
-
-                    // only one load method can be used for an rpak.
-                    if (modPak.m_preload)
-                        goto REGISTER_STARPAK;
-
-                    // postload things
-                    if (dRpakJson.HasMember("Postload") && dRpakJson["Postload"].IsObject() && dRpakJson["Postload"].HasMember(pakName))
+                    if (!bUseRpakJson)
                     {
-                        modPak.m_dependentPakHash = STR_HASH(dRpakJson["Postload"][pakName].GetString());
-
-                        // only one load method can be used for an rpak.
-                        goto REGISTER_STARPAK;
-                    }
-
-                    // this is the only bit of rpak.json that isn't really deprecated. Even so, it will be moved over to the mod.json
-                    // eventually
-                    if (dRpakJson.HasMember(pakName))
-                    {
-                        if (!dRpakJson[pakName].IsString())
-                        {
-                            spdlog::error("Mod {} has invalid rpak.json. Rpak entries must be strings.", mod.Name);
-                            continue;
-                        }
-
-                        std::string loadStr = dRpakJson[pakName].GetString();
-                        try
-                        {
-                            modPak.m_loadRegex = std::regex(loadStr);
-                        }
-                        catch (...)
-                        {
-                            spdlog::error("Mod {} has invalid rpak.json. Malformed regex \"{}\" for {}", mod.Name, loadStr, pakName);
-                            continue;
-                        }
-                    }
-                }
-
-            REGISTER_STARPAK:
-                // read header of file and get the starpak paths
-                // this is done here as opposed to on starpak load because multiple rpaks can load a starpak
-                // and there is seemingly no good way to tell which rpak is causing the load of a starpak :/
-
-                std::ifstream rpakStream(file.path(), std::ios::binary);
-
-                // seek to the point in the header where the starpak reference size is
-                rpakStream.seekg(0x38, std::ios::beg);
-                int starpaksSize = 0;
-                rpakStream.read((char*)&starpaksSize, 2);
-
-                // seek to just after the header
-                rpakStream.seekg(0x58, std::ios::beg);
-                // read the starpak reference(s)
-                std::vector<char> buf(starpaksSize);
-                rpakStream.read(buf.data(), starpaksSize);
-
-                rpakStream.close();
-
-                // split the starpak reference(s) into strings to hash
-                std::string str = "";
-                for (int i = 0; i < starpaksSize; i++)
-                {
-                    // if the current char is null, that signals the end of the current starpak path
-                    if (buf[i] != 0x00)
-                    {
-                        str += buf[i];
+                        spdlog::warn("Mod {} contains rpaks without valid rpak.json, rpaks might not be loaded", mod.Name);
                     }
                     else
                     {
-                        // only add the string we are making if it isnt empty
-                        if (!str.empty())
+                        modPak.m_preload = (dRpakJson.HasMember("Preload") && dRpakJson["Preload"].IsObject() &&
+                                            dRpakJson["Preload"].HasMember(pakName) && dRpakJson["Preload"][pakName].IsTrue());
+
+                        // only one load method can be used for an rpak.
+                        if (modPak.m_preload)
+                            goto REGISTER_STARPAK;
+
+                        // postload things
+                        if (dRpakJson.HasMember("Postload") && dRpakJson["Postload"].IsObject() && dRpakJson["Postload"].HasMember(pakName))
                         {
-                            mod.StarpakPaths.push_back(STR_HASH(str));
-                            spdlog::info("Mod {} registered starpak '{}'", mod.Name, str);
-                            str = "";
+                            modPak.m_dependentPakHash = STR_HASH(dRpakJson["Postload"][pakName].GetString());
+
+                            // only one load method can be used for an rpak.
+                            goto REGISTER_STARPAK;
                         }
+
+                        // this is the only bit of rpak.json that isn't really deprecated. Even so, it will be moved over to the mod.json
+                        // eventually
+                        if (dRpakJson.HasMember(pakName))
+                        {
+                            if (!dRpakJson[pakName].IsString())
+                            {
+                                spdlog::error("Mod {} has invalid rpak.json. Rpak entries must be strings.", mod.Name);
+                                continue;
+                            }
+
+                            std::string loadStr = dRpakJson[pakName].GetString();
+                            try
+                            {
+                                modPak.m_loadRegex = std::regex(loadStr);
+                            }
+                            catch (...)
+                            {
+                                spdlog::error("Mod {} has invalid rpak.json. Malformed regex \"{}\" for {}", mod.Name, loadStr, pakName);
+                                continue;
+                            }
+                        }
+                    }
+
+                REGISTER_STARPAK:
+                    // read header of file and get the starpak paths
+                    // this is done here as opposed to on starpak load because multiple rpaks can load a starpak
+                    // and there is seemingly no good way to tell which rpak is causing the load of a starpak :/
+
+                    std::ifstream rpakStream(file.path(), std::ios::binary);
+
+                    // seek to the point in the header where the starpak reference size is
+                    rpakStream.seekg(0x38, std::ios::beg);
+                    int starpaksSize = 0;
+                    rpakStream.read((char*)&starpaksSize, 2);
+
+                    // seek to just after the header
+                    rpakStream.seekg(0x58, std::ios::beg);
+                    // read the starpak reference(s)
+                    std::vector<char> buf(starpaksSize);
+                    rpakStream.read(buf.data(), starpaksSize);
+
+                    rpakStream.close();
+
+                    // split the starpak reference(s) into strings to hash
+                    std::string str = "";
+                    for (int i = 0; i < starpaksSize; i++)
+                    {
+                        // if the current char is null, that signals the end of the current starpak path
+                        if (buf[i] != 0x00)
+                        {
+                            str += buf[i];
+                        }
+                        else
+                        {
+                            // only add the string we are making if it isnt empty
+                            if (!str.empty())
+                            {
+                                mod.StarpakPaths.push_back(STR_HASH(str));
+                                spdlog::info("Mod {} registered starpak '{}'", mod.Name, str);
+                                str = "";
+                            }
+                        }
+                    }
+                }
+
+                if (g_pPakLoadManager != nullptr)
+                    g_pPakLoadManager->TrackModPaks(mod);
+            }
+
+            // read keyvalues paths
+            if (fs::exists(mod.m_ModDirectory / "keyvalues"))
+            {
+                for (fs::directory_entry file : fs::recursive_directory_iterator(mod.m_ModDirectory / "keyvalues"))
+                {
+                    if (fs::is_regular_file(file))
+                    {
+                        std::string kvStr = g_pModManager->NormaliseModFilePath(file.path().lexically_relative(mod.m_ModDirectory / "keyvalues"));
+                        mod.KeyValues.emplace(STR_HASH(kvStr), kvStr);
                     }
                 }
             }
 
-            if (g_pPakLoadManager != nullptr)
-                g_pPakLoadManager->TrackModPaks(mod);
-        }
-
-        // read keyvalues paths
-        if (fs::exists(mod.m_ModDirectory / "keyvalues"))
-        {
-            for (fs::directory_entry file : fs::recursive_directory_iterator(mod.m_ModDirectory / "keyvalues"))
+            // read pdiff
+            if (fs::exists(mod.m_ModDirectory / "mod.pdiff"))
             {
-                if (fs::is_regular_file(file))
+                std::ifstream pdiffStream(mod.m_ModDirectory / "mod.pdiff");
+
+                if (!pdiffStream.fail())
                 {
-                    std::string kvStr = g_pModManager->NormaliseModFilePath(file.path().lexically_relative(mod.m_ModDirectory / "keyvalues"));
-                    mod.KeyValues.emplace(STR_HASH(kvStr), kvStr);
+                    std::stringstream pdiffStringStream;
+                    while (pdiffStream.peek() != EOF)
+                        pdiffStringStream << (char)pdiffStream.get();
+
+                    pdiffStream.close();
+
+                    mod.Pdiff = pdiffStringStream.str();
+                }
+            }
+
+            // read bink video paths
+            if (fs::exists(mod.m_ModDirectory / "media"))
+            {
+                for (fs::directory_entry file : fs::recursive_directory_iterator(mod.m_ModDirectory / "media"))
+                    if (fs::is_regular_file(file) && file.path().extension() == ".bik")
+                        mod.BinkVideos.push_back(file.path().filename().string());
+            }
+
+            // try to load audio
+            const fs::path audioPath = mod.m_ModDirectory / "audio";
+            std::error_code audioError;
+            const bool audioExists = fs::exists(audioPath, audioError);
+            if (audioError)
+            {
+                spdlog::warn("Could not inspect audio overrides for mod {} at {}: {}", mod.Name, audioPath, audioError.message());
+            }
+            else if (audioExists)
+            {
+                const bool audioIsDirectory = fs::is_directory(audioPath, audioError);
+                if (audioError)
+                {
+                    spdlog::warn("Could not inspect audio overrides for mod {} at {}: {}", mod.Name, audioPath, audioError.message());
+                }
+                else if (!audioIsDirectory)
+                {
+                    spdlog::warn("Mod {} has an invalid audio path {}: expected a directory", mod.Name, audioPath);
+                }
+                else
+                {
+                    for (fs::directory_entry file : fs::directory_iterator(audioPath))
+                    {
+                        if (!fs::is_regular_file(file) || file.path().extension() != ".json")
+                            continue;
+
+                        if (!g_ModAudioManager.TryLoadDefinition(file.path(), mod.Name))
+                            spdlog::warn("Mod {} has an invalid audio def {}", mod.Name, file.path().filename());
+                    }
+                }
+            }
+
+            // register mod files, mods loaded later should have their files prioritised
+            if (fs::exists(mod.m_ModDirectory / MOD_OVERRIDE_DIR))
+            {
+                for (fs::directory_entry file : fs::recursive_directory_iterator(mod.m_ModDirectory / MOD_OVERRIDE_DIR))
+                {
+                    std::string path = g_pModManager->NormaliseModFilePath(file.path().lexically_relative(mod.m_ModDirectory / MOD_OVERRIDE_DIR));
+                    if (file.is_regular_file())
+                    {
+                        ModOverrideFile modFile;
+                        modFile.m_pOwningMod = &mod;
+                        modFile.m_Path = path;
+                        m_ModFiles.insert_or_assign(path, modFile);
+
+                        RegisterLooseModelReloadPath(path);
+                    }
                 }
             }
         }
-
-        // read pdiff
-        if (fs::exists(mod.m_ModDirectory / "mod.pdiff"))
+        catch (const std::bad_alloc&)
         {
-            std::ifstream pdiffStream(mod.m_ModDirectory / "mod.pdiff");
-
-            if (!pdiffStream.fail())
-            {
-                std::stringstream pdiffStringStream;
-                while (pdiffStream.peek() != EOF)
-                    pdiffStringStream << (char)pdiffStream.get();
-
-                pdiffStream.close();
-
-                mod.Pdiff = pdiffStringStream.str();
-            }
+            throw;
         }
-
-        // read bink video paths
-        if (fs::exists(mod.m_ModDirectory / "media"))
+        catch (const std::exception& exception)
         {
-            for (fs::directory_entry file : fs::recursive_directory_iterator(mod.m_ModDirectory / "media"))
-                if (fs::is_regular_file(file) && file.path().extension() == ".bik")
-                    mod.BinkVideos.push_back(file.path().filename().string());
-        }
-
-        // try to load audio
-        if (fs::exists(mod.m_ModDirectory / "audio"))
-        {
-            for (fs::directory_entry file : fs::directory_iterator(mod.m_ModDirectory / "audio"))
-            {
-                if (!fs::is_regular_file(file) || file.path().extension().string() != ".json")
-                    continue;
-
-                if (!g_ModAudioManager.TryLoadDefinition(file.path(), mod.Name))
-                {
-                    spdlog::warn("Mod {} has an invalid audio def {}", mod.Name, file.path().filename().string());
-                    continue;
-                }
-            }
-        }
-
-        // register mod files, mods loaded later should have their files prioritised
-        if (fs::exists(mod.m_ModDirectory / MOD_OVERRIDE_DIR))
-        {
-            for (fs::directory_entry file : fs::recursive_directory_iterator(mod.m_ModDirectory / MOD_OVERRIDE_DIR))
-            {
-                std::string path = g_pModManager->NormaliseModFilePath(file.path().lexically_relative(mod.m_ModDirectory / MOD_OVERRIDE_DIR));
-                if (file.is_regular_file())
-                {
-                    ModOverrideFile modFile;
-                    modFile.m_pOwningMod = &mod;
-                    modFile.m_Path = path;
-                    m_ModFiles.insert_or_assign(path, modFile);
-
-                    RegisterLooseModelReloadPath(path);
-                }
-            }
+            spdlog::error("Mod '{}' at '{}' raised an exception while activating: {}. Continuing with remaining mods.", mod.Name, mod.m_ModDirectory,
+                          exception.what());
         }
     }
 
@@ -691,78 +752,90 @@ void ModManager::SearchFilesystemForMods()
 
     for (fs::path modDir : modDirs)
     {
-        // read mod json file
-        std::ifstream jsonStream(modDir / "mod.json");
-        std::stringstream jsonStringStream;
-
-        // fail if no mod json
-        if (jsonStream.fail())
+        const fs::path manifestPath = modDir / "mod.json";
+        try
         {
-            spdlog::warn("Mod file at '{}' does not exist or could not be read, is it installed correctly?", (modDir / "mod.json").string());
-            continue;
-        }
+            // read mod json file
+            std::ifstream jsonStream(manifestPath);
+            std::stringstream jsonStringStream;
 
-        while (jsonStream.peek() != EOF)
-            jsonStringStream << (char)jsonStream.get();
-
-        jsonStream.close();
-
-        Mod mod(modDir, jsonStringStream.str().c_str());
-
-        for (auto& modDependencyConstant : mod.DependencyConstants)
-        {
-            const auto& [constantName, targetMod] = modDependencyConstant;
-            const auto& [dependencyConstant, didInsert] = m_DependencyConstants.insert(modDependencyConstant);
-            // if we inserted successfully, we are good to go
-            if (didInsert)
-                continue;
-
-            const auto& [foundConstantName, foundTargetMod] = *dependencyConstant;
-            if (targetMod != foundTargetMod)
+            // fail if no mod json
+            if (jsonStream.fail())
             {
-                spdlog::error("'{}' attempted to register a dependency constant '{}' for '{}' that already exists for '{}'. "
-                              "Change the constant name.",
-                              mod.Name, constantName, targetMod, foundConstantName);
-                mod.m_bWasReadSuccessfully = false;
-                break;
+                spdlog::warn("Mod file at '{}' does not exist or could not be read, is it installed correctly?", manifestPath);
+                continue;
             }
-        }
 
-        for (std::string& dependency : mod.PluginDependencyConstants)
-        {
-            m_PluginDependencyConstants.insert(dependency);
-        }
+            while (jsonStream.peek() != EOF)
+                jsonStringStream << (char)jsonStream.get();
 
-        // Do not load remote mods on first load
-        if (mod.m_Source == ModSource::Remote && !m_bHasLoadedMods)
-        {
-            mod.m_bEnabled = false;
-        }
-        // Else, use enabledmods.json if possible
-        else if (m_EnabledModsCfg.HasMember(mod.Name.c_str()) && m_EnabledModsCfg[mod.Name.c_str()].HasMember(mod.Version))
-        {
-            mod.m_bEnabled = m_EnabledModsCfg[mod.Name.c_str()][mod.Version.c_str()].IsTrue();
-        }
-        // Else, enable new mods by default
-        else
-            mod.m_bEnabled = true;
+            jsonStream.close();
 
-        if (const auto forced = m_EnabledStateOverrides.find(mod.Name); forced != m_EnabledStateOverrides.end())
-		{
-			mod.m_bEnabled = forced->second;
-		}
+            Mod mod(modDir, jsonStringStream.str().c_str());
 
-		if (mod.m_bWasReadSuccessfully)
-        {
-            if (mod.m_bEnabled)
-                spdlog::info("'{}' loaded successfully, version {}", mod.Name, mod.Version);
+            for (auto& modDependencyConstant : mod.DependencyConstants)
+            {
+                const auto& [constantName, targetMod] = modDependencyConstant;
+                const auto& [dependencyConstant, didInsert] = m_DependencyConstants.insert(modDependencyConstant);
+                // if we inserted successfully, we are good to go
+                if (didInsert)
+                    continue;
+
+                const auto& [foundConstantName, foundTargetMod] = *dependencyConstant;
+                if (targetMod != foundTargetMod)
+                {
+                    spdlog::error("'{}' attempted to register a dependency constant '{}' for '{}' that already exists for '{}'. "
+                                  "Change the constant name.",
+                                  mod.Name, constantName, targetMod, foundConstantName);
+                    mod.m_bWasReadSuccessfully = false;
+                    break;
+                }
+            }
+
+            for (std::string& dependency : mod.PluginDependencyConstants)
+            {
+                m_PluginDependencyConstants.insert(dependency);
+            }
+
+            // Do not load remote mods on first load
+            if (mod.m_Source == ModSource::Remote && !m_bHasLoadedMods)
+            {
+                mod.m_bEnabled = false;
+            }
+            // Else, use enabledmods.json if possible
+            else if (m_EnabledModsCfg.HasMember(mod.Name.c_str()) && m_EnabledModsCfg[mod.Name.c_str()].HasMember(mod.Version))
+            {
+                mod.m_bEnabled = m_EnabledModsCfg[mod.Name.c_str()][mod.Version.c_str()].IsTrue();
+            }
+            // Else, enable new mods by default
             else
-                spdlog::info("'{}' loaded successfully, version {} (DISABLED)", mod.Name, mod.Version);
+                mod.m_bEnabled = true;
 
-            m_LoadedMods.push_back(mod);
+            if (const auto forced = m_EnabledStateOverrides.find(mod.Name); forced != m_EnabledStateOverrides.end())
+            {
+                mod.m_bEnabled = forced->second;
+            }
+
+            if (mod.m_bWasReadSuccessfully)
+            {
+                if (mod.m_bEnabled)
+                    spdlog::info("'{}' loaded successfully, version {}", mod.Name, mod.Version);
+                else
+                    spdlog::info("'{}' loaded successfully, version {} (DISABLED)", mod.Name, mod.Version);
+
+                m_LoadedMods.push_back(mod);
+            }
+            else
+                spdlog::warn("Mod file at '{}' failed to load", manifestPath);
         }
-        else
-            spdlog::warn("Mod file at '{}' failed to load", (modDir / "mod.json").string());
+        catch (const std::bad_alloc&)
+        {
+            throw;
+        }
+        catch (const std::exception& exception)
+        {
+            spdlog::error("Mod file at '{}' raised an exception while loading: {}. Continuing with remaining mods.", manifestPath, exception.what());
+        }
     }
 
     std::sort(m_LoadedMods.begin(), m_LoadedMods.end(), [](const Mod& a, const Mod& b)
@@ -1026,7 +1099,8 @@ void ModManager::BuildModInfo()
 
 std::string ModManager::NormaliseModFilePath(const fs::path path) const
 {
-    std::string str = path.lexically_normal().string();
+    const std::u8string utf8Path = path.lexically_normal().u8string();
+    std::string str(reinterpret_cast<const char*>(utf8Path.data()), utf8Path.size());
 
     // force to lowercase
     for (char& c : str)
@@ -1154,7 +1228,8 @@ void ModManager::RegisterMountedVPKModels(const ModVPKEntry& vpkEntry)
 
 std::string ModManager::NormaliseModelLookupPath(const fs::path& path) const
 {
-    std::string modelPath = path.generic_string();
+    const std::u8string utf8Path = path.generic_u8string();
+    std::string modelPath(reinterpret_cast<const char*>(utf8Path.data()), utf8Path.size());
     std::replace(modelPath.begin(), modelPath.end(), '\\', '/');
 
     if (modelPath.starts_with("//"))
@@ -1253,15 +1328,16 @@ void ModManager::DeleteRemoteMod(const char* modName, const char* version)
             if (mod.m_Source != ModSource::Remote)
                 return;
 
-            std::string splitPath = mod.m_ModDirectory.generic_string().substr(GetRemoteModFolderPath().generic_string().length() + 1);
+            const fs::path remoteRoot = GetRemoteModFolderPath().lexically_normal();
+            const fs::path relative = mod.m_ModDirectory.lexically_normal().lexically_relative(remoteRoot);
+            const auto firstComponent = relative.begin();
+            if (relative.empty() || relative == "." || firstComponent == relative.end() || *firstComponent == "..")
+                return;
 
-            size_t slashPos = splitPath.find_first_of("/\\");
-            if (slashPos != std::string::npos)
-                splitPath = splitPath.substr(0, slashPos);
-
+            const fs::path remoteModRoot = remoteRoot / *firstComponent;
             m_LoadedMods.erase(it);
             std::error_code ec;
-            fs::remove_all(GetRemoteModFolderPath() / splitPath, ec);
+            fs::remove_all(remoteModRoot, ec);
 
             break;
         }

@@ -1,12 +1,13 @@
 #pragma once
 
-#include <spdlog/common.h>
-#include <spdlog/details/fmt_helper.h>
-#include <spdlog/spdlog.h>
-#include <spdlog/logger.h>
-#include <spdlog/sinks/base_sink.h>
 #include <map>
 #include <mutex>
+#include <spdlog/common.h>
+#include <spdlog/details/fmt_helper.h>
+#include <spdlog/fmt/std.h>
+#include <spdlog/logger.h>
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
 

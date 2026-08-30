@@ -153,9 +153,8 @@ public:
 		return IsCoreModName(Name);
 	}
 
-private:
-	static bool IsPathUnder(const fs::path& candidate, const fs::path& root);
-	static ModSource ResolveModSourceFromPath(const fs::path& modDir);
+  private:
+    static ModSource ResolveModSourceFromPath(const fs::path& modDir);
 
 	void ParseConVars(rapidjson_document& json);
 	void ParseConCommands(rapidjson_document& json);

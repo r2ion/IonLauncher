@@ -775,7 +775,7 @@ DECLARE_HOOK(Pak_OpenFile, rtech_game.DLL + 0x1E20, [](auto& hook, const char* p
         if (IsDedicatedServer())
             return PAK_INVALID_HANDLE;
 
-        NS::log::rpak->info("LoadStreamBsp: {}", filename.string());
+        NS::log::rpak->info("LoadStreamBsp: {}", filename);
 
         // resolve modded stbsp path so we can load mod stbsps
         auto modFile = g_pModManager->m_ModFiles.find(g_pModManager->NormaliseModFilePath(fs::path("maps" / filename)));
@@ -832,7 +832,7 @@ DECLARE_HOOK(Pak_OpenFile, rtech_game.DLL + 0x1E20, [](auto& hook, const char* p
         }
 
     LOG_STARPAK:
-		NS::log::rpak->info("LoadStreamPak: {}", filename.string());
+        NS::log::rpak->info("LoadStreamPak: {}", filename);
     }
 
     return hook.Original(pPath, fileSize);

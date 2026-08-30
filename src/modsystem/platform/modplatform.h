@@ -54,9 +54,7 @@ private:
 	static constexpr size_t MAX_MARKER_BYTES = 128;
 	static constexpr size_t MAX_STATE_BYTES = 256 * 1024;
 
-	static std::string NormalizeForComparison(const fs::path& path);
-	static bool IsPathUnder(const fs::path& candidate, const fs::path& root);
-	static fs::path ResolvePackageRoot(const fs::path& path);
+    static fs::path ResolvePackageRoot(const fs::path& path);
 	static std::string Trim(std::string value);
 	static bool IsSha256(std::string_view value);
 	static bool WriteTextAtomically(const fs::path& destination, std::string_view contents, std::string& errorMessage);

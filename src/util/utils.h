@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 void RemoveAsciiControlSequences(char* str, bool allow_color_codes);
 bool IsBadReadPtr2(void* p);
 bool IsBadStringPtr2(const char* str);

@@ -109,14 +109,14 @@ bool CModAudioDefinitionReader::ReadFiniteFloat(const AudioJsonValue& object, co
     if (!object.HasMember(memberName))
     {
         if (required)
-            spdlog::error("Failed reading audio override file {}: missing {} property", m_path.string(), memberName);
+            spdlog::error("Failed reading audio override file {}: missing {} property", m_path, memberName);
         return !required;
     }
 
     const AudioJsonValue& value = object[memberName];
     if (!value.IsNumber() || !std::isfinite(value.GetDouble()))
     {
-        spdlog::error("Failed reading audio override file {}: {} property must be a finite number", m_path.string(), memberName);
+        spdlog::error("Failed reading audio override file {}: {} property must be a finite number", m_path, memberName);
         return false;
     }
 
@@ -132,7 +132,7 @@ bool CModAudioDefinitionReader::ReadOptionalGraphType(const AudioJsonValue& obje
     const AudioJsonValue& value = object[memberName];
     if (!value.IsUint() || value.GetUint() > std::numeric_limits<uint8_t>::max())
     {
-        spdlog::error("Failed reading audio override file {}: {} property must be an integer between 0 and 255", m_path.string(), memberName);
+        spdlog::error("Failed reading audio override file {}: {} property must be an integer between 0 and 255", m_path, memberName);
         return false;
     }
 
@@ -144,7 +144,7 @@ bool CModAudioDefinitionReader::ReadVector3(const AudioJsonValue& object, const 
 {
     if (!object.HasMember(memberName) || !object[memberName].IsArray() || object[memberName].Size() != output.size())
     {
-        spdlog::error("Failed reading audio override file {}: {} property must be an array of three numbers", m_path.string(), memberName);
+        spdlog::error("Failed reading audio override file {}: {} property must be an array of three numbers", m_path, memberName);
         return false;
     }
 
@@ -153,7 +153,7 @@ bool CModAudioDefinitionReader::ReadVector3(const AudioJsonValue& object, const 
         const AudioJsonValue& value = object[memberName][index];
         if (!value.IsNumber() || !std::isfinite(value.GetDouble()))
         {
-            spdlog::error("Failed reading audio override file {}: {} property must contain finite numbers", m_path.string(), memberName);
+            spdlog::error("Failed reading audio override file {}: {} property must contain finite numbers", m_path, memberName);
             return false;
         }
         output[index] = static_cast<float>(value.GetDouble());
@@ -167,7 +167,7 @@ bool CModAudioDefinitionReader::ReadGraph(const AudioJsonValue& value, const cha
 {
     if (!value.IsArray() || value.Size() < 2)
     {
-        spdlog::error("Failed reading audio override file {}: {} property must be an array with at least two points", m_path.string(), propertyName);
+        spdlog::error("Failed reading audio override file {}: {} property must be an array with at least two points", m_path, propertyName);
         return false;
     }
 
@@ -176,7 +176,7 @@ bool CModAudioDefinitionReader::ReadGraph(const AudioJsonValue& value, const cha
     {
         if (!pointJson.IsObject())
         {
-            spdlog::error("Failed reading audio override file {}: every {} point must be an object", m_path.string(), propertyName);
+            spdlog::error("Failed reading audio override file {}: every {} point must be an object", m_path, propertyName);
             return false;
         }
 
@@ -194,8 +194,7 @@ bool CModAudioDefinitionReader::ReadGraph(const AudioJsonValue& value, const cha
 
         if (!output.empty() && point.X <= output.back().X)
         {
-            spdlog::error("Failed reading audio override file {}: {} point {} values must be strictly increasing", m_path.string(), propertyName,
-                          xName);
+            spdlog::error("Failed reading audio override file {}: {} point {} values must be strictly increasing", m_path, propertyName, xName);
             return false;
         }
 
@@ -210,7 +209,7 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
 {
     if (!routesJson.IsArray() || routesJson.Empty())
     {
-        spdlog::error("Failed reading audio override file {}: Routes must be a non-empty array", m_path.string());
+        spdlog::error("Failed reading audio override file {}: Routes must be a non-empty array", m_path);
         return false;
     }
 
@@ -219,7 +218,7 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
         if (!routeJson.IsObject() || !routeJson.HasMember("Bus") || !routeJson["Bus"].IsString() || routeJson["Bus"].GetStringLength() == 0 ||
             !routeJson.HasMember("Mode") || !routeJson["Mode"].IsString())
         {
-            spdlog::error("Failed reading audio override file {}: every route needs non-empty Bus and Mode strings", m_path.string());
+            spdlog::error("Failed reading audio override file {}: every route needs non-empty Bus and Mode strings", m_path);
             return false;
         }
 
@@ -236,7 +235,7 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
             route.Mode = AudioRouteMode::MIXED;
         else
         {
-            spdlog::error("Failed reading audio override file {}: route Mode must be direct, panned, spatialized, or mixed", m_path.string());
+            spdlog::error("Failed reading audio override file {}: route Mode must be direct, panned, spatialized, or mixed", m_path);
             return false;
         }
 
@@ -248,7 +247,7 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
             {
                 if (volumeJson.GetStringLength() == 0)
                 {
-                    spdlog::error("Failed reading audio override file {}: route Volume controller name must not be empty", m_path.string());
+                    spdlog::error("Failed reading audio override file {}: route Volume controller name must not be empty", m_path);
                     return false;
                 }
                 volumeController = volumeJson.GetString();
@@ -258,7 +257,7 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
             {
                 spdlog::error(
                     "Failed reading audio override file {}: route Volume must be a non-negative finite number or a non-empty global controller name",
-                    m_path.string());
+                    m_path);
                 return false;
             }
             else
@@ -268,7 +267,7 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
         }
         if (routeJson.HasMember("LFEVolume") && (!ReadFiniteFloat(routeJson, "LFEVolume", route.LFEVolume) || route.LFEVolume < 0.0f))
         {
-            spdlog::error("Failed reading audio override file {}: route LFEVolume must be non-negative", m_path.string());
+            spdlog::error("Failed reading audio override file {}: route LFEVolume must be non-negative", m_path);
             return false;
         }
 
@@ -277,14 +276,14 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
             const AudioJsonValue& matrixJson = routeJson["Matrix"];
             if (!matrixJson.IsArray() || matrixJson.Empty())
             {
-                spdlog::error("Failed reading audio override file {}: route Matrix must be a non-empty flat array", m_path.string());
+                spdlog::error("Failed reading audio override file {}: route Matrix must be a non-empty flat array", m_path);
                 return false;
             }
             for (const AudioJsonValue& levelJson : matrixJson.GetArray())
             {
                 if (!levelJson.IsNumber() || !std::isfinite(levelJson.GetDouble()))
                 {
-                    spdlog::error("Failed reading audio override file {}: every route Matrix level must be finite", m_path.string());
+                    spdlog::error("Failed reading audio override file {}: every route Matrix level must be finite", m_path);
                     return false;
                 }
                 route.Matrix.push_back(static_cast<float>(levelJson.GetDouble()));
@@ -292,12 +291,12 @@ bool CModAudioDefinitionReader::ReadRoutes(const AudioJsonValue& routesJson, std
         }
         if (route.Mode == AudioRouteMode::MIXED && route.Matrix.empty())
         {
-            spdlog::error("Failed reading audio override file {}: mixed routes require Matrix", m_path.string());
+            spdlog::error("Failed reading audio override file {}: mixed routes require Matrix", m_path);
             return false;
         }
         if (route.Mode != AudioRouteMode::MIXED && !route.Matrix.empty())
         {
-            spdlog::error("Failed reading audio override file {}: route Matrix requires Mode mixed", m_path.string());
+            spdlog::error("Failed reading audio override file {}: route Matrix requires Mode mixed", m_path);
             return false;
         }
 
@@ -327,7 +326,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
 {
     if (!bindingsJson.IsArray())
     {
-        spdlog::error("Failed reading audio override file {}: ControllerBindings must be an array", m_path.string());
+        spdlog::error("Failed reading audio override file {}: ControllerBindings must be an array", m_path);
         return false;
     }
 
@@ -337,7 +336,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
             bindingJson["Controller"].GetStringLength() == 0 || !bindingJson.HasMember("Property") || !bindingJson["Property"].IsString() ||
             !bindingJson.HasMember("Curve"))
         {
-            spdlog::error("Failed reading audio override file {}: every controller binding needs Controller, Property, and Curve", m_path.string());
+            spdlog::error("Failed reading audio override file {}: every controller binding needs Controller, Property, and Curve", m_path);
             return false;
         }
 
@@ -354,7 +353,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
                 binding.Source = AudioControllerSource::EVENT;
             else
             {
-                spdlog::error("Failed reading audio override file {}: controller Source must be global or event", m_path.string());
+                spdlog::error("Failed reading audio override file {}: controller Source must be global or event", m_path);
                 return false;
             }
         }
@@ -372,7 +371,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
                 binding.Target = AudioControllerTarget::FILTER;
             else
             {
-                spdlog::error("Failed reading audio override file {}: controller Target must be sample, route, or filter", m_path.string());
+                spdlog::error("Failed reading audio override file {}: controller Target must be sample, route, or filter", m_path);
                 return false;
             }
         }
@@ -409,7 +408,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
                 binding.Property = AudioControllerProperty::PAN_FRONT_BACK;
             else
             {
-                spdlog::error("Failed reading audio override file {}: unsupported sample controller Property {}", m_path.string(), property);
+                spdlog::error("Failed reading audio override file {}: unsupported sample controller Property {}", m_path, property);
                 return false;
             }
         }
@@ -423,8 +422,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
                 binding.Property = AudioControllerProperty::ROUTE_MATRIX;
             else
             {
-                spdlog::error("Failed reading audio override file {}: route controller Property must be volume, lfe_volume, or matrix",
-                              m_path.string());
+                spdlog::error("Failed reading audio override file {}: route controller Property must be volume, lfe_volume, or matrix", m_path);
                 return false;
             }
         }
@@ -451,7 +449,7 @@ bool CModAudioDefinitionReader::ReadControllerBindings(const AudioJsonValue& bin
                 binding.Operation = AudioControllerOperation::SET;
             else
             {
-                spdlog::error("Failed reading audio override file {}: controller Operation must be multiply, add, or set", m_path.string());
+                spdlog::error("Failed reading audio override file {}: controller Operation must be multiply, add, or set", m_path);
                 return false;
             }
         }
@@ -474,7 +472,7 @@ std::shared_ptr<AudioSourceSelectorDefinition> CModAudioDefinitionReader::ReadSe
     }
     if (!selectorJson.IsObject())
     {
-        spdlog::error("Failed reading audio override file {}: selector choices must be strings or objects", m_path.string());
+        spdlog::error("Failed reading audio override file {}: selector choices must be strings or objects", m_path);
         return {};
     }
     if (selectorJson.HasMember("Weight"))
@@ -492,7 +490,7 @@ std::shared_ptr<AudioSourceSelectorDefinition> CModAudioDefinitionReader::ReadSe
     if (!selectorJson.HasMember("Mode") || !selectorJson["Mode"].IsString() || !selectorJson.HasMember("Choices") ||
         !selectorJson["Choices"].IsArray() || selectorJson["Choices"].Empty())
     {
-        spdlog::error("Failed reading audio override file {}: selector objects need Mode and non-empty Choices", m_path.string());
+        spdlog::error("Failed reading audio override file {}: selector objects need Mode and non-empty Choices", m_path);
         return {};
     }
     const std::string mode = selectorJson["Mode"].GetString();
@@ -508,7 +506,7 @@ std::shared_ptr<AudioSourceSelectorDefinition> CModAudioDefinitionReader::ReadSe
         selector->Mode = AudioSelectorMode::CONTROLLER;
     else
     {
-        spdlog::error("Failed reading audio override file {}: unknown selector Mode {}", m_path.string(), mode);
+        spdlog::error("Failed reading audio override file {}: unknown selector Mode {}", m_path, mode);
         return {};
     }
 
@@ -614,7 +612,7 @@ bool CModAudioDefinitionReader::ReadPanning(const AudioJsonValue& panJson, Audio
                                                      1))
     {
         spdlog::error("Failed reading audio override file {}: Pan360Degrees, Levels, and LeftRight/FrontBack are mutually exclusive pan modes",
-                      m_path.string());
+                      m_path);
         return false;
     }
     return true;
@@ -661,7 +659,7 @@ bool CModAudioDefinitionReader::ReadLayer(const AudioJsonValue& layerJson, Audio
             layer.SourceMode = AudioSourceMode::STREAM;
         else
         {
-            spdlog::error("Failed reading audio override file {}: layer SourceMode must be memory, buffered, or stream", m_path.string());
+            spdlog::error("Failed reading audio override file {}: layer SourceMode must be memory, buffered, or stream", m_path);
             return false;
         }
     }
@@ -723,13 +721,13 @@ bool CModAudioDefinitionReader::ReadLayer(const AudioJsonValue& layerJson, Audio
         return false;
     if (layer.Routes.empty())
     {
-        spdlog::error("Failed reading audio override file {}: every layer needs Routes or inherited event Routes", m_path.string());
+        spdlog::error("Failed reading audio override file {}: every layer needs Routes or inherited event Routes", m_path);
         return false;
     }
 
     if (layerJson.HasMember("Selector") && layerJson.HasMember("Sources"))
     {
-        spdlog::error("Failed reading audio override file {}: a layer may define Selector or Sources, not both", m_path.string());
+        spdlog::error("Failed reading audio override file {}: a layer may define Selector or Sources, not both", m_path);
         return false;
     }
     if (layerJson.HasMember("Selector"))
@@ -773,12 +771,11 @@ bool CModAudioDefinitionReader::ReadLayer(const AudioJsonValue& layerJson, Audio
     return true;
 }
 
-static std::string NormalizeAudioSourcePath(const fs::path& path)
+static bool AudioSourcePathsEqual(const fs::path& left, const fs::path& right)
 {
-    std::string normalized = path.generic_string();
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                   [](unsigned char character) { return static_cast<char>(tolower(character)); });
-    return normalized;
+    const std::wstring leftValue = left.lexically_normal().generic_wstring();
+    const std::wstring rightValue = right.lexically_normal().generic_wstring();
+    return CompareStringOrdinal(leftValue.c_str(), -1, rightValue.c_str(), -1, TRUE) == CSTR_EQUAL;
 }
 
 static bool ResolveAudioSelectorSources(const std::shared_ptr<AudioSourceSelectorDefinition>& selector, const std::vector<AudioSampleData>& samples,
@@ -790,17 +787,17 @@ static bool ResolveAudioSelectorSources(const std::shared_ptr<AudioSourceSelecto
     {
         if (selector->SourceIndex < samples.size())
             return true;
-        const std::string requested = NormalizeAudioSourcePath(fs::path(selector->Source));
+        const fs::path requested = fs::u8path(selector->Source);
         size_t matchedIndex = std::numeric_limits<size_t>::max();
         for (size_t index = 0; index < samples.size(); ++index)
         {
-            const std::string relative = NormalizeAudioSourcePath(fs::relative(samples[index].Path, samplesFolder));
-            const std::string filename = NormalizeAudioSourcePath(samples[index].Path.filename());
-            if (requested != relative && requested != filename)
+            const fs::path relative = samples[index].Path.lexically_relative(samplesFolder);
+            const fs::path filename = samples[index].Path.filename();
+            if (!AudioSourcePathsEqual(requested, relative) && !AudioSourcePathsEqual(requested, filename))
                 continue;
             if (matchedIndex != std::numeric_limits<size_t>::max())
             {
-                spdlog::error("Failed reading audio override file {}: source {} is ambiguous; use its relative path", definitionPath.string(),
+                spdlog::error("Failed reading audio override file {}: source {} is ambiguous; use its relative path", definitionPath,
                               selector->Source);
                 return false;
             }
@@ -808,7 +805,7 @@ static bool ResolveAudioSelectorSources(const std::shared_ptr<AudioSourceSelecto
         }
         if (matchedIndex == std::numeric_limits<size_t>::max())
         {
-            spdlog::error("Failed reading audio override file {}: source {} was not found", definitionPath.string(), selector->Source);
+            spdlog::error("Failed reading audio override file {}: source {} was not found", definitionPath, selector->Source);
             return false;
         }
         selector->SourceIndex = matchedIndex;
@@ -871,7 +868,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
 {
     if (data.length() <= 0)
     {
-        spdlog::error("Failed reading audio override file {}: file is empty", path.string());
+        spdlog::error("Failed reading audio override file {}: file is empty", path);
         return;
     }
 
@@ -882,7 +879,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     {
         spdlog::error("Failed reading audio override file {}: samples folder doesn't exist; should be named the same as the definition file without "
                       "JSON extension.",
-                      path.string());
+                      path);
         return;
     }
 
@@ -892,7 +889,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     // fail if parse error
     if (dataJson.HasParseError())
     {
-        spdlog::error("Failed reading audio override file {}: encountered parse error \"{}\" at offset {}", path.string(),
+        spdlog::error("Failed reading audio override file {}: encountered parse error \"{}\" at offset {}", path,
                       GetParseError_En(dataJson.GetParseError()), dataJson.GetErrorOffset());
         return;
     }
@@ -900,7 +897,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     // fail if it's not a json obj (could be an array, string, etc)
     if (!dataJson.IsObject())
     {
-        spdlog::error("Failed reading audio override file {}: file is not a JSON object", path.string());
+        spdlog::error("Failed reading audio override file {}: file is not a JSON object", path);
         return;
     }
 
@@ -909,7 +906,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     // fail if no event ids given
     if (!dataJson.HasMember("EventId"))
     {
-        spdlog::error("Failed reading audio override file {}: JSON object does not have the EventId property", path.string());
+        spdlog::error("Failed reading audio override file {}: JSON object does not have the EventId property", path);
         return;
     }
 
@@ -920,7 +917,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         {
             if (!eventId.IsString())
             {
-                spdlog::error("Failed reading audio override file {}: EventId array has a value of invalid type, all must be strings", path.string());
+                spdlog::error("Failed reading audio override file {}: EventId array has a value of invalid type, all must be strings", path);
                 return;
             }
 
@@ -935,20 +932,19 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     // incorrect type
     else
     {
-        spdlog::error("Failed reading audio override file {}: EventId property is of invalid type (must be a string or an array of strings)",
-                      path.string());
+        spdlog::error("Failed reading audio override file {}: EventId property is of invalid type (must be a string or an array of strings)", path);
         return;
     }
 
     if (dataJson.HasMember("EventTemplate") || dataJson.HasMember("OutputBus"))
     {
-        spdlog::error("Failed reading audio override file {}: EventTemplate and OutputBus were removed; define the event with Routes", path.string());
+        spdlog::error("Failed reading audio override file {}: EventTemplate and OutputBus were removed; define the event with Routes", path);
         return;
     }
 
     if (dataJson.HasMember("Loop"))
     {
-        spdlog::error("Failed reading audio override file {}: Loop was removed; use PlayCount (zero loops indefinitely)", path.string());
+        spdlog::error("Failed reading audio override file {}: Loop was removed; use PlayCount (zero loops indefinitely)", path);
         return;
     }
 
@@ -968,7 +964,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["PlayCount"].IsInt() || dataJson["PlayCount"].GetInt() < 0)
         {
-            spdlog::error("Failed reading audio override file {}: PlayCount must be a non-negative integer", path.string());
+            spdlog::error("Failed reading audio override file {}: PlayCount must be a non-negative integer", path);
             return;
         }
 
@@ -980,7 +976,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["LoopStartSamples"].IsInt() || dataJson["LoopStartSamples"].GetInt() < 0)
         {
-            spdlog::error("Failed reading audio override file {}: LoopStartSamples property must be a non-negative integer", path.string());
+            spdlog::error("Failed reading audio override file {}: LoopStartSamples property must be a non-negative integer", path);
             return;
         }
 
@@ -992,7 +988,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["LoopEndSamples"].IsInt() || dataJson["LoopEndSamples"].GetInt() < -1)
         {
-            spdlog::error("Failed reading audio override file {}: LoopEndSamples property must be -1 or a non-negative integer", path.string());
+            spdlog::error("Failed reading audio override file {}: LoopEndSamples property must be -1 or a non-negative integer", path);
             return;
         }
 
@@ -1004,7 +1000,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!reader.ReadFiniteFloat(dataJson, "Volume", Volume) || Volume < 0.0f)
         {
-            spdlog::error("Failed reading audio override file {}: Volume property must be a non-negative finite number", path.string());
+            spdlog::error("Failed reading audio override file {}: Volume property must be a non-negative finite number", path);
             return;
         }
     }
@@ -1014,7 +1010,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!reader.ReadFiniteFloat(dataJson, "PlaybackRate", PlaybackRate) || PlaybackRate <= 0.0f)
         {
-            spdlog::error("Failed reading audio override file {}: PlaybackRate property must be greater than zero", path.string());
+            spdlog::error("Failed reading audio override file {}: PlaybackRate property must be greater than zero", path);
             return;
         }
     }
@@ -1024,7 +1020,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!reader.ReadFiniteFloat(dataJson, "LowPassCutoff", LowPassCutoff) || LowPassCutoff < 0.0f || LowPassCutoff > 20000.0f)
         {
-            spdlog::error("Failed reading audio override file {}: LowPassCutoff property must be between zero and 20000 Hz", path.string());
+            spdlog::error("Failed reading audio override file {}: LowPassCutoff property must be between zero and 20000 Hz", path);
             return;
         }
     }
@@ -1034,7 +1030,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["FadeInMs"].IsUint())
         {
-            spdlog::error("Failed reading audio override file {}: FadeInMs property must be an unsigned integer", path.string());
+            spdlog::error("Failed reading audio override file {}: FadeInMs property must be an unsigned integer", path);
             return;
         }
 
@@ -1046,7 +1042,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["FadeOutMs"].IsUint())
         {
-            spdlog::error("Failed reading audio override file {}: FadeOutMs property must be an unsigned integer", path.string());
+            spdlog::error("Failed reading audio override file {}: FadeOutMs property must be an unsigned integer", path);
             return;
         }
 
@@ -1058,7 +1054,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["MaxInstances"].IsUint())
         {
-            spdlog::error("Failed reading audio override file {}: MaxInstances property must be an unsigned integer", path.string());
+            spdlog::error("Failed reading audio override file {}: MaxInstances property must be an unsigned integer", path);
             return;
         }
 
@@ -1070,7 +1066,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         hasCustomEventOptions = true;
         if (!dataJson["InstanceLimitPolicy"].IsString())
         {
-            spdlog::error("Failed reading audio override file {}: InstanceLimitPolicy property must be a string", path.string());
+            spdlog::error("Failed reading audio override file {}: InstanceLimitPolicy property must be a string", path);
             return;
         }
 
@@ -1081,7 +1077,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             InstanceLimitPolicy = AudioInstanceLimitPolicy::REJECT_NEW;
         else
         {
-            spdlog::error("Failed reading audio override file {}: InstanceLimitPolicy must be steal_oldest or reject_new", path.string());
+            spdlog::error("Failed reading audio override file {}: InstanceLimitPolicy must be steal_oldest or reject_new", path);
             return;
         }
     }
@@ -1092,7 +1088,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         const AudioJsonValue& networkJson = dataJson["Network"];
         if (!networkJson.IsObject())
         {
-            spdlog::error("Failed reading audio override file {}: Network property must be an object", path.string());
+            spdlog::error("Failed reading audio override file {}: Network property must be an object", path);
             return;
         }
 
@@ -1100,7 +1096,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         {
             if (!reader.ReadFiniteFloat(networkJson, "Radius", NetworkRadius) || NetworkRadius < 0.0f)
             {
-                spdlog::error("Failed reading audio override file {}: Network Radius must be non-negative", path.string());
+                spdlog::error("Failed reading audio override file {}: Network Radius must be non-negative", path);
                 return;
             }
             hasExplicitNetworkRadius = true;
@@ -1110,7 +1106,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         {
             if (!reader.ReadFiniteFloat(networkJson, "DurationSeconds", NetworkDurationSeconds) || NetworkDurationSeconds <= 0.0f)
             {
-                spdlog::error("Failed reading audio override file {}: Network DurationSeconds must be greater than zero", path.string());
+                spdlog::error("Failed reading audio override file {}: Network DurationSeconds must be greater than zero", path);
                 return;
             }
             hasExplicitNetworkDuration = true;
@@ -1120,7 +1116,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         {
             if (!networkJson["SoundTags"].IsUint())
             {
-                spdlog::error("Failed reading audio override file {}: Network SoundTags must be an unsigned integer", path.string());
+                spdlog::error("Failed reading audio override file {}: Network SoundTags must be an unsigned integer", path);
                 return;
             }
             SoundTags = networkJson["SoundTags"].GetUint();
@@ -1133,7 +1129,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         const AudioJsonValue& spatialJson = dataJson["Spatialization"];
         if (!spatialJson.IsObject())
         {
-            spdlog::error("Failed reading audio override file {}: Spatialization property must be an object", path.string());
+            spdlog::error("Failed reading audio override file {}: Spatialization property must be an object", path);
             return;
         }
 
@@ -1141,7 +1137,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         {
             if (!spatialJson["ListenerMask"].IsUint())
             {
-                spdlog::error("Failed reading audio override file {}: ListenerMask property must be an unsigned integer", path.string());
+                spdlog::error("Failed reading audio override file {}: ListenerMask property must be an unsigned integer", path);
                 return;
             }
             Spatialization.HasListenerMask = true;
@@ -1153,7 +1149,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             if (!reader.ReadFiniteFloat(spatialJson, "AutoSpreadDistance", Spatialization.AutoSpreadDistance) ||
                 Spatialization.AutoSpreadDistance < 0.0f)
             {
-                spdlog::error("Failed reading audio override file {}: AutoSpreadDistance must be non-negative", path.string());
+                spdlog::error("Failed reading audio override file {}: AutoSpreadDistance must be non-negative", path);
                 return;
             }
             Spatialization.HasAutoSpreadDistance = true;
@@ -1166,7 +1162,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
                 !reader.ReadFiniteFloat(panJson, "Distance", Spatialization.MultiChannelPanDistance) ||
                 Spatialization.MultiChannelPanAngleDegrees < 0.0f || Spatialization.MultiChannelPanDistance < 0.0f)
             {
-                spdlog::error("Failed reading audio override file {}: MultiChannelPan needs non-negative AngleDegrees and Distance", path.string());
+                spdlog::error("Failed reading audio override file {}: MultiChannelPan needs non-negative AngleDegrees and Distance", path);
                 return;
             }
             Spatialization.HasMultiChannelPan = true;
@@ -1178,7 +1174,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             if (!orientationJson.IsObject() || !reader.ReadVector3(orientationJson, "Facing", Spatialization.Facing) ||
                 !reader.ReadVector3(orientationJson, "Up", Spatialization.Up))
             {
-                spdlog::error("Failed reading audio override file {}: Orientation needs Facing and Up vectors", path.string());
+                spdlog::error("Failed reading audio override file {}: Orientation needs Facing and Up vectors", path);
                 return;
             }
 
@@ -1187,7 +1183,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             const float upLengthSquared = std::inner_product(Spatialization.Up.begin(), Spatialization.Up.end(), Spatialization.Up.begin(), 0.0f);
             if (facingLengthSquared <= 0.0f || upLengthSquared <= 0.0f)
             {
-                spdlog::error("Failed reading audio override file {}: Orientation vectors must be non-zero", path.string());
+                spdlog::error("Failed reading audio override file {}: Orientation vectors must be non-zero", path);
                 return;
             }
             Spatialization.HasOrientation = true;
@@ -1199,7 +1195,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             Spatialization.VolumeConeEnabled = true;
             if (!coneJson.IsObject())
             {
-                spdlog::error("Failed reading audio override file {}: VolumeCone property must be an object", path.string());
+                spdlog::error("Failed reading audio override file {}: VolumeCone property must be an object", path);
                 return;
             }
 
@@ -1207,7 +1203,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             {
                 if (!coneJson["Enabled"].IsBool())
                 {
-                    spdlog::error("Failed reading audio override file {}: VolumeCone Enabled property must be a bool", path.string());
+                    spdlog::error("Failed reading audio override file {}: VolumeCone Enabled property must be a bool", path);
                     return;
                 }
                 Spatialization.VolumeConeEnabled = coneJson["Enabled"].GetBool();
@@ -1220,7 +1216,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
                 Spatialization.VolumeConeOuterAngleDegrees < Spatialization.VolumeConeInnerAngleDegrees ||
                 Spatialization.VolumeConeOuterAngleDegrees > 360.0f || Spatialization.VolumeConeOuterVolume < 0.0f)
             {
-                spdlog::error("Failed reading audio override file {}: invalid VolumeCone angles or OuterVolume", path.string());
+                spdlog::error("Failed reading audio override file {}: invalid VolumeCone angles or OuterVolume", path);
                 return;
             }
             Spatialization.HasVolumeCone = true;
@@ -1250,7 +1246,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         const AudioJsonValue& layersJson = dataJson["Layers"];
         if (!layersJson.IsArray() || layersJson.Empty())
         {
-            spdlog::error("Failed reading audio override file {}: Layers must be a non-empty array", path.string());
+            spdlog::error("Failed reading audio override file {}: Layers must be a non-empty array", path);
             return;
         }
         unsigned int layerIndex = 0;
@@ -1260,7 +1256,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             layer.Name = "layer_" + std::to_string(layerIndex++);
             if (!reader.ReadLayer(layerJson, layer))
             {
-                spdlog::error("Failed reading audio override file {}: invalid layer {}", path.string(), layer.Name);
+                spdlog::error("Failed reading audio override file {}: invalid layer {}", path, layer.Name);
                 return;
             }
             Layers.push_back(std::move(layer));
@@ -1269,7 +1265,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
 
     if (hasCustomEventOptions && Routes.empty() && Layers.empty())
     {
-        spdlog::error("Failed reading audio override file {}: custom event properties require a non-empty Routes array", path.string());
+        spdlog::error("Failed reading audio override file {}: custom event properties require a non-empty Routes array", path);
         return;
     }
 
@@ -1283,7 +1279,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     { return std::ranges::any_of(layer.Routes, [](const AudioRouteDefinition& route) { return route.Mode == AudioRouteMode::SPATIALIZED; }); });
     if (hasSpatializationOptions && !hasSpatializedRoute)
     {
-        spdlog::error("Failed reading audio override file {}: Spatialization options require at least one spatialized route", path.string());
+        spdlog::error("Failed reading audio override file {}: Spatialization options require at least one spatialized route", path);
         return;
     }
 
@@ -1292,13 +1288,13 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
 
     if (LoopEndSamples != -1 && LoopEndSamples <= LoopStartSamples)
     {
-        spdlog::error("Failed reading audio override file {}: LoopEndSamples must be greater than LoopStartSamples", path.string());
+        spdlog::error("Failed reading audio override file {}: LoopEndSamples must be greater than LoopStartSamples", path);
         return;
     }
 
     if ((LoopStartSamples != 0 || LoopEndSamples != -1) && PlayCount == 1)
     {
-        spdlog::error("Failed reading audio override file {}: loop points require PlayCount to be zero or greater than one", path.string());
+        spdlog::error("Failed reading audio override file {}: loop points require PlayCount to be zero or greater than one", path);
         return;
     }
 
@@ -1311,8 +1307,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             {
                 if (!eventId.IsString())
                 {
-                    spdlog::error("Failed reading audio override file {}: EventIdRegex array has a value of invalid type, all must be strings",
-                                  path.string());
+                    spdlog::error("Failed reading audio override file {}: EventIdRegex array has a value of invalid type, all must be strings", path);
                     return;
                 }
 
@@ -1324,7 +1319,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
                 }
                 catch (...)
                 {
-                    spdlog::error("Malformed regex \"{}\" in audio override file {}", regex, path.string());
+                    spdlog::error("Malformed regex \"{}\" in audio override file {}", regex, path);
                     return;
                 }
             }
@@ -1339,7 +1334,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
             }
             catch (...)
             {
-                spdlog::error("Malformed regex \"{}\" in audio override file {}", regex, path.string());
+                spdlog::error("Malformed regex \"{}\" in audio override file {}", regex, path);
                 return;
             }
         }
@@ -1347,7 +1342,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         else
         {
             spdlog::error("Failed reading audio override file {}: EventIdRegex property is of invalid type (must be a string or an array of strings)",
-                          path.string());
+                          path);
             return;
         }
     }
@@ -1356,7 +1351,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     {
         if (!dataJson["AudioSelectionStrategy"].IsString())
         {
-            spdlog::error("Failed reading audio override file {}: AudioSelectionStrategy property must be a string", path.string());
+            spdlog::error("Failed reading audio override file {}: AudioSelectionStrategy property must be a string", path);
             return;
         }
 
@@ -1380,7 +1375,7 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         }
         else
         {
-            spdlog::error("Failed reading audio override file {}: unsupported AudioSelectionStrategy {}", path.string(), strategy);
+            spdlog::error("Failed reading audio override file {}: unsupported AudioSelectionStrategy {}", path, strategy);
             return;
         }
     }
@@ -1393,10 +1388,8 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
         if (!file.is_regular_file())
             continue;
 
-        std::string extension = file.path().extension().string();
-        std::ranges::transform(extension, extension.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-        const bool isWave = extension == ".wav";
-        const bool isFlac = extension == ".flac";
+        const bool isWave = AudioSourcePathsEqual(file.path().extension(), fs::path(".wav"));
+        const bool isFlac = AudioSourcePathsEqual(file.path().extension(), fs::path(".flac"));
         if (isWave || isFlac)
         {
             foundAudioSample = true;
@@ -1410,8 +1403,9 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
 
             // Retrieve event id from path (standard?)
             const fs::path eventFilename = file.path().parent_path().filename();
-            std::string eventId = eventFilename.string();
-            if (std::find(registeredEvents.begin(), registeredEvents.end(), eventId) != registeredEvents.end())
+            const std::u8string eventIdUtf8 = eventFilename.u8string();
+            const std::string_view eventId(reinterpret_cast<const char*>(eventIdUtf8.data()), eventIdUtf8.size());
+            if (std::ranges::any_of(registeredEvents, [eventId](const std::string& registeredEvent) { return registeredEvent == eventId; }))
             {
                 spdlog::warn(L"{} couldn't be loaded because {} event has already been overrided, skipping.", pathString, eventFilename.wstring());
                 continue;
@@ -1499,21 +1493,21 @@ ModAudioEventDefinition::ModAudioEventDefinition(const std::string& data, const 
     {
         if (IsCustomEvent)
         {
-            spdlog::error("Custom audio event {} has no valid WAV or FLAC samples", path.string());
+            spdlog::error("Custom audio event {} has no valid WAV or FLAC samples", path);
             return;
         }
 
-        spdlog::warn("Audio override {} has no valid WAV or FLAC samples; ignoring it.", path.string());
+        spdlog::warn("Audio override {} has no valid WAV or FLAC samples; ignoring it.", path);
         return;
     }
 
     if (IsCustomEvent && !EventIdsRegex.empty())
     {
-        spdlog::error("Custom audio event {} cannot use EventIdRegex; Routes require exact EventId values", path.string());
+        spdlog::error("Custom audio event {} cannot use EventIdRegex; Routes require exact EventId values", path);
         return;
     }
 
-    spdlog::info("Loaded audio override file {}", path.string());
+    spdlog::info("Loaded audio override file {}", path);
 
     LoadedSuccessfully = true;
 }

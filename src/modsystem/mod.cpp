@@ -4,23 +4,14 @@
 #include "modsystem/platform/modplatform.h"
 #include "rapidjson/error/en.h"
 
-bool Mod::IsPathUnder(const fs::path& candidate, const fs::path& root)
-{
-	std::string candidatePath = candidate.lexically_normal().generic_string();
-	std::string rootPath = root.lexically_normal().generic_string();
-	if (!rootPath.empty() && rootPath.back() != '/')
-		rootPath.push_back('/');
-	return candidatePath.rfind(rootPath, 0) == 0;
-}
-
 ModSource Mod::ResolveModSourceFromPath(const fs::path& modDir)
 {
-	if (IsPathUnder(modDir, GetRemoteModFolderPath()))
-		return ModSource::Remote;
-	if (IsPathUnder(modDir, GetPackageFolderPath()))
-		return CModPlatform::GetManagedSourceForPath(modDir);
-	if (IsPathUnder(modDir, GetModFolderPath()))
-		return ModSource::Unmanaged;
+    if (ModPaths::IsAtOrBelow(modDir, GetRemoteModFolderPath()))
+        return ModSource::Remote;
+    if (ModPaths::IsAtOrBelow(modDir, GetPackageFolderPath()))
+        return CModPlatform::GetManagedSourceForPath(modDir);
+    if (ModPaths::IsAtOrBelow(modDir, GetModFolderPath()))
+        return ModSource::Unmanaged;
 	return ModSource::Unknown;
 }
 
@@ -33,32 +24,29 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 	rapidjson_document modJson;
 	modJson.Parse<rapidjson::ParseFlag::kParseCommentsFlag | rapidjson::ParseFlag::kParseTrailingCommasFlag>(jsonBuf);
 
-	spdlog::info("Loading mod file at path '{}'", modDir.string());
+    spdlog::info("Loading mod file at path '{}'", modDir);
 
-	// fail if parse error
+    // fail if parse error
 	if (modJson.HasParseError())
 	{
-		spdlog::error(
-			"Failed reading mod file {}: encountered parse error \"{}\" at offset {}",
-			(modDir / "mod.json").string(),
-			GetParseError_En(modJson.GetParseError()),
-			modJson.GetErrorOffset());
-		return;
+        spdlog::error("Failed reading mod file {}: encountered parse error \"{}\" at offset {}", modDir / "mod.json",
+                      GetParseError_En(modJson.GetParseError()), modJson.GetErrorOffset());
+        return;
 	}
 
 	// fail if it's not a json obj (could be an array, string, etc)
 	if (!modJson.IsObject())
 	{
-		spdlog::error("Failed reading mod file {}: file is not a JSON object", (modDir / "mod.json").string());
-		return;
+        spdlog::error("Failed reading mod file {}: file is not a JSON object", modDir / "mod.json");
+        return;
 	}
 
 	// basic mod info
 	// name is required
 	if (!modJson.HasMember("Name"))
 	{
-		spdlog::error("Failed reading mod file {}: missing required member \"Name\"", (modDir / "mod.json").string());
-		return;
+        spdlog::error("Failed reading mod file {}: missing required member \"Name\"", modDir / "mod.json");
+        return;
 	}
 
 	Name = modJson["Name"].GetString();
@@ -81,8 +69,8 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 	else
 	{
 		Version = "0.0.0";
-		spdlog::warn("Mod file {} is missing a version, consider adding a version", (modDir / "mod.json").string());
-	}
+        spdlog::warn("Mod file {} is missing a version, consider adding a version", modDir / "mod.json");
+    }
 
 	if (modJson.HasMember("DownloadLink"))
 		DownloadLink = modJson["DownloadLink"].GetString();
@@ -98,8 +86,8 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 		LoadPriority = modJson["LoadPriority"].GetInt();
 	else
 	{
-		spdlog::info("Mod file {} is missing a LoadPriority, consider adding one", (modDir / "mod.json").string());
-		LoadPriority = 0;
+        spdlog::info("Mod file {} is missing a LoadPriority, consider adding one", modDir / "mod.json");
+        LoadPriority = 0;
 	}
 	// Parse all array fields
 	ParseConVars(modJson);

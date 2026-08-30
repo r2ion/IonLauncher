@@ -23,7 +23,7 @@ bool CModAudioManager::TryLoadDefinition(const fs::path& defPath, const std::str
     std::ifstream jsonStream(defPath);
     if (!jsonStream)
     {
-        spdlog::warn("Unable to read audio override from file {}", defPath.string());
+        spdlog::warn("Unable to read audio override from file {}", defPath);
         return false;
     }
 

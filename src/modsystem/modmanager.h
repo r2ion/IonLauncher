@@ -17,6 +17,12 @@
 
 namespace fs = std::filesystem;
 
+namespace ModPaths
+{
+bool Equal(const fs::path& left, const fs::path& right);
+bool IsAtOrBelow(const fs::path& path, const fs::path& root);
+} // namespace ModPaths
+
 class CModule;
 class CModelLoader;
 class KeyValues;
@@ -58,10 +64,8 @@ private:
 	void LoadMods();
 	bool UnloadMods(bool unloadRpaksNow);
 	void RunModelReload();
-	void RegisterLooseModelReloadPath(const fs::path& path);
-	static std::string PackagePathKey(const fs::path& path);
-	static bool IsPathAtOrBelow(const fs::path& path, const fs::path& root);
-	std::string NormaliseModelLookupPath(const fs::path& path) const;
+    void RegisterLooseModelReloadPath(const fs::path& path);
+    std::string NormaliseModelLookupPath(const fs::path& path) const;
 	std::vector<std::string> GetModelReloadPaths() const;
 	void MarkModelsReloaded(const std::unordered_set<std::string>& failedPaths);
 

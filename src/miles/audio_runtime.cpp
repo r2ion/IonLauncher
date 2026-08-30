@@ -1226,7 +1226,7 @@ AudioPlayResult CModAudioRuntime::TryPlayEvent(void* eventSystem, const char* ev
         if (!sourceLoaded)
         {
             ClearCustomMilesSampleDecoderType(activeLayer.Sample);
-            NS::log::MILES->error("Could not load source {} for custom event {} layer {}", source->Path.string(), eventName, layerDefinition.Name);
+            NS::log::MILES->error("Could not load source {} for custom event {} layer {}", source->Path, eventName, layerDefinition.Name);
             destroyUntrackedLayers();
             return CModAudioManager::PlayResult::FAILED;
         }

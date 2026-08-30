@@ -23,29 +23,6 @@ std::string CModPlatform::CurrentTimestamp()
 	                   time.wMilliseconds);
 }
 
-std::string CModPlatform::NormalizeForComparison(const fs::path& path)
-{
-	std::error_code error;
-	fs::path normalized = fs::absolute(path, error).lexically_normal();
-	if (error)
-		normalized = path.lexically_normal();
-	std::string value = normalized.generic_string();
-	std::ranges::transform(value, value.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-	while (value.size() > 1 && value.back() == '/')
-		value.pop_back();
-	return value;
-}
-
-bool CModPlatform::IsPathUnder(const fs::path& candidate, const fs::path& root)
-{
-	const std::string candidateValue = NormalizeForComparison(candidate);
-	std::string rootValue = NormalizeForComparison(root);
-	if (candidateValue == rootValue)
-		return true;
-	rootValue.push_back('/');
-	return candidateValue.starts_with(rootValue);
-}
-
 fs::path CModPlatform::ResolvePackageRoot(const fs::path& path)
 {
 	if (const std::optional<fs::path> root = FindContainingPackageRoot(path))
@@ -84,15 +61,15 @@ bool CModPlatform::WriteTextAtomically(const fs::path& destination, std::string_
 		std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
 		if (!output.is_open())
 		{
-			errorMessage = std::format("Failed opening temporary file '{}'", temporary.string());
-			return false;
+            errorMessage = fmt::format("Failed opening temporary file '{}'", temporary);
+            return false;
 		}
 		output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
 		output.flush();
 		if (!output.good())
 		{
-			errorMessage = std::format("Failed writing temporary file '{}'", temporary.string());
-			output.close();
+            errorMessage = fmt::format("Failed writing temporary file '{}'", temporary);
+            output.close();
 			fs::remove(temporary, error);
 			return false;
 		}
@@ -100,8 +77,8 @@ bool CModPlatform::WriteTextAtomically(const fs::path& destination, std::string_
 
 	if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
 	{
-		errorMessage = std::format("Failed committing '{}': Windows error {}", destination.string(), GetLastError());
-		fs::remove(temporary, error);
+        errorMessage = fmt::format("Failed committing '{}': Windows error {}", destination, GetLastError());
+        fs::remove(temporary, error);
 		return false;
 	}
 	return true;
@@ -147,8 +124,8 @@ public:
 std::optional<fs::path> CModPlatform::FindContainingPackageRoot(const fs::path& modDir)
 {
 	const fs::path packagesRoot = GetPackageFolderPath().lexically_normal();
-	if (!IsPathUnder(modDir, packagesRoot) || NormalizeForComparison(modDir) == NormalizeForComparison(packagesRoot))
-		return std::nullopt;
+    if (!ModPaths::IsAtOrBelow(modDir, packagesRoot) || ModPaths::Equal(modDir, packagesRoot))
+        return std::nullopt;
 
 	const fs::path relative = modDir.lexically_normal().lexically_relative(packagesRoot);
 	if (relative.empty() || relative == ".")
