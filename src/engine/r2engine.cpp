@@ -17,6 +17,7 @@ char* g_pModName =
 
 CGlobalVars* g_pGlobals;
 
+
 ON_DLL_LOAD("engine.dll", R2Engine, [](CModule module)
 {
 	Cbuf_GetCurrentPlayer = module.Offset(0x120630).RCast<Cbuf_GetCurrentPlayerType>();
@@ -24,6 +25,9 @@ ON_DLL_LOAD("engine.dll", R2Engine, [](CModule module)
 	Cbuf_Execute = module.Offset(0x1204B0).RCast<Cbuf_ExecuteType>();
 
 	CCommand__Tokenize = module.Offset(0x418380).RCast<bool (*)(CCommand&, const char*, cmd_source_t)>();
+
+	constexpr float fl_CmdMinFrameTime = 0.002f;
+	module.Offset(0x5DA218).Patch(reinterpret_cast<const uint8_t*>(&fl_CmdMinFrameTime), sizeof(fl_CmdMinFrameTime));
 	//_Cmd_Exec_f = module.Offset(0x1232C0).RCast<void (*)(const CCommand&, bool, bool)>();
 
 	g_pEngine = module.Offset(0x7D70C8).Deref().RCast<CEngine*>();
