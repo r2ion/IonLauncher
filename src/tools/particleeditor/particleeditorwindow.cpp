@@ -29,6 +29,7 @@ namespace ParticleTools
 namespace ParticleEditorVGui
 {
 constexpr int R2VGuiMouseLeft = 107;
+constexpr int R2VGuiMouseMiddle = 109;
 
 constexpr int MenuHeight = 26;
 constexpr int ToolbarHeight = 38;
@@ -489,6 +490,7 @@ void CParticleEditorWorkspace::SetVisible(bool visible)
 	if (!visible)
 	{
 		m_PreviewOrbiting = false;
+		m_PreviewPanning = false;
 		m_ToolSystem.SetEditorMouseCapture(false);
 		m_ToolSystem.SetEditorInputEnabled(false);
 	}
@@ -551,6 +553,40 @@ void CParticleEditorWorkspace::Think()
 	UpdateBounds();
 	if (m_pEngineVGui && m_pEngineVGui->IsConsoleVisible())
 		m_pEngineVGui->HideConsole();
+
+	// Orbit/pan the preview camera from the live cursor position each frame. The
+	// mouse is never captured during dragging, so the cursor stays free and its
+	// position keeps updating even though the engine's "CursorMoved" messages
+	// stop carrying new coordinates once the workspace has input focus.
+	if (m_PreviewOrbiting || m_PreviewPanning)
+	{
+		const bool held = m_PreviewOrbiting ? (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0
+			: (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+		if (!held)
+		{
+			m_PreviewOrbiting = false;
+			m_PreviewPanning = false;
+			m_ToolSystem.SetEditorMouseCapture(false);
+		}
+		else if (vgui::g_pVGuiSurface)
+		{
+			int x = 0;
+			int y = 0;
+			vgui::g_pVGuiSurface->SurfaceGetCursorPos(x, y);
+			const int deltaX = x - m_PreviewCursorX;
+			const int deltaY = y - m_PreviewCursorY;
+			m_PreviewCursorX = x;
+			m_PreviewCursorY = y;
+			if (deltaX != 0 || deltaY != 0)
+			{
+				if (m_PreviewPanning)
+					m_ToolSystem.PanPreviewCamera(static_cast<float>(deltaX), static_cast<float>(deltaY));
+				else
+					m_ToolSystem.AdjustPreviewCamera(static_cast<float>(deltaX) * 0.35f, static_cast<float>(deltaY) * 0.35f, 0.0f);
+			}
+		}
+	}
+
 	Repaint();
 }
 void CParticleEditorWorkspace::PaintEngineUi()
@@ -759,6 +795,7 @@ void CParticleEditorWorkspace::InternalFocusChanged(bool lost)
 	if (!lost)
 		return;
 	m_PreviewOrbiting = false;
+	m_PreviewPanning = false;
 	m_ToolSystem.SetEditorMouseCapture(false);
 }
 
@@ -1072,10 +1109,24 @@ void CParticleEditorWorkspace::PaintBrowser(const Layout& layout)
 			DrawFilledRect(bounds, 54, 82, 112);
 		else if ((visibleRow & 1) != 0)
 			DrawFilledRect(bounds, 31, 34, 40);
-		const int indent = 8 + row.m_Indent * 14;
-		DrawClippedText(bounds, bounds.m_X0 + indent, bounds.m_Y0 + 3, row.m_Label,
+		const int labelX = bounds.m_X0 + 16 + row.m_Indent * 14;
+		if (row.m_Collapsible)
+		{
+			const Rect toggle{bounds.m_X0 + 2 + row.m_Indent * 14, bounds.m_Y0 + 3,
+				bounds.m_X0 + 14 + row.m_Indent * 14, bounds.m_Y0 + 15};
+			DrawOutlinedRect(toggle, 128, 138, 154);
+			DrawText(toggle.m_X0 + 3, toggle.m_Y0 + 1, BrowserRowCollapsed(row) ? "+" : "-", 196, 207, 222, 255, m_BoldFont);
+			// Added after the row target so FindHitTarget (last-first) resolves the
+			// toggle before the row's select action.
+			AddHitTarget(bounds, Action::SelectBrowserRow, index);
+			AddHitTarget(toggle, Action::ToggleBrowserRow, index);
+		}
+		else
+		{
+			AddHitTarget(bounds, Action::SelectBrowserRow, index);
+		}
+		DrawClippedText(bounds, labelX, bounds.m_Y0 + 3, row.m_Label,
 			row.m_CategoryRow ? 144 : 210, row.m_CategoryRow ? 178 : 214, row.m_CategoryRow ? 208 : 220);
-		AddHitTarget(bounds, Action::SelectBrowserRow, index);
 	}
 
 	const int left = layout.m_Browser.m_X0 + 4;
@@ -1132,8 +1183,8 @@ void CParticleEditorWorkspace::PaintPreview(const Layout& layout)
 		layout.m_Preview.m_Y0 + ParticleEditorVGui::HeaderHeight}, 38, 43, 50, 245);
 	DrawText(layout.m_Preview.m_X0 + 8, layout.m_Preview.m_Y0 + 6,
 		"Live Engine Preview", 225, 228, 234, 255, m_BoldFont);
-	DrawText(layout.m_Preview.m_X1 - 234, layout.m_Preview.m_Y0 + 6,
-		"LMB drag: orbit | wheel: zoom", 145, 154, 168);
+	DrawText(layout.m_Preview.m_X1 - 306, layout.m_Preview.m_Y0 + 6,
+		"LMB: orbit | MMB: pan | wheel: zoom", 145, 154, 168);
 }
 
 void CParticleEditorWorkspace::PaintEditor(const Layout& layout)
@@ -1458,44 +1509,38 @@ int CParticleEditorWorkspace::FindHitTarget(int x, int y) const
 
 void CParticleEditorWorkspace::HandleCursorMoved(int x, int y)
 {
-	if (!m_PreviewOrbiting)
-		return;
-
-	const int deltaX = x - m_PreviewCursorX;
-	const int deltaY = y - m_PreviewCursorY;
-	m_PreviewCursorX = x;
-	m_PreviewCursorY = y;
-	if (deltaX == 0 && deltaY == 0)
-		return;
-
-	m_ToolSystem.AdjustPreviewCamera(
-		static_cast<float>(deltaX) * 0.35f,
-		static_cast<float>(deltaY) * 0.35f,
-		0.0f);
+	NOTE_UNUSED(x);
+	NOTE_UNUSED(y);
+	// Orbiting is driven from Think() via SurfaceGetCursorPos; the engine's
+	// "CursorMoved" message coordinates freeze once a panel captures the mouse.
 }
 
 void CParticleEditorWorkspace::HandleMousePressed(int code)
 {
-	if (code != ParticleEditorVGui::R2VGuiMouseLeft || !vgui::g_pVGuiSurface)
+	if (!vgui::g_pVGuiSurface)
 		return;
 	int x = 0;
 	int y = 0;
 	vgui::g_pVGuiSurface->SurfaceGetCursorPos(x, y);
 	const Rect previewBody = CalculatePreviewViewport(CalculateLayout());
-	if (m_PreviewEnabled.load(std::memory_order_acquire) && previewBody.Contains(x, y))
+	if (m_PreviewEnabled.load(std::memory_order_acquire) && previewBody.Contains(x, y) &&
+		(code == ParticleEditorVGui::R2VGuiMouseLeft || code == ParticleEditorVGui::R2VGuiMouseMiddle))
 	{
 		EndTextEdit(true);
 		m_OpenMenu = OpenMenu::None;
 		m_PressedHitTarget = -1;
-		m_PreviewOrbiting = true;
 		m_PreviewCursorX = x;
 		m_PreviewCursorY = y;
-		m_ToolSystem.SetEditorMouseCapture(true);
+		m_PreviewPanning = code == ParticleEditorVGui::R2VGuiMouseMiddle;
+		m_PreviewOrbiting = !m_PreviewPanning;
 		Repaint();
 		return;
 	}
+	if (code != ParticleEditorVGui::R2VGuiMouseLeft)
+		return;
 
 	m_PreviewOrbiting = false;
+	m_PreviewPanning = false;
 	m_PressedHitTarget = FindHitTarget(x, y);
 	if (m_PressedHitTarget < 0)
 	{
@@ -1508,16 +1553,19 @@ void CParticleEditorWorkspace::HandleMousePressed(int code)
 
 void CParticleEditorWorkspace::HandleMouseReleased(int code)
 {
-	if (code != ParticleEditorVGui::R2VGuiMouseLeft || !vgui::g_pVGuiSurface)
+	if (!vgui::g_pVGuiSurface)
 		return;
-	if (m_PreviewOrbiting)
+	if (m_PreviewOrbiting || m_PreviewPanning)
 	{
 		m_PreviewOrbiting = false;
+		m_PreviewPanning = false;
 		m_PressedHitTarget = -1;
 		m_ToolSystem.SetEditorMouseCapture(false);
 		Repaint();
 		return;
 	}
+	if (code != ParticleEditorVGui::R2VGuiMouseLeft)
+		return;
 
 	int x = 0;
 	int y = 0;
@@ -1691,6 +1739,7 @@ void CParticleEditorWorkspace::ExecuteAction(const HitTarget& target)
 	case Action::StopPreview: StopPreview(); break;
 	case Action::HideWorkspace: SetVisible(false); break;
 	case Action::SelectBrowserRow: SelectBrowserRow(target.m_Index); break;
+	case Action::ToggleBrowserRow: ToggleBrowserRow(target.m_Index); break;
 	case Action::SelectPropertyRow: SelectPropertyRow(target.m_Index); break;
 	case Action::SelectComponentTab: m_EditorTab = EditorTab::Components; break;
 	case Action::SelectControlPointTab: m_EditorTab = EditorTab::ControlPoints; break;
@@ -1935,6 +1984,7 @@ void CParticleEditorWorkspace::CloseDocument()
 	m_SelectedElementName = false;
 	m_BrowserRows.clear();
 	m_BrowserScroll = 0;
+	m_CollapsedBrowserNodes.clear();
 	m_PropertyScroll = 0;
 	m_ControlPoints.clear();
 	m_SelectedControlPoint.reset();
@@ -2319,7 +2369,10 @@ void CParticleEditorWorkspace::RebuildBrowserRows()
 	const DmxElement* root = m_Document.Root();
 	if (!root)
 		return;
-	m_BrowserRows.push_back({root->m_Name + " [collection]", root->m_Id, std::nullopt, 0, false});
+	const BrowserRow rootRow{root->m_Name + " [collection]", root->m_Id, std::nullopt, 0, false, true};
+	m_BrowserRows.push_back(rootRow);
+	if (BrowserRowCollapsed(rootRow))
+		return;
 	const DmxAttribute* systems = root->FindAttribute("particleSystemDefinitions");
 	if (!systems || systems->m_Type != AT_ELEMENT_ARRAY)
 		return;
@@ -2333,18 +2386,25 @@ void CParticleEditorWorkspace::RebuildBrowserRows()
 		std::string label = system->m_Name;
 		if (isRoot)
 			label += " [root]";
-		m_BrowserRows.push_back({std::move(label), systemId, std::nullopt, 1, false});
+		const BrowserRow systemRow{std::move(label), systemId, std::nullopt, 1, false, true};
+		m_BrowserRows.push_back(systemRow);
+		if (BrowserRowCollapsed(systemRow))
+			return;
 		for (std::string_view categoryName : ParticleEditorVGui::ComponentCategories)
 		{
 			const DmxAttribute* category = system->FindAttribute(categoryName);
 			if (!category || category->m_Type != AT_ELEMENT_ARRAY)
 				continue;
-			m_BrowserRows.push_back({std::string(categoryName), systemId, std::string(categoryName), 2, true});
+			const bool collapsible = !category->m_ElementIds.empty();
+			const BrowserRow categoryRow{std::string(categoryName), systemId, std::string(categoryName), 2, true, collapsible};
+			m_BrowserRows.push_back(categoryRow);
+			if (!collapsible || BrowserRowCollapsed(categoryRow))
+				continue;
 			for (const DmObjectId_t& componentId : category->m_ElementIds)
 			{
 				const DmxElement* component = m_Document.FindElement(componentId);
 				m_BrowserRows.push_back({component ? component->m_Name : FormatObjectId(componentId), componentId,
-					std::string(categoryName), 3, false});
+					std::string(categoryName), 3, false, false});
 			}
 		}
 	};
@@ -2407,6 +2467,29 @@ void CParticleEditorWorkspace::SelectBrowserRow(std::size_t index)
 		m_EffectNameText = currentSystem->m_Name;
 	m_PropertyScroll = 0;
 	SelectPropertyRow(0);
+}
+
+std::string CParticleEditorWorkspace::BrowserRowKey(const BrowserRow& row) const
+{
+	if (row.m_Category)
+		return "C:" + (row.m_ElementId ? FormatObjectId(*row.m_ElementId) : std::string()) + ":" + *row.m_Category;
+	return "S:" + (row.m_ElementId ? FormatObjectId(*row.m_ElementId) : std::string());
+}
+
+bool CParticleEditorWorkspace::BrowserRowCollapsed(const BrowserRow& row) const
+{
+	return m_CollapsedBrowserNodes.count(BrowserRowKey(row)) != 0;
+}
+
+void CParticleEditorWorkspace::ToggleBrowserRow(std::size_t index)
+{
+	if (index >= m_BrowserRows.size() || !m_BrowserRows[index].m_Collapsible)
+		return;
+	const std::string key = BrowserRowKey(m_BrowserRows[index]);
+	if (m_CollapsedBrowserNodes.erase(key) == 0)
+		m_CollapsedBrowserNodes.insert(key);
+	RebuildBrowserRows();
+	Repaint();
 }
 
 DmxElement* CParticleEditorWorkspace::SelectedElement()

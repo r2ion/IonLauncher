@@ -11,6 +11,7 @@
 #include <memory>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -108,6 +109,7 @@ private:
 		DeleteParticleSystem,
 		HideWorkspace,
 		SelectBrowserRow,
+		ToggleBrowserRow,
 		SelectPropertyRow,
 		SelectComponentTab,
 		SelectControlPointTab,
@@ -176,6 +178,7 @@ private:
 		std::optional<std::string> m_Category;
 		int m_Indent = 0;
 		bool m_CategoryRow = false;
+		bool m_Collapsible = false;
 	};
 
 	void PerformApplySchemeSettings() override;
@@ -262,6 +265,9 @@ private:
 	void DeleteParticleSystem();
 	void RebuildBrowserRows();
 	void SelectBrowserRow(std::size_t index);
+	void ToggleBrowserRow(std::size_t index);
+	std::string BrowserRowKey(const BrowserRow& row) const;
+	bool BrowserRowCollapsed(const BrowserRow& row) const;
 	DmxElement* SelectedElement();
 	const DmxElement* SelectedElement() const;
 	DmxElement* CurrentSystem();
@@ -309,13 +315,14 @@ private:
 	unsigned long m_BoldFont = 0;
 	std::atomic<bool> m_PreviewEnabled = false;
 
-	std::array<HitTarget, 320> m_HitTargets{};
+	std::array<HitTarget, 1024> m_HitTargets{};
 	std::size_t m_HitTargetCount = 0;
 	int m_PressedHitTarget = -1;
 	OpenMenu m_OpenMenu = OpenMenu::None;
 	EditorTab m_EditorTab = EditorTab::Components;
 	TextField m_ActiveTextField = TextField::None;
 	bool m_PreviewOrbiting = false;
+	bool m_PreviewPanning = false;
 	int m_PreviewCursorX = 0;
 	int m_PreviewCursorY = 0;
 	bool m_SelectAllText = false;
@@ -330,6 +337,7 @@ private:
 	std::string m_Status = "Ready";
 	std::vector<BrowserRow> m_BrowserRows;
 	std::size_t m_BrowserScroll = 0;
+	std::set<std::string> m_CollapsedBrowserNodes;
 	std::optional<DmObjectId_t> m_SelectedElementId;
 	std::optional<DmObjectId_t> m_SelectedSystemId;
 	std::optional<DmObjectId_t> m_PreviewSystemId;

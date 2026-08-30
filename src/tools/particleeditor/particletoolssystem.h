@@ -77,6 +77,7 @@ class CParticleToolSystem final : public IToolSystem
     void SetEditorInputEnabled(bool enabled);
     void SetEditorMouseCapture(bool enabled);
     void AdjustPreviewCamera(float yawDelta, float pitchDelta, float zoomSteps);
+    void PanPreviewCamera(float mouseDeltaX, float mouseDeltaY);
     bool IsEditorInputEnabled() const;
 
     void OpenEditor();
