@@ -305,23 +305,14 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule m
                                                             [](HSQUIRRELVM sqvm) -> SQRESULT
     {
         auto pPlayer = g_pSquirrel[ScriptContext::CLIENT]->getentity<CBaseEntity>(sqvm, 1);
-
         if (!pPlayer)
         {
             spdlog::error("print_lobby_uids: Invalid player entity.");
             return SQRESULT_ERROR;
         }
-
         auto uid = *reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(pPlayer) + 0x2020);
         char uidBuffer[64];
         sprintf_s(uidBuffer, "%llu", uid);
-
-        char buffer[128];
-
-        spdlog::info("Player {:x}", reinterpret_cast<uintptr_t>(pPlayer));
-
-        auto str = reinterpret_cast<const char*>(reinterpret_cast<uintptr_t>(pPlayer) + 0x1634);
-        spdlog::info("Player UID: {}, str at 0x30C0: {}", uidBuffer, str ? str : "null");
         g_pSquirrel[ScriptContext::CLIENT]->pushstring(sqvm, uidBuffer, -1);
 
         return SQRESULT_NOTNULL;
