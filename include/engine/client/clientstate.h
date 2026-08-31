@@ -352,6 +352,7 @@ public:
 	bool ProcessEntitySnapshots();
 	int DecodeSnapshotEntities(CFrameSnapshot* fromSnapshot, CFrameSnapshot* toSnapshot);
 	bool IsPaused() const;
+	float GetFrameTime() const;
 	bool ProcessSignonStateInternal(eSignonState state, int serverCount, NET_SignonState* message);
 
 

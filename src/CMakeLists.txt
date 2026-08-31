@@ -73,6 +73,7 @@ add_library(
     "dedicated/dedicatedmaterialsystem.cpp"
     "engine/bitbuf.cpp"
     "engine/client.cpp"
+    "engine/clientstate.cpp"
     "engine/cl_main.cpp"
     "engine/datamap.cpp"
     "engine/gl_matsysiface.cpp"

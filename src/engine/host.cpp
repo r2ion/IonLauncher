@@ -10,6 +10,15 @@
 
 DECLARE_MODULE(HostHooks)
 
+using HostShouldRunFn = bool (*)();
+
+static HostShouldRunFn s_HostShouldRun;
+
+bool Host_ShouldRun()
+{
+	return s_HostShouldRun();
+}
+
 DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 {
 	spdlog::info("Host_Init()");
@@ -33,5 +42,6 @@ DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 
 ON_DLL_LOAD("engine.dll", Host_Init, [](CModule module)
 {
+	s_HostShouldRun = module.Offset(0x157B40).RCast<HostShouldRunFn>();
 	DISPATCH_MODULE(HostHooks)
 })

@@ -138,6 +138,11 @@ public:
 	std::int32_t GetTotalPackets(int flow) const;
 	std::int32_t GetTotalData(int flow) const;
 
+	bool CanPacket() const;
+	bool SendNetMsg(INetMessage& message, bool forceReliable, bool voice);
+	std::int32_t SendDatagram(bf_write* datagram);
+	void SetChoked();
+
 	bool m_bProcessingMessages; // 0x0000
 	bool m_bShouldDelete; // 0x0001
 	bool m_bStopProcessing; // 0x0002

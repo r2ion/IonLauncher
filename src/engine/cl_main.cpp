@@ -3,6 +3,7 @@
 #include "core/tier0.h"
 #include "engine/client/clientstate.h"
 #include "engine/demo.h"
+#include "engine/r2engine.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
 
@@ -29,21 +30,9 @@ struct CLCClientTickMessageData
 	std::uint8_t m_Padding0031[7];
 };
 
-using HostShouldRunFn = bool (*)();
-using CClientStateIsPausedFn = bool (*)(CClientState*);
-using CNetChanCanPacketFn = bool (*)(CNetChan*);
-using CNetChanSendNetMsgFn = bool (*)(CNetChan*, INetMessage*, bool, bool);
-using CNetChanSendDatagramFn = std::int64_t (*)(CNetChan*, bf_write*);
-using CNetChanSetChokedFn = void (*)(CNetChan*);
 using CLSendMoveFn = void (*)();
 
-HostShouldRunFn HostShouldRun;
-CClientStateIsPausedFn CClientStateIsPaused;
-CNetChanCanPacketFn CNetChanCanPacket;
-CNetChanSendNetMsgFn CNetChanSendNetMsg;
-CNetChanSendDatagramFn CNetChanSendDatagram;
-CNetChanSetChokedFn CNetChanSetChoked;
-CLSendMoveFn CLSendMove;
+CLSendMoveFn CL_SendMove;
 
 IBaseClientDLL** s_ppClientDLL;
 CDemoPlayer** s_ppDemoPlayer;
@@ -58,7 +47,7 @@ float* s_pClientFrameTimeStdDeviation;
 float* s_pServerCPUPercent;
 void* s_pCLCClientTickVTable;
 float s_lastMovementCall;
-float s_commandTimeAccumulator;
+float s_lastFrameTime;
 
 char* g_pLocalPlayerUserID;
 char* g_pLocalPlayerOriginToken;
@@ -96,7 +85,7 @@ void SendClientTick(CClientState* client, CNetChan* channel)
 	tickMessage.m_flFrameTimeStdDeviation = *s_pClientFrameTimeStdDeviation;
 	tickMessage.m_nServerCPU = static_cast<std::uint8_t>(*s_pServerCPUPercent * 100.0f);
 
-	CNetChanSendNetMsg(channel, reinterpret_cast<INetMessage*>(&tickMessage), false, false);
+	channel->SendNetMsg(*reinterpret_cast<INetMessage*>(&tickMessage), false, false);
 }
 
 DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
@@ -104,19 +93,26 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 	CClientState* const client = GetBaseLocalClient();
 	if (static_cast<int>(client->m_nSignonState) < static_cast<int>(eSignonState::CONNECTED))
 	{
-		s_commandTimeAccumulator = 0.0f;
+		s_lastFrameTime = 0.0f;
 		return;
 	}
 
-	if (!HostShouldRun() || (*s_ppDemoPlayer)->IsPlayingBack())
+	if (!Host_ShouldRun() || (*s_ppDemoPlayer)->IsPlayingBack())
 		return;
 
 	const int commandTick =
 		client->m_pCurrentFrameSnapshot ? client->m_pCurrentFrameSnapshot->m_nCommandTick : -1;
 	const int pendingCommandCount = client->m_nOutgoingCommandNumber - commandTick + 1;
 
+	float minimumCommandFrameTime;
+
+	// this really fucking pisses me off
+	if(g_pVanillaCompatibility->GetVanillaCompatibility())
+		minimumCommandFrameTime = 0.005f; // we will speedhack on vanilla if we don't do this
+	else
+		minimumCommandFrameTime = 0.001f; // need this for listen servers to work properly, smooth to around ~1000 fps
+
 	constexpr int maxNewCommands = 15;
-	constexpr float commandFrameTime = 0.005f;
 	constexpr float maxFrameTime = 0.1f;
 
 	CNetChan* const channel = client->m_NetChannel;
@@ -127,7 +123,7 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 	bool sendPacket = true;
 	const bool packetIsDue = client->m_flNextCmdTime <= netTime;
 	if (packetIsDue && (finalTick || pendingCommandCount >= maxNewCommands))
-		sendPacket = CNetChanCanPacket(channel);
+		sendPacket = channel->CanPacket();
 	else if (pendingCommandCount < maxNewCommands || isTimeScaleDefault)
 		sendPacket = false;
 
@@ -136,46 +132,51 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 	{
 		const float movementCallTime = static_cast<float>(g_PlatFloatTime());
 		const float elapsedMovementCallTime = movementCallTime - s_lastMovementCall;
-		s_lastMovementCall = movementCallTime;
 		const int outgoingCommandNumber = client->m_nOutgoingCommandNumber;
-		const bool isPaused = CClientStateIsPaused(client);
+		const bool isPaused = client->IsPaused();
 		const int nextCommandNumber = isPaused ? outgoingCommandNumber : outgoingCommandNumber + 1;
 
 		if (!IsLocalClientDisconnecting())
 		{
 			IBaseClientDLL* const clientDLL = *s_ppClientDLL;
-			const float timeScale = isPaused ? 1.0f : hostTimeScale;
-			const float sourceFrameTime = isPaused ? elapsedMovementCallTime : *s_pClientFrameTime;
-			const float deltaTime = sourceFrameTime / timeScale;
+			float timeScale;
+			float frameTime;
+			float deltaTime;
 
-			s_commandTimeAccumulator =
-				std::min(s_commandTimeAccumulator + deltaTime, maxFrameTime);
-
-			if (isTimeScaleDefault && s_commandTimeAccumulator < commandFrameTime)
-				return;
-
-			float commandDeltaTime;
-			if (isTimeScaleDefault && deltaTime < commandFrameTime)
+			if (isPaused)
 			{
-				commandDeltaTime = commandFrameTime;
-				s_commandTimeAccumulator -= commandFrameTime;
+				timeScale = 1.0f;
+				frameTime = elapsedMovementCallTime;
+				deltaTime = frameTime;
 			}
 			else
 			{
-				commandDeltaTime = s_commandTimeAccumulator;
-				s_commandTimeAccumulator = 0.0f;
+				timeScale = hostTimeScale;
+				frameTime = client->GetFrameTime() + s_lastFrameTime;
+				deltaTime = frameTime / timeScale;
 			}
 
-			const float frameTime = timeScale * commandDeltaTime;
+			if (deltaTime > maxFrameTime)
+				frameTime = timeScale * maxFrameTime;
+
+			if (isTimeScaleDefault && deltaTime < minimumCommandFrameTime)
+			{
+				s_lastFrameTime = frameTime;
+				return;
+			}
+
+			s_lastFrameTime = 0.0f;
 			clientDLL->CreateMove(nextCommandNumber, frameTime, !isPaused);
 			client->m_nOutgoingCommandNumber = nextCommandNumber;
 			NotifyCommandCreated(nextCommandNumber);
 		}
 
 		if (sendPacket)
-			CLSendMove();
+			CL_SendMove();
 		else
-			CNetChanSetChoked(channel);
+			channel->SetChoked();
+
+		s_lastMovementCall = movementCallTime;
 
 
 	}
@@ -185,7 +186,7 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 		if (isActive)
 			SendClientTick(client, channel);
 
-		CNetChanSendDatagram(channel, nullptr);
+		channel->SendDatagram(nullptr);
 
 		const float commandPacketInterval = 1.0f / (*s_ppCmdRate)->GetFloat();
 		const float maxPacketTimeAdjustment = std::max(*s_pIntervalPerTick, commandPacketInterval);
@@ -208,14 +209,7 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", R2EngineClient, ConCommand, [](CModule
 	GetBaseLocalClient = module.Offset(0x78200).RCast<GetBaseLocalClientType>();
 	CClientState__SendStringCmd = module.Offset(0x91A10).RCast<CClientState__SendStringCmd_t>();
 	GetLocalPlayerIndex = module.Offset(0x52260).RCast<GetLocalPlayerIndexType>();
-
-	HostShouldRun = module.Offset(0x157B40).RCast<HostShouldRunFn>();
-	CClientStateIsPaused = module.Offset(0x8F520).RCast<CClientStateIsPausedFn>();
-	CNetChanCanPacket = module.Offset(0x20F620).RCast<CNetChanCanPacketFn>();
-	CNetChanSendNetMsg = module.Offset(0x213270).RCast<CNetChanSendNetMsgFn>();
-	CNetChanSendDatagram = module.Offset(0x212CD0).RCast<CNetChanSendDatagramFn>();
-	CNetChanSetChoked = module.Offset(0x213760).RCast<CNetChanSetChokedFn>();
-	CLSendMove = module.Offset(0x74F10).RCast<CLSendMoveFn>();
+	CL_SendMove = module.Offset(0x74F10).RCast<CLSendMoveFn>();
 
 	s_ppClientDLL = module.Offset(0xF849AA8).RCast<IBaseClientDLL**>();
 	s_ppDemoPlayer = module.Offset(0xFD15608).RCast<CDemoPlayer**>();

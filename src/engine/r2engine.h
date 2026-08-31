@@ -61,6 +61,8 @@ extern Cbuf_ExecuteType Cbuf_Execute;
 
 extern bool (*CCommand__Tokenize)(CCommand& self, const char* pCommandString, cmd_source_t commandSource);
 
+bool Host_ShouldRun();
+
 // CEngine
 
 enum EngineQuitState
