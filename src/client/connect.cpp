@@ -277,7 +277,9 @@ void ConnectionManager::AuthenticateToMasterServer()
 
 void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAuthUs, bool requestMods)
 {
-	g_bReceivedServerInfo = false;
+	g_bReceivedServerInfo.store(false, std::memory_order_release);
+	if (serverAuthUs)
+		g_bReceivedAuthNotify.store(false, std::memory_order_release);
 
 	char buffer[256];
 	bf_write msg(buffer, sizeof(buffer));
@@ -304,7 +306,7 @@ void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAu
 
 	UpdateMessage("#REQUESTING_CUSTOM_SERVER_INFO");
 
-	while (!g_bReceivedServerInfo && !IsCancelled() && g_PlatFloatTime() - startTime < timeOut)
+	while (!g_bReceivedServerInfo.load(std::memory_order_acquire) && !IsCancelled() && g_PlatFloatTime() - startTime < timeOut)
 	{
 		int retryInterval = g_pCVar->FindVar("cl_resend_inforequest_interval_ms")->GetInt();
 		NET_SendPacket(nullptr, NS_CLIENT, &addr, msg.GetData(), msg.GetNumBytesWritten(), nullptr, false, 0, true);
@@ -315,12 +317,12 @@ void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAu
 
 	if (serverAuthUs)
 	{
-		while (!g_bReceivedAuthNotify && g_PlatFloatTime() - startTime < timeOut && !IsCancelled())
+		while (!g_bReceivedAuthNotify.load(std::memory_order_acquire) && g_PlatFloatTime() - startTime < timeOut && !IsCancelled())
 			Sleep(100);
 
 		RETURN_IF_CANCELLED()
 
-		if (!g_bReceivedAuthNotify)
+		if (!g_bReceivedAuthNotify.load(std::memory_order_acquire))
 			Interrupt("#AUTHENTICATION_FAILED_BODY");
 	}
 }

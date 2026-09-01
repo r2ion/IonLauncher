@@ -6,8 +6,8 @@ char g_szLastServerInfoName[256] = {0};
 bool g_bNextServerAuthUs = false;
 bool g_bNextServerAllowingAuthUs = false;
 
-bool g_bReceivedAuthNotify = false;
-bool g_bReceivedServerInfo = false;
+std::atomic_bool g_bReceivedAuthNotify = false;
+std::atomic_bool g_bReceivedServerInfo = false;
 
 DECLARE_MODULE(NetMessagesHooks)
 

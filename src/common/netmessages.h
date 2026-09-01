@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <type_traits>
 
@@ -26,8 +27,8 @@ extern bool g_bListeningforCustomServerInfoPacket;
 extern char g_szLastServerInfoName[256];
 extern bool g_bNextServerAuthUs;
 extern bool g_bNextServerAllowingAuthUs;
-extern bool g_bReceivedAuthNotify;
-extern bool g_bReceivedServerInfo;
+extern std::atomic_bool g_bReceivedAuthNotify;
+extern std::atomic_bool g_bReceivedServerInfo;
 
 enum class NetMessageType : int
 {

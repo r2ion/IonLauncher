@@ -17,8 +17,6 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 	int version;
 	int notifyType;
 
-	float serverNotifyTime;
-	float clientNotifyTime;
 
 	if (header == CONNECTIONLESS_HEADER)
 	{
@@ -33,7 +31,6 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 				if(version != CUSTOMSERVERINFO_VERSION)
 					break;
 
-				g_bReceivedServerInfo = true;
 
 				msg.ReadChar(); // marker
 				if(!msg.ReadString(g_szLastServerInfoName, sizeof(g_szLastServerInfoName)))
@@ -54,6 +51,8 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 				if(serverAuthingUs && g_bNextServerAuthUs)
 					g_bNextServerAllowingAuthUs = true;
 
+
+				g_bReceivedServerInfo.store(true, std::memory_order_release);
 				g_bListeningforCustomServerInfoPacket = false;
 				return true;
 			case S2C_CLIENTNOTIFY:
@@ -63,18 +62,18 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 					break;
 
 				notifyType = msg.ReadLong();
-				serverNotifyTime = msg.ReadFloat();
-				clientNotifyTime = g_PlatFloatTime();
-
-				g_bReceivedAuthNotify = true;
+				msg.ReadFloat();
 
 				switch(notifyType)
 				{
 					case NOTIFY_AUTHENTICATED:
 					{
 						char authToken[256];
-						msg.ReadString(authToken, sizeof(authToken));
+						if (!msg.ReadString(authToken, sizeof(authToken)))
+							return false;
+
 						g_pCVar->FindVar("serverfilter")->SetValue(authToken);
+						g_bReceivedAuthNotify.store(true, std::memory_order_release);
 						break;
 					}
 					default:

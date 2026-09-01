@@ -13,8 +13,8 @@ ADD_SQFUNC("void", NSRequestServerInfo, "string ip, int port, bool requestMods, 
 	bool requestMods = g_pSquirrel[context]->getbool(sqvm, 3);
 	bool serverAuthUs = g_pSquirrel[context]->getbool(sqvm, 4);
 
-	g_bReceivedServerInfo = false;
-	g_bReceivedAuthNotify = false;
+	g_bReceivedServerInfo.store(false, std::memory_order_release);
+	g_bReceivedAuthNotify.store(false, std::memory_order_release);
 
 	netadr_t addr;
 
@@ -75,18 +75,6 @@ ADD_SQFUNC("bool", NSIsServerAuthingUs, "", "Returns true if the last requested 
 ADD_SQFUNC("string", NSGetNameFromServerInfo, "", "Returns the name from the last received server info packet.", ScriptContext::UI)
 {
 	g_pSquirrel[context]->pushstring(sqvm, g_szLastServerInfoName);
-	return SQRESULT_NOTNULL;
-}
-
-ADD_SQFUNC("bool", NSReceivedAuthNotify, "", "", ScriptContext::UI)
-{
-	g_pSquirrel[context]->pushbool(sqvm, g_bReceivedAuthNotify);
-	return SQRESULT_NOTNULL;
-}
-
-ADD_SQFUNC("bool", NSReceivedServerInfo, "", "", ScriptContext::UI)
-{
-	g_pSquirrel[context]->pushbool(sqvm, g_bReceivedServerInfo);
 	return SQRESULT_NOTNULL;
 }
 
