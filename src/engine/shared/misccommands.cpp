@@ -386,6 +386,11 @@ void FixupCvarFlags()
 
 		{"r_drawviewmodel", FCVAR_CHEAT},
 
+		//screen shake
+        {"shake_angleFactor_human", FCVAR_DEVELOPMENTONLY},
+        {"shake_angleFactor_titan", FCVAR_DEVELOPMENTONLY},
+        {"shake_offsetFactor_human", FCVAR_DEVELOPMENTONLY},
+        {"shake_offsetFactor_titan", FCVAR_DEVELOPMENTONLY},
 
 		// reparse commands
 		{"aisettings_reparse", FCVAR_DEVELOPMENTONLY},
