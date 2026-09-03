@@ -293,6 +293,17 @@ DECLARE_HOOK(TryToStartOrigin, OriginSDK.dll + 0xa19b0, [](auto& hook, void* a1)
     return 0;
 });
 
+ADD_SQFUNC("string", GetUnixTimestampMilis, "", "Get unix timestamp in milliseconds as a string", ScriptContext::CLIENT | ScriptContext::SERVER | ScriptContext::UI)
+{
+    auto now = std::chrono::system_clock::now();
+    auto now_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now);
+    auto epoch = now_ms.time_since_epoch();
+    auto value = std::to_string(epoch.count());
+    g_pSquirrel[context]->pushstring(sqvm, value.c_str(), -1);
+    return SQRESULT_NOTNULL;
+}
+
+
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", ClientOrigin, ConCommand, [](CModule module)
 {
     DISPATCH_MODULE(OriginHooks)
