@@ -76,7 +76,11 @@ FORCEINLINE int64 ThreadInterlockedIncrement64(int64 volatile* p) { Assert((size
 FORCEINLINE int64 ThreadInterlockedDecrement64(int64 volatile* p) { Assert((size_t)p % 8 == 0); return _InterlockedDecrement64((volatile int64*)p); }
 
 FORCEINLINE int32 ThreadInterlockedExchangeAdd(int32 volatile* p, int32 value) { Assert((size_t)p % 4 == 0); return _InterlockedExchangeAdd((volatile long*)p, value); }
-
+FORCEINLINE int64 ThreadInterlockedExchangeAdd64(int64 volatile* p, int64 value)
+{
+    Assert((size_t)p % 8 == 0);
+    return _InterlockedExchangeAdd64((volatile int64*)p, value);
+}
 FORCEINLINE int32 ThreadInterlockedCompareExchange(LONG volatile* pDest, int32 value, int32 comperand)
 {
     Assert((size_t)pDest % 4 == 0);
