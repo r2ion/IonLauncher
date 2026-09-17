@@ -125,7 +125,7 @@
 //-----------------------------------------------------------------------------
 // Old-school defines we're going to support since much code uses them
 //-----------------------------------------------------------------------------
-#define IsLinux()	IsPlatformLinux() 
+#define IsLinux()	IsPlatformLinux()
 #define IsOSX()		IsPlatformOSX()
 #define IsPosix()	IsPlatformPosix()
 #define IsX360()	IsPlatformX360()
@@ -134,8 +134,8 @@
 #define MAX_SPLITSCREEN_CLIENT_BITS 0 // R5 doesn't support splitscreen; engine is hardcoded to only have 1 player.
 #define MAX_SPLITSCREEN_CLIENTS	( 1 << MAX_SPLITSCREEN_CLIENT_BITS ) // 1 // this should == MAX_JOYSTICKS in InputEnums.h
 
-#define MAX_PLAYERS 128 // Absolute max R5 players.
-#define MAX_TEAMS   126 // Absolute max R5 teams.
+#define MAX_PLAYERS 32
+#define MAX_TEAMS   32
 
 #define MAX_MAP_NAME_HOST 64 // Max host BSP file name len.
 #define MAX_MAP_NAME      64 // Max BSP file name len.
@@ -240,7 +240,7 @@ inline T AlignValue(T val, uintptr_t alignment)
 
 // if the nth bit of a is set (counting with 0 = LSB),
 // return x, else y
-// this is fast if nbit is a compile-time immediate 
+// this is fast if nbit is a compile-time immediate
 #define ibitsel(a, nbit, x, y) ( ( ((a) & (1 << (nbit))) != 0 ) ? (x) : (y) )
 
 // MSVC CRT uses 0x7fff while gcc uses MAX_INT, leading to mismatches between platforms

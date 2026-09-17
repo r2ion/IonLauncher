@@ -10,9 +10,6 @@ DECLARE_MODULE(MaxPlayersHooks)
 #define NEW_MAX_PLAYERS 64
 // dg note: the theoretical limit is actually 100, 76 works without entity issues, and 64 works without clientside prediction issues.
 
-#define PAD_NUMBER(number, boundary) (((number) + ((boundary) - 1)) / (boundary)) * (boundary)
-
-// this is horrible
 constexpr int PlayerResource_Name_Start = 0; // Start of modded allocated space.
 constexpr int PlayerResource_Name_Size = ((NEW_MAX_PLAYERS + 1) * 8); // const char* m_szName[MAX_PLAYERS + 1];
 
