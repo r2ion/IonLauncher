@@ -8,9 +8,6 @@
 #include "engine/client/client.h"
 #include "tier1/utlmemory.h"
 
-#define MAX_PLAYERS 32
-#define MAX_TEAMS 32
-
 class CClientExtended;
 
 class CBaseEntity;

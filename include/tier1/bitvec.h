@@ -12,9 +12,6 @@
 
 #include <limits.h>
 
-#define PAD_NUMBER(number, boundary) \
-	( ((number) + ((boundary)-1)) / (boundary) ) * (boundary)
-
 class CBitVecAccessor
 {
 public:
