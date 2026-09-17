@@ -58,8 +58,8 @@ struct DrawModelResults_t
 
 struct GetTriangles_Vertex_t
 {
-    Vector3 m_Position;
-    Vector3 m_Normal;
+    Vector3D m_Position;
+    Vector3D m_Normal;
     Vector4D m_TangentS;
     Vector2D m_TexCoord;
     Vector4D m_BoneWeight;
@@ -153,14 +153,14 @@ class IStudioRender : public IAppSystem
     virtual void UnloadModel(studiohwdata_t* hardwareData) = 0;
     virtual void RefreshStudioHdr(studiohdr_t* studioHdr, studiohwdata_t* hardwareData) = 0;
     virtual void SetEyeViewTarget(const studiohdr_t* studioHdr, int bodyIndex,
-                                  const Vector3& worldPosition) = 0; // 15
+                                  const Vector3D& worldPosition) = 0; // 15
     virtual void SetLocalLights(const LightDesc_t* lights, int count) = 0;
     virtual void SetLocalLight(int lightIndex, const LightDesc_t& light) = 0;
     virtual bool AddLocalLightToState(MaterialLightingState_t& lightingState, const LightDesc_t& light) = 0;
     virtual void SetMaterialLightingState(const MaterialLightingState_t& lightingState) = 0;
     virtual void ResetMaterialLightingState() = 0;
-    virtual void SetViewState(const Vector3& origin, const Vector3& right, const Vector3& up,
-                              const Vector3& planeNormal) = 0;
+    virtual void SetViewState(const Vector3D& origin, const Vector3D& right, const Vector3D& up,
+                              const Vector3D& planeNormal) = 0;
     virtual int GetNumLODs(const studiohwdata_t& hardwareData) const = 0;
     virtual float GetLODSwitchValue(const studiohwdata_t& hardwareData, int lod) const = 0;
     virtual void SetLODSwitchValue(studiohwdata_t& hardwareData, int lod, float switchValue) = 0;
@@ -177,7 +177,7 @@ class IStudioRender : public IAppSystem
     virtual StudioRenderOverrideType GetForcedMaterialOverrideType() const = 0;
     virtual void ClearAllDecals() = 0;
     virtual void DestroyDecalList(StudioDecalHandle_t decalList) = 0;
-    virtual void AddDecal(StudioDecalHandle_t decalList, StudioModelHandle_t model, void* modelData, const Ray_t& ray, const Vector3& decalUp,
+    virtual void AddDecal(StudioDecalHandle_t decalList, StudioModelHandle_t model, void* modelData, const Ray_t& ray, const Vector3D& decalUp,
                           IMaterial* material, float radius, int body, bool noPokeThrough, int maxLODToDecal) = 0;
     virtual std::uintptr_t DrawDecalBatch(int count, void* records, void* decalHandles, void* drawData, void* state, int lod, int flags) = 0;
     virtual bool ValidateStaticPropDecalData(void* model, void* modelData, void* triangles, void* bounds, void* scratch, void* output) = 0;

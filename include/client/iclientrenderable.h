@@ -33,7 +33,7 @@ class IClientRenderable
 {
 public:
 	virtual IClientUnknown* GetIClientUnknown() = 0; // 0
-	virtual const Vector3& GetRenderOrigin() = 0; // 1
+	virtual const Vector3D& GetRenderOrigin() = 0; // 1
 	virtual const QAngle& GetRenderAngles() = 0; // 2
 	virtual bool ShouldDraw() = 0; // 3
 	virtual bool IsTransparent() = 0; // 4
@@ -51,15 +51,15 @@ public:
 	virtual void SetupWeights(const matrix3x4_t* pBoneToWorld, std::int32_t flexWeightCount,
 		float* pFlexWeights, float* pFlexDelayedWeights) = 0; // 14
 	virtual void DoAnimationEvents() = 0; // 15
-	virtual void GetRenderBounds(Vector3& mins, Vector3& maxs) = 0; // 16
-	virtual void GetRenderBoundsWorldspace(Vector3& mins, Vector3& maxs) = 0; // 17
+	virtual void GetRenderBounds(Vector3D& mins, Vector3D& maxs) = 0; // 16
+	virtual void GetRenderBoundsWorldspace(Vector3D& mins, Vector3D& maxs) = 0; // 17
 	virtual void CreateModelInstance() = 0; // 18
 	virtual ModelInstanceHandle_t GetModelInstance() = 0; // 19
 	virtual const matrix3x4_t& RenderableToWorldTransform() = 0; // 20
 	virtual float GetModelScale() const = 0; // 21
 	virtual std::int32_t LookupAttachment(const char* pAttachmentName) = 0; // 22
 	virtual bool GetAttachment(std::int32_t number, matrix3x4_t& matrix) = 0; // 23
-	virtual bool GetAttachmentOriginAngles(std::int32_t number, Vector3& origin, QAngle& angles) = 0; // 24
+	virtual bool GetAttachmentOriginAngles(std::int32_t number, Vector3D& origin, QAngle& angles) = 0; // 24
 	virtual float* GetRenderClipPlane() = 0; // 25
 	virtual bool UsesPowerOfTwoFrameBufferTexture(std::int32_t splitScreenSlot) = 0; // 26
 	virtual bool UsesFullFrameBufferTexture(std::int32_t splitScreenSlot) = 0; // 27

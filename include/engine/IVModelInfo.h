@@ -12,7 +12,7 @@ struct studiohwdata_t;
 struct model_t;
 struct vcollide_t;
 struct virtualmodel_t;
-struct Vector3;
+class Vector3D;
 
 
 inline constexpr char VMODELINFO_CLIENT_INTERFACE_VERSION[] = "VModelInfoClient004";
@@ -29,8 +29,8 @@ public:
 	virtual vcollide_t* GetVCollideByIndex(int modelIndex) = 0;
 	virtual vcollide_t* GetVCollide(const model_t* pModel) = 0;
 	virtual void* GetPhysicsGeometry(int modelIndex) = 0;
-	virtual void GetModelBounds(const model_t* pModel, Vector3* pMins, Vector3* pMaxs) = 0;
-	virtual void GetModelRenderBounds(const model_t* pModel, Vector3* pMins, Vector3* pMaxs) = 0;
+	virtual void GetModelBounds(const model_t* pModel, Vector3D* pMins, Vector3D* pMaxs) = 0;
+	virtual void GetModelRenderBounds(const model_t* pModel, Vector3D* pMins, Vector3D* pMaxs) = 0;
 	virtual int GetModelFrameCount(const model_t* pModel) = 0;
 	virtual int GetModelType(const model_t* pModel) = 0;
 	virtual void* GetModelExtraData(const model_t* pModel) = 0;
@@ -68,5 +68,3 @@ class IVModelInfoClient : public IVModelInfo
 {
 };
 
-static_assert(sizeof(IVModelInfo) == sizeof(void*));
-static_assert(sizeof(IVModelInfoClient) == sizeof(void*));

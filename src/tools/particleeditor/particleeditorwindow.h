@@ -30,7 +30,7 @@ namespace ParticleTools
 struct ParticlePreviewControlPoint
 {
 	int m_Index = 0;
-	Vector m_Position;
+	Vector3D m_Position;
 	QAngle m_Angles;
 };
 

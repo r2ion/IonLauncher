@@ -28,7 +28,7 @@ struct PostDeathWeaponState
     std::uint32_t weaponHandle = 0;
     std::uint32_t deathTick = 0;
     float deathTime = 0;
-    Vector3 viewOffset;
+    Vector3D viewOffset;
     bool spawnParity = false;
     bool active = false;
 };
@@ -37,7 +37,7 @@ struct PostDeathReplayContext
 {
     CPlayer* player;
     int observerMode;
-    Vector3 viewOffset;
+    Vector3D viewOffset;
     bool spawnParity;
     float deathTime;
     bool observerChanged = false;
@@ -125,7 +125,7 @@ DECLARE_HOOK(PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, void* weapon, 
 })
 
 DECLARE_HOOK(LagCompensationCalcDistanceSqrToLineSegment, server.dll + 0x6EF440,
-             [](auto& Hook, const Vector3* Point, const Vector3* SegmentStart, const Vector3* SegmentEnd, float* OutFraction) -> float
+             [](auto& Hook, const Vector3D* Point, const Vector3D* SegmentStart, const Vector3D* SegmentEnd, float* OutFraction) -> float
 {
     if (reinterpret_cast<uintptr_t>(Hook.ReturnAddress()) - s_ServerBase == 0x5C4D3B)
         s_ReachedRayGeometry = true;
@@ -209,17 +209,17 @@ DECLARE_HOOK(PostDeathHolsterWeapon, server.dll + 0xE9AD0, [](auto& hook, CBaseC
     hook.Original(player);
 })
 
-DECLARE_HOOK(PostDeathEyePosition, server.dll + 0x5CF7D0, [](auto& hook, CPlayer* player, Vector3* result) -> Vector3*
+DECLARE_HOOK(PostDeathEyePosition, server.dll + 0x5CF7D0, [](auto& hook, CPlayer* player, Vector3D* result) -> Vector3D*
 {
     const PostDeathReplayContext* replay = s_PostDeathReplay;
     if (!replay || replay->player != player || replay->observerChanged || player->m_lifeState == 0 || player->m_iSpawnParity != replay->spawnParity ||
         player->m_flDeathTime != replay->deathTime)
         return hook.Original(player, result);
 
-    Vector3& viewOffset = *reinterpret_cast<Vector3*>(reinterpret_cast<std::byte*>(player) + 0x5BC);
-    const Vector3 previousViewOffset = viewOffset;
+    Vector3D& viewOffset = *reinterpret_cast<Vector3D*>(reinterpret_cast<std::byte*>(player) + 0x5BC);
+    const Vector3D previousViewOffset = viewOffset;
     viewOffset = replay->viewOffset;
-    Vector3* eyePosition = hook.Original(player, result);
+    Vector3D* eyePosition = hook.Original(player, result);
     viewOffset = previousViewOffset;
     return eyePosition;
 })
@@ -240,7 +240,7 @@ DECLARE_HOOK(PostDeathEventKilled, server.dll + 0x58AFC0, [](auto& hook, CPlayer
 
     const std::uint32_t weaponHandle = weapon ? weapon->GetRefEHandle().ToInt() : 0;
     const std::uint32_t deathTick = g_pGlobals ? g_pGlobals->m_nTickCount : 0;
-    const Vector3 viewOffset = weapon ? *reinterpret_cast<const Vector3*>(reinterpret_cast<const std::byte*>(player) + 0x5BC) : Vector3{};
+    const Vector3D viewOffset = weapon ? *reinterpret_cast<const Vector3D*>(reinterpret_cast<const std::byte*>(player) + 0x5BC) : Vector3D{};
     CPlayer* previousProtectedPlayer = s_PostDeathProtectedPlayer;
     s_PostDeathProtectedPlayer = weapon ? player : nullptr;
     hook.Original(player, damageInfo);

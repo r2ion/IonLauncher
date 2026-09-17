@@ -46,6 +46,7 @@
 #define IsPlatformWindowsPC64() 1
 #define IsPlatformWindowsPC32() 0
 #define PLATFORM_WINDOWS_PC64 1
+#define PLATFORM_64BITS 1
 
 #define COMPILER_MSVC64 1
 #else

@@ -79,23 +79,26 @@ FORCEINLINE int32 ThreadInterlockedExchangeAdd(int32 volatile* p, int32 value) {
 
 FORCEINLINE int32 ThreadInterlockedCompareExchange(LONG volatile* pDest, int32 value, int32 comperand)
 {
-	return _InterlockedCompareExchange(pDest, comperand, value);
+    Assert((size_t)pDest % 4 == 0);
+    return _InterlockedCompareExchange(pDest, value, comperand);
 }
 
 FORCEINLINE bool ThreadInterlockedAssignIf(LONG volatile* p, int32 value, int32 comperand)
 {
-	Assert((size_t)p % 4 == 0);
-	return _InterlockedCompareExchange(p, comperand, value);
+    Assert((size_t)p % 4 == 0);
+    return _InterlockedCompareExchange(p, value, comperand) == comperand;
 }
 
 FORCEINLINE int64 ThreadInterlockedCompareExchange64(int64 volatile* pDest, int64 value, int64 comperand)
 {
-	return _InterlockedCompareExchange64(pDest, comperand, value);
+    Assert((size_t)pDest % 8 == 0);
+    return _InterlockedCompareExchange64(pDest, value, comperand);
 }
 
 FORCEINLINE bool ThreadInterlockedAssignIf64(int64 volatile* pDest, int64 value, int64 comperand)
 {
-	return _InterlockedCompareExchange64(pDest, comperand, value);
+    Assert((size_t)pDest % 8 == 0);
+    return _InterlockedCompareExchange64(pDest, value, comperand) == comperand;
 }
 
 //-----------------------------------------------------------------------------

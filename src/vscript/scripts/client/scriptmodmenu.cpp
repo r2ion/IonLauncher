@@ -12,7 +12,6 @@
 #include <array>
 #include <atomic>
 #include <filesystem>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,7 +21,7 @@ namespace fs = std::filesystem;
 class CModMenuSquirrel final
 {
 public:
-	static std::optional<fs::path> FindModIcon(const Mod& mod);
+	static bool FindModIcon(const Mod& mod, fs::path& iconPath);
 	static const ModWorkshopTrackedPackage* FindWorkshopPackage(const Mod& mod, const ModWorkshopInventorySnapshot* inventory);
 	static void EnsureModIconCallback();
 
@@ -56,7 +55,7 @@ fs::path CModMenuSquirrel::FindRemotePackageRoot(const Mod& mod)
 	return remoteRoot / *first;
 }
 
-std::optional<fs::path> CModMenuSquirrel::FindModIcon(const Mod& mod)
+bool CModMenuSquirrel::FindModIcon(const Mod& mod, fs::path& iconPath)
 {
 	const std::array<fs::path, 3> roots = {mod.m_PackageDirectory, mod.m_ModDirectory, FindRemotePackageRoot(mod)};
 	for (const fs::path& root : roots)
@@ -68,10 +67,13 @@ std::optional<fs::path> CModMenuSquirrel::FindModIcon(const Mod& mod)
 			const fs::path candidate = root / filename;
 			std::error_code error;
 			if (fs::is_regular_file(candidate, error) && !error)
-				return candidate;
+			{
+				iconPath = candidate;
+				return true;
+			}
 		}
 	}
-	return std::nullopt;
+	return false;
 }
 
 const ModWorkshopTrackedPackage* CModMenuSquirrel::FindWorkshopPackage(const Mod& mod, const ModWorkshopInventorySnapshot* inventory)
@@ -206,7 +208,8 @@ void CModMenuSquirrel::PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModWorkshopInve
 	g_pSquirrel[context]->pushinteger(sqvm, static_cast<int>(modIndex));
 	g_pSquirrel[context]->sealstructslot(sqvm, 14);
 
-	g_pSquirrel[context]->pushbool(sqvm, CModMenuSquirrel::FindModIcon(mod).has_value() || (trackedPackage && trackedPackage->remoteThumbnail));
+	fs::path iconPath;
+	g_pSquirrel[context]->pushbool(sqvm, CModMenuSquirrel::FindModIcon(mod, iconPath) || (trackedPackage && trackedPackage->remoteThumbnail));
 	g_pSquirrel[context]->sealstructslot(sqvm, 15);
 
 	g_pSquirrel[context]->newarray(sqvm);
@@ -261,10 +264,15 @@ ADD_SQFUNC("int", NSRequestModIconPage, "array<int> modIndices", "Loads availabl
 				{
 					const Mod& mod = g_pModManager->m_LoadedMods[static_cast<size_t>(index)];
 					request.id = static_cast<uint64_t>(index) + 1;
-					if (const std::optional<fs::path> icon = CModMenuSquirrel::FindModIcon(mod))
-						request.path = *icon;
-					else if (const ModWorkshopTrackedPackage* package = CModMenuSquirrel::FindWorkshopPackage(mod, inventory.get()))
-						request.thumbnail = package->remoteThumbnail;
+					if (!CModMenuSquirrel::FindModIcon(mod, request.path))
+					{
+						if (const ModWorkshopTrackedPackage* package = CModMenuSquirrel::FindWorkshopPackage(mod, inventory.get());
+						    package && package->remoteThumbnail)
+						{
+							request.thumbnail = *package->remoteThumbnail;
+							request.hasThumbnail = true;
+						}
+					}
 				}
 			}
 			icons.push_back(std::move(request));

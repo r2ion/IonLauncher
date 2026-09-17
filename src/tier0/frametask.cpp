@@ -1,6 +1,5 @@
 #include "tier0/frametask.h"
 #include "core/tier0.h"
-#include "rtech/rui/imageatlas.h"
 
 CFrameTask g_TaskQueue;
 
@@ -36,7 +35,6 @@ void CFrameTask::Dispatch(std::function<void()> functor, const unsigned int dela
 void RunFrameTasks()
 {
     g_TaskQueue.RunFrame();
-    CImageAtlas::RunFrame();
 }
 
 void RunInMainThread(std::function<void()> functor)

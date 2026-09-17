@@ -165,7 +165,7 @@ public:
 	// WC Editing
 	//-----------------
 	int m_nNextWCIndex;
-	Vector3* m_pWCPosition;
+	Vector3D* m_pWCPosition;
 
 	//-----------------
 	// Debugging Tools

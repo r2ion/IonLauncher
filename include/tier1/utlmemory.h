@@ -19,7 +19,7 @@
 template< class T, class I = int64_t >
 class CUtlMemory
 {
-	template< class A, class B> friend class CUtlVector;
+	template< class A, class B, class C> friend class CUtlVector;
 	template< class A, size_t B> friend class CUtlVectorFixedGrowableCompat;
 public:
 	// constructor, destructor

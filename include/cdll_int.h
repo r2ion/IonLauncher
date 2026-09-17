@@ -7,7 +7,7 @@
 
 class CMoveData;
 class CUserCmd;
-class Vector3;
+class Vector3D;
 class bf_read;
 class bf_write;
 struct ScreenFade_t;
@@ -84,7 +84,7 @@ public:
 	virtual void RenderView(void* pViewSetup, int clearFlags, int whatToDraw) = 0; // 37
 	virtual void ViewFade(const ScreenFade_t* pScreenFade) = 0; // 38
 	virtual void SetCrosshairAngle(const float* pAngle) = 0; // 39
-	virtual void GrantClientSidePickup(int pickupType, int count, const Vector3* pOrigin,
+	virtual void GrantClientSidePickup(int pickupType, int count, const Vector3D* pOrigin,
 		std::uint32_t flags, int value) = 0; // 40
 	virtual void* AllocateStaticPropRecords(std::uint32_t firstIndex,
 		std::uint32_t recordCount) = 0; // 41
@@ -170,7 +170,7 @@ public:
 		void* pArg4) = 0; // 113
 	virtual void SetSplitScreenStateCachingEnabled(bool enabled) = 0; // 114
 	virtual void GetCachedViewScales(float* pFirstScale, float* pSecondScale) = 0; // 115
-	virtual void GetCachedViewVector(Vector3* pValue) = 0; // 116
+	virtual void GetCachedViewVector(Vector3D* pValue) = 0; // 116
 	virtual int ForwardFindLightProbeVolumeContainingPoint(const float* pPoint) = 0; // 117
 	virtual void FireEvents(float frameTime) = 0; // 118
 	virtual bool GetGamesWonTotal(std::uint32_t index, int* pValue) = 0; // 119

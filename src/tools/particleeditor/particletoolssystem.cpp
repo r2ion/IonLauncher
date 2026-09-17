@@ -10,7 +10,7 @@
 #include "client/viewrender.h"
 #include "materialsystem/imatrendercontext.h"
 #include "plugins/interfaces/interface_registry.h"
-#include "rtech/rui/rui_core_types.h"
+#include "rtech/rui/rui.h"
 #include "tier0/frametask.h"
 #include "tier0/hooks.h"
 #include "toolframework/itooldictionary.h"
@@ -97,11 +97,11 @@ DECLARE_HOOK(SuppressParticleEditorRui, engine.dll + 0xFC7A0, [](auto& hook, Rui
         return;
     }
 
-    const std::uint16_t ruiCount = context->ruiCount;
-    context->ruiCount = 0;
-    context->materialBatchCount = 0;
+    const std::uint16_t instanceCount = context->instanceCount;
+    context->instanceCount = 0;
+    context->drawBatchCount = 0;
     hook.Original(context);
-    context->ruiCount = ruiCount;
+    context->instanceCount = instanceCount;
 })
 
 // Replace the player view at retail's per-frame setup boundary. Rebuilding the
@@ -333,7 +333,7 @@ static std::string GetUtf8Path(const std::filesystem::path& path)
     return std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size());
 }
 
-static bool ParseVectorValue(std::string_view value, Vector& result)
+static bool ParseVectorValue(std::string_view value, Vector3D& result)
 {
     float components[3]{};
     const char* current = value.data();
@@ -356,11 +356,32 @@ static bool ParseVectorValue(std::string_view value, Vector& result)
     if (current != end)
         return false;
 
-    Vector parsed(components[0], components[1], components[2]);
+    Vector3D parsed(components[0], components[1], components[2]);
     if (!parsed.IsValid())
         return false;
     result = parsed;
     return true;
+}
+
+static void ComputePreviewCameraBasis(const QAngle& angles, Vector3D& forward, Vector3D& right, Vector3D& up)
+{
+    const float pitch = DEG2RAD(angles.x);
+    const float yaw = DEG2RAD(angles.y);
+    const float roll = DEG2RAD(angles.z);
+    const float sinPitch = std::sin(pitch);
+    const float cosPitch = std::cos(pitch);
+    const float sinYaw = std::sin(yaw);
+    const float cosYaw = std::cos(yaw);
+    const float sinRoll = std::sin(roll);
+    const float cosRoll = std::cos(roll);
+
+    forward.Init(cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+    right.Init(-sinRoll * sinPitch * cosYaw + cosRoll * sinYaw,
+               -sinRoll * sinPitch * sinYaw - cosRoll * cosYaw,
+               -sinRoll * cosPitch);
+    up.Init(cosRoll * sinPitch * cosYaw + sinRoll * sinYaw,
+            cosRoll * sinPitch * sinYaw - sinRoll * cosYaw,
+            cosRoll * cosPitch);
 }
 
 static void StabilizePreviewProjection(CViewRenderView& renderView)
@@ -515,7 +536,7 @@ const char* CParticleToolSystem::GetEntityData(const char* pActualEntityData)
     return pActualEntityData;
 }
 
-bool CParticleToolSystem::FindMapDefaultCamera(Vector& origin, QAngle& angles, Vector& focus) const
+bool CParticleToolSystem::FindMapDefaultCamera(Vector3D& origin, QAngle& angles, Vector3D& focus) const
 {
     if (!m_pServerTools)
         return false;
@@ -534,14 +555,14 @@ bool CParticleToolSystem::FindMapDefaultCamera(Vector& origin, QAngle& angles, V
         }
 
         originValue.fill('\0');
-        Vector parsedOrigin;
+        Vector3D parsedOrigin;
         if (!m_pServerTools->GetKeyValue(entity, "origin", originValue.data(), static_cast<std::uint32_t>(originValue.size())) ||
             !ParseVectorValue(originValue.data(), parsedOrigin))
         {
             continue;
         }
 
-        Vector parsedAngles;
+        Vector3D parsedAngles;
         anglesValue.fill('\0');
         if (m_pServerTools->GetKeyValue(entity, "angles", anglesValue.data(), static_cast<std::uint32_t>(anglesValue.size())))
         {
@@ -552,7 +573,7 @@ bool CParticleToolSystem::FindMapDefaultCamera(Vector& origin, QAngle& angles, V
         angles = QAngle(parsedAngles.x, parsedAngles.y, parsedAngles.z);
         const float pitch = DEG2RAD(angles.x);
         const float yaw = DEG2RAD(angles.y);
-        focus = origin + Vector(std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), -std::sin(pitch)) * 256.0f;
+        focus = origin + Vector3D(std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), -std::sin(pitch)) * 256.0f;
 
         targetValue.fill('\0');
         if (!m_pServerTools->GetKeyValue(entity, "target", targetValue.data(), static_cast<std::uint32_t>(targetValue.size())) ||
@@ -573,7 +594,7 @@ bool CParticleToolSystem::FindMapDefaultCamera(Vector& origin, QAngle& angles, V
             }
 
             targetOriginValue.fill('\0');
-            Vector parsedFocus;
+            Vector3D parsedFocus;
             if (!m_pServerTools->GetKeyValue(targetEntity, "origin", targetOriginValue.data(),
                                              static_cast<std::uint32_t>(targetOriginValue.size())) ||
                 !ParseVectorValue(targetOriginValue.data(), parsedFocus))
@@ -582,7 +603,7 @@ bool CParticleToolSystem::FindMapDefaultCamera(Vector& origin, QAngle& angles, V
             }
 
             focus = parsedFocus;
-            const Vector direction = focus - origin;
+            const Vector3D direction = focus - origin;
             const float horizontalDistance = std::hypot(direction.x, direction.y);
             if (horizontalDistance > 0.001f || std::abs(direction.z) > 0.001f)
             {
@@ -675,7 +696,7 @@ bool CParticleToolSystem::PreparePreviewView(const CViewSetup& sourceView, CView
     if (!m_pEditor->GetPreviewViewport(x, y, width, height))
         return false;
 
-    Vector previewOrigin;
+    Vector3D previewOrigin;
     QAngle previewAngles;
     float previewFov = 0.0f;
     if (!SetupEngineView(previewOrigin, previewAngles, previewFov))
@@ -777,10 +798,10 @@ void CParticleToolSystem::AdjustEngineViewport(int& x, int& y, int& width, int& 
 
 void CParticleToolSystem::CenterPreviewCamera()
 {
-    Vector forward;
-    Vector right;
-    Vector up;
-    AngleVectors(m_PreviewCameraAngles, &forward, &right, &up);
+    Vector3D forward;
+    Vector3D right;
+    Vector3D up;
+    ComputePreviewCameraBasis(m_PreviewCameraAngles, forward, right, up);
 
     float projectionCenterX = 0.0f;
     float projectionCenterY = 0.0f;
@@ -814,7 +835,7 @@ void CParticleToolSystem::CenterPreviewCamera()
 
 }
 
-bool CParticleToolSystem::SetupEngineView(Vector& origin, QAngle& angles, float& fov)
+bool CParticleToolSystem::SetupEngineView(Vector3D& origin, QAngle& angles, float& fov)
 {
     if (!IsEditorInputEnabled())
         return false;
@@ -832,7 +853,7 @@ bool CParticleToolSystem::SetupEngineView(Vector& origin, QAngle& angles, float&
         }
         else
         {
-            Vector playerEyeOrigin;
+            Vector3D playerEyeOrigin;
             QAngle playerEyeAngles;
             float playerFov = 0.0f;
             if (!m_pClientTools || !m_pClientTools->GetLocalPlayerEyePosition(playerEyeOrigin, playerEyeAngles, playerFov))
@@ -845,7 +866,7 @@ bool CParticleToolSystem::SetupEngineView(Vector& origin, QAngle& angles, float&
             }
 
             const float yaw = DEG2RAD(playerEyeAngles.y);
-            m_PreviewFocus = playerEyeOrigin + Vector(std::cos(yaw) * 192.0f, std::sin(yaw) * 192.0f, -56.0f);
+            m_PreviewFocus = playerEyeOrigin + Vector3D(std::cos(yaw) * 192.0f, std::sin(yaw) * 192.0f, -56.0f);
             m_PreviewCameraAngles = QAngle(18.0f, playerEyeAngles.y, 0.0f);
             m_PreviewCameraDistance = 256.0f;
             m_PreviewCameraFov = std::clamp(playerFov > 0.0f ? playerFov : 75.0f, 60.0f, 100.0f);
@@ -1104,15 +1125,13 @@ void CParticleToolSystem::PanPreviewCamera(float mouseDeltaX, float mouseDeltaY)
         return;
     }
 
-    Vector forward;
-    Vector right;
-    Vector up;
-    AngleVectors(m_PreviewCameraAngles, &forward, &right, &up);
+    Vector3D forward;
+    Vector3D right;
+    Vector3D up;
+    ComputePreviewCameraBasis(m_PreviewCameraAngles, forward, right, up);
 
-    // Grab-and-drag panning: move the orbit focus (and therefore the camera) in
-    // the camera's screen plane. The `right`/`up` vectors from AngleVectors
-    // match screen-right/screen-up at the current orientation. Pan speed scales
-    // with distance so the motion feels consistent whether zoomed in or out.
+    // Grab-and-drag panning moves the orbit focus in the camera's screen plane.
+    // Speed scales with distance so the motion feels consistent across zoom levels.
     const float panScale = m_PreviewCameraDistance * 0.0015f;
     m_PreviewFocus += right * (mouseDeltaX * panScale);
     m_PreviewFocus -= up * (mouseDeltaY * panScale);
@@ -1153,7 +1172,7 @@ void CParticleToolSystem::RunPreview(std::shared_ptr<const std::vector<std::byte
         return;
     }
 
-    Vector previewCameraOrigin;
+    Vector3D previewCameraOrigin;
     QAngle previewCameraAngles;
     float previewCameraFov = 0.0f;
     if (!SetupEngineView(previewCameraOrigin, previewCameraAngles, previewCameraFov))
@@ -1162,7 +1181,7 @@ void CParticleToolSystem::RunPreview(std::shared_ptr<const std::vector<std::byte
             m_pEditor->SetStatus("Native PCF reloaded; a local player is required for visual preview");
         return;
     }
-    const Vector previewOrigin = m_PreviewFocus;
+    const Vector3D previewOrigin = m_PreviewFocus;
     const QAngle previewAngles(0.0f, previewCameraAngles.y, 0.0f);
 
     std::ostringstream script;

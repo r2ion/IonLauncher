@@ -45,11 +45,11 @@ class CBaseEntity : public IServerEntity
   public:
     virtual bool TestCollision(const Ray_t& ray, unsigned int contentsMask, trace_t& trace) = 0; // 10
     virtual bool TestHitboxes(const Ray_t& ray, unsigned int contentsMask, trace_t& trace) = 0; // 11
-    virtual void ComputeWorldSpaceSurroundingBox(Vector3* worldMins, Vector3* worldMaxs) = 0; // 12
+    virtual void ComputeWorldSpaceSurroundingBox(Vector3D* worldMins, Vector3D* worldMaxs) = 0; // 12
   protected:
     virtual void ReservedEntitySlot013() = 0; // 13
   public:
-    virtual bool ShouldCollideByVelocity(const Vector3& velocity) = 0; // 14
+    virtual bool ShouldCollideByVelocity(const Vector3D& velocity) = 0; // 14
     virtual bool ShouldCollide(const CBaseEntity* other, int collisionGroup, int contentsMask) = 0; // 15
     virtual void SetOwnerEntity(CBaseEntity* owner) = 0; // 16
     virtual const CBaseEntity* GetOwnerEntityConst() const = 0; // 17
@@ -100,7 +100,7 @@ class CBaseEntity : public IServerEntity
     virtual void ReservedEntitySlot059() = 0; // 59
   public:
     virtual int OnTakeDamage(const CTakeDamageInfo& info) = 0; // 60
-    virtual void AdjustDamageDirection(Vector3& direction) = 0; // 61
+    virtual void AdjustDamageDirection(Vector3D& direction) = 0; // 61
     virtual int TakeHealth(float health, int damageType) = 0; // 62
     virtual void Event_Killed(const CTakeDamageInfo& info) = 0; // 63
     virtual void Event_KilledOther(CBaseEntity* victim, const CTakeDamageInfo& info) = 0; // 64
@@ -196,8 +196,8 @@ class CBaseEntity : public IServerEntity
     virtual void ReservedEntitySlot131() = 0; // 131
     virtual void ReservedEntitySlot132() = 0; // 132
   public:
-    virtual Vector3 EyePosition() = 0; // 133
-    virtual Vector3 EarPosition() = 0; // 134
+    virtual Vector3D EyePosition() = 0; // 133
+    virtual Vector3D EarPosition() = 0; // 134
     virtual QAngle EyeAngles() = 0; // 135
     virtual QAngle LocalEyeAngles() = 0; // 136
   protected:
@@ -205,21 +205,21 @@ class CBaseEntity : public IServerEntity
     virtual void ReservedEntitySlot138() = 0; // 138
     virtual void ReservedEntitySlot139() = 0; // 139
   public:
-    virtual void GetVectors(Vector3* forward, Vector3* right, Vector3* up) const = 0; // 140
-    virtual Vector3 GetSmoothedVelocity() = 0; // 141
-    virtual void GetVelocity(Vector3* velocity, Vector3* angularVelocity) = 0; // 142
+    virtual void GetVectors(Vector3D* forward, Vector3D* right, Vector3D* up) const = 0; // 140
+    virtual Vector3D GetSmoothedVelocity() = 0; // 141
+    virtual void GetVelocity(Vector3D* velocity, Vector3D* angularVelocity) = 0; // 142
     virtual float GetGravity() const = 0; // 143
     virtual float GetFriction() const = 0; // 144
-    virtual bool FVisiblePosition(const Vector3& target, int traceMask, CBaseEntity** blocker) = 0; // 145
+    virtual bool FVisiblePosition(const Vector3D& target, int traceMask, CBaseEntity** blocker) = 0; // 145
     virtual bool FVisible(CBaseEntity* entity, int traceMask, CBaseEntity** blocker) = 0; // 146
-    virtual bool FVisibleFromPosition(const Vector3& source, const Vector3& target, int traceMask, CBaseEntity** blocker) = 0; // 147
+    virtual bool FVisibleFromPosition(const Vector3D& source, const Vector3D& target, int traceMask, CBaseEntity** blocker) = 0; // 147
   protected:
     virtual void ReservedEntitySlot148() = 0; // 148
   public:
-    virtual void GetGroundVelocityToApply(Vector3& velocity) = 0; // 149
-    virtual Vector3 Script_GetBoundingMins() = 0; // 150
-    virtual Vector3 Script_GetBoundingMaxs() = 0; // 151
-    virtual const Vector3& WorldSpaceCenter() const = 0; // 152
+    virtual void GetGroundVelocityToApply(Vector3D& velocity) = 0; // 149
+    virtual Vector3D Script_GetBoundingMins() = 0; // 150
+    virtual Vector3D Script_GetBoundingMaxs() = 0; // 151
+    virtual const Vector3D& WorldSpaceCenter() const = 0; // 152
   protected:
     virtual void ReservedEntitySlot153() = 0; // 153
     virtual void ReservedEntitySlot154() = 0; // 154
@@ -250,7 +250,7 @@ class CBaseEntity : public IServerEntity
     virtual void ReservedEntitySlot171() = 0; // 171
     virtual void ReservedEntitySlot172() = 0; // 172
   public:
-    virtual void ResolveFlyCollisionCustom(trace_t& trace, Vector3& velocity) = 0; // 173
+    virtual void ResolveFlyCollisionCustom(trace_t& trace, Vector3D& velocity) = 0; // 173
   protected:
     virtual void ReservedEntitySlot174() = 0; // 174
     virtual void ReservedEntitySlot175() = 0; // 175
@@ -304,7 +304,7 @@ class CBaseEntity : public IServerEntity
     char _unk_0x29c[376];
     int32_t m_hGroundEntity; // 0x414
     char _unk_0x418[120];
-    Vector3 m_vecAbsOrigin; // 0x490
+    Vector3D m_vecAbsOrigin; // 0x490
     char _unk_0x49c[52];
     int32_t m_iMaxHealth; // 0x4D0
     int32_t m_iHealth;    // 0x4D4

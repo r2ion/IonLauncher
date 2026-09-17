@@ -10,6 +10,7 @@
 
 // add headers that you want to pre-compile here
 #include <windows.h>
+#include <timeapi.h>
 #include <psapi.h>
 #include <set>
 #include <map>
@@ -32,6 +33,7 @@ namespace fs = std::filesystem;
 #include "common/pseudodefs.h"
 
 #include "core/macros.h"
+#include "mathlib/mathlib_pch.h"
 #include "mathlib/color.h"
 #include "logging/logging.h"
 #include <MinHook.h>

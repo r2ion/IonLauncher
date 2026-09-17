@@ -4,7 +4,6 @@
 #include "modsystem/modmanager.h"
 #include "rtech/pakstate.h"
 #include "rtech/paktools.h"
-#include "rtech/rui/dynamic_imageatlas.h"
 #include "util/utils.h"
 #include <algorithm>
 #include <mutex>
@@ -307,8 +306,6 @@ void PakLoadManager::OnPakLoaded(const std::string& resultingPath, PakHandle_t r
     if (resultingHandle == PAK_INVALID_HANDLE)
         return;
 
-    CDynamicImageAtlas::OnPakLoaded(resultingPath, resultingHandle);
-
     if (IsVanillaCall())
     {
         // add entry to loaded vanilla rpaks
@@ -357,8 +354,6 @@ bool PakLoadManager::PreparePakUnload(PakHandle_t handle)
 
 void PakLoadManager::CommitPakUnload(PakHandle_t handle)
 {
-    CDynamicImageAtlas::OnPakUnloading(handle);
-
     std::erase_if(m_vanillaPaks, [handle](const auto& pak) { return pak.second == handle; });
     std::erase_if(m_dependentPaks, [handle](const auto& dependency) { return dependency.second == handle; });
 
@@ -946,7 +941,6 @@ DECLARE_HOOK(Pak_BeginUnload, rtech_game.DLL + 0xB1B0, [](auto& hook, PakHandle_
 
 DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo_s* info)
 {
-    const PakHandle_t handle = info ? info->handle : PAK_INVALID_HANDLE;
     bool invalidPakFile = false;
     if (info && info->pakFile)
     {
@@ -968,9 +962,6 @@ DECLARE_HOOK(Pak_Finalise, rtech_game.DLL + 0x8410, [](auto& hook, PakLoadedInfo
     }
 
     hook.Original(info);
-
-    if (handle != PAK_INVALID_HANDLE && info && info->status == PAK_STATUS_LOADED)
-        CDynamicImageAtlas::OnPakLoadCompleted(handle);
 })
 
 ON_DLL_LOAD("engine.dll", RpakFilesystem, [](CModule module)

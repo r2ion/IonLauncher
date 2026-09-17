@@ -13,8 +13,8 @@ class IVEfx
 {
 public:
 	virtual void PlayerDecalShoot(IMaterial* pMaterial, std::uint32_t entityIndex, const model_t* pModel,
-		const Vector3& modelOrigin, const QAngle& modelAngles, const Vector3& position,
-		const Vector3* pDecalAxis, int flags, float scale, const Vector3& normal) = 0;
+		const Vector3D& modelOrigin, const QAngle& modelAngles, const Vector3D& position,
+		const Vector3D* pDecalAxis, int flags, float scale, const Vector3D& normal) = 0;
 	virtual void FlushQueuedDecals() = 0;
 	virtual dlight_t* AllocDlight(std::uint32_t key) = 0;
 	virtual void FreeDlightByKey(int key) = 0;

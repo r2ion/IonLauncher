@@ -1,6 +1,10 @@
 #include "weapon_mods.h"
 
+#include "client/weaponx.h"
+#include "engine/cdll_int.h"
+#include "tier0/frametask.h"
 #include "tier1/keyvalues.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 
 #include <algorithm>
 #include <cassert>
@@ -556,6 +560,22 @@ void CWeaponModHandler<WeaponInfo>::NotifyStringField(void* pOwner, std::uint16_
     else
         original();
 }
+
+DECLARE_HOOK(C_WeaponX_GetMods, client.dll + 0x5A7FA0, [](auto& hook, C_WeaponX* pWeapon, HSQUIRRELVM sqvm) -> SQRESULT
+{
+    if (pWeapon->GetWeaponFileInfoHandle() != GetInvalidWeaponInfoHandle())
+        return hook.Original(pWeapon, sqvm);
+
+    g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "GetMods: invalid weapon-info handle (0xFFFF)");
+
+	// crashes can happen due to weird server-side keyvalues bullshit, not sure if a disconnect is needed though
+    g_TaskQueue.Dispatch([]()
+    {
+        g_pEngineClient->Disconnect("#DISCONNECT_OUT_OF_SYNC");
+    });
+
+    return SQRESULT_ERROR;
+});
 
 DECLARE_HOOK(InitializeWeaponInfo_Client, client.dll + 0x3CC990, [](auto& hook, ClientWeaponInfo_t* pWeaponInfo) -> std::uintptr_t
 {

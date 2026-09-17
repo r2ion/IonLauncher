@@ -12,13 +12,6 @@
 #include "tier1/strtools.h"
 #include "tier1/characterset.h"
 
-// Swap two of anything.
-template <class T> FORCEINLINE void V_swap(T& x, T& y)
-{
-	T temp = x;
-	x = y;
-	y = temp;
-}
 
 //-----------------------------------------------------------------------------
 // Character conversions for C strings
@@ -1818,7 +1811,6 @@ void CUtlBuffer::Swap(CUtlBuffer& buf)
 	V_swap(m_Error, buf.m_Error);
 	m_Memory.Swap(buf.m_Memory);
 }
-
 
 //-----------------------------------------------------------------------------
 // Fast swap w/ a CUtlMemory.

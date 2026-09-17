@@ -10,7 +10,6 @@ struct SV_CUserCmd;
 class CPlayer : public CBaseCombatCharacter
 {
   public:
-    // Retail server.dll primary vtable: 352 slots at RVA 0x9524F8.
     ServerClass* GetServerClass() override = 0; // 3
     ServerDataMap* GetDataDescMap() override = 0; // 5
     ScriptClassDesc_t* GetScriptDesc() override = 0; // 6
@@ -31,37 +30,37 @@ class CPlayer : public CBaseCombatCharacter
     bool IsTitan() const override = 0; // 84
     void PhysicsSimulate() override = 0; // 116
     void UpdateOnRemove() override = 0; // 117
-    Vector3 EyePosition() override = 0; // 133
-    Vector3 EarPosition() override = 0; // 134
+    Vector3D EyePosition() override = 0; // 133
+    Vector3D EarPosition() override = 0; // 134
     QAngle EyeAngles() override = 0; // 135
     QAngle LocalEyeAngles() override = 0; // 136
-    Vector3 GetSmoothedVelocity() override = 0; // 141
-    void GetVelocity(Vector3* velocity, Vector3* angularVelocity) override = 0; // 142
+    Vector3D GetSmoothedVelocity() override = 0; // 141
+    void GetVelocity(Vector3D* velocity, Vector3D* angularVelocity) override = 0; // 142
     float GetGravity() const override = 0; // 143
-    const Vector3& WorldSpaceCenter() const override = 0; // 152
+    const Vector3D& WorldSpaceCenter() const override = 0; // 152
     void VPhysicsDestroyObject() override = 0; // 157
     unsigned int PhysicsSolidMaskForEntity() const override = 0; // 169
     void HandleAnimEvent(animevent_t* event) override = 0; // 258
     const impactdamagetable_t& GetPhysicsImpactDamageTable() override = 0; // 274
     QAngle BodyAngles() const override = 0; // 280
-    Vector3 EyeDirection2D() override = 0; // 285
-    Vector3 EyeDirection3D() override = 0; // 286
+    Vector3D EyeDirection2D() override = 0; // 285
+    Vector3D EyeDirection3D() override = 0; // 286
     float ScriptGetAttackSpreadAngle() override = 0; // 288
     void ScriptGiveExistingWeapon(CBaseEntity* weapon) override = 0; // 289
     bool Weapon_Detach(CBaseCombatWeapon* weapon) override = 0; // 292
     bool Weapon_Switch(CBaseCombatWeapon* weapon) override = 0; // 293
     bool Weapon_IsPlaying3pEquipActivity() const override = 0; // 295
     bool Weapon_IsPlaying3pReloadActivity() const override = 0; // 296
-    Vector3 Weapon_ShootPosition() override = 0; // 297
+    Vector3D Weapon_ShootPosition() override = 0; // 297
     const char* GetWeaponClass() const override = 0; // 298
     void Weapon_StartGestureAnim(int activity, float duration, bool autokill) override = 0; // 302
     void Weapon_EndGestureAnim(int activity, float fadeOut) override = 0; // 303
     void ScriptTakeWeapon(const char* weaponName) override = 0; // 304
     void ScriptTakeWeaponNow(const char* weaponName) override = 0; // 305
-    Vector3 ScriptGetPlayerOrNPCViewVector() override = 0; // 306
-    Vector3 ScriptGetPlayerOrNPCViewForward() override = 0; // 307
-    Vector3 ScriptGetPlayerOrNPCViewUp() override = 0; // 308
-    Vector3 ScriptGetPlayerOrNPCViewRight() override = 0; // 309
+    Vector3D ScriptGetPlayerOrNPCViewVector() override = 0; // 306
+    Vector3D ScriptGetPlayerOrNPCViewForward() override = 0; // 307
+    Vector3D ScriptGetPlayerOrNPCViewUp() override = 0; // 308
+    Vector3D ScriptGetPlayerOrNPCViewRight() override = 0; // 309
     void SetOutOfBoundsDeadTime(float time) override = 0; // 310
     float GetOutOfBoundsDeadTime() override = 0; // 311
     int ScriptGiveWeapon(SQVM* vm) override = 0; // 312
@@ -157,19 +156,19 @@ class CPlayer : public CBaseCombatCharacter
     SV_CUserCmd* m_pCurrentCommand;                          // 0x21d8 ( Size: 8 )
     char _unk_0x21e0[112];                                   // 0x21e0 ( Size: 112 )
     int32_t m_duckState;                                     // 0x2250 ( Size: 4 )
-    Vector3 m_StandHullMin;                                  // 0x2254 ( Size: 12 )
-    Vector3 m_StandHullMax;                                  // 0x2260 ( Size: 12 )
-    Vector3 m_DuckHullMin;                                   // 0x226c ( Size: 12 )
-    Vector3 m_DuckHullMax;                                   // 0x2278 ( Size: 12 )
-    Vector3 m_upDir;                                         // 0x2284 ( Size: 12 )
+    Vector3D m_StandHullMin;                                  // 0x2254 ( Size: 12 )
+    Vector3D m_StandHullMax;                                  // 0x2260 ( Size: 12 )
+    Vector3D m_DuckHullMin;                                   // 0x226c ( Size: 12 )
+    Vector3D m_DuckHullMax;                                   // 0x2278 ( Size: 12 )
+    Vector3D m_upDir;                                         // 0x2284 ( Size: 12 )
     char _unk_0x2290[80];                                    // 0x2290 ( Size: 80 )
     bool m_wallHanging;                                      // 0x22e0 ( Size: 1 )
     char _unk_0x22e1[11];                                    // 0x22e1 ( Size: 11 )
     int32_t m_traversalType;                                 // 0x22ec ( Size: 4 )
     int32_t m_traversalState;                                // 0x22f0 ( Size: 4 )
     char _unk_0x22f4[40];                                    // 0x22f4 ( Size: 40 )
-    Vector3 m_traversalForwardDir;                           // 0x231c ( Size: 12 )
-    Vector3 m_traversalRefPos;                               // 0x2328 ( Size: 12 )
+    Vector3D m_traversalForwardDir;                           // 0x231c ( Size: 12 )
+    Vector3D m_traversalRefPos;                               // 0x2328 ( Size: 12 )
     char _unk_0x2334[32];                                    // 0x2334 ( Size: 32 )
     float m_traversalYawDelta;                               // 0x2354 ( Size: 4 )
     int32_t m_traversalYawPoseParameter;                     // 0x2358 ( Size: 4 )

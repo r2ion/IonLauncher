@@ -9,7 +9,7 @@ class IHandleEntity;
 
 struct cplanetrace_t
 {
-	Vector3 m_Normal;
+	Vector3D m_Normal;
 	float m_Distance;
 };
 
@@ -23,9 +23,9 @@ struct csurface_t
 
 struct GameTrace
 {
-	Vector3 m_StartPosition;
+	Vector3D m_StartPosition;
 	float m_Reserved0C;
-	Vector3 m_EndPosition;
+	Vector3D m_EndPosition;
 	float m_Reserved1C;
 	cplanetrace_t m_Plane;
 	float m_Fraction;

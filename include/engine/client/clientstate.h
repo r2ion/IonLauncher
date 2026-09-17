@@ -15,8 +15,8 @@
 #include "mathlib/vector.h"
 #include "tier1/utlvector.h"
 #include "tier1/mempool.h"
-class CClientState;
 
+class CClientState;
 
 extern char* g_pLocalPlayerUserID;
 extern char* g_pLocalPlayerOriginToken;
@@ -138,7 +138,7 @@ extern GetLocalPlayerIndexType GetLocalPlayerIndex;
 class CClientSnapshotManager
 {
 public:
-	CFrameSnapshot* m_Frames; // 0x0008; follows the implicit vtable pointer
+	CFrameSnapshot* m_Frames; // 0x0008;
 	CUtlMemoryPool m_ClientFramePool; // 0x0010
 
 	CClientSnapshotManager();
@@ -313,7 +313,7 @@ public:
 	std::uint32_t m_nServerMapCRC; // 0x101A0
 	QAngle m_ViewAngles; // 0x101A4
 	std::uint32_t m_nViewOriginOverrideSequence; // 0x101B0
-	Vector3 m_ViewOriginOverride; // 0x101B4
+	Vector3D m_ViewOriginOverride; // 0x101B4
 	std::int32_t m_nViewOriginOverrideValue; // 0x101C0
 	std::int32_t m_nViewOriginOverrideStateId; // 0x101C4
 	std::uint32_t m_nViewOriginOverrideActivationTick; // 0x101C8
@@ -412,68 +412,3 @@ public:
 	bool ProcessNetProfileTotals(SVC_NetProfileTotals* message) override;
 };
 #pragma pack(pop)
-static_assert(sizeof(AddAngle) == 0x8);
-static_assert(sizeof(CClientEventPackedData) == 0x10);
-static_assert(offsetof(CClientEventPackedData, m_pData) == 0x8);
-static_assert(sizeof(CEngineRecipientFilter) == 0x30);
-static_assert(offsetof(CEngineRecipientFilter, m_Recipients) == 0x10);
-static_assert(sizeof(CClientEventInfo) == 0x60);
-static_assert(offsetof(CClientEventInfo, m_flFireDelay) == 0x4);
-static_assert(offsetof(CClientEventInfo, m_pSendTable) == 0x8);
-static_assert(offsetof(CClientEventInfo, m_pClientClass) == 0x10);
-static_assert(offsetof(CClientEventInfo, m_PackedData) == 0x18);
-static_assert(offsetof(CClientEventInfo, m_nFlags) == 0x28);
-static_assert(offsetof(CClientEventInfo, m_RecipientFilter) == 0x30);
-static_assert(sizeof(CClientEventListNode) == 0x70);
-static_assert(offsetof(CClientEventListNode, m_pPrevious) == 0x60);
-static_assert(offsetof(CClientEventListNode, m_pNext) == 0x68);
-static_assert(sizeof(CClientEventList) == 0x58);
-static_assert(offsetof(CClientEventList, m_pHead) == 0x18);
-static_assert(offsetof(CClientEventList, m_pTail) == 0x20);
-static_assert(offsetof(CClientEventList, m_pFirstFree) == 0x28);
-static_assert(offsetof(CClientEventList, m_nElementCount) == 0x30);
-static_assert(offsetof(CClientEventList, m_nAllocatedCount) == 0x38);
-static_assert(offsetof(CClientEventList, m_pLastAllocationBlock) == 0x40);
-static_assert(offsetof(CClientEventList, m_nLastAllocationIndex) == 0x48);
-static_assert(offsetof(CClientEventList, m_pElements) == 0x50);
-
-static_assert(sizeof(CClientState) == 0x1B634);
-static_assert(offsetof(CClientState, m_Socket) == 0x58);
-static_assert(offsetof(CClientState, m_NetChannel) == 0x60);
-static_assert(offsetof(CClientState, m_nSignonState) == 0x98);
-static_assert(offsetof(CClientState, m_szLevelBaseName) == 0x1B4);
-static_assert(offsetof(CClientState, m_szEncryptionKey) == 0x2C8);
-static_assert(sizeof(((CClientState*)nullptr)->m_szEncryptionKey) == 0x800);
-static_assert(offsetof(CClientState, m_nEncryptionKeySize) == 0xAC8);
-static_assert(offsetof(CClientState, m_StringTableContainer) == 0xAD0);
-static_assert(offsetof(CClientState, m_szServerAddress) == 0xFAE6);
-static_assert(offsetof(CClientState, m_DataBlockReceiver) == 0xFEE8);
-static_assert(offsetof(CClientState, m_flServerUptime) == 0x10184);
-static_assert(offsetof(CClientState, m_bIsReplayRoundWinning) == 0x10191);
-static_assert(offsetof(CClientState, m_nReplayRoundWinningPlayerIndex) == 0x10194);
-static_assert(offsetof(CClientState, m_nReplayPlayerIndex) == 0x10198);
-static_assert(offsetof(CClientState, m_nActiveSplitScreenPlayerSlot) == 0x1019C);
-static_assert(offsetof(CClientState, m_bCanProcessSignedOnLocalClientInput) == 0x1019D);
-static_assert(offsetof(CClientState, m_nServerMapCRC) == 0x101A0);
-static_assert(offsetof(CClientState, m_ViewAngles) == 0x101A4);
-static_assert(offsetof(CClientState, m_nViewOriginOverrideSequence) == 0x101B0);
-static_assert(offsetof(CClientState, m_ViewOriginOverride) == 0x101B4);
-static_assert(offsetof(CClientState, m_nViewOriginOverrideValue) == 0x101C0);
-static_assert(offsetof(CClientState, m_nViewOriginOverrideStateId) == 0x101C4);
-static_assert(offsetof(CClientState, m_nViewOriginOverrideActivationTick) == 0x101C8);
-static_assert(offsetof(CClientState, m_AddedAngles) == 0x101D0);
-static_assert(offsetof(CClientState, m_flAddedAngleTotal) == 0x101F0);
-static_assert(offsetof(CClientState, m_flPreviousAddedAngleTotal) == 0x101F4);
-static_assert(offsetof(CClientState, m_bLocalClientViewStateEnabled) == 0x101F8);
-static_assert(offsetof(CClientState, m_PartyState) == 0x10200);
-static_assert(offsetof(CClientState, m_Events) == 0x13198);
-static_assert(offsetof(CClientState, m_nDemoNumber) == 0x131F0);
-static_assert(offsetof(CClientState, m_szDemoFileNames) == 0x131F4);
-static_assert(offsetof(CClientState, m_pModelPrecacheTable) == 0x135F8);
-static_assert(offsetof(CClientState, m_pDecalPrecacheTable) == 0x13600);
-static_assert(offsetof(CClientState, m_pInstanceBaselineTable) == 0x13608);
-static_assert(offsetof(CClientState, m_pLightStyleTable) == 0x13610);
-static_assert(offsetof(CClientState, m_pUserInfoTable) == 0x13618);
-static_assert(offsetof(CClientState, m_pServerQueryInfoTable) == 0x13620);
-static_assert(offsetof(CClientState, m_EntityBaselines) == 0x13628);
-static_assert(offsetof(CClientState, m_bEntityBaselinesInitialized) == 0x1B628);

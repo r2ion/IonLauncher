@@ -62,8 +62,8 @@ static_assert(offsetof(dtNavMeshParams, reachabilityTableCount) == 0x24);
 struct dtOffMeshConnection
 {
 	/// The endpoints of the connection.
-	Vector3 origin;
-	Vector3 dest;
+	Vector3D origin;
+	Vector3D dest;
 
 	/// The radius of the endpoints. [Limit: >= 0]
 	float rad;
@@ -83,7 +83,7 @@ struct dtOffMeshConnection
 	unsigned int userId;
 
 	/// Titanfall extension: traversal reference position and yaw.
-	Vector3 referencePosition;
+	Vector3D referencePosition;
 	float referenceYaw;
 };
 
@@ -270,7 +270,7 @@ struct dtPoly
 
 	unsigned short groupId; ///< Titanfall polygon island/disjoint-set id.
 	unsigned short surfaceArea; ///< Titanfall quantized polygon surface area.
-	Vector3 org; ///< Polygon center; retained under the consumer-facing r2recast name.
+	Vector3D org; ///< Polygon center; retained under the consumer-facing r2recast name.
 
 	/// Sets the user defined area id. [Limit: < #DT_MAX_AREAS]
 	inline void setArea(unsigned char a) { areaAndtype = (areaAndtype & 0xc0) | (a & 0x3f); }

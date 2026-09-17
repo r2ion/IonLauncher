@@ -17,15 +17,15 @@ enum DLightFlags_t : std::uint32_t
 struct dlight_t
 {
 	DLightFlags_t m_Flags;
-	Vector3 m_Origin;
+	Vector3D m_Origin;
 	float m_Radius;
 	float m_HalfDistance;
-	Vector3 m_Color;
+	Vector3D m_Color;
 	float m_Die;
 	float m_Decay;
 	int m_Key;
 	int m_Style;
-	Vector3 m_Direction;
+	Vector3D m_Direction;
 	float m_InnerAngle;
 	float m_OuterAngle;
 	std::uint32_t m_Unknown48;

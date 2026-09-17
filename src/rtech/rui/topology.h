@@ -1,17 +1,30 @@
 #pragma once
 
-#include "rtech/rui/rui_render_types.h"
+#include "mathlib/ssemath.h"
+#include "rtech/rui/rui.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
-struct RuiInstance;
+using RuiTessellate_t = bool (*)(RuiDrawInfo*, const RuiBaseUv*, RuiDrawQuad*, RuiDrawBatch*);
+using RuiEvaluateProjectionBasis_t =
+    fltx4* (*)(const RuiInstance*, const RuiProjectedQuad*, FourVectors*, FourVectors*, FourVectors*);
+
+struct RuiProjectionBasis
+{
+    fltx4 positionOrigin;
+    fltx4 positionBasisX;
+    fltx4 positionBasisY;
+    fltx4 secondaryOrigin;
+    fltx4 secondaryBasisY;
+    fltx4 secondaryBasisX;
+};
 
 using RuiTopologyHandle = uint32_t;
 
-constexpr size_t RUI_TOPOLOGY_CAPACITY = 64;
-constexpr RuiTopologyHandle RUI_TOPOLOGY_INDEX_MASK = static_cast<RuiTopologyHandle>(RUI_TOPOLOGY_CAPACITY - 1);
+#define RUI_TOPOLOGY_CAPACITY 64
+#define RUI_TOPOLOGY_INDEX_MASK (RUI_TOPOLOGY_CAPACITY - 1)
 
 struct RuiDrawInfoPlanar
 {
@@ -63,5 +76,3 @@ static_assert(offsetof(RuiTopology, origin) == 0xC);
 static_assert(offsetof(RuiTopology, lifecycleState) == 0x30);
 static_assert(offsetof(RuiTopology, sphereRadius) == 0x3C);
 static_assert(offsetof(RuiTopology, drawInfo) == 0x40);
-
-bool RuiTopology_IsHidden(const RuiInstance* rui) noexcept;

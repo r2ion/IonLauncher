@@ -13,7 +13,7 @@ class CUtlBuffer;
 class CPlayerState;
 class KeyValues;
 class IRecipientFilter;
-class Vector3;
+class Vector3D;
 class bf_read;
 class bf_write;
 struct client_textmessage_t;
@@ -56,7 +56,7 @@ public:
 	virtual void ProcessUsercmds(edict_t player, bf_read* buffer, int commandCount,
 		std::uint32_t totalCommandCount, int droppedPackets, bool ignore, bool paused) = 0;
 	virtual CPlayerState* GetPlayerState(edict_t player) = 0;
-	virtual void ClientEarPosition(edict_t player, Vector3* earOrigin) = 0;
+	virtual void ClientEarPosition(edict_t player, Vector3D* earOrigin) = 0;
 	virtual void ClientCommandKeyValues(edict_t player, KeyValues* keyValues) = 0;
 	virtual bool SendPlayerScreenshot(edict_t player, const void* jpegData, std::uint32_t jpegSize) = 0;
 	virtual void SetPlayerName(edict_t player, const char* playerName) = 0;
@@ -271,7 +271,7 @@ public:
 	virtual void NullSub57(int clientIndex, std::uint32_t value) = 0; // 57
 	virtual const char* ParseFile(const char* pData, char* pToken, int maxLength) = 0; // 58
 	virtual bool CopyLocalFile(const char* pSource, const char* pDestination) = 0; // 59
-	virtual int GetClusterForOrigin(const Vector3& origin) = 0; // 60
+	virtual int GetClusterForOrigin(const Vector3D& origin) = 0; // 60
 	virtual bool LoadGameState(const char* pMapName, bool createPlayers) = 0; // 61
 	virtual bool DoesSaveGameExist(const char* pSaveName) = 0; // 62
 	virtual bool IsSaveGameValid(const char* pSaveName) = 0; // 63
@@ -329,10 +329,10 @@ public:
 	virtual client_textmessage_t* TextMessageGet(const char* pMessageName) = 0; // 105
 	virtual void* GetLoggingChannelRecord(std::uint32_t channelIndex) = 0; // 106
 	virtual void SolidMoved(std::uint16_t entityIndex, void* pCollideable,
-		const Vector3* pPreviousOrigin) = 0; // 107
+		const Vector3D* pPreviousOrigin) = 0; // 107
 	virtual void TriggerMoved(std::uint16_t entityIndex) = 0; // 108
-	virtual void* CreateSpatialPartition(const Vector3* pWorldMins,
-		const Vector3* pWorldMaxs) = 0; // 109
+	virtual void* CreateSpatialPartition(const Vector3D* pWorldMins,
+		const Vector3D* pWorldMaxs) = 0; // 109
 	virtual void DestroySpatialPartition(void* pPartition) = 0; // 110
 	virtual const void* GetEntityTransmitBitsForClient(int clientIndex) = 0; // 111
 	virtual int GetEntityTransmitState(std::uint16_t entityIndex) = 0; // 112

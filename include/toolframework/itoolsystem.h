@@ -40,7 +40,7 @@ public:
 	virtual void ClientPreRender() = 0; // 23
 	virtual void ClientPostRender() = 0; // 24
 	virtual void AdjustEngineViewport(int& x, int& y, int& width, int& height) = 0; // 25
-	virtual bool SetupEngineView(Vector& origin, QAngle& angles, float& fov) = 0; // 26
+	virtual bool SetupEngineView(Vector3D& origin, QAngle& angles, float& fov) = 0; // 26
 	virtual bool ShouldGameRenderView() = 0; // 27
 	virtual bool IsThirdPersonCamera() = 0; // 28
 	virtual bool ShouldGamePlaySounds() = 0; // 29

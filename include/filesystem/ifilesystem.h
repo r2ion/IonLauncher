@@ -36,7 +36,7 @@ struct _stat64i32;
 struct _WIN32_FIND_DATAA;
 class IAsyncSearchRequest;
 template <class T, class I> class CUtlMemory;
-template <class T, class A> class CUtlVector;
+template <class T, class A, class I> class CUtlVector;
 
 enum SearchPathAdd_t
 {
@@ -136,7 +136,7 @@ class IFileSystem : public IAppSystem, public IBaseFileSystem
     virtual void FindClose(FileFindHandle_t handle) = 0;                                                                 // 33
     virtual const char* FindFirstEx(const char* wildcard, const char* pathID, FileFindHandle_t* handle) = 0;             // 34
     virtual void FindFileAbsoluteList(
-        CUtlVector<CUtlString, CUtlMemory<CUtlString, std::int64_t>>& absolutePathNames, const char* wildcard,
+        CUtlVector<CUtlString, CUtlMemory<CUtlString, std::int64_t>, int>& absolutePathNames, const char* wildcard,
         const char* pathID) = 0;                                                                                        // 35
     virtual const char* GetLocalPath(const char* fileName, char* localPath, std::int64_t localPathBufferSize) = 0;    // 36
     virtual bool FullPathToRelativePath(const char* fullPath, char* relativePath, std::int64_t maxLength) = 0;        // 37

@@ -22,20 +22,20 @@ class CBaseCombatCharacter : public CBaseAnimatingOverlay
     void UpdateOnRemove() override = 0; // 117
     void HandleAnimEvent(animevent_t* event) override = 0; // 258
     virtual const impactdamagetable_t& GetPhysicsImpactDamageTable() = 0; // 274
-    virtual bool FInViewCone(const Vector3& point) = 0; // 275
+    virtual bool FInViewCone(const Vector3D& point) = 0; // 275
     virtual bool FInViewConeEntity(CBaseEntity* entity) = 0; // 276
-    virtual bool FInAimCone(const Vector3& point) = 0; // 277
+    virtual bool FInAimCone(const Vector3D& point) = 0; // 277
     virtual bool FInAimConeEntity(CBaseEntity* entity) = 0; // 278
   protected:
     virtual void ReservedEntitySlot279() = 0; // 279
   public:
     virtual QAngle BodyAngles() const = 0; // 280
-    virtual Vector3 BodyDirection2D() const = 0; // 281
-    virtual Vector3 BodyDirection3D() const = 0; // 282
-    virtual Vector3 HeadDirection2D() = 0; // 283
-    virtual Vector3 HeadDirection3D() = 0; // 284
-    virtual Vector3 EyeDirection2D() = 0; // 285
-    virtual Vector3 EyeDirection3D() = 0; // 286
+    virtual Vector3D BodyDirection2D() const = 0; // 281
+    virtual Vector3D BodyDirection3D() const = 0; // 282
+    virtual Vector3D HeadDirection2D() = 0; // 283
+    virtual Vector3D HeadDirection3D() = 0; // 284
+    virtual Vector3D EyeDirection2D() = 0; // 285
+    virtual Vector3D EyeDirection3D() = 0; // 286
     virtual int NPC_TranslateActivity(int activity) = 0; // 287
     virtual float ScriptGetAttackSpreadAngle() = 0; // 288
     virtual void ScriptGiveExistingWeapon(CBaseEntity* weapon) = 0; // 289
@@ -48,7 +48,7 @@ class CBaseCombatCharacter : public CBaseAnimatingOverlay
     virtual bool Weapon_CanSwitchTo(CBaseCombatWeapon* weapon, bool checkDeploy) = 0; // 294
     virtual bool Weapon_IsPlaying3pEquipActivity() const = 0; // 295
     virtual bool Weapon_IsPlaying3pReloadActivity() const = 0; // 296
-    virtual Vector3 Weapon_ShootPosition() = 0; // 297
+    virtual Vector3D Weapon_ShootPosition() = 0; // 297
     virtual const char* GetWeaponClass() const = 0; // 298
     virtual void SetActiveWeapon(CBaseCombatWeapon* weapon) = 0; // 299
     virtual void OnChangeActiveWeapon(CBaseCombatWeapon* oldWeapon, CBaseCombatWeapon* newWeapon) = 0; // 300
@@ -59,10 +59,10 @@ class CBaseCombatCharacter : public CBaseAnimatingOverlay
     virtual void Weapon_EndGestureAnim(int activity, float fadeOut) = 0; // 303
     virtual void ScriptTakeWeapon(const char* weaponName) = 0; // 304
     virtual void ScriptTakeWeaponNow(const char* weaponName) = 0; // 305
-    virtual Vector3 ScriptGetPlayerOrNPCViewVector() = 0; // 306
-    virtual Vector3 ScriptGetPlayerOrNPCViewForward() = 0; // 307
-    virtual Vector3 ScriptGetPlayerOrNPCViewUp() = 0; // 308
-    virtual Vector3 ScriptGetPlayerOrNPCViewRight() = 0; // 309
+    virtual Vector3D ScriptGetPlayerOrNPCViewVector() = 0; // 306
+    virtual Vector3D ScriptGetPlayerOrNPCViewForward() = 0; // 307
+    virtual Vector3D ScriptGetPlayerOrNPCViewUp() = 0; // 308
+    virtual Vector3D ScriptGetPlayerOrNPCViewRight() = 0; // 309
     virtual void SetOutOfBoundsDeadTime(float time) = 0; // 310
     virtual float GetOutOfBoundsDeadTime() = 0; // 311
     virtual int ScriptGiveWeapon(SQVM* vm) = 0; // 312
@@ -73,7 +73,7 @@ class CBaseCombatCharacter : public CBaseAnimatingOverlay
     virtual int OnTakeDamage_Alive(const CTakeDamageInfo& info) = 0; // 315
     virtual int OnTakeDamage_Dying(const CTakeDamageInfo& info) = 0; // 316
     virtual int OnTakeDamage_Dead(const CTakeDamageInfo& info) = 0; // 317
-    virtual Vector3 CalcDamageForceVector(const CTakeDamageInfo& info) = 0; // 318
+    virtual Vector3D CalcDamageForceVector(const CTakeDamageInfo& info) = 0; // 318
   protected:
     virtual void ReservedEntitySlot319() = 0; // 319
   public:
@@ -81,8 +81,8 @@ class CBaseCombatCharacter : public CBaseAnimatingOverlay
   protected:
     virtual void ReservedEntitySlot321() = 0; // 321
   public:
-    virtual CBaseEntity* CheckTraceHullAttackFromTo(const Vector3& start, const Vector3& end, const Vector3& mins, const Vector3& maxs, float damage, int damageType, float forceScale, bool damageAnyNPC) = 0; // 322
-    virtual CBaseEntity* CheckTraceHullAttack(float distance, const Vector3& mins, const Vector3& maxs, float damage, int damageType, float forceScale, bool damageAnyNPC) = 0; // 323
+    virtual CBaseEntity* CheckTraceHullAttackFromTo(const Vector3D& start, const Vector3D& end, const Vector3D& mins, const Vector3D& maxs, float damage, int damageType, float forceScale, bool damageAnyNPC) = 0; // 322
+    virtual CBaseEntity* CheckTraceHullAttack(float distance, const Vector3D& mins, const Vector3D& maxs, float damage, int damageType, float forceScale, bool damageAnyNPC) = 0; // 323
     virtual float GetHullWidth() const = 0; // 324
     virtual float GetHullHeight() const = 0; // 325
   protected:

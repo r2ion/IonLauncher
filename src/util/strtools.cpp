@@ -104,6 +104,22 @@ int	_V_stricmp_NegativeForUnequal(const char* s1, const char* s2)
 	}
 }
 
+int String_CompareInsensitiveN(const char* lhs, const char* rhs, size_t count)
+{
+	while (count-- != 0)
+	{
+		int lhsChar = static_cast<signed char>(*lhs++);
+		int rhsChar = static_cast<signed char>(*rhs++);
+		lhsChar = FastASCIIToUpper(lhsChar);
+		rhsChar = FastASCIIToUpper(rhsChar);
+		if (lhsChar != rhsChar)
+			return lhsChar < rhsChar ? -1 : 1;
+		if (lhsChar == '\0')
+			return 0;
+	}
+	return 0;
+}
+
 //-----------------------------------------------------------------------------
 // Finds a string in another string with a case insensitive test
 //-----------------------------------------------------------------------------

@@ -39,7 +39,7 @@ struct CViewSetup
 	float m_TanHalfFovY;
 	float m_TanHalfViewModelFovX;
 	float m_TanHalfViewModelFovY;
-	Vector3 m_Origin;
+	Vector3D m_Origin;
 	QAngle m_Angles;
 	float m_ZNear;
 	float m_ZFar;
@@ -53,9 +53,9 @@ struct CViewSetup
 	float m_NearBlurRadius;
 	float m_FarBlurRadius;
 	int m_DepthOfFieldQuality;
-	Vector3 m_ShutterOpenPosition;
+	Vector3D m_ShutterOpenPosition;
 	QAngle m_ShutterOpenAngles;
-	Vector3 m_ShutterClosePosition;
+	Vector3D m_ShutterClosePosition;
 	QAngle m_ShutterCloseAngles;
 	float m_OffCenterTop;
 	float m_OffCenterBottom;
@@ -64,7 +64,7 @@ struct CViewSetup
 	int m_EdgeBlur;
 	CViewSetupFlags_t m_Flags;
 	std::uint8_t m_ExtendedFlags[3];
-	Vector3 m_UnreflectedOrigin;
+	Vector3D m_UnreflectedOrigin;
 	QAngle m_UnreflectedAngles;
 	bool m_Unknown018C;
 	std::uint8_t m_Pad018D[3];
@@ -131,7 +131,7 @@ struct CViewRenderView
 	float m_TanHalfViewModelFovX;
 	float m_ZFarSecondary;
 	float m_TanHalfViewModelFovY;
-	Vector3 m_UnreflectedOrigin;
+	Vector3D m_UnreflectedOrigin;
 	QAngle m_UnreflectedAngles;
 	bool m_DoBloomAndToneMapping;
 	std::uint8_t m_Pad01ED[3];

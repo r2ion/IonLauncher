@@ -77,6 +77,7 @@
 
 template <size_t maxLenInCharacters> int V_vsprintf_safe(OUT_Z_ARRAY char(&pDest)[maxLenInCharacters], PRINTF_FORMAT_STRING const char* pFormat, va_list params) { return V_vsnprintf(pDest, maxLenInCharacters, pFormat, params); }
 int	_V_stricmp_NegativeForUnequal(const char* s1, const char* s2);
+int String_CompareInsensitiveN(const char* lhs, const char* rhs, size_t count);
 
 char const* V_stristr(char const* pStr, char const* pSearch);
 const char* V_strnistr(const char* pStr, const char* pSearch, int64_t n);

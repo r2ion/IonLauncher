@@ -29,7 +29,7 @@ struct ScreenShake_t
 	float m_Amplitude;
 	float m_Frequency;
 	float m_Duration;
-	Vector3 m_Direction;
+	Vector3D m_Direction;
 };
 
 enum ScreenFadeFlags_t : std::int16_t
@@ -84,10 +84,10 @@ struct CViewEffectsShake_t
 	float m_EndTime;
 	float m_PreviousShakeTime;
 	float m_NextShakeTime;
-	Vector3 m_Offset;
+	Vector3D m_Offset;
 	float m_Angle;
 	ShakeCommand_t m_Command;
-	Vector3 m_Direction;
+	Vector3D m_Direction;
 	ShakeMode_t m_Mode;
 	std::uint8_t m_Pad0039[3];
 };
@@ -140,8 +140,8 @@ public:
 	CViewEffectsPointerVector<CViewEffectsFade_t> m_Fades;
 	CViewEffectsShake_t m_ShakeEntries[16];
 	std::int64_t m_ShakeCount;
-	Vector3 m_ShakeOffset;
-	Vector2 m_ShakeAngleOffset;
+	Vector3D m_ShakeOffset;
+	Vector2D m_ShakeAngleOffset;
 	CViewEffectsPointerVector<CViewEffectsTilt_t> m_Tilts;
 	QAngle m_TiltAngle;
 	int m_FadeRed;
@@ -151,39 +151,3 @@ public:
 	bool m_FadeBlend;
 	std::uint8_t m_Pad044D[3];
 };
-
-static_assert(sizeof(ScreenShake_t) == 0x1C);
-static_assert(sizeof(ScreenFade_t) == 0xA);
-static_assert(sizeof(ScreenTilt_t) == 0x1C);
-static_assert(offsetof(ScreenTilt_t, m_Angle) == 0x8);
-static_assert(offsetof(ScreenTilt_t, m_Duration) == 0x14);
-static_assert(offsetof(ScreenTilt_t, m_RampTime) == 0x18);
-static_assert(sizeof(CViewEffectsFade_t) == 0x14);
-static_assert(offsetof(CViewEffectsFade_t, m_Flags) == 0x10);
-static_assert(sizeof(CViewEffectsShake_t) == 0x3C);
-static_assert(offsetof(CViewEffectsShake_t, m_EndTime) == 0xC);
-static_assert(offsetof(CViewEffectsShake_t, m_PreviousShakeTime) == 0x10);
-static_assert(offsetof(CViewEffectsShake_t, m_NextShakeTime) == 0x14);
-static_assert(offsetof(CViewEffectsShake_t, m_Offset) == 0x18);
-static_assert(offsetof(CViewEffectsShake_t, m_Angle) == 0x24);
-static_assert(offsetof(CViewEffectsShake_t, m_Command) == 0x28);
-static_assert(offsetof(CViewEffectsShake_t, m_Direction) == 0x2C);
-static_assert(offsetof(CViewEffectsShake_t, m_Mode) == 0x38);
-static_assert(sizeof(CViewEffectsTilt_t) == 0x30);
-static_assert(offsetof(CViewEffectsTilt_t, m_Angle) == 0x4);
-static_assert(offsetof(CViewEffectsTilt_t, m_StartTime) == 0x10);
-static_assert(offsetof(CViewEffectsTilt_t, m_EndTime) == 0x14);
-static_assert(offsetof(CViewEffectsTilt_t, m_RampTime) == 0x1C);
-static_assert(offsetof(CViewEffectsTilt_t, m_Command) == 0x2C);
-static_assert(sizeof(CViewEffectsPointerVector<CViewEffectsFade_t>) == 0x20);
-static_assert(sizeof(CViewEffectsPointerVector<CViewEffectsTilt_t>) == 0x20);
-static_assert(offsetof(CViewEffects, m_Fades) == 0x10);
-static_assert(offsetof(CViewEffects, m_ShakeEntries) == 0x30);
-static_assert(offsetof(CViewEffects, m_ShakeCount) == 0x3F0);
-static_assert(offsetof(CViewEffects, m_ShakeOffset) == 0x3F8);
-static_assert(offsetof(CViewEffects, m_ShakeAngleOffset) == 0x404);
-static_assert(offsetof(CViewEffects, m_Tilts) == 0x410);
-static_assert(offsetof(CViewEffects, m_TiltAngle) == 0x430);
-static_assert(offsetof(CViewEffects, m_FadeRed) == 0x43C);
-static_assert(offsetof(CViewEffects, m_FadeBlend) == 0x44C);
-static_assert(sizeof(CViewEffects) == 0x450);

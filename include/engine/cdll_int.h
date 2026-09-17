@@ -25,7 +25,7 @@ struct MatchmakingDatacenter_t
 class IVEngineClient
 {
 public:
-	virtual Vector3 GetLightForPoint(const Vector3& position, bool clamp) = 0; // 0
+	virtual Vector3D GetLightForPoint(const Vector3D& position, bool clamp) = 0; // 0
 	virtual bool IsGameFullyInstalled() = 0; // 1
 	virtual bool IsGamePartiallyInstalled() = 0; // 2
 	virtual float GetGameInstallProgress() = 0; // 3
@@ -40,10 +40,10 @@ public:
 	virtual void SetAllLevelAssetsLoaded(bool loaded) = 0; // 12
 	virtual void SetLightingProvider(void* pProvider) = 0; // 13
 	virtual void SetLightingTransform(const float* pTransform) = 0; // 14
-	virtual void GetLightingAtPoint(const Vector3* pPosition, Vector3* pColor) = 0; // 15
+	virtual void GetLightingAtPoint(const Vector3D* pPosition, Vector3D* pColor) = 0; // 15
 	virtual void SetWorldRenderListIndex(int renderListIndex) = 0; // 16
 	virtual int GetWorldRenderListIndex() = 0; // 17
-	virtual void GetIndexedRenderBounds(int index, Vector3* pBounds) = 0; // 18
+	virtual void GetIndexedRenderBounds(int index, Vector3D* pBounds) = 0; // 18
 	virtual std::uint32_t GetIndexedRenderFlags(int index) = 0; // 19
 	virtual bool HasIndexedWorldModelData(int index) = 0; // 20
 	virtual const char* ParseFile(const char* pData, char* pToken, int maxLength) = 0; // 21
@@ -85,8 +85,8 @@ public:
 	virtual float Time() = 0; // 57
 	virtual float GetLastTimeStamp() = 0; // 58
 	virtual float GetLastServerTick() = 0; // 59
-	virtual bool GetViewOriginOverride(Vector3* pOrigin, int* pValue, int stateId) = 0; // 60
-	virtual void SetViewOriginOverride(const Vector3* pOrigin, int value, int stateId,
+	virtual bool GetViewOriginOverride(Vector3D* pOrigin, int* pValue, int stateId) = 0; // 60
+	virtual void SetViewOriginOverride(const Vector3D* pOrigin, int value, int stateId,
 		std::uint32_t sequence, std::uint32_t activationTick) = 0; // 61
 	virtual void ResetViewOriginOverride() = 0; // 62
 	virtual void GetViewAngles(QAngle* pAngles) = 0; // 63
@@ -367,7 +367,7 @@ public:
 	virtual void RestoreDynamicLights(const void* pLights, int lightCount) = 0; // 318
 	virtual float GetHostFrameTime319() = 0; // 319
 	virtual void SolidMoved(void* pSolidEntity, void* pSolidCollide,
-		const Vector3* pPreviousOrigin) = 0; // 320
+		const Vector3D* pPreviousOrigin) = 0; // 320
 	virtual void TriggerMoved(void* pTriggerEntity) = 0; // 321
 	virtual void* GetClientUIMouthInfo() = 0; // 322
 	virtual bool IsTransitioningToLoad() = 0; // 323

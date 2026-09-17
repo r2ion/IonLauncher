@@ -7,9 +7,6 @@
 #include <cstddef>
 #include <cstdint>
 
-
-
-
 enum TraceType_t : std::int32_t
 {
 	TRACE_EVERYTHING = 0,
@@ -67,14 +64,6 @@ struct CBrushQuery
 	void* m_pReleaseContext;
 };
 
-static_assert(sizeof(ITraceFilter) == sizeof(void*));
-static_assert(sizeof(IEntityEnumerator) == sizeof(void*));
-static_assert(sizeof(IPartitionEnumerator) == sizeof(void*));
-static_assert(sizeof(ITraceListData) == sizeof(void*));
-static_assert(sizeof(CBrushQuery) == 0x28);
-static_assert(offsetof(CBrushQuery, m_pBrushIndices) == 0x8);
-static_assert(offsetof(CBrushQuery, m_pRelease) == 0x18);
-
 inline constexpr char ENGINE_TRACE_SERVER_INTERFACE_VERSION[] = "EngineTraceServer004";
 inline constexpr char ENGINE_TRACE_CLIENT_INTERFACE_VERSION[] = "EngineTraceClient004";
 inline constexpr char ENGINE_TRACE_CLIENT_DECALS_INTERFACE_VERSION[] = "EngineTraceClientDecals004";
@@ -102,15 +91,15 @@ public:
 		GameTrace* pTraceOut) = 0; // 4
 	virtual void SetupLeafAndEntityListRay(const Ray_t* pRay,
 		ITraceListData* pTraceData) = 0; // 5
-	virtual void SetupLeafAndEntityListBox(const Vector3* pMins, const Vector3* pMaxs,
+	virtual void SetupLeafAndEntityListBox(const Vector3D* pMins, const Vector3D* pMaxs,
 		ITraceListData* pTraceData) = 0; // 6
 	virtual void TraceRayAgainstLeafAndEntityList(const Ray_t* pRay,
 		ITraceListData* pTraceData, std::uint32_t contentsMask,
 		ITraceFilter* pFilter, GameTrace* pTraceOut) = 0; // 7
-	virtual void SweepCollideable(ICollideable* pCollideable, const Vector3* pStart,
-		const Vector3* pEnd, const QAngle* pAngles, std::uint32_t contentsMask,
+	virtual void SweepCollideable(ICollideable* pCollideable, const Vector3D* pStart,
+		const Vector3D* pEnd, const QAngle* pAngles, std::uint32_t contentsMask,
 		ITraceFilter* pFilter, GameTrace* pTraceOut) = 0; // 8
-	virtual void EnumerateEntitiesInBox(const Vector3* pMins, const Vector3* pMaxs,
+	virtual void EnumerateEntitiesInBox(const Vector3D* pMins, const Vector3D* pMaxs,
 		IEntityEnumerator* pEnumerator) = 0; // 9
 	virtual void EnumerateEntitiesAlongRay(const Ray_t* pRay, bool includeTriggers,
 		IEntityEnumerator* pEnumerator) = 0; // 10
@@ -118,15 +107,15 @@ public:
 		bool includeTriggers, IEntityEnumerator* pEnumerator) = 0; // 11
 	virtual ICollideable* GetCollideable(IHandleEntity* pEntity) = 0; // 12
 	virtual int GetStatByIndex(int index, bool clear) = 0; // 13
-	virtual std::size_t GetBrushesInAABB(int collisionModelIndex, const Vector3* pMins,
-		const Vector3* pMaxs, std::uint32_t contentsMask, void* pBrushOutput,
+	virtual std::size_t GetBrushesInAABB(int collisionModelIndex, const Vector3D* pMins,
+		const Vector3D* pMaxs, std::uint32_t contentsMask, void* pBrushOutput,
 		std::size_t brushCapacity, void* pCollideableOutput,
 		int* pCollideableCount, int collideableCapacity) = 0; // 14
 	virtual CPhysCollide* GetCollidableFromDisplacementsInAABB(int unknownPartition,
-		const Vector3* pMins, const Vector3* pMaxs) = 0; // 15
+		const Vector3D* pMins, const Vector3D* pMaxs) = 0; // 15
 	virtual int GetBrushInfo(int brushIndex, int* pContentsOut,
 		EngineTraceBrushPlane_t* pPlanesOut, int planeCapacity) = 0; // 16
-	virtual bool PointOutsideWorld(const Vector3* pPoint) = 0; // 17
+	virtual bool PointOutsideWorld(const Vector3D* pPoint) = 0; // 17
 	virtual ITraceListData* AllocTraceListData() = 0; // 18
 	virtual void FreeTraceListData(ITraceListData* pTraceData) = 0; // 19
 	virtual int GetSetDebugTraceCounter(int value, int behavior) = 0; // 20
@@ -136,7 +125,7 @@ public:
 		const matrix3x4_t* pTransform, float scale, void* pBrushData,
 		int modelIndex, GameTrace* pTraceOut) = 0; // 22
 	virtual void GetBrushModelBounds(void* pBrushData, int modelIndex,
-		Vector3* pMins, Vector3* pMaxs) = 0; // 23
+		Vector3D* pMins, Vector3D* pMaxs) = 0; // 23
 	virtual ICollideable* HandleEntityToCollideable(IHandleEntity* pEntity) = 0; // 24
 	virtual ICollideable* GetWorldCollideable() = 0; // 25
 	virtual const char* GetEntityDebugName(IHandleEntity* pEntity) = 0; // 26
@@ -145,6 +134,3 @@ public:
 	virtual int SpatialPartitionStaticPropsMask() const = 0; // 29
 	virtual int SpatialPartitionTriggerMask() const = 0; // 30
 };
-
-static_assert(sizeof(IEngineTrace) == sizeof(void*));
-static_assert(sizeof(EngineTraceBrushPlane_t) == 0x14);

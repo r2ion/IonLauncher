@@ -1,9 +1,9 @@
+#include "client/weaponx.h"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <mutex>
-
-struct C_WeaponX;
 
 namespace WeaponChargeActivityModifiers
 {
@@ -39,12 +39,8 @@ constexpr std::array<const char*, 6> CHARGE_MODIFIER_NAMES = {
 };
 
 using InternActivityModifierFn = std::uint16_t*(__fastcall*)(std::uint16_t* output, const char* name);
-using GetWeaponChargeLevelFn = int(__fastcall*)(C_WeaponX* weapon);
-using GetWeaponChargeFractionFn = float(__fastcall*)(C_WeaponX* weapon);
 
 static InternActivityModifierFn s_InternActivityModifier;
-static GetWeaponChargeLevelFn s_GetWeaponChargeLevel;
-static GetWeaponChargeFractionFn s_GetWeaponChargeFraction;
 
 static std::once_flag s_ChargeModifierInit;
 static std::array<std::uint16_t, 6> s_ChargeModifierSymbols = {
@@ -69,8 +65,8 @@ static void InitializeChargeModifierSymbols()
 
 static LatchedChargeActivity GetAttackChargeActivity(C_WeaponX* weapon)
 {
-	const float chargeFraction = std::clamp(s_GetWeaponChargeFraction(weapon), 0.0f, 1.0f);
-	const int nativeLevel = s_GetWeaponChargeLevel(weapon);
+	const float chargeFraction = std::clamp(weapon->GetChargeFraction(), 0.0f, 1.0f);
+	const int nativeLevel = weapon->GetWeaponChargeLevel();
 	if (chargeFraction <= 0.0f)
 		return { ChargeActivityModifier::Uncharged, chargeFraction, nativeLevel };
 
@@ -139,14 +135,10 @@ DECLARE_HOOK(C_WeaponX_BuildActivityModifiers_ChargeLevel, client.dll + 0xBAE00,
 	return modifierCount;
 })
 
-ON_DLL_LOAD_CLIENT("client.dll", WeaponChargeActivityModifierSetup, [](CModule module)
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", WeaponChargeActivityModifierSetup, WeaponSdkMethods, [](CModule module)
 {
 	WeaponChargeActivityModifiers::s_InternActivityModifier =
 		module.Offset(0x32FBF0).RCast<WeaponChargeActivityModifiers::InternActivityModifierFn>();
-	WeaponChargeActivityModifiers::s_GetWeaponChargeLevel =
-		module.Offset(0x5A9540).RCast<WeaponChargeActivityModifiers::GetWeaponChargeLevelFn>();
-	WeaponChargeActivityModifiers::s_GetWeaponChargeFraction =
-		module.Offset(0x5A6D60).RCast<WeaponChargeActivityModifiers::GetWeaponChargeFractionFn>();
 
 	DISPATCH_MODULE(WeaponChargeActivityModifierHooks)
 })

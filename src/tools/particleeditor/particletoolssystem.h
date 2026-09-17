@@ -52,7 +52,7 @@ class CParticleToolSystem final : public IToolSystem
     void ClientPreRender() override;
     void ClientPostRender() override;
     void AdjustEngineViewport(int& x, int& y, int& width, int& height) override;
-    bool SetupEngineView(Vector& origin, QAngle& angles, float& fov) override;
+    bool SetupEngineView(Vector3D& origin, QAngle& angles, float& fov) override;
     bool ShouldGameRenderView() override;
     bool IsThirdPersonCamera() override;
     bool ShouldGamePlaySounds() override;
@@ -102,7 +102,7 @@ class CParticleToolSystem final : public IToolSystem
     void SetClientLevelActive(bool active);
     void SynchronizeEditorWithClientLevel();
     void UpdateMapDefaultCamera();
-    bool FindMapDefaultCamera(Vector& origin, QAngle& angles, Vector& focus) const;
+    bool FindMapDefaultCamera(Vector3D& origin, QAngle& angles, Vector3D& focus) const;
     void CenterPreviewCamera();
 
     std::unique_ptr<CParticleEditorWorkspace> m_pEditor;
@@ -116,12 +116,12 @@ class CParticleToolSystem final : public IToolSystem
     bool m_ClientLevelActive = false;
     bool m_MapCameraLookupAttempted = false;
     bool m_MapCameraValid = false;
-    Vector m_MapCameraOrigin;
+    Vector3D m_MapCameraOrigin;
     QAngle m_MapCameraAngles;
-    Vector m_MapCameraFocus;
-    Vector m_PreviewCameraOrigin;
+    Vector3D m_MapCameraFocus;
+    Vector3D m_PreviewCameraOrigin;
     QAngle m_PreviewCameraAngles;
-    Vector m_PreviewFocus;
+    Vector3D m_PreviewFocus;
     float m_PreviewCameraFov = 75.0f;
     float m_PreviewCameraDistance = 0.0f;
     std::atomic<std::uint64_t> m_PreviewGeneration = 0;

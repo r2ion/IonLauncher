@@ -1,73 +1,88 @@
 #pragma once
 
 #include "rendersystem/schema/texture.g.h"
-#include "rtech/rui/imageatlas.h"
+#include "rtech/rui/atlas.h"
 
 #include <wrl/client.h>
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <functional>
 #include <mutex>
 #include <span>
-#include <string_view>
 #include <vector>
+
+class CModule;
+
+struct ID3D11Device;
+struct ID3D11Texture2D;
+struct ID3D11ShaderResourceView;
 
 class CWorkshopThumbnailAtlas final
 {
-public:
-	static constexpr size_t SLOT_COUNT = 24;
-	static constexpr uint32_t ATLAS_COLUMNS = 4;
-	static constexpr uint32_t GUTTER = 4;
-	static constexpr uint32_t CELL_WIDTH = 512;
-	static constexpr uint32_t IMAGE_WIDTH = CELL_WIDTH - GUTTER * 2;
-	static constexpr uint32_t IMAGE_HEIGHT = IMAGE_WIDTH / 2;
-	static constexpr uint32_t CELL_HEIGHT = IMAGE_HEIGHT + GUTTER * 2;
-	static constexpr uint32_t ATLAS_ROWS = (static_cast<uint32_t>(SLOT_COUNT) + ATLAS_COLUMNS - 1) / ATLAS_COLUMNS;
-	static constexpr uint32_t ATLAS_WIDTH = ATLAS_COLUMNS * CELL_WIDTH;
-	static constexpr uint32_t ATLAS_HEIGHT = ATLAS_ROWS * CELL_HEIGHT;
+  public:
+    static constexpr size_t SLOT_COUNT = 24;
+    static constexpr uint32_t ATLAS_COLUMNS = 4;
+    static constexpr uint32_t GUTTER = 4;
+    static constexpr uint32_t CELL_WIDTH = 512;
+    static constexpr uint32_t IMAGE_WIDTH = CELL_WIDTH - GUTTER * 2;
+    static constexpr uint32_t IMAGE_HEIGHT = IMAGE_WIDTH / 2;
+    static constexpr uint32_t CELL_HEIGHT = IMAGE_HEIGHT + GUTTER * 2;
+    static constexpr uint32_t ATLAS_ROWS = (static_cast<uint32_t>(SLOT_COUNT) + ATLAS_COLUMNS - 1) / ATLAS_COLUMNS;
+    static constexpr uint32_t ATLAS_WIDTH = ATLAS_COLUMNS * CELL_WIDTH;
+    static constexpr uint32_t ATLAS_HEIGHT = ATLAS_ROWS * CELL_HEIGHT;
 
-	static CWorkshopThumbnailAtlas& Get()
-	{
-		static CWorkshopThumbnailAtlas* s_pInstance = new CWorkshopThumbnailAtlas;
-		return *s_pInstance;
-	}
+    static CWorkshopThumbnailAtlas& Get()
+    {
+        static CWorkshopThumbnailAtlas* pInstance = new CWorkshopThumbnailAtlas;
+        return *pInstance;
+    }
 
-	bool Initialize();
-	bool IsReady() const;
-	bool FillChecker(size_t slot);
-	bool FillPlaceholder(size_t slot, bool failed = false);
-	bool UpdateSlotRgba(size_t slot, std::span<const uint8_t> rgba, uint32_t rowPitch = CELL_WIDTH * 4);
-	const char* GetAssetPath(size_t slot) const noexcept
-	{
-		return slot < ASSET_PATHS.size() ? ASSET_PATHS[slot].data() : "";
-	}
-	void Shutdown();
+    void Dispatch(std::function<void()> task);
+    void InitializeRenderer(CModule module);
+    bool Initialize();
+    bool IsReady() const;
+    bool FillPlaceholder(size_t slot, bool failed = false);
+    bool UpdateSlotRgba(size_t slot, std::span<const uint8_t> rgba, uint32_t rowPitch = CELL_WIDTH * 4);
 
-	CWorkshopThumbnailAtlas(const CWorkshopThumbnailAtlas&) = delete;
-	CWorkshopThumbnailAtlas& operator=(const CWorkshopThumbnailAtlas&) = delete;
+    CWorkshopThumbnailAtlas(const CWorkshopThumbnailAtlas&) = delete;
+    CWorkshopThumbnailAtlas& operator=(const CWorkshopThumbnailAtlas&) = delete;
 
-private:
-	CWorkshopThumbnailAtlas();
-	~CWorkshopThumbnailAtlas() = delete;
+  private:
+    using MaterialTaskCallback = uint64_t (*)(uint64_t, uint32_t, uint32_t, uint64_t);
+    using QueueMaterialTask = void (*)(MaterialTaskCallback, uint64_t, uint32_t, uint32_t, uint64_t);
 
-	using AssetPath = std::array<char, 48>;
-	static const std::array<AssetPath, SLOT_COUNT> ASSET_PATHS;
-	static void SetPixel(uint8_t* pixel, uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha = 255);
+    CWorkshopThumbnailAtlas();
+    ~CWorkshopThumbnailAtlas() = delete;
 
-	static const std::array<const char*, 4> TEXTURE_TEMPLATE_IMAGES;
-	static const char TEXTURE_NAME[];
+    static uint64_t RunMaterialTasks(uint64_t, uint32_t, uint32_t, uint64_t);
+    bool IsRenderThread() const noexcept;
+    void RunPending();
+    void Schedule();
 
-	bool InitializeLocked();
-	bool UploadSlotLocked(size_t slot, const uint8_t* rgba, uint32_t rowPitch);
-	void ReleaseLocked();
+    bool InitializeLocked();
+    bool UploadSlotLocked(size_t slot, const uint8_t* rgba, uint32_t rowPitch);
+    void ReleaseLocked();
 
-	mutable std::mutex m_Mutex;
-	CImageAtlas m_Atlas;
-	TextureAsset_s m_TextureHeader{};
-	Microsoft::WRL::ComPtr<ID3D11Texture2D> m_Texture;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_ShaderResourceView;
-	ID3D11Device* m_Device = nullptr;
-	std::vector<uint8_t> m_CellScratch;
-	char m_TextureName[64]{};
+    std::mutex m_TaskMutex;
+    std::deque<std::function<void()>> m_Tasks;
+    std::atomic<uint32_t> m_RenderThreadId = 0;
+    std::atomic<QueueMaterialTask> m_QueueMaterialTask = nullptr;
+    bool m_DispatchScheduled = false;
+
+    mutable std::mutex m_TextureMutex;
+    TextureAsset_s m_TextureAsset{};
+    alignas(16) std::array<RuiImageAtlasEntry, SLOT_COUNT> m_Images{};
+    std::array<RuiImageDimensions, SLOT_COUNT> m_ImageDimensions{};
+    std::array<RuiImageAtlasNameRecord, SLOT_COUNT> m_ImageNameRecords{};
+    std::array<std::array<char, 32>, SLOT_COUNT> m_ImageNames{};
+    std::array<RuiImageAtlasGpuRecord, SLOT_COUNT> m_GpuRecords{};
+    RuiImageAtlasHandle m_AtlasHandle = RUI_INVALID_IMAGE_ATLAS;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> m_Texture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_ShaderResourceView;
+    ID3D11Device* m_Device = nullptr;
+    std::vector<uint8_t> m_CellScratch;
 };

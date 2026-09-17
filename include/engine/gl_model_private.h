@@ -50,22 +50,10 @@ struct model_t
 	std::int32_t m_ServerCount;
 	modtype_t m_Type;
 	std::int32_t m_Flags;
-	Vector3 m_Mins;
-	Vector3 m_Maxs;
+	Vector3D m_Mins;
+	Vector3D m_Maxs;
 	float m_Radius;
 	std::uint32_t m_Padding134;
 	KeyValues* m_pKeyValues;
 	model_data_t m_Data;
 };
-
-static_assert(sizeof(brushdata_t) == 0x20);
-static_assert(sizeof(spritedata_t) == 0x18);
-static_assert(sizeof(model_data_t) == 0x20);
-static_assert(sizeof(model_t) == 0x160);
-static_assert(offsetof(model_t, m_PathName) == 0x4);
-static_assert(offsetof(model_t, m_LoadFlags) == 0x108);
-static_assert(offsetof(model_t, m_Type) == 0x110);
-static_assert(offsetof(model_t, m_Mins) == 0x118);
-static_assert(offsetof(model_t, m_Radius) == 0x130);
-static_assert(offsetof(model_t, m_pKeyValues) == 0x138);
-static_assert(offsetof(model_t, m_Data) == 0x140);

@@ -25,9 +25,9 @@ enum LightType_OptimizationFlags_t : std::uint32_t
 struct LightDesc_t
 {
     LightType_t m_Type;
-    Vector3 m_Color;
-    Vector3 m_Position;
-    Vector3 m_Direction;
+    Vector3D m_Color;
+    Vector3D m_Position;
+    Vector3D m_Direction;
     float m_Range;
     float m_Falloff;
     float m_Attenuation0;

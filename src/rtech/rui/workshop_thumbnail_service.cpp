@@ -3,7 +3,6 @@
 #include "config/profile.h"
 #include "core/tier0.h"
 #include "dedicated/dedicated.h"
-#include "rtech/rui/render.h"
 #include "rtech/rui/workshop_thumbnail_atlas.h"
 #include "tier0/frametask.h"
 
@@ -24,7 +23,6 @@
 #include <format>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -443,7 +441,7 @@ void CWorkshopThumbnailService::ScheduleFlush()
 {
 	if (m_FlushDispatched.exchange(true, std::memory_order_acq_rel))
 		return;
-	CRuiRenderTaskQueue::Get().Dispatch([this] { FlushUploads(); });
+	CWorkshopThumbnailAtlas::Get().Dispatch([this] { FlushUploads(); });
 }
 
 void CWorkshopThumbnailService::EnqueueUpload(ThumbnailUpload upload)
@@ -700,7 +698,7 @@ void CWorkshopThumbnailService::RequestPage(uint64_t generation, std::span<const
 		}
 	}
 
-	CRuiRenderTaskQueue::Get().Dispatch([this, generation]
+	CWorkshopThumbnailAtlas::Get().Dispatch([this, generation]
 	{
 		if (m_CurrentGeneration.load(std::memory_order_acquire) != generation)
 			return;
@@ -740,7 +738,7 @@ void CWorkshopThumbnailService::RequestLocalPage(uint64_t generation, std::span<
 			if (slot >= icons.size())
 				continue;
 			const LocalIconRequest& icon = icons[slot];
-			if (icon.path.empty() && !icon.thumbnail)
+			if (icon.path.empty() && !icon.hasThumbnail)
 			{
 				m_Assignments[slot] = {generation, icon.id, "missing", true};
 				continue;
@@ -758,23 +756,23 @@ void CWorkshopThumbnailService::RequestLocalPage(uint64_t generation, std::span<
 				continue;
 			}
 
-			const std::string key = BuildImageKey(*icon.thumbnail);
+			const std::string key = BuildImageKey(icon.thumbnail);
 			m_Assignments[slot] = {generation, icon.id, key, true};
-			ModWorkshopThumbnail original = *icon.thumbnail;
+			ModWorkshopThumbnail original = icon.thumbnail;
 			original.hasThumbnail = false;
-			ModWorkshopThumbnail preview = *icon.thumbnail;
+			ModWorkshopThumbnail preview = icon.thumbnail;
 			preview.hasThumbnail = true;
 			jobs.push_back({.generation = generation,
 			                .slot = slot,
 			                .modId = icon.id,
 			                .key = key,
 			                .url = CModWorkshopClient::BuildThumbnailUrl(original),
-			                .fallbackUrl = icon.thumbnail->hasThumbnail ? CModWorkshopClient::BuildThumbnailUrl(preview) : std::string(),
+			                .fallbackUrl = icon.thumbnail.hasThumbnail ? CModWorkshopClient::BuildThumbnailUrl(preview) : std::string(),
 			                .localIcon = true});
 		}
 	}
 
-	CRuiRenderTaskQueue::Get().Dispatch([this, generation]
+	CWorkshopThumbnailAtlas::Get().Dispatch([this, generation]
 	{
 		if (m_CurrentGeneration.load(std::memory_order_acquire) != generation)
 			return;
@@ -825,7 +823,7 @@ void CWorkshopThumbnailService::RepaintVisible()
 		std::scoped_lock lock(m_AssignmentMutex);
 		visible = m_VisiblePixels;
 	}
-	CRuiRenderTaskQueue::Get().Dispatch([visible = std::move(visible)]
+	CWorkshopThumbnailAtlas::Get().Dispatch([visible = std::move(visible)]
 	{
 		CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
 		if (!atlas.Initialize())

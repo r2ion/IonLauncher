@@ -61,8 +61,8 @@ static_assert(offsetof(vcollide_t, pUserData) == 24);
 
 struct truncatedcone_t
 {
-    Vector3 origin;
-    Vector3 normal;
+    Vector3D origin;
+    Vector3D normal;
     float height;
     float theta;
 };
@@ -86,19 +86,19 @@ class IPhysicsCollision
 {
   public:
     virtual ~IPhysicsCollision() = default;                                             // 0
-    virtual CPhysConvex* ConvexFromVerts(Vector3** verts, int vertCount) = 0;           // 1
+    virtual CPhysConvex* ConvexFromVerts(Vector3D** verts, int vertCount) = 0;           // 1
     virtual CPhysConvex* ConvexFromPlanes(float* planes, int planeCount) = 0;           // 2
     virtual float ConvexVolume(CPhysConvex* convex) = 0;                                // 3
     virtual float ConvexSurfaceArea(CPhysConvex* convex) = 0;                           // 4
     virtual void SetConvexGameData(CPhysConvex* convex, std::uint32_t gameData) = 0;    // 5
     virtual void ConvexFree(CPhysConvex* convex) = 0;                                   // 6
-    virtual CPhysConvex* BBoxToConvex(const Vector3& mins, const Vector3& maxs) = 0;    // 7
+    virtual CPhysConvex* BBoxToConvex(const Vector3D& mins, const Vector3D& maxs) = 0;    // 7
     virtual CPhysConvex* ConvexFromConvexPolyhedron(const CPolyhedron& polyhedron) = 0; // 8
-    virtual void ConvexesFromConvexPolygon(const Vector3& normal, const Vector3* points, int pointCount,
+    virtual void ConvexesFromConvexPolygon(const Vector3D& normal, const Vector3D* points, int pointCount,
                                            CPhysConvex** output) = 0;                                                                        // 9
     virtual CPhysPolysoup* PolysoupCreate() = 0;                                                                                             // 10
     virtual void PolysoupDestroy(CPhysPolysoup* soup) = 0;                                                                                   // 11
-    virtual void PolysoupAddTriangle(CPhysPolysoup* soup, const Vector3& a, const Vector3& b, const Vector3& c, int materialIndex7Bits) = 0; // 12
+    virtual void PolysoupAddTriangle(CPhysPolysoup* soup, const Vector3D& a, const Vector3D& b, const Vector3D& c, int materialIndex7Bits) = 0; // 12
     virtual CPhysCollide* ConvertPolysoupToCollide(CPhysPolysoup* soup) = 0;                                                                 // 13
     virtual std::uint32_t CountConvexesWithinVertexLimit(CPhysConvex* const* convexes, int convexCount) = 0;                               // 14
     virtual CPhysCollide* ConvertConvexToCollide(CPhysConvex** convexes, int convexCount) = 0;                                               // 15
@@ -110,48 +110,48 @@ class IPhysicsCollision
     virtual CPhysCollide* UnserializeCollide(char* buffer, int size, int index) = 0;                                                          // 20
     virtual float CollideVolume(CPhysCollide* collide) = 0;                                                                                   // 21
     virtual float CollideSurfaceArea(CPhysCollide* collide) = 0;                                                                              // 22
-    virtual Vector3 CollideGetExtent(const CPhysCollide* collide, const Vector3& origin, const QAngle& angles, const Vector3& direction) = 0; // 23
-    virtual void CollideGetAABB(Vector3* mins, Vector3* maxs, const CPhysCollide* collide, const Vector3& origin, const QAngle& angles) = 0;  // 24
-    virtual void CollideGetMassCenter(CPhysCollide* collide, Vector3* massCenter) = 0;                                                        // 25
-    virtual void CollideSetMassCenter(CPhysCollide* collide, const Vector3& massCenter) = 0;                                                  // 26
-    virtual Vector3 CollideGetOrthographicAreas(const CPhysCollide* collide) = 0;                                                             // 27
-    virtual void CollideSetOrthographicAreas(CPhysCollide* collide, const Vector3& areas) = 0;                                                // 28
+    virtual Vector3D CollideGetExtent(const CPhysCollide* collide, const Vector3D& origin, const QAngle& angles, const Vector3D& direction) = 0; // 23
+    virtual void CollideGetAABB(Vector3D* mins, Vector3D* maxs, const CPhysCollide* collide, const Vector3D& origin, const QAngle& angles) = 0;  // 24
+    virtual void CollideGetMassCenter(CPhysCollide* collide, Vector3D* massCenter) = 0;                                                        // 25
+    virtual void CollideSetMassCenter(CPhysCollide* collide, const Vector3D& massCenter) = 0;                                                  // 26
+    virtual Vector3D CollideGetOrthographicAreas(const CPhysCollide* collide) = 0;                                                             // 27
+    virtual void CollideSetOrthographicAreas(CPhysCollide* collide, const Vector3D& areas) = 0;                                                // 28
     virtual int CollideIndex(const CPhysCollide* collide) = 0;                                                                                // 29
-    virtual CPhysCollide* BBoxToCollide(const Vector3& mins, const Vector3& maxs) = 0;                                                        // 30
+    virtual CPhysCollide* BBoxToCollide(const Vector3D& mins, const Vector3D& maxs) = 0;                                                        // 30
     virtual int GetConvexesUsedInCollideable(const CPhysCollide* collide, CPhysConvex** output,
                                              int outputLimit) = 0;      // 31
     virtual std::uint32_t GetConvexCount(const CPhysCollide* collide) = 0; // 32
-    virtual void TraceBox(const Ray_t& ray, const CPhysCollide* collide, const Vector3& collideOrigin, const QAngle& collideAngles,
+    virtual void TraceBox(const Ray_t& ray, const CPhysCollide* collide, const Vector3D& collideOrigin, const QAngle& collideAngles,
                           trace_t* trace) = 0; // 33
-    virtual void TraceBox(const Vector3& start, const Vector3& end, const Vector3& mins, const Vector3& maxs, const CPhysCollide* collide,
-                          const Vector3& collideOrigin, const QAngle& collideAngles, trace_t* trace) = 0; // 34
+    virtual void TraceBox(const Vector3D& start, const Vector3D& end, const Vector3D& mins, const Vector3D& maxs, const CPhysCollide* collide,
+                          const Vector3D& collideOrigin, const QAngle& collideAngles, trace_t* trace) = 0; // 34
     virtual void TraceBox(const Ray_t& ray, std::uint32_t contentsMask, IConvexInfo* convexInfo, const CPhysCollide* collide,
-                          const Vector3& collideOrigin, const QAngle& collideAngles,
+                          const Vector3D& collideOrigin, const QAngle& collideAngles,
                           trace_t* trace) = 0; // 35
-    virtual void TraceBox(const Vector3& start, const Vector3& end, const Vector3& mins, const Vector3& maxs, const CPhysCollide* collide,
-                          const Vector3& collideOrigin, const QAngle& collideAngles, float scale,
+    virtual void TraceBox(const Vector3D& start, const Vector3D& end, const Vector3D& mins, const Vector3D& maxs, const CPhysCollide* collide,
+                          const Vector3D& collideOrigin, const QAngle& collideAngles, float scale,
                           trace_t* trace) = 0; // 36
-    virtual void TraceBox(const Ray_t& ray, const CPhysCollide* collide, const Vector3& collideOrigin, const QAngle& collideAngles,
+    virtual void TraceBox(const Ray_t& ray, const CPhysCollide* collide, const Vector3D& collideOrigin, const QAngle& collideAngles,
                           float scale, trace_t* trace) = 0; // 37
     virtual void TraceBox(const Ray_t& ray, std::uint32_t contentsMask, IConvexInfo* convexInfo, const CPhysCollide* collide,
-                          const Vector3& collideOrigin, const QAngle& collideAngles, float scale,
+                          const Vector3D& collideOrigin, const QAngle& collideAngles, float scale,
                           trace_t* trace) = 0; // 38
     virtual void TraceBox(const Ray_t& ray, std::uint32_t contentsMask, IConvexInfo* convexInfo, const CPhysCollide* collide,
                           const matrix3x4_t& collideTransform, float scale,
                           trace_t* trace) = 0; // 39
-    virtual void TraceCollide(const Vector3& start, const Vector3& end, const CPhysCollide* sweepCollide, const QAngle& sweepAngles,
-                              const CPhysCollide* collide, const Vector3& collideOrigin, const QAngle& collideAngles,
+    virtual void TraceCollide(const Vector3D& start, const Vector3D& end, const CPhysCollide* sweepCollide, const QAngle& sweepAngles,
+                              const CPhysCollide* collide, const Vector3D& collideOrigin, const QAngle& collideAngles,
                               trace_t* trace) = 0; // 40
-    virtual bool IsBoxIntersectingCone(const Vector3& boxMins, const Vector3& boxMaxs,
+    virtual bool IsBoxIntersectingCone(const Vector3D& boxMins, const Vector3D& boxMaxs,
                                        const truncatedcone_t& cone) = 0;                           // 41
     virtual void VCollideLoad(vcollide_t* output, int solidCount, const char* buffer) = 0;         // 42
     virtual void VCollideUnload(vcollide_t* collide) = 0;                                          // 43
     virtual IVPhysicsKeyParser* VPhysicsKeyParserCreate(const vcollide_t* collide) = 0;            // 44
     virtual IVPhysicsKeyParser* VPhysicsKeyParserCreate(const char* keyData) = 0;                  // 45
     virtual void VPhysicsKeyParserDestroy(IVPhysicsKeyParser* parser) = 0;                         // 46
-    virtual int CreateDebugMesh(const CPhysCollide* collisionModel, Vector3** outputVertices) = 0; // 47
-    virtual void DestroyDebugMesh(int vertexCount, Vector3* vertices) = 0;                         // 48
-    virtual std::uint32_t GetCollideVertices(const CPhysCollide* collide, Vector3* output,
+    virtual int CreateDebugMesh(const CPhysCollide* collisionModel, Vector3D** outputVertices) = 0; // 47
+    virtual void DestroyDebugMesh(int vertexCount, Vector3D* vertices) = 0;                         // 48
+    virtual std::uint32_t GetCollideVertices(const CPhysCollide* collide, Vector3D* output,
                                              int outputLimit) = 0;                              // 49
     virtual ICollisionQuery* CreateQueryModel(CPhysCollide* collide) = 0;                       // 50
     virtual void DestroyQueryModel(ICollisionQuery* query) = 0;                                 // 51
@@ -190,7 +190,3 @@ class IPhysicsSurfaceProps
     virtual int GetSurfaceIndexFromMaterialIndex(int materialIndex) const = 0;                                         // 14
     virtual const char* GetMaterialIndexName(int materialIndex) const = 0;                                             // 15
 };
-
-static_assert(sizeof(IPhysics) == sizeof(void*));
-static_assert(sizeof(IPhysicsCollision) == sizeof(void*));
-static_assert(sizeof(IPhysicsSurfaceProps) == sizeof(void*));

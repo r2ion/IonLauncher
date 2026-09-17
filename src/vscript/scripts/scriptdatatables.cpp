@@ -60,6 +60,41 @@ struct CSVData
 
 std::unordered_map<std::string, CSVData> CSVCache;
 
+Vector3D ParseDataTableVector(char* value)
+{
+	Vector3D result;
+
+	int length = 0;
+	while (value[length])
+	{
+		if (value[length] == '<' || value[length] == '>')
+			value[length] = '\0';
+		++length;
+	}
+
+	int componentStart = 1;
+	int cursor = 1;
+
+	while (value[cursor] && value[cursor] != ',')
+		++cursor;
+	value[cursor] = '\0';
+	result.x = std::stof(&value[componentStart]);
+	componentStart = ++cursor;
+
+	while (value[cursor] && value[cursor] != ',')
+		++cursor;
+	value[cursor] = '\0';
+	result.y = std::stof(&value[componentStart]);
+	componentStart = ++cursor;
+
+	while (value[cursor] && value[cursor] != ',')
+		++cursor;
+	value[cursor] = '\0';
+	result.z = std::stof(&value[componentStart]);
+
+	return result;
+}
+
 // var function GetDataTable( asset path )
 REPLACE_SQFUNC(GetDataTable, (ScriptContext::UI | ScriptContext::CLIENT | ScriptContext::SERVER))
 {
@@ -435,7 +470,7 @@ REPLACE_SQFUNC(GetDataTableVector, (ScriptContext::UI | ScriptContext::CLIENT | 
 		return SQRESULT_ERROR;
 	}
 
-	g_pSquirrel[context]->pushvector(sqvm, StringToVector(csv->dataPointers[nRow][nCol]));
+	g_pSquirrel[context]->pushvector(sqvm, ParseDataTableVector(csv->dataPointers[nRow][nCol]));
 	return SQRESULT_NOTNULL;
 }
 
@@ -556,11 +591,11 @@ REPLACE_SQFUNC(GetDataTableRowMatchingVectorValue, (ScriptContext::UI | ScriptCo
 
 	CSVData* csv = *pData;
 	int nCol = g_pSquirrel[context]->getinteger(sqvm, 2);
-	const Vector3 vVectorVal = g_pSquirrel[context]->getvector(sqvm, 3);
+	const Vector3D vVectorVal = g_pSquirrel[context]->getvector(sqvm, 3);
 
 	for (int i = 0; i < csv->dataPointers.size(); i++)
 	{
-		if (vVectorVal == StringToVector(csv->dataPointers[i][nCol]))
+		if (vVectorVal == ParseDataTableVector(csv->dataPointers[i][nCol]))
 		{
 			g_pSquirrel[context]->pushinteger(sqvm, i);
 			return SQRESULT_NOTNULL;
@@ -730,7 +765,7 @@ std::string DataTableToString(Datatable* datatable)
 
 			case DatatableType::VECTOR:
 			{
-				Vector3* pVector = (Vector3*)(pUntypedVal);
+				Vector3D* pVector = (Vector3D*)(pUntypedVal);
 				sCSVString += fmt::format("<{},{},{}>", pVector->x, pVector->y, pVector->z);
 				break;
 			}

@@ -6,7 +6,7 @@
 
 class CMoveData;
 class QAngle;
-class Vector3;
+class Vector3D;
 class C_BasePlayer;
 class CUserCmd;
 
@@ -28,8 +28,8 @@ public:
 		bool receivedEntityUpdates) = 0;
 	virtual void OnReceivedUncompressedPacket() = 0;
 
-	virtual void GetViewOrigin(Vector3& origin) = 0;
-	virtual void SetViewOrigin(Vector3& origin) = 0;
+	virtual void GetViewOrigin(Vector3D& origin) = 0;
+	virtual void SetViewOrigin(Vector3D& origin) = 0;
 	virtual void GetViewAngles(QAngle& angles) = 0;
 	virtual void SetViewAngles(QAngle& angles) = 0;
 	virtual void GetLocalViewAngles(QAngle& angles) = 0;
@@ -47,8 +47,8 @@ public:
 	virtual int GetIncomingPacketNumber() = 0;
 	virtual void SetupMove(C_BasePlayer* pPlayer, CUserCmd* pUserCmd, void* pMoveHelper, CMoveData* pMoveData) = 0;
 	virtual void FinishMove(C_BasePlayer* pPlayer, CUserCmd* pUserCmd, CMoveData* pMoveData) = 0;
-	virtual void SetIdealPitch(int splitScreenSlot, C_BasePlayer* pPlayer, const Vector3& origin,
-		const QAngle& angles, const Vector3& viewHeight) = 0;
+	virtual void SetIdealPitch(int splitScreenSlot, C_BasePlayer* pPlayer, const Vector3D& origin,
+		const QAngle& angles, const Vector3D& viewHeight) = 0;
 	virtual void SmoothViewOnMovingPlatform(std::uint32_t predictedFrame, int debugSlot,
 		C_BasePlayer* pPlayer) = 0;
 	virtual void UpdateInternal(int splitScreenSlot, bool receivedNewWorldUpdate, bool validFrame,

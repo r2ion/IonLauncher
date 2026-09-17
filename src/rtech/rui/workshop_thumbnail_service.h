@@ -14,7 +14,6 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -32,13 +31,14 @@ public:
 	{
 		uint64_t id = 0;
 		std::filesystem::path path;
-		std::optional<ModWorkshopThumbnail> thumbnail;
+		ModWorkshopThumbnail thumbnail;
+		bool hasThumbnail = false;
 	};
 
 	static CWorkshopThumbnailService& Get()
 	{
-		static CWorkshopThumbnailService* s_pInstance = new CWorkshopThumbnailService;
-		return *s_pInstance;
+		static CWorkshopThumbnailService* pInstance = new CWorkshopThumbnailService;
+		return *pInstance;
 	}
 
 	void RequestPage(uint64_t generation, std::span<const ModWorkshopCatalogEntry> entries);

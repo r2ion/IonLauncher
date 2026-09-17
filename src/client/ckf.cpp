@@ -258,7 +258,7 @@ ADD_SQFUNC("integer", GetWallkickTiming, "", "", ScriptContext::CLIENT)
 
 ADD_SQFUNC("vector", GetWallNormalVector, "entity", "", ScriptContext::CLIENT) {
 	auto ent = g_pSquirrel[ScriptContext::CLIENT]->getentity<uintptr_t>(sqvm, 1);
-	Vector3 wallNormalVector = *(Vector3*)(((uintptr_t)ent + 0x2BA0));
+	Vector3D wallNormalVector = *(Vector3D*)(((uintptr_t)ent + 0x2BA0));
 
 	g_pSquirrel[ScriptContext::CLIENT]->pushvector(sqvm, wallNormalVector);
 	return SQRESULT_NOTNULL;

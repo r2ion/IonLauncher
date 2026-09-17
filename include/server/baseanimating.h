@@ -5,7 +5,7 @@
 class CStudioHdr;
 class IBoneSetup;
 struct Quaternion;
-enum eSmartAmmoLockType : int;
+enum class eSmartAmmoLockType : int;
 struct animevent_t;
 struct matrix3x4_t;
 
@@ -20,17 +20,17 @@ class CBaseAnimating : public CBaseEntity
     void OnRestore() override = 0; // 40
     const CBaseAnimating* GetBaseAnimatingConst() const override = 0; // 48
     CBaseAnimating* GetBaseAnimating() override = 0; // 49
-    void GetVelocity(Vector3* velocity, Vector3* angularVelocity) override = 0; // 142
+    void GetVelocity(Vector3D* velocity, Vector3D* angularVelocity) override = 0; // 142
     virtual float GetIdealSpeed() const = 0; // 245
     virtual float GetIdealAccel() const = 0; // 246
     virtual void StudioFrameAdvance() = 0; // 247
     virtual bool IsActivityFinished() const = 0; // 248
     virtual float GetSequenceGroundSpeed(CStudioHdr* studioHdr, int sequence) = 0; // 249
     virtual bool Weapon_ShouldSmartAmmoLockOn(CBaseEntity* attacker, CWeaponX* weapon, eSmartAmmoLockType lockType) = 0; // 250
-    virtual bool BecomeRagdollOnClient(const Vector3& force) = 0; // 251
+    virtual bool BecomeRagdollOnClient(const Vector3D& force) = 0; // 251
     virtual bool IsRagdoll() = 0; // 252
     virtual bool CanBecomeRagdoll() = 0; // 253
-    virtual bool BecomeRagdoll(const CTakeDamageInfo& info, const Vector3& force) = 0; // 254
+    virtual bool BecomeRagdoll(const CTakeDamageInfo& info, const Vector3D& force) = 0; // 254
     virtual void GetBoneTransform(int bone, matrix3x4_t& transform) = 0; // 255
     virtual void SetupBones(matrix3x4_t* boneToWorld, int boneMask, int boneCacheFlags) = 0; // 256
     virtual void DispatchAnimEvents(CBaseAnimating* eventHandler) = 0; // 257
@@ -38,7 +38,7 @@ class CBaseAnimating : public CBaseEntity
     virtual void AnimEventScriptCallback(const char* options) = 0; // 259
   protected:
     virtual void PopulatePoseParameters() = 0; // 260
-    virtual void AccumulateLayers(IBoneSetup* boneSetup, Vector3* positions, Quaternion* rotations, Vector3* scales, float currentTime) = 0; // 261
+    virtual void AccumulateLayers(IBoneSetup* boneSetup, Vector3D* positions, Quaternion* rotations, Vector3D* scales, float currentTime) = 0; // 261
   public:
     virtual bool GetAttachment(int attachment, matrix3x4_t& transform) = 0; // 262
     virtual void OnScriptAnimStart(int sequence) = 0; // 263
@@ -48,7 +48,7 @@ class CBaseAnimating : public CBaseEntity
     virtual void ReservedEntitySlot266() = 0; // 266
   public:
     virtual void InitBoneControllers() = 0; // 267
-    virtual Vector3 GetGroundSpeedVelocity() = 0; // 268
+    virtual Vector3D GetGroundSpeedVelocity() = 0; // 268
     virtual void InvalidateBoneCache() = 0; // 269
     virtual bool IsViewModel() = 0; // 270
   protected:

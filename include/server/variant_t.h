@@ -23,10 +23,10 @@ class variant_t
     const char* StringID() const { return fieldType == FIELD_STRING ? iszVal : nullptr; }
     CBaseHandle Entity() const { return fieldType == FIELD_EHANDLE ? eVal : CBaseHandle{}; }
     color32 Color32() const { return rgbaVal; }
-    void Vector3D(Vector3& value) const
+    void Vector3D(::Vector3D& value) const
     {
         value = fieldType == FIELD_VECTOR || fieldType == FIELD_POSITION_VECTOR
-            ? Vector3(vecVal[0], vecVal[1], vecVal[2]) : Vector3{};
+            ? ::Vector3D(vecVal[0], vecVal[1], vecVal[2]) : ::Vector3D{};
     }
 
     void SetBool(bool value) { bVal = value; fieldType = FIELD_BOOLEAN; }
@@ -35,14 +35,14 @@ class variant_t
     void SetString(const char* value) { iszVal = value; fieldType = FIELD_STRING; }
     void SetEntity(CBaseHandle value) { eVal = value; fieldType = FIELD_EHANDLE; }
     void SetColor32(color32 value) { rgbaVal = value; fieldType = FIELD_COLOR32; }
-    void SetVector3D(const Vector3& value)
+    void SetVector3D(const ::Vector3D& value)
     {
         vecVal[0] = value.x;
         vecVal[1] = value.y;
         vecVal[2] = value.z;
         fieldType = FIELD_VECTOR;
     }
-    void SetPositionVector3D(const Vector3& value)
+    void SetPositionVector3D(const ::Vector3D& value)
     {
         SetVector3D(value);
         fieldType = FIELD_POSITION_VECTOR;

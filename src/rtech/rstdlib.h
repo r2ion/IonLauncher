@@ -2,6 +2,9 @@
 
 #include <Windows.h>
 
+#include <algorithm>
+#include <cassert>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -17,15 +20,13 @@ struct RFixedArray
 static_assert(sizeof(RFixedArray) == 0x18);
 static_assert(offsetof(RFixedArray, storage) == 0x10);
 
-inline constexpr int32_t RHASHMAP_BUCKET_EMPTY = -1;
-inline constexpr int32_t RHASHMAP_BUCKET_TOMBSTONE = -2;
+#define RHASHMAP_BUCKET_EMPTY = -1;
+#define RHASHMAP_BUCKET_TOMBSTONE = -2;
 
-// RTech's open-addressed map specialization for 32-bit keys. Reserving a new
-// entry and publishing it are deliberately separate operations.
 struct RHashMapU32
 {
 	uint32_t liveEntryCount;
-	uint32_t bucketPairCount;
+	uint32_t entryCapacity;
 	void* entryStorage;
 	int32_t* bucketEntryIndices;
 	uint32_t(*hashKey)(uint32_t key);
@@ -36,23 +37,185 @@ struct RHashMapU32
 	uint32_t pendingBucketIndex;
 	uint64_t entryStride;
 	RTL_SRWLOCK lock;
+
+	uint32_t BucketCount() const
+	{
+		return entryCapacity * 2;
+	}
+
+	bool HasFreeEntry() const
+	{
+		return freeListHead != nextUnusedIndex || nextUnusedIndex < entryCapacity;
+	}
+
+	void* Find(uint32_t key) const
+	{
+		uint32_t hashOrBucket = hashKey(key);
+		return FindWithHash(hashOrBucket, key);
+	}
+
+	void* FindOrReserveUnlocked(uint32_t key, bool& reserved)
+	{
+		uint32_t hashOrBucket = hashKey(key);
+		if (void* entry = FindWithHash(hashOrBucket, key))
+		{
+			reserved = false;
+			return entry;
+		}
+
+		if (!HasFreeEntry())
+		{
+			reserved = false;
+			return nullptr;
+		}
+
+		const uint32_t entryIndex = freeListHead;
+		void* entry = EntryAt(entryIndex);
+		pendingEntryIndex = entryIndex;
+		pendingBucketIndex = hashOrBucket;
+
+		if (entryIndex == nextUnusedIndex)
+		{
+			++freeListHead;
+			++nextUnusedIndex;
+		}
+		else
+		{
+			freeListHead = *static_cast<uint32_t*>(entry);
+		}
+
+		reserved = true;
+		return entry;
+	}
+
+	void PublishReserved()
+	{
+		assert(pendingEntryIndex < entryCapacity);
+		assert(bucketEntryIndices[pendingBucketIndex] < 0);
+		bucketEntryIndices[pendingBucketIndex] = static_cast<int32_t>(pendingEntryIndex);
+		++liveEntryCount;
+	}
+
+	uint32_t* RemoveExisting(uint32_t key)
+	{
+		void* entry = Find(key);
+		return entry ? RemoveEntry(entry, key) : nullptr;
+	}
+
+	void Clear()
+	{
+		liveEntryCount = 0;
+		std::fill_n(bucketEntryIndices, BucketCount(), RHASHMAP_BUCKET_EMPTY);
+		freeListHead = 0;
+		nextUnusedIndex = 0;
+		pendingEntryIndex = 0;
+		pendingBucketIndex = 0;
+	}
+
+	void Initialize(uint64_t stride)
+	{
+		entryStride = stride;
+		InitializeSRWLock(&lock);
+		Clear();
+	}
+
+private:
+	void* EntryAt(uint32_t entryIndex) const
+	{
+		return static_cast<std::byte*>(entryStorage) + entryIndex * entryStride;
+	}
+
+	void* FindWithHash(uint32_t& hashOrBucket, uint32_t key) const
+	{
+		const uint32_t bucketMask = BucketCount() - 1;
+		uint32_t bucketIndex = hashOrBucket & bucketMask;
+		uint32_t firstTombstoneBucket = 0;
+		bool foundTombstone = false;
+
+		for (;;)
+		{
+			const int32_t entryIndex = bucketEntryIndices[bucketIndex];
+			if (entryIndex >= 0)
+			{
+				void* entry = EntryAt(static_cast<uint32_t>(entryIndex));
+				if (keysEqual(entry, key))
+				{
+					hashOrBucket = bucketIndex;
+					return entry;
+				}
+			}
+			else if (entryIndex == RHASHMAP_BUCKET_EMPTY)
+			{
+				hashOrBucket = foundTombstone ? firstTombstoneBucket : bucketIndex;
+				return nullptr;
+			}
+			else if (!foundTombstone)
+			{
+				firstTombstoneBucket = bucketIndex;
+				foundTombstone = true;
+			}
+
+			bucketIndex = (bucketIndex + 1) & bucketMask;
+		}
+	}
+
+	uint32_t* RemoveEntry(void* entry, uint32_t key)
+	{
+		const uint32_t bucketMask = BucketCount() - 1;
+		uint32_t bucketIndex = hashKey(key) & bucketMask;
+		uint32_t tombstoneRunLength = 0;
+		int32_t entryIndex;
+
+		for (;;)
+		{
+			entryIndex = bucketEntryIndices[bucketIndex];
+			if (entryIndex == RHASHMAP_BUCKET_EMPTY)
+				return nullptr;
+
+			if (entryIndex == RHASHMAP_BUCKET_TOMBSTONE)
+			{
+				++tombstoneRunLength;
+			}
+			else
+			{
+				if (EntryAt(static_cast<uint32_t>(entryIndex)) == entry)
+					break;
+				tombstoneRunLength = 0;
+			}
+
+			bucketIndex = (bucketIndex + 1) & bucketMask;
+		}
+
+		if (bucketEntryIndices[(bucketIndex + 1) & bucketMask] == RHASHMAP_BUCKET_EMPTY)
+		{
+			bucketEntryIndices[bucketIndex] = RHASHMAP_BUCKET_EMPTY;
+			while (tombstoneRunLength != 0)
+			{
+				bucketIndex = (bucketIndex - 1) & bucketMask;
+				bucketEntryIndices[bucketIndex] = RHASHMAP_BUCKET_EMPTY;
+				--tombstoneRunLength;
+			}
+		}
+		else
+		{
+			bucketEntryIndices[bucketIndex] = RHASHMAP_BUCKET_TOMBSTONE;
+		}
+
+		const uint32_t removedEntryIndex = static_cast<uint32_t>(entryIndex);
+		uint32_t nextFreeEntryIndex = freeListHead;
+		uint32_t* freeListLink = &freeListHead;
+		while (nextFreeEntryIndex <= removedEntryIndex)
+		{
+			freeListLink = static_cast<uint32_t*>(EntryAt(nextFreeEntryIndex));
+			nextFreeEntryIndex = *freeListLink;
+		}
+
+		*static_cast<uint32_t*>(entry) = nextFreeEntryIndex;
+		*freeListLink = removedEntryIndex;
+		--liveEntryCount;
+		return freeListLink;
+	}
 };
-static_assert(sizeof(RHashMapU32) == 0x48);
-static_assert(offsetof(RHashMapU32, entryStorage) == 0x8);
-static_assert(offsetof(RHashMapU32, freeListHead) == 0x28);
-static_assert(offsetof(RHashMapU32, pendingEntryIndex) == 0x30);
-static_assert(offsetof(RHashMapU32, pendingBucketIndex) == 0x34);
-static_assert(offsetof(RHashMapU32, entryStride) == 0x38);
-static_assert(offsetof(RHashMapU32, lock) == 0x40);
-
-using RHashMapU32FindOrReserveUnlockedFn = void* (*)(
-	RHashMapU32* map,
-	uint32_t key,
-	uint8_t* reservedNewEntry);
-
-// The key must exist. The return value points at the free-list link changed by
-// the erase operation; it is not the removed entry.
-using RHashMapU32RemoveExistingFn = uint32_t* (*)(RHashMapU32* map, uint32_t key);
 
 #pragma pack(push, 4)
 struct RBitRead

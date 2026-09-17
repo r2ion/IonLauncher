@@ -33,8 +33,8 @@ struct CAI_NodeLink
 class CAI_Node
 {
   public:
-	const Vector3& GetOrigin() const { return m_vOrigin; }
-	Vector3& AccessOrigin() { return m_vOrigin; }
+	const Vector3D& GetOrigin() const { return m_vOrigin; }
+	Vector3D& AccessOrigin() { return m_vOrigin; }
 	float GetYaw() const { return m_flYaw; }
 
 	int NumLinks() const { return m_Links.Count(); }
@@ -48,7 +48,7 @@ class CAI_Node
 	int GetInfo() const { return m_eNodeInfo; }
 
 	std::int32_t m_iID;
-	Vector3 m_vOrigin;
+	Vector3D m_vOrigin;
 	float m_flVOffset[MAX_HULLS];
 	float m_flYaw;
 	NodeType_e m_eNodeType;
@@ -74,7 +74,7 @@ struct CAI_TraverseNode
 
 struct CAI_ScriptNode
 {
-	Vector3 m_vOrigin;
+	Vector3D m_vOrigin;
 	std::int32_t m_nMin;
 	std::int32_t m_nMax;
 };

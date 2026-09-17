@@ -265,7 +265,7 @@ class SquirrelManager
         __sq_pushasset(sqvm, sVal, length);
     }
 
-    inline void pushvector(HSQUIRRELVM sqvm, const Vector3 pVal)
+    inline void pushvector(HSQUIRRELVM sqvm, const Vector3D pVal)
     {
         __sq_pushvector(sqvm, (float*)&pVal);
     }
@@ -310,9 +310,9 @@ class SquirrelManager
         return __sq_get(sqvm, stackpos);
     }
 
-    inline Vector3 getvector(HSQUIRRELVM sqvm, const SQInteger stackpos)
+    inline Vector3D getvector(HSQUIRRELVM sqvm, const SQInteger stackpos)
     {
-        return *(Vector3*)__sq_getvector(sqvm, stackpos);
+        return *(Vector3D*)__sq_getvector(sqvm, stackpos);
     }
 
     inline SQRESULT sq_getfunction(HSQUIRRELVM sqvm, const char* name, SQObject* returnObj, const char* signature)
@@ -569,7 +569,7 @@ inline VoidFunction SQMessageBufferPushArg(SquirrelManager* squirrel, T& arg) {
 	return [squirrel, arg]{ squirrel->pushbool(squirrel->m_pSQVM->sqvm, static_cast<bool>(arg)); };
 }
 // Vectors
-inline VoidFunction SQMessageBufferPushArg(SquirrelManager* squirrel, Vector3& arg) {
+inline VoidFunction SQMessageBufferPushArg(SquirrelManager* squirrel, Vector3D& arg) {
 	return [squirrel, arg]{ squirrel->pushvector(squirrel->m_pSQVM->sqvm, arg); };
 }
 // Vectors

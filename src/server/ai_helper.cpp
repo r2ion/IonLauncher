@@ -33,7 +33,7 @@ dtNavMesh* GetNavMeshForHull(int nHull)
 //          &v2 -
 // Output :
 //-----------------------------------------------------------------------------
-__m128i PackVerticesSIMD16(const Vector3& v1, const Vector3& v2)
+__m128i PackVerticesSIMD16(const Vector3D& v1, const Vector3D& v2)
 {
 	short x1, x2, y1, y2, z1, z2;
 	x1 = static_cast<short>(v1.x);
@@ -68,12 +68,13 @@ void CAI_Helper::DrawNavmeshPolys(dtNavMesh* pNavMesh)
 	if (!pNavMesh)
 		return;
 
-	Vector3 vCamera;
+	Vector3D vCamera;
 	QAngle aCamera;
 	float fFov;
 	g_pClientTools->GetLocalPlayerEyePosition(vCamera, aCamera, fFov);
 
-	const VPlane CullPlane(vCamera - aCamera.GetNormal() * 256.0f, aCamera);
+	VPlane CullPlane;
+	CullPlane.Init(vCamera - aCamera.GetNormal() * 256.0f, aCamera);
 
 	const float fCamRadius = Cvar_navmesh_debug_camera_radius->GetFloat();
 	const bool bOptimize = Cvar_navmesh_debug_lossy_optimization->GetBool();
@@ -110,7 +111,7 @@ void CAI_Helper::DrawNavmeshPolys(dtNavMesh* pNavMesh)
 			{
 				const dtPolyDetail* pDetail = &pTile->detailMeshes[ip];
 
-				Vector3 v[3];
+				Vector3D v[3];
 
 				for (int k = 0; k < pDetail->triCount; ++k)
 				{
@@ -120,12 +121,12 @@ void CAI_Helper::DrawNavmeshPolys(dtNavMesh* pNavMesh)
 						if (t[l] < pPoly->vertCount)
 						{
 							float* pfVerts = &pTile->verts[pPoly->verts[t[l]] * 3];
-							v[l] = Vector3(pfVerts[0], pfVerts[1], pfVerts[2]);
+							v[l] = Vector3D(pfVerts[0], pfVerts[1], pfVerts[2]);
 						}
 						else
 						{
 							float* pfVerts = &pTile->detailVerts[(pDetail->vertBase + t[l] - pPoly->vertCount) * 3];
-							v[l] = Vector3(pfVerts[0], pfVerts[1], pfVerts[2]);
+							v[l] = Vector3D(pfVerts[0], pfVerts[1], pfVerts[2]);
 						}
 					}
 

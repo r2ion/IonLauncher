@@ -545,13 +545,13 @@ inline CUtlBuffer& operator<<(CUtlBuffer& b, const char* pv)
 	return b;
 }
 
-inline CUtlBuffer& operator<<(CUtlBuffer& b, const Vector3& v)
+inline CUtlBuffer& operator<<(CUtlBuffer& b, const Vector3D& v)
 {
 	b << v.x << " " << v.y << " " << v.z;
 	return b;
 }
 
-inline CUtlBuffer& operator<<(CUtlBuffer& b, const Vector2& v)
+inline CUtlBuffer& operator<<(CUtlBuffer& b, const Vector2D& v)
 {
 	b << v.x << " " << v.y;
 	return b;

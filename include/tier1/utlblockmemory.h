@@ -14,8 +14,9 @@
 #pragma once
 #endif
 
+#include "tier0/dbg.h"
 #include "tier0/platform.h"
-#include "mathlib/math_pfns.h"
+#include "mathlib/mathlib.h"
 
 #pragma warning (disable:4100)
 #pragma warning (disable:4514)
