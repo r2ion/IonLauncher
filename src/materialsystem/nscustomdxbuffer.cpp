@@ -662,8 +662,6 @@ template <ScriptContext context> SQRESULT NSRegisterCustomDXBufferForGUID(HSQUIR
 		NS::log::SCRIPT_CL->warn("Attempted to register GUID: {} to the NSCustomDXBuffer system, GUID was already registered", material->guid);
 	}
 
-
-
 	return SQRESULT_NULL;
 }
 
@@ -929,10 +927,6 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 	StagedPixelSamplers = module.Offset(0x19AC9F0).RCast<ID3D11SamplerState**>();
 	StagedTextureBindingState = module.Offset(0x19ACB30).RCast<uint64_t*>();
 
-	// CShader_Water's combo source (0x41B50) is what fills the per-stage combo ids
-	// the loader resolves. Without this dispatch R2's own ids reach the loader,
-	// and their bit order and radices are not R1's, so the water material resolves
-	// to a body R1 never compiled - or to nothing at all.
 	DISPATCH_HOOK(NSCustomDXBufferHooks, InitWaterShader)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, Water_Execute)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, ShaderExecute)
