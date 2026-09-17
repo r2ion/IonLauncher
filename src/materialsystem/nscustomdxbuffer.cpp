@@ -2,7 +2,9 @@
 #include <array>
 #include <cassert>
 #include <condition_variable>
+#include <cstdlib>
 #include <fstream>
+#include <sstream>
 #include "core/tier0.h"
 #include <d3d11.h>
 #include <map>
@@ -103,9 +105,6 @@ static void RefreshRequestedWaterPasses()
 	RequestedWaterPasses.store(requestedPasses, std::memory_order_release);
 }
 
-// CMaterialGlue::IsWater reads flags2 bit 19, which is the RPAK equivalent of
-// VMT %compileWater. The client render-target still needs a separate
-// hook because engine.dll only creates its water records from BSP leafwaterdata.
 static void UpdateCompileWaterFlag(
 	CMaterialGlue* material, const MaterialNamedTextureMappings_t& mappings)
 {
@@ -203,75 +202,303 @@ static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t sampler
 	return true;
 }
 
+static constexpr const char* waterVcsPaths[] = {
+	"platform/shaders/fxc/water_%s.vcs",
+};
+
+struct VcsSet_t
+{
+	bool m_Loaded = false;
+	uint32_t m_SlotCount = 1;
+	std::vector<std::pair<uint32_t, uint32_t>> m_Dictionary;
+	std::vector<std::pair<uint32_t, uint32_t>> m_Aliases;    
+	std::map<uint32_t, std::vector<uint8_t>> m_Blocks; 
+
+	int32_t FindIndex(uint32_t comboId) const
+	{
+		if (!m_Loaded || m_SlotCount == 0)
+			return -1;
+
+		uint32_t key = comboId / m_SlotCount;
+
+		const auto alias = std::lower_bound(m_Aliases.begin(), m_Aliases.end(), key,
+			[](const std::pair<uint32_t, uint32_t>& entry, uint32_t value) { return entry.first < value; });
+		if (alias != m_Aliases.end() && alias->first == key)
+			key = alias->second;
+
+		const auto entry = std::lower_bound(m_Dictionary.begin(), m_Dictionary.end(), key,
+			[](const std::pair<uint32_t, uint32_t>& candidate, uint32_t value) { return candidate.first < value; });
+		if (entry == m_Dictionary.end() || entry->first != key)
+			return -1;
+
+		return static_cast<int32_t>(entry - m_Dictionary.begin());
+	}
+
+	const std::vector<uint8_t>* ByteCodeFor(uint32_t comboId) const
+	{
+		const int32_t index = FindIndex(comboId);
+		if (index < 0)
+			return nullptr;
+
+		const auto block = m_Blocks.find(m_Dictionary[index].first);
+		return block == m_Blocks.end() ? nullptr : &block->second;
+	}
+
+	bool Load(const char* path);
+};
+
+
+static VcsSet_t g_WaterPsSet;
+static VcsSet_t g_WaterVsSet;
+static std::map<__int64, std::pair<uint32_t, uint32_t>> WaterCombos;
+static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11PixelShader>> WaterVcsPixelShaders;
+static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11VertexShader>> WaterVcsVertexShaders;
+
+bool VcsSet_t::Load(const char* path)
+{
+	std::ifstream file(path, std::ios::binary | std::ios::ate);
+	if (!file)
+		return false;
+
+	const std::streamoff size = file.tellg();
+	if (size < 0x20)
+		return false;
+
+	std::vector<uint8_t> data(static_cast<size_t>(size));
+	file.seekg(0, std::ios::beg);
+	if (!file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size)))
+		return false;
+
+	const auto readU32 = [&data](size_t offset) -> uint32_t
+	{
+		uint32_t value = 0;
+		if (offset + sizeof(uint32_t) <= data.size())
+			memcpy(&value, data.data() + offset, sizeof(uint32_t));
+		return value;
+	};
+
+	if (readU32(0) != 6)
+		return false;
+
+	m_SlotCount = readU32(8);
+	if (m_SlotCount == 0)
+		m_SlotCount = 1;
+
+	const uint32_t entryCount = readU32(20);
+	const size_t aliasCountOffset = 28 + static_cast<size_t>(entryCount) * 8;
+	const uint32_t aliasCount = readU32(aliasCountOffset);
+	const size_t aliasOffset = aliasCountOffset + 4;
+
+	for (uint32_t i = 0; i < entryCount; ++i)
+	{
+		const uint32_t key = readU32(28 + static_cast<size_t>(i) * 8);
+		const uint32_t offset = readU32(28 + static_cast<size_t>(i) * 8 + 4);
+		if (offset == 0xFFFFFFFF)
+			continue;
+
+		const uint32_t header = readU32(offset);
+		const uint32_t byteCodeLength = readU32(offset + 8);
+		if ((header >> 31) == 0 || byteCodeLength == 0 || offset + 12 + byteCodeLength > data.size())
+			continue;
+
+		const uint8_t* byteCode = data.data() + offset + 12;
+		if (memcmp(byteCode, "DXBC", 4) != 0)
+			continue;
+
+		m_Dictionary.emplace_back(key, offset);
+
+		m_Blocks.emplace(key, std::vector<uint8_t>(byteCode, byteCode + byteCodeLength));
+	}
+
+	for (uint32_t i = 0; i < aliasCount; ++i)
+	{
+		const uint32_t key = readU32(aliasOffset + static_cast<size_t>(i) * 8);
+		const uint32_t value = readU32(aliasOffset + static_cast<size_t>(i) * 8 + 4);
+		m_Aliases.emplace_back(key, value);
+	}
+
+	m_Loaded = !m_Dictionary.empty();
+	return m_Loaded;
+}
+
+static bool LoadWaterVcsSet(VcsSet_t& set, const char* stage)
+{
+	if (set.m_Loaded)
+		return true;
+
+	for (const char* pattern : waterVcsPaths)
+	{
+		std::string path = pattern;
+		path.replace(path.find("%s"), 2, stage);
+		if (set.Load(path.c_str()))
+			return true;
+	}
+
+	spdlog::warn("water_{}.vcs not found; the engine's own water shaders will be used", stage);
+	return false;
+}
+
+DECLARE_HOOK(InitWaterShader, materialsystem_dx11.dll + 0x41B50, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
+{
+	const __int64 result = hook.Original(a1, a2, a3, a4);
+
+	if (!a2 || !a4)
+		return result;
+
+	auto* const shaderParams = *reinterpret_cast<uint8_t**>(a2);
+	if (!shaderParams)
+		return result;
+	
+	if (!g_WaterPsSet.m_Loaded)
+		LoadWaterVcsSet(g_WaterPsSet, "ps40");
+	if (!g_WaterVsSet.m_Loaded)
+		LoadWaterVcsSet(g_WaterVsSet, "vs40");
+	
+
+	if (!g_WaterPsSet.m_Loaded || !g_WaterVsSet.m_Loaded)
+		return result;
+
+
+	const uint32_t pixelId = *reinterpret_cast<uint32_t*>(a4 + 0x60);
+	const uint32_t vertexId = *reinterpret_cast<uint32_t*>(a4 + 0x64);
+	WaterCombos[a3] = std::make_pair(pixelId, vertexId);
+	
+	return result;
+})
+
+
 DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
 {
-	NOTE_UNUSED(hook);
-	NOTE_UNUSED(a1);
-	NOTE_UNUSED(a2);
-	NOTE_UNUSED(a3);
+
+	if (!a4)
+		return 0;
+
+	const __int64 result = *reinterpret_cast<const __int64*>(a4 + 8);
 
 	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
 	if (!dx11)
-		return *reinterpret_cast<unsigned int*>(a4 + 8);
+		return result;
 
-	static bool shadersLoaded = false;
-	static ID3D11VertexShader* vertexShader = nullptr;
-	static ID3D11PixelShader* pixelShader = nullptr;
+	uint32_t pixelId = 0;
+	uint32_t vertexId = 0;
+    auto entry = WaterCombos.find(a3);
+    if (entry == WaterCombos.end())
+        entry = WaterCombos.find(a4);
 
-	if (!shadersLoaded)
+    if (entry != WaterCombos.end())
+    {
+        pixelId = entry->second.first;
+        vertexId = entry->second.second;
+    }
+        
+	const std::vector<uint8_t>* const vertexByteCode =
+		vertexId != 0 ? g_WaterVsSet.ByteCodeFor(vertexId) : nullptr;
+	const std::vector<uint8_t>* const pixelByteCode =
+		pixelId != 0 ? g_WaterPsSet.ByteCodeFor(pixelId) : nullptr;
+
+	ID3D11VertexShader* vertexShader = nullptr;
+	ID3D11PixelShader* pixelShader = nullptr;
+
+	if (vertexByteCode)
 	{
-		shadersLoaded = true;
-
-		const auto readShader = [](const char* fileName, std::vector<uint8_t>& buffer) -> bool
+		const auto cached = WaterVcsVertexShaders.find(vertexId);
+		if (cached != WaterVcsVertexShaders.end())
 		{
-			std::ifstream file(fileName, std::ios::binary | std::ios::ate);
-			if (!file)
-			{
-				spdlog::error("Failed to open compiled shader '{}'", fileName);
-				return false;
-			}
-
-			const std::streamoff fileSize = file.tellg();
-			if (fileSize <= 0)
-				return false;
-
-			buffer.resize(static_cast<size_t>(fileSize));
-			file.seekg(0, std::ios::beg);
-			return static_cast<bool>(
-				file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(fileSize)));
-		};
-
-		std::vector<uint8_t> vertexShaderBuffer;
-		std::vector<uint8_t> pixelShaderBuffer;
-		if (readShader("vertex.fxc", vertexShaderBuffer) && readShader("pixel.fxc", pixelShaderBuffer))
+			vertexShader = cached->second.Get();
+		}
+		else if (SUCCEEDED(dx11.m_pDevice->CreateVertexShader(
+				vertexByteCode->data(), vertexByteCode->size(), nullptr, &vertexShader)))
 		{
-			HRESULT result = dx11.m_pDevice->CreateVertexShader(
-				vertexShaderBuffer.data(), vertexShaderBuffer.size(), nullptr, &vertexShader);
-			if (FAILED(result))
-				spdlog::error("Failed to create water vertex shader (HRESULT 0x{:08X})", static_cast<uint32_t>(result));
-
-			result = dx11.m_pDevice->CreatePixelShader(
-				pixelShaderBuffer.data(), pixelShaderBuffer.size(), nullptr, &pixelShader);
-			if (FAILED(result))
-				spdlog::error("Failed to create water pixel shader (HRESULT 0x{:08X})", static_cast<uint32_t>(result));
+			WaterVcsVertexShaders.emplace(vertexId, vertexShader);
+		}
+		else
+		{
+			spdlog::error("failed to create the water vertex shader for id {}", vertexId);
 		}
 	}
 
+	if (pixelByteCode)
+	{
+		const auto cached = WaterVcsPixelShaders.find(pixelId);
+		if (cached != WaterVcsPixelShaders.end())
+		{
+			pixelShader = cached->second.Get();
+		}
+		else if (SUCCEEDED(dx11.m_pDevice->CreatePixelShader(
+				pixelByteCode->data(), pixelByteCode->size(), nullptr, &pixelShader)))
+		{
+			WaterVcsPixelShaders.emplace(pixelId, pixelShader);
+		}
+		else
+		{
+			spdlog::error("failed to create the water pixel shader for id {}", pixelId);
+		}
+	}
+
+	
 	if (vertexShader && pixelShader)
 	{
 		dx11.m_pContext->VSSetShader(vertexShader, nullptr, 0);
 		dx11.m_pContext->PSSetShader(pixelShader, nullptr, 0);
 	}
+	
 
-	ID3D11Buffer* const* constantBuffer = reinterpret_cast<ID3D11Buffer* const*>(a4 + 16);
+		struct TonemapGlobals_t
+		{
+			float m_LightScale;
+			uint32_t m_HistoryPos;
+			float m_TargetHistory[10];
+		};
+		static_assert(sizeof(TonemapGlobals_t) == 48, "must match the shader's declaration");
+
+		static ID3D11Buffer* tonemapBuffer = nullptr;
+		static ID3D11ShaderResourceView* tonemapView = nullptr;
+
+	if (!tonemapView && !tonemapBuffer)
+	{
+		TonemapGlobals_t globals {};
+		globals.m_LightScale = 1.0f;
+
+		D3D11_BUFFER_DESC bufferDesc {};
+		bufferDesc.ByteWidth = sizeof(TonemapGlobals_t);
+		bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
+		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bufferDesc.StructureByteStride = sizeof(TonemapGlobals_t);
+
+		D3D11_SUBRESOURCE_DATA initial {};
+		initial.pSysMem = &globals;
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc {};
+		viewDesc.Format = DXGI_FORMAT_UNKNOWN;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		viewDesc.Buffer.FirstElement = 0;
+		viewDesc.Buffer.NumElements = 1;
+
+		if (FAILED(dx11.m_pDevice->CreateBuffer(&bufferDesc, &initial, &tonemapBuffer))
+			|| FAILED(dx11.m_pDevice->CreateShaderResourceView(tonemapBuffer, &viewDesc, &tonemapView)))
+		{
+			spdlog::error("failed to create the tonemapGlobals buffer for t16");
+			if (tonemapBuffer)
+			{
+				tonemapBuffer->Release();
+				tonemapBuffer = nullptr;
+			}
+		}
+		
+
+		if (tonemapView)
+			dx11.m_pContext->PSSetShaderResources(16, 1, &tonemapView);
+	}
+
+	// The water constant buffer, at the offset the engine's own execute uses.
+	ID3D11Buffer* const* const constantBuffer = reinterpret_cast<ID3D11Buffer* const*>(a4 + 0x10);
 	dx11.m_pContext->VSSetConstantBuffers(0, 1, constantBuffer);
 	dx11.m_pContext->PSSetConstantBuffers(0, 1, constantBuffer);
-
-	assert(SetupWaterTextureBindings);
 	if (SetupWaterTextureBindings)
-		SetupWaterTextureBindings(*reinterpret_cast<__int64*>(a4 + 0x78), 14);
+		SetupWaterTextureBindings(*reinterpret_cast<const __int64*>(a4 + 0x78), 14);
 
-	return *reinterpret_cast<unsigned int*>(a4 + 8);
+	return result;
 })
 
 DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, void* rawMaterialData) -> __int64
@@ -702,6 +929,11 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 	StagedPixelSamplers = module.Offset(0x19AC9F0).RCast<ID3D11SamplerState**>();
 	StagedTextureBindingState = module.Offset(0x19ACB30).RCast<uint64_t*>();
 
+	// CShader_Water's combo source (0x41B50) is what fills the per-stage combo ids
+	// the loader resolves. Without this dispatch R2's own ids reach the loader,
+	// and their bit order and radices are not R1's, so the water material resolves
+	// to a body R1 never compiled - or to nothing at all.
+	DISPATCH_HOOK(NSCustomDXBufferHooks, InitWaterShader)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, Water_Execute)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, ShaderExecute)
 
