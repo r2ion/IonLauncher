@@ -20,8 +20,8 @@ struct RFixedArray
 static_assert(sizeof(RFixedArray) == 0x18);
 static_assert(offsetof(RFixedArray, storage) == 0x10);
 
-#define RHASHMAP_BUCKET_EMPTY = -1;
-#define RHASHMAP_BUCKET_TOMBSTONE = -2;
+#define RHASHMAP_BUCKET_EMPTY -1
+#define RHASHMAP_BUCKET_TOMBSTONE -2
 
 struct RHashMapU32
 {
