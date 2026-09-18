@@ -33,8 +33,6 @@ bool PakFile::CanRepairSlab(
 		return false;
 	}
 
-	// Permit small alignment-only mistakes regardless of the original slab
-	// size. Larger repairs must also be no more than 25% growth.
 	return repairBytes <= MAX_UNCONDITIONAL_SLAB_REPAIR_BYTES
 		|| (oldDataSize != 0 && repairBytes <= oldDataSize / 4);
 }
@@ -102,8 +100,6 @@ bool PakFile::ValidateSlabMetadata(
 		const uint64_t requiredDataSize = slabNextPageOffsets[slabIndex];
 		if (effectiveDataSize < requiredDataSize)
 		{
-			// Type zero is populated from asset header sizes rather than this slab
-			// declaration. Enlarging dataSize would not affect its allocation.
 			if (!repairedDataSizes || bufferType == 0
 				|| !CanRepairSlab(effectiveDataSize, requiredDataSize, addedBytes))
 			{
@@ -168,8 +164,6 @@ bool PakFile::ValidateAndRepairSlabMetadata(size_t& repairCount, uint64_t& added
 		sections.slabHeaders[slabIndex].dataSize = repairedDataSizes[slabIndex];
 	}
 
-	// Keep this transactional even though the proposal pass used the same
-	// checks. If a future validation rule is added, never leave a partial repair.
 	if (!IsValid())
 	{
 		for (size_t slabIndex = 0; slabIndex < header.memSlabCount; ++slabIndex)

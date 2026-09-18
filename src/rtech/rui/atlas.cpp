@@ -26,11 +26,7 @@ RuiDestroyImageAtlasGpuBuffer_t RuiImageAtlas_DestroyGpuBuffer;
 std::shared_mutex g_RuiImageAtlasMutex;
 std::array<RuiImageAtlas, RUI_PAK_IMAGE_ATLAS_CAPACITY> g_PakRuiImageAtlases;
 std::deque<RuiImageAtlas> g_DynamicRuiImageAtlases;
-constinit std::array<RuiImageAtlasHandle, RUI_IMAGE_DESCRIPTOR_CAPACITY> g_RuiImageAtlasHandles = [] {
-    std::array<RuiImageAtlasHandle, RUI_IMAGE_DESCRIPTOR_CAPACITY> handles;
-    handles.fill(RUI_INVALID_IMAGE_ATLAS);
-    return handles;
-}();
+std::array<RuiImageAtlasHandle, RUI_IMAGE_DESCRIPTOR_CAPACITY> g_RuiImageAtlasHandles;
 
 bool RuiHasDuplicateImageNames(const RuiImageAtlas& atlas)
 {

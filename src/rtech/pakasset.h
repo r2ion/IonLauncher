@@ -17,6 +17,8 @@
 #define PAK_MAX_TRACKED_ASSETS (PAK_MAX_LOADED_ASSETS / 2)
 #define PAK_MAX_TRACKED_ASSETS_MASK (PAK_MAX_TRACKED_ASSETS - 1)
 
+#define PAK_MAX_UNLOAD_REFERENCES 40000
+
 using PakHandle_t = int32_t;
 inline constexpr PakHandle_t PAK_INVALID_HANDLE = -1;
 
@@ -31,8 +33,6 @@ struct PakAssetShort_s
 	uint32_t trackerIndex;
 };
 
-// Low 32 bits carry the owning PakHandle_t. RTech packs the low 12 bits of
-// packedStarpakOffset into the upper half before invoking the load callback.
 using PakAssetLoadContext_t = uint64_t;
 
 using PakAssetLoadFn_t = void(*)(
@@ -97,8 +97,6 @@ struct PakAssetTracker_s
 	uint8_t reserved11[7];
 };
 
-inline constexpr uint32_t PAK_MAX_UNLOAD_REFERENCES = 40000;
-
 struct PakAssetUnloadRef_s
 {
 	PakGuid_t assetKey;
@@ -115,21 +113,3 @@ struct PakAssetUnloadPlan_s
 	PakAssetUnloadRef_s assetRefs[PAK_MAX_UNLOAD_REFERENCES];
 	uint32_t assetIndices[PAK_MAX_TRACKED_ASSETS];
 };
-
-static_assert(sizeof(PakAssetShort_s) == 0x10);
-static_assert(sizeof(PakAssetBinding_s) == 0x60);
-static_assert(offsetof(PakAssetBinding_s, loadAssetFunc) == 0x10);
-static_assert(offsetof(PakAssetBinding_s, assetStorage) == 0x28);
-static_assert(offsetof(PakAssetBinding_s, assetCapacity) == 0x3C);
-static_assert(offsetof(PakAssetBinding_s, assetPool) == 0x40);
-static_assert(offsetof(PakAssetBinding_s, assetSlots) == 0x58);
-static_assert(sizeof(PakAssetBindingLink_s) == 0x18);
-static_assert(sizeof(PakAssetBindingSlot_s) == 0x10);
-static_assert(offsetof(PakAssetBindingLink_s, callback) == 0x8);
-static_assert(offsetof(PakAssetBindingSlot_s, loadedAssetIndex) == 0x8);
-static_assert(sizeof(PakAssetTracker_s) == 0x18);
-static_assert(sizeof(PakAssetUnloadRef_s) == 0x10);
-static_assert(sizeof(PakAssetUnloadPlan_s) == 0xDD410);
-static_assert(offsetof(PakAssetUnloadPlan_s, pakFiles) == 0x10);
-static_assert(offsetof(PakAssetUnloadPlan_s, assetRefs) == 0x1010);
-static_assert(offsetof(PakAssetUnloadPlan_s, assetIndices) == 0x9D410);

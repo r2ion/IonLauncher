@@ -1,7 +1,5 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
-// Source SDK 2013 collisionproperty.h API, adapted to retail R2.
-// R2 has no pre-scaled bounds or uniform-trigger-bloat member; its native
-// ICollideable vtable and scratch-transform arguments must not be replaced.
+
 #pragma once
 
 #include "engine/ICollideable.h"

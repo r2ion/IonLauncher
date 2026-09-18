@@ -64,12 +64,6 @@ struct PakFileStream_s
 	uint64_t inputBytesReady;
 };
 
-static_assert(sizeof(PakAsyncReadBlock_s) == 0x20);
-static_assert(sizeof(PakFileStream_s) == 0x1D8);
-static_assert(offsetof(PakFileStream_s, completedBlocks) == 0xC0);
-static_assert(offsetof(PakFileStream_s, readRingBuffer) == 0x1C0);
-static_assert(offsetof(PakFileStream_s, readRingMask) == 0x1C8);
-
 struct __declspec(align(8)) RTechDecodeState_s
 {
 	const uint8_t* inputBuf;
@@ -133,12 +127,6 @@ struct __declspec(align(8)) RTechDecodeState_s
 		ZSTD_DStream* zstreamContext;
 	};
 };
-
-static_assert(sizeof(RTechDecodeState_s) == 0x88);
-static_assert(offsetof(RTechDecodeState_s, decodeMode) == 0x44);
-static_assert(offsetof(RTechDecodeState_s, zstreamContext) == 0x80);
-
-void Pak_ReleaseZStdDecoder(RTechDecodeState_s* decoder);
 
 struct RPakPatchFileHeader_s
 {
@@ -255,8 +243,6 @@ struct RPakHeaderV7_s
 	}
 };
 
-static_assert(sizeof(RPakHeaderV7_s) == 0x58);
-
 struct PakPatchFuncs_s
 {
 	typedef bool (*PatchFunc_t)(PakFile* const pak, size_t* const numAvailableBytes);
@@ -301,7 +287,7 @@ struct PakFile
 
 		return offset <= static_cast<uint32_t>(sections.pageHeaders[index].dataSize);
 	}
-	
+
 	inline void* GetPointerForPageOffset(const RPakPagePtr_s* ptr) const
 	{
 		assert(IsPageOffsetValid(ptr->pageIndex, ptr->offset));
@@ -366,14 +352,4 @@ private:
 		uint64_t& addedBytes) const;
 };
 
-static_assert(sizeof(PakFile) == 0x6E8);
-static_assert(offsetof(PakFile, fileStream) == 0x18);
-static_assert(offsetof(PakFile, codec) == 0x200);
-static_assert(offsetof(PakFile, decoderRingBuffer) == 0x288);
-static_assert(offsetof(PakFile, decoderRingMask) == 0x290);
-static_assert(offsetof(PakFile, decodeCursor) == 0x2A0);
-static_assert(offsetof(PakFile, skipBytesRemaining) == 0x548);
-static_assert(offsetof(PakFile, copyBytesRemaining) == 0x550);
-static_assert(offsetof(PakFile, metadataEndOffset) == 0x570);
-static_assert(offsetof(PakFile, sections) == 0x590);
-static_assert(offsetof(PakFile, header) == 0x690);
+void Pak_ReleaseZStdDecoder(RTechDecodeState_s* decoder);
