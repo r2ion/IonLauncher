@@ -125,6 +125,8 @@ add_library(
     "materialsystem/dx11_device.h"
     "masterserver/masterserver.cpp"
     "masterserver/masterserver.h"
+    "mathlib/crc32.cpp"
+    "mathlib/sha1.cpp"
     "modsystem/moddownloader.h"
     "modsystem/moddownloader.cpp"
     "modsystem/compiled/kb_act.cpp"
@@ -258,14 +260,15 @@ add_library(
     "util/utils.cpp"
     "util/utils.h"
     "util/utlbuffer.cpp"
+    "util/utlstring.cpp"
     "util/version.cpp"
     "util/version.h"
     "util/wininfo.cpp"
     "util/wininfo.h"
     "util/zstdutils.cpp"
     "util/zstdutils.h"
-    "vpklib/vpkdirectory.cpp"
-    "vpklib/vpkdirectory.h"
+    "vpklib/packedstore.cpp"
+    "vpklib/packedstore.h"
     "vscript/languages/squirrel_re/include/squirrel.h"
     "vscript/languages/squirrel_re/squirrel/sqarray.h"
     "vscript/languages/squirrel_re/squirrel/sqclosure.h"
@@ -348,6 +351,7 @@ target_link_libraries(
             minhook
             minizip
             libzstd_static
+            lzham
             # VTFLib::VTFLib
             ws2_32.lib
             crypt32.lib

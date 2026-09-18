@@ -234,6 +234,43 @@ CPMAddPackage(
 )
 
 CPMAddPackage(
+    NAME lzham
+    GITHUB_REPOSITORY richgel999/lzham_alpha
+    GIT_TAG 4f4544d9a490e088ae6fd63692c46d51bec0a392
+    DOWNLOAD_ONLY TRUE
+    PATCH_COMMAND "${CMAKE_COMMAND}" "-DLZHAM_SOURCE_DIR=<SOURCE_DIR>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/lzham-alpha8.cmake"
+)
+
+add_library(lzham STATIC
+    "${lzham_SOURCE_DIR}/lzhamdll/lzham_api.cpp"
+    "${lzham_SOURCE_DIR}/lzhamcomp/lzham_lzbase.cpp"
+    "${lzham_SOURCE_DIR}/lzhamcomp/lzham_lzcomp.cpp"
+    "${lzham_SOURCE_DIR}/lzhamcomp/lzham_lzcomp_internal.cpp"
+    "${lzham_SOURCE_DIR}/lzhamcomp/lzham_lzcomp_state.cpp"
+    "${lzham_SOURCE_DIR}/lzhamcomp/lzham_match_accel.cpp"
+    "${lzham_SOURCE_DIR}/lzhamcomp/lzham_win32_threading.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_assert.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_checksum.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_huffman_codes.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_lzdecomp.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_lzdecompbase.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_mem.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_platform.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_polar_codes.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_prefix_coding.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_symbol_codec.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_timer.cpp"
+    "${lzham_SOURCE_DIR}/lzhamdecomp/lzham_vector.cpp"
+)
+target_include_directories(lzham
+    PUBLIC "${lzham_SOURCE_DIR}/include"
+    PRIVATE "${lzham_SOURCE_DIR}/lzhamcomp" "${lzham_SOURCE_DIR}/lzhamdecomp"
+)
+
+target_compile_definitions(lzham PRIVATE WIN32)
+
+CPMAddPackage(
 	NAME minizip-ng
 	GITHUB_REPOSITORY zlib-ng/minizip-ng
 	GIT_TAG 4.0.10

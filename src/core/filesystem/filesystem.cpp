@@ -1,5 +1,6 @@
 #include "filesystem.h"
 #include "core/tier1.h"
+#include "filesystem/ipackedstore.h"
 #include "modsystem/modmanager.h"
 
 #include <algorithm>
@@ -153,7 +154,6 @@ bool RemoveModSearchPaths()
     return true;
 }
 
-
 bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID = "GAME")
 {
     // idk how efficient the lexically normal check is
@@ -237,18 +237,19 @@ static CPackedStore* FindMountedModVPK(const char* path)
     return mounted == s_ModFilesystem.m_MountedVPKs.end() ? nullptr : mounted->second;
 }
 
-DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0, [](auto& hook, CPackedStore* vpkInfo, uint64_t* b, char* filename) -> FileHandle_t
+DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0,
+             [](auto& hook, CPackedStore* vpkInfo, PackedFileOpenData* b, char* filename) -> PackedFileOpenData*
 {
     // don't compile here because this is only ever called from OpenEx, which already compiles
     if (TryReplaceFile(filename, false))
     {
-        *b = -1;
+        b->m_nArchiveIndex = -1;
+        b->m_bTextMode = false;
         return b;
     }
 
     std::string sourcePath;
-    const bool hasModSource = g_pModManager->GetModVPKModelSource(filename, sourcePath) ||
-                              g_pModManager->GetMapVPKFileSource(filename, sourcePath);
+    const bool hasModSource = g_pModManager->GetModVPKModelSource(filename, sourcePath) || g_pModManager->GetMapVPKFileSource(filename, sourcePath);
     CPackedStore* const preferredVPK = hasModSource ? FindMountedModVPK(sourcePath.c_str()) : nullptr;
 
     // Remounted archives are appended after vanilla. Preserve the registered
@@ -256,7 +257,10 @@ DECLARE_HOOK(ReadFileFromVPK, filesystem_stdio.dll + 0x5CBA0, [](auto& hook, CPa
     if (preferredVPK && vpkInfo != preferredVPK)
     {
         if (b)
-            *reinterpret_cast<int32_t*>(b) = -1;
+        {
+            b->m_nArchiveIndex = -1;
+            b->m_bTextMode = false;
+        }
         return b;
     }
 

@@ -20,7 +20,7 @@
 #include "tier1/convar.h"
 #include "tier1/cvar.h"
 #include "util/utils.h"
-#include "vpklib/vpkdirectory.h"
+#include "vpklib/packedstore.h"
 
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
@@ -369,6 +369,7 @@ void ModManager::LoadMods()
                         std::string vpkName = formattedPath.substr(strlen("english"), formattedPath.find(".bsp") - 3);
 
                         ModVPKEntry modVpk;
+                        VPKDir_t vpkDirectory;
                         modVpk.m_bAutoLoad = !bUseVPKJson || (dVpkJson.HasMember("Preload") && dVpkJson["Preload"].IsObject() &&
                                                               dVpkJson["Preload"].HasMember(vpkName) && dVpkJson["Preload"][vpkName].IsTrue());
                         modVpk.m_sVpkPath = (file.path().parent_path() / vpkName).string();
@@ -384,20 +385,32 @@ void ModManager::LoadMods()
                             }
                             modVpk.m_MapName = NormaliseModFilePath(owner.GetString());
                             modVpk.m_bAutoLoad = false;
-                            if (!VPKDirectory_GetFileList(file.path(), {}, modVpk.m_FilePaths))
+                            vpkDirectory.Init(file.path());
+                            if (vpkDirectory.Failed())
                             {
                                 spdlog::error("Ignoring map-only VPK '{}': cannot index archive members for source-cache isolation", vpkName);
                                 continue;
                             }
-                            for (std::string& path : modVpk.m_FilePaths)
+                            modVpk.m_FilePaths.reserve(vpkDirectory.m_EntryBlocks.Count());
+                            FOR_EACH_VEC(vpkDirectory.m_EntryBlocks, i)
                             {
-                                path = NormaliseModelLookupPath(path);
+                                const std::string& path =
+                                    modVpk.m_FilePaths.emplace_back(NormaliseModelLookupPath(vpkDirectory.m_EntryBlocks[i].m_EntryPath.Get()));
                                 if (path.ends_with(".mdl"))
                                     modVpk.m_ModelPaths.push_back(path);
                             }
                         }
                         else
-                            VPKDirectory_GetFileList(file.path(), "mdl", modVpk.m_ModelPaths);
+                        {
+                            vpkDirectory.Init(file.path());
+                            FOR_EACH_VEC(vpkDirectory.m_EntryBlocks, i)
+                            {
+                                const char* path = vpkDirectory.m_EntryBlocks[i].m_EntryPath.Get();
+                                const char* extension = V_GetFileExtension(path);
+                                if (extension && !V_stricmp(extension, "mdl"))
+                                    modVpk.m_ModelPaths.emplace_back(path);
+                            }
+                        }
 
                         bool modelsAvailable = IsVPKMounted(modVpk.m_sVpkPath.c_str());
                         if (modVpk.m_bAutoLoad)
