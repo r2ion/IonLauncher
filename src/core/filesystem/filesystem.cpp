@@ -47,13 +47,13 @@ static constexpr std::size_t BASE_FILESYSTEM_SIZE_BY_NAME_VTABLE_INDEX = 6;
 
 static void* s_GetStudioHdrCacheReturnAddress = nullptr;
 
-std::string ReadVPKFile(const char* path)
+std::string ReadGameFile(const char* path, const char* pathID)
 {
     if (!g_pFilesystem || !path)
         return {};
 
     IBaseFileSystem* const baseFileSystem = static_cast<IBaseFileSystem*>(g_pFilesystem);
-    FileHandle_t fileHandle = baseFileSystem->Open(path, "rb", "GAME");
+    FileHandle_t fileHandle = baseFileSystem->Open(path, "rb", pathID);
     if (!fileHandle)
         return {};
 
@@ -70,6 +70,11 @@ std::string ReadVPKFile(const char* path)
         return {};
 
     return fileStream.str();
+}
+
+std::string ReadVPKFile(const char* path)
+{
+    return ReadGameFile(path, "GAME");
 }
 
 std::string ReadVPKFile(const char* path, int fileSourceType)

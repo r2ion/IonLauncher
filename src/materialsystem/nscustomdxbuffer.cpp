@@ -3,8 +3,8 @@
 #include <cassert>
 #include <condition_variable>
 #include <cstdlib>
-#include <fstream>
 #include <sstream>
+#include "core/filesystem/filesystem.h"
 #include "core/tier0.h"
 #include <d3d11.h>
 #include <map>
@@ -202,9 +202,7 @@ static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t sampler
 	return true;
 }
 
-static constexpr const char* waterVcsPaths[] = {
-	"platform/shaders/fxc/water_%s.vcs",
-};
+static const char* waterVcsPath = "shaders\\fxc\\water_%s.vcs";
 
 struct VcsSet_t
 {
@@ -244,7 +242,7 @@ struct VcsSet_t
 		return block == m_Blocks.end() ? nullptr : &block->second;
 	}
 
-	bool Load(const char* path);
+	bool Load(const uint8_t* data, std::size_t size);
 };
 
 
@@ -254,26 +252,22 @@ static std::map<__int64, std::pair<uint32_t, uint32_t>> WaterCombos;
 static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11PixelShader>> WaterVcsPixelShaders;
 static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11VertexShader>> WaterVcsVertexShaders;
 
-bool VcsSet_t::Load(const char* path)
+bool VcsSet_t::Load(const uint8_t* data, const std::size_t size)
 {
-	std::ifstream file(path, std::ios::binary | std::ios::ate);
-	if (!file)
+	if (!data || size < 0x20)
 		return false;
 
-	const std::streamoff size = file.tellg();
-	if (size < 0x20)
-		return false;
+	m_Loaded = false;
+	m_SlotCount = 1;
+	m_Dictionary.clear();
+	m_Aliases.clear();
+	m_Blocks.clear();
 
-	std::vector<uint8_t> data(static_cast<size_t>(size));
-	file.seekg(0, std::ios::beg);
-	if (!file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size)))
-		return false;
-
-	const auto readU32 = [&data](size_t offset) -> uint32_t
+	const auto readU32 = [data, size](size_t offset) -> uint32_t
 	{
 		uint32_t value = 0;
-		if (offset + sizeof(uint32_t) <= data.size())
-			memcpy(&value, data.data() + offset, sizeof(uint32_t));
+		if (offset + sizeof(uint32_t) <= size)
+			memcpy(&value, data + offset, sizeof(uint32_t));
 		return value;
 	};
 
@@ -298,10 +292,10 @@ bool VcsSet_t::Load(const char* path)
 
 		const uint32_t header = readU32(offset);
 		const uint32_t byteCodeLength = readU32(offset + 8);
-		if ((header >> 31) == 0 || byteCodeLength == 0 || offset + 12 + byteCodeLength > data.size())
+		if ((header >> 31) == 0 || byteCodeLength == 0 || offset + 12 + byteCodeLength > size)
 			continue;
 
-		const uint8_t* byteCode = data.data() + offset + 12;
+		const uint8_t* byteCode = data + offset + 12;
 		if (memcmp(byteCode, "DXBC", 4) != 0)
 			continue;
 
@@ -321,20 +315,36 @@ bool VcsSet_t::Load(const char* path)
 	return m_Loaded;
 }
 
+static std::string ReadWaterVcsFile(const char* path)
+{
+	if (std::string contents = ReadGameFile(path, nullptr); !contents.empty())
+		return contents;
+
+	return ReadGameFile(path, "PLATFORM");
+}
+
 static bool LoadWaterVcsSet(VcsSet_t& set, const char* stage)
 {
 	if (set.m_Loaded)
 		return true;
 
-	for (const char* pattern : waterVcsPaths)
+	std::string path = waterVcsPath;
+	path.replace(path.find("%s"), 2, stage);
+
+	const std::string contents = ReadWaterVcsFile(path.c_str());
+	if (contents.size() >= 0x20)
 	{
-		std::string path = pattern;
-		path.replace(path.find("%s"), 2, stage);
-		if (set.Load(path.c_str()))
+		if (set.Load(reinterpret_cast<const uint8_t*>(contents.data()), contents.size()))
+		{
+			spdlog::info("Loaded water {} shaders from '{}'", stage, path);
 			return true;
+		}
+
+		spdlog::warn("water {} shader file '{}' is present but is not a valid vcs file", stage, path);
+		return false;
 	}
 
-	spdlog::warn("water_{}.vcs not found; the engine's own water shaders will be used", stage);
+	spdlog::warn("water_{}.vcs not found through the game filesystem; the engine's own water shaders will be used", stage);
 	return false;
 }
 
@@ -356,7 +366,10 @@ DECLARE_HOOK(InitWaterShader, materialsystem_dx11.dll + 0x41B50, [](auto& hook, 
 	
 
 	if (!g_WaterPsSet.m_Loaded || !g_WaterVsSet.m_Loaded)
-		return result;
+	{
+        spdlog::warn("water vcs sets not loaded, using engine's own water shaders");
+        return result;
+	}
 
 
 	const uint32_t pixelId = *reinterpret_cast<uint32_t*>(a4 + 0x60);

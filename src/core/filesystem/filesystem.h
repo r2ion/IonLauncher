@@ -23,6 +23,7 @@ using UnmountVPKFn = void (*)(IFileSystem*, const char*);
 // IBaseFileSystem base is the retail-proven secondary subobject at +0x8.
 extern IFileSystem* g_pFilesystem;
 
+std::string ReadGameFile(const char* path, const char* pathID);
 std::string ReadVPKFile(const char* path);
 std::string ReadVPKFile(const char* path, int fileSourceFilter);
 
