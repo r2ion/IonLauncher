@@ -1,6 +1,13 @@
 #include "engine/client/clientstate.h"
 #include "tier0/callbacks.h"
 
+CClientStateExtended CClientState::sm_ClientStateExtended;
+
+CClientStateExtended* CClientState::GetClientStateExtended() const
+{
+    return &sm_ClientStateExtended;
+}
+
 using CClientStateIsPausedFn = bool (*)(const CClientState*);
 using CClientStateGetFrameTimeFn = float (*)(const CClientState*);
 using CClientStateSendStringCmdFn = void (*)(CClientState*, const char*);

@@ -4,19 +4,21 @@
 #include "inetmessage.h"
 #include "irecipientfilter.h"
 
-#include "engine/shared/signonstate.h"
-#include "engine/net_chan.h"
-#include "engine/clockdriftmgr.h"
-#include "engine/framesnapshot.h"
-#include "engine/packed_entity.h"
+#include "client_class.h"
 #include "engine/client/community_party.h"
 #include "engine/client/datablock_receiver.h"
-#include "client_class.h"
+#include "engine/clockdriftmgr.h"
+#include "engine/framesnapshot.h"
+#include "engine/net_chan.h"
+#include "engine/packed_entity.h"
+#include "engine/shared/playlist.h"
+#include "engine/shared/signonstate.h"
 #include "mathlib/vector.h"
-#include "tier1/utlvector.h"
 #include "tier1/mempool.h"
+#include "tier1/utlvector.h"
 
 class CClientState;
+class CClientStateExtended;
 
 extern char* g_pLocalPlayerUserID;
 extern char* g_pLocalPlayerOriginToken;
@@ -340,7 +342,10 @@ public:
 	bool m_bEntityBaselinesInitialized; // 0x1B628
 	std::uint8_t m_Reserved1B629[0xB]; // 0x1B629
 
-	CClientState();
+    static CClientStateExtended sm_ClientStateExtended;
+    CClientStateExtended* GetClientStateExtended() const;
+
+    CClientState();
 	bool ConnectInternal(const char* publicAddress, bool reservedConnectFlag, bool challengeRequest,
 		int playerCount, const char* joinType);
 	void Disconnect(bool sendTrackingContext);
@@ -412,3 +417,16 @@ public:
 	bool ProcessNetProfileTotals(SVC_NetProfileTotals* message) override;
 };
 #pragma pack(pop)
+
+class CClientStateExtended
+{
+  public:
+    void Reset()
+    {
+        m_PlaylistVarOverrides.count = 0;
+        m_bHasPlaylistVarOverrides = false;
+    }
+
+    PlaylistVarOverrides m_PlaylistVarOverrides;
+    bool m_bHasPlaylistVarOverrides = false;
+};

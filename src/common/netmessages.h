@@ -5,8 +5,8 @@
 #include <type_traits>
 
 #include "common/qlimits.h"
-#include "inetmessage.h"
 #include "inetchannel.h"
+#include "inetmessage.h"
 #include "tier1/utlvector.h"
 
 // custom connectionless packet types
@@ -90,64 +90,105 @@ enum class NetMessageType : int
 
 enum class NSCustomNetMessages : int
 {
-	net_SendPersistenceChecksum = static_cast<int>(NetMessageType::__NEXT_INDEX__),
+    net_SendPersistenceChecksum = static_cast<int>(NetMessageType::__NEXT_INDEX__),
 };
 
 class CNetMessage : public INetMessage
 {
-public:
-	virtual void	SetNetChannel(CNetChan* netchan) { m_NetChannel = netchan; }
-	virtual void	SetReliable(bool state) { m_bReliable = state; }
-	virtual bool	IsReliable(void) const { return m_bReliable; }
-	virtual int		GetGroup(void) const { return m_nGroup; }
-	virtual CNetChan* GetNetChannel(void) const { return m_NetChannel; }
-	int GetSubChannel() const override { return 0; }
+  public:
+    virtual void SetNetChannel(CNetChan* netchan)
+    {
+        m_NetChannel = netchan;
+    }
+    virtual void SetReliable(bool state)
+    {
+        m_bReliable = state;
+    }
+    virtual bool IsReliable(void) const
+    {
+        return m_bReliable;
+    }
+    virtual int GetGroup(void) const
+    {
+        return m_nGroup;
+    }
+    virtual CNetChan* GetNetChannel(void) const
+    {
+        return m_NetChannel;
+    }
+    int GetSubChannel() const override
+    {
+        return 0;
+    }
 
-	int m_nGroup;
-	bool m_bReliable;
-	CNetChan* m_NetChannel;
-	INetMessageHandler* m_pMessageHandler;
+    int m_nGroup;
+    bool m_bReliable;
+    CNetChan* m_NetChannel;
+    INetMessageHandler* m_pMessageHandler;
 };
 
 class NET_SetConVar : public CNetMessage
 {
-public:
-	typedef struct cvar_s
-	{
-		char name[MAX_OSPATH];
-		char value[MAX_OSPATH];
-	} cvar_t;
+  public:
+    typedef struct cvar_s
+    {
+        char name[MAX_OSPATH];
+        char value[MAX_OSPATH];
+    } cvar_t;
 
-	CUtlVector<cvar_t> m_ConVars;
+    CUtlVector<cvar_t> m_ConVars;
 };
 
 class CLC_Move : public CNetMessage
 {
-public:
-	int m_nBackupCommands;
-	int m_nNewCommands;
-	int m_nLength;
-	bf_read m_DataIn;
-	bf_write m_DataOut;
+  public:
+    int m_nBackupCommands;
+    int m_nNewCommands;
+    int m_nLength;
+    bf_read m_DataIn;
+    bf_write m_DataOut;
 };
+
+// R2 uses the R5SDK bit-buffer payload shape, but has no m_nMsgType field.
+class SVC_PlaylistOverrides : public CNetMessage
+{
+  public:
+    int m_nLength;
+    bf_read m_DataIn;
+    bf_write m_DataOut;
+};
+
+static_assert(sizeof(SVC_PlaylistOverrides) == 0x88);
+static_assert(offsetof(SVC_PlaylistOverrides, m_nLength) == 0x20);
+static_assert(offsetof(SVC_PlaylistOverrides, m_DataIn) == 0x28);
+static_assert(offsetof(SVC_PlaylistOverrides, m_DataOut) == 0x68);
 
 class CLC_ClientTick : public CNetMessage
 {
-public:
-	CLC_ClientTick();
-	bool Process() override;
-	bool ReadFromBuffer(bf_read* buffer) override;
-	bool WriteToBuffer(bf_write* buffer) override;
-	int GetType() const override { return static_cast<int>(NetMessageType::clc_ClientTick); }
-	const char* GetName() const override { return "clc_ClientTick"; }
-	const char* ToString() const override;
-	size_t GetSize() const override { return sizeof(*this); }
+  public:
+    CLC_ClientTick();
+    bool Process() override;
+    bool ReadFromBuffer(bf_read* buffer) override;
+    bool WriteToBuffer(bf_write* buffer) override;
+    int GetType() const override
+    {
+        return static_cast<int>(NetMessageType::clc_ClientTick);
+    }
+    const char* GetName() const override
+    {
+        return "clc_ClientTick";
+    }
+    const char* ToString() const override;
+    size_t GetSize() const override
+    {
+        return sizeof(*this);
+    }
 
-	std::int32_t m_nDeltaTick;
-	std::int32_t m_nStringTableTick;
-	float m_flFrameTime;
-	float m_flFrameTimeStdDeviation;
-	std::uint8_t m_nServerCPU;
+    std::int32_t m_nDeltaTick;
+    std::int32_t m_nStringTableTick;
+    float m_flFrameTime;
+    float m_flFrameTimeStdDeviation;
+    std::uint8_t m_nServerCPU;
 };
 
 static_assert(sizeof(CLC_ClientTick) == 0x38);

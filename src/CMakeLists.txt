@@ -305,7 +305,6 @@ add_library(
     "vscript/scripts/client/scriptpresence.cpp"
     "vscript/scripts/server/miscserverfixes.cpp"
     "vscript/scripts/server/miscserverscript.cpp"
-    "vscript/scripts/server/scriptlistenserver.cpp"
     "vscript/scripts/server/scriptuserinfo.cpp"
     "vscript/scripts/scriptdatatables.cpp"
     "vscript/scripts/scripthttprequesthandler.cpp"
