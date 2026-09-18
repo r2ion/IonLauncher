@@ -485,11 +485,10 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 				tonemapBuffer = nullptr;
 			}
 		}
-		
-
-		if (tonemapView)
-			dx11.m_pContext->PSSetShaderResources(16, 1, &tonemapView);
 	}
+
+	if (tonemapView)
+		dx11.m_pContext->PSSetShaderResources(16, 1, &tonemapView);
 
 	// The water constant buffer, at the offset the engine's own execute uses.
 	ID3D11Buffer* const* const constantBuffer = reinterpret_cast<ID3D11Buffer* const*>(a4 + 0x10);
