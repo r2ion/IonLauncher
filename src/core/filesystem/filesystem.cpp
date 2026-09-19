@@ -31,6 +31,8 @@ struct ModFilesystemState_s
 {
     std::mutex m_SearchPathMutex;
     std::string m_CurrentModPath;
+    std::string m_CurrentModPathID;
+    bool m_bCurrentModHasPathID = false;
     std::vector<AddedModSearchPath_s> m_AddedSearchPaths;
     std::mutex m_MountedVPKsMutex;
     std::unordered_map<std::string, CPackedStore*> m_MountedVPKs;
@@ -127,20 +129,23 @@ void SetNewCompiledSearchPaths(const char* pPathID)
     // push compiled to head
     s_ModFilesystem.m_AddSearchPath(g_pFilesystem, fs::absolute(GetCompiledAssetsPath()).string().c_str(), pPathID, PATH_ADD_TO_HEAD);
     s_ModFilesystem.m_CurrentModPath.clear();
+    s_ModFilesystem.m_CurrentModPathID.clear();
+    s_ModFilesystem.m_bCurrentModHasPathID = false;
 }
 
 void SetNewModSearchPaths(Mod* mod, const char* pPathID)
 {
-    // put our new path to the head if we need to read from a different mod path
-    // in the future we could also determine whether the file we're setting paths for needs a mod dir, or compiled assets
     if (mod == nullptr)
         return;
     const std::string modPath = (fs::absolute(mod->m_ModDirectory) / MOD_OVERRIDE_DIR).string();
     std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
-    if (modPath.compare(s_ModFilesystem.m_CurrentModPath))
+    if (modPath != s_ModFilesystem.m_CurrentModPath || (pPathID != nullptr) != s_ModFilesystem.m_bCurrentModHasPathID ||
+        (pPathID && s_ModFilesystem.m_CurrentModPathID != pPathID))
     {
         AddTrackedModSearchPathLocked(g_pFilesystem, modPath, pPathID, PATH_ADD_TO_HEAD);
         s_ModFilesystem.m_CurrentModPath = modPath;
+        s_ModFilesystem.m_CurrentModPathID = pPathID ? pPathID : "";
+        s_ModFilesystem.m_bCurrentModHasPathID = pPathID != nullptr;
     }
 }
 
@@ -156,6 +161,8 @@ bool RemoveModSearchPaths()
 
     s_ModFilesystem.m_AddedSearchPaths.clear();
     s_ModFilesystem.m_CurrentModPath.clear();
+    s_ModFilesystem.m_CurrentModPathID.clear();
+    s_ModFilesystem.m_bCurrentModHasPathID = false;
     return true;
 }
 
