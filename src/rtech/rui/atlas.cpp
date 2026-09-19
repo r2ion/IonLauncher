@@ -1,6 +1,9 @@
 #include "rtech/rui/atlas.h"
 
+#include "modsystem/modatlas.h"
 #include "rtech/pakasset.h"
+#include "rtech/pakfilesystem.h"
+#include "rtech/paktools.h"
 #include "rtech/rstdlib.h"
 #include "tier0/jobthread.h"
 #include "tier0/module.h"
@@ -9,13 +12,13 @@
 #include <array>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 DECLARE_MODULE(RuiImageAtlasBindingHooks)
-
-using RuiCreateImageAtlasGpuBuffer_t = uint32_t (*)(RuiImageAtlas*, const RuiImageAtlasGpuRecord*);
-using RuiDestroyImageAtlasGpuBuffer_t = void (*)(RuiImageAtlas*);
 
 RuiImageAtlas* g_RuiImageAtlases;
 RHashMapU32* g_RuiImageDescriptorMap;
@@ -23,10 +26,59 @@ RHashMapU32* g_RuiImageDescriptorMap;
 RuiCreateImageAtlasGpuBuffer_t RuiImageAtlas_CreateGpuBuffer;
 RuiDestroyImageAtlasGpuBuffer_t RuiImageAtlas_DestroyGpuBuffer;
 
+struct RuiImageAtlasGpuMetadata
+{
+    uint64_t generation;
+    std::vector<RuiImageAtlasGpuRecord> records;
+};
+
 std::shared_mutex g_RuiImageAtlasMutex;
 std::array<RuiImageAtlas, RUI_PAK_IMAGE_ATLAS_CAPACITY> g_PakRuiImageAtlases;
 std::deque<RuiImageAtlas> g_DynamicRuiImageAtlases;
 std::array<RuiImageAtlasHandle, RUI_IMAGE_DESCRIPTOR_CAPACITY> g_RuiImageAtlasHandles;
+std::mutex g_RuiImageAtlasGpuRecordsMutex;
+std::unordered_map<uint32_t, RuiImageAtlasGpuMetadata> g_RuiImageAtlasGpuRecords;
+uint64_t g_RuiImageAtlasGpuGeneration = 0;
+
+bool RuiGetImageAtlasGpuRecord(const RuiImageAtlas& atlas, uint16_t imageIndex, RuiImageAtlasGpuRecord& record)
+{
+    std::scoped_lock lock(g_RuiImageAtlasGpuRecordsMutex);
+    const auto found = g_RuiImageAtlasGpuRecords.find(atlas.gpuRecordBuffer);
+    if (found == g_RuiImageAtlasGpuRecords.end() || imageIndex >= found->second.records.size())
+        return false;
+    record = found->second.records[imageIndex];
+    return true;
+}
+
+uint64_t RuiGetImageAtlasGpuGeneration(const RuiImageAtlas& atlas)
+{
+    std::scoped_lock lock(g_RuiImageAtlasGpuRecordsMutex);
+    const auto found = g_RuiImageAtlasGpuRecords.find(atlas.gpuRecordBuffer);
+    return found != g_RuiImageAtlasGpuRecords.end() ? found->second.generation : 0;
+}
+
+DECLARE_HOOK(RuiImageAtlasCaptureGpuRecords, engine.dll + 0xFBF60,
+             [](auto& hook, RuiImageAtlas* atlas, const RuiImageAtlasGpuRecord* records) -> uint32_t
+{
+    const uint32_t buffer = hook.Original(atlas, records);
+    if (buffer != UINT32_MAX && records && atlas->imageNameRecords)
+    {
+        std::scoped_lock lock(g_RuiImageAtlasGpuRecordsMutex);
+        auto& metadata = g_RuiImageAtlasGpuRecords[buffer];
+        metadata.generation = ++g_RuiImageAtlasGpuGeneration;
+        metadata.records.assign(records, records + atlas->imageCount);
+    }
+    return buffer;
+})
+
+DECLARE_HOOK(RuiImageAtlasReleaseGpuRecords, engine.dll + 0xFC4F0, [](auto& hook, RuiImageAtlas* atlas) -> void
+{
+    {
+        std::scoped_lock lock(g_RuiImageAtlasGpuRecordsMutex);
+        g_RuiImageAtlasGpuRecords.erase(atlas->gpuRecordBuffer);
+    }
+    hook.Original(atlas);
+})
 
 bool RuiHasDuplicateImageNames(const RuiImageAtlas& atlas)
 {
@@ -44,8 +96,7 @@ void RuiRemoveImageAtlasDescriptors(const RuiImageAtlas& atlas, RuiImageAtlasHan
     if (!atlas.imageNameRecords)
         return;
 
-    const uint8_t atlasIndex =
-        atlasHandle < RUI_NATIVE_IMAGE_ATLAS_CAPACITY ? static_cast<uint8_t>(atlasHandle) : RUI_IMAGE_ATLAS_INDEX_DYNAMIC;
+    const uint8_t atlasIndex = atlasHandle < RUI_NATIVE_IMAGE_ATLAS_CAPACITY ? static_cast<uint8_t>(atlasHandle) : RUI_IMAGE_ATLAS_INDEX_DYNAMIC;
     const auto* descriptorStorage = static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entryStorage);
     for (uint16_t imageIndex = 0; imageIndex < atlas.imageCount; ++imageIndex)
     {
@@ -64,7 +115,7 @@ void RuiRemoveImageAtlasDescriptors(const RuiImageAtlas& atlas, RuiImageAtlasHan
     }
 }
 
-bool RuiPublishImageAtlasDescriptors(RuiImageAtlas& atlas, RuiImageAtlasHandle atlasHandle, bool replaceExisting)
+bool RuiPublishImageAtlasDescriptors(const RuiImageAtlas& atlas, RuiImageAtlasHandle atlasHandle, bool replaceExisting)
 {
     if (atlasHandle == RUI_INVALID_IMAGE_ATLAS || !atlas.imageNameRecords || atlas.imageCount > INT16_MAX)
         return false;
@@ -86,8 +137,7 @@ bool RuiPublishImageAtlasDescriptors(RuiImageAtlas& atlas, RuiImageAtlasHandle a
     if (newDescriptorCount > g_RuiImageDescriptorMap->entryCapacity - g_RuiImageDescriptorMap->liveEntryCount)
         return false;
 
-    const uint8_t atlasIndex =
-        atlasHandle < RUI_NATIVE_IMAGE_ATLAS_CAPACITY ? static_cast<uint8_t>(atlasHandle) : RUI_IMAGE_ATLAS_INDEX_DYNAMIC;
+    const uint8_t atlasIndex = atlasHandle < RUI_NATIVE_IMAGE_ATLAS_CAPACITY ? static_cast<uint8_t>(atlasHandle) : RUI_IMAGE_ATLAS_INDEX_DYNAMIC;
     const auto* descriptorStorage = static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entryStorage);
     for (uint16_t imageIndex = 0; imageIndex < atlas.imageCount; ++imageIndex)
     {
@@ -114,11 +164,55 @@ bool RuiPublishImageAtlasDescriptors(RuiImageAtlas& atlas, RuiImageAtlasHandle a
     return true;
 }
 
+bool RuiCommitImageAtlas(RuiImageAtlasHandle handle, const RuiImageAtlas& contents, bool publishNames)
+{
+    RuiImageAtlas* destination =
+        handle < RUI_PAK_IMAGE_ATLAS_CAPACITY ? &g_PakRuiImageAtlases[handle] : RuiGetImageAtlas(handle);
+    if (!destination || !destination->images || !contents.imageNameRecords || contents.imageCount > INT16_MAX)
+        return false;
+    if (!publishNames)
+    {
+        *destination = contents;
+        if (handle < RUI_NATIVE_IMAGE_ATLAS_CAPACITY)
+            g_RuiImageAtlases[handle] = contents;
+        return true;
+    }
+
+    std::unordered_set<uint32_t> names;
+    names.reserve(contents.imageCount);
+    for (uint16_t index = 0; index < contents.imageCount; ++index)
+        if (!names.insert(contents.imageNameRecords[index].nameHash).second)
+            return false;
+
+    AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
+    if (!RuiPublishImageAtlasDescriptors(contents, handle, true))
+    {
+        ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
+        return false;
+    }
+
+	const RuiImageAtlas previous = *destination;
+    for (uint16_t index = 0; index < previous.imageCount; ++index)
+    {
+        const auto& name = previous.imageNameRecords[index];
+        if (names.contains(name.nameHash))
+            continue;
+        const auto* descriptor = static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->Find(name.nameHash));
+        const auto* storage = static_cast<const RuiImageAssetDescriptor*>(g_RuiImageDescriptorMap->entryStorage);
+        if (descriptor && g_RuiImageAtlasHandles[descriptor - storage] == handle)
+            g_RuiImageDescriptorMap->RemoveExisting(name.nameHash);
+    }
+    *destination = contents;
+    if (handle < RUI_NATIVE_IMAGE_ATLAS_CAPACITY)
+        g_RuiImageAtlases[handle] = contents;
+    ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
+    return true;
+}
+
 RuiImageAtlasHandle RuiRegisterImageAtlas(const RuiImageAtlas& source, std::span<const RuiImageAtlasGpuRecord> records)
 {
-    if (!source.texture || !source.images || !source.imageDimensions || !source.imageNameRecords ||
-        source.imageCount == 0 || source.imageCount > INT16_MAX || source.nineSliceImageCount != 0 || records.size() != source.imageCount ||
-        RuiHasDuplicateImageNames(source))
+    if (!source.texture || !source.images || !source.imageDimensions || !source.imageNameRecords || source.imageCount == 0 ||
+        source.imageCount > INT16_MAX || source.nineSliceImageCount != 0 || records.size() != source.imageCount || RuiHasDuplicateImageNames(source))
     {
         return RUI_INVALID_IMAGE_ATLAS;
     }
@@ -136,8 +230,7 @@ RuiImageAtlasHandle RuiRegisterImageAtlas(const RuiImageAtlas& source, std::span
         return RUI_INVALID_IMAGE_ATLAS;
     }
 
-    const RuiImageAtlasHandle atlasHandle =
-        RUI_RUNTIME_IMAGE_ATLAS_HANDLE_BASE + static_cast<RuiImageAtlasHandle>(g_DynamicRuiImageAtlases.size());
+    const RuiImageAtlasHandle atlasHandle = RUI_RUNTIME_IMAGE_ATLAS_HANDLE_BASE + static_cast<RuiImageAtlasHandle>(g_DynamicRuiImageAtlases.size());
     g_DynamicRuiImageAtlases.push_back(atlas);
 
     AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
@@ -150,6 +243,7 @@ RuiImageAtlasHandle RuiRegisterImageAtlas(const RuiImageAtlas& source, std::span
         return RUI_INVALID_IMAGE_ATLAS;
     }
 
+    lock.unlock();
     return atlasHandle;
 }
 
@@ -170,6 +264,7 @@ void RuiUnregisterImageAtlas(RuiImageAtlasHandle atlasHandle)
 
     RuiImageAtlas_DestroyGpuBuffer(&atlas);
     atlas = {};
+    lock.unlock();
 }
 
 RuiImageAtlas* RuiGetImageAtlas(RuiImageAtlasHandle atlasHandle)
@@ -237,14 +332,58 @@ bool RuiIsDynamicImageAsset(RuiImageHandle imageHandle)
     return atlasHandle != RUI_INVALID_IMAGE_ATLAS && atlasHandle >= RUI_NATIVE_IMAGE_ATLAS_CAPACITY;
 }
 
+bool RuiResolvePakImageAtlas(const char* pakPath, const char* atlasPath, RuiImageAtlasHandle& handle)
+{
+    if (!atlasPath || !*atlasPath || !g_pakLoadApi)
+        return false;
+    PakGlobalState_s* globals = Pak_GetGlobals();
+    if (!globals)
+        return false;
+    const PakGuid_t guid = Pak_StringToGuid(atlasPath);
+    const uintptr_t bound = reinterpret_cast<uintptr_t>(g_pakLoadApi->GetAssetBinding(guid));
+    const uintptr_t storage = reinterpret_cast<uintptr_t>(g_PakRuiImageAtlases.data());
+    if (bound < storage || bound - storage >= sizeof(g_PakRuiImageAtlases) || (bound - storage) % sizeof(RuiImageAtlas) != 0)
+        return false;
+    const auto atlasHandle = static_cast<RuiImageAtlasHandle>((bound - storage) / sizeof(RuiImageAtlas));
+    if (!RuiGetImageAtlas(atlasHandle))
+        return false;
+
+    for (const PakAssetBinding_s& binding : globals->assetBindings)
+    {
+        if (binding.assetStorage != g_PakRuiImageAtlases.data() || !binding.assetSlots || atlasHandle >= binding.assetCapacity)
+            continue;
+        const uint32_t assetIndex = binding.assetSlots[atlasHandle].loadedAssetIndex;
+        if (assetIndex >= PAK_MAX_LOADED_ASSETS)
+            return false;
+        const PakAssetShort_s& asset = globals->loadedAssets[assetIndex];
+        if (asset.guid != guid || asset.trackerIndex >= PAK_MAX_TRACKED_ASSETS)
+            return false;
+        const int32_t owner = globals->trackedAssets[asset.trackerIndex].ownerPakIndex;
+        if (owner < 0 || owner >= PAK_MAX_LOADED_PAKS)
+            return false;
+        const PakLoadedInfo_s& pak = globals->loadedPaks[owner];
+        if (!pak.filename || pak.handle == PAK_INVALID_HANDLE)
+            return false;
+        if (pakPath && *pakPath)
+        {
+            const auto expected = std::filesystem::absolute(pakPath).lexically_normal();
+            const auto actual = std::filesystem::absolute(pak.filename).lexically_normal();
+            if (_wcsicmp(expected.c_str(), actual.c_str()) != 0)
+                return false;
+        }
+        handle = atlasHandle;
+        return true;
+    }
+    return false;
+}
+
 void RuiReplacePakImageAtlas(void* boundAsset, const void* newHeader, const void* previousHeader)
 {
     auto* destination = static_cast<RuiImageAtlas*>(boundAsset);
     const uintptr_t storageAddress = reinterpret_cast<uintptr_t>(g_PakRuiImageAtlases.data());
     const uintptr_t destinationAddress = reinterpret_cast<uintptr_t>(destination);
     const uintptr_t storageOffset = destinationAddress - storageAddress;
-    if (destinationAddress < storageAddress || storageOffset >= sizeof(g_PakRuiImageAtlases) ||
-        storageOffset % sizeof(RuiImageAtlas) != 0)
+    if (destinationAddress < storageAddress || storageOffset >= sizeof(g_PakRuiImageAtlases) || storageOffset % sizeof(RuiImageAtlas) != 0)
     {
         return;
     }
@@ -255,6 +394,7 @@ void RuiReplacePakImageAtlas(void* boundAsset, const void* newHeader, const void
     const auto* previous = static_cast<const RuiImageAtlas*>(previousHeader);
 
     std::unique_lock lock(g_RuiImageAtlasMutex);
+    RuiBeforeImageAtlasReplace(atlasHandle);
     AcquireSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
     if (previous)
         RuiRemoveImageAtlasDescriptors(*previous, atlasHandle);
@@ -266,6 +406,7 @@ void RuiReplacePakImageAtlas(void* boundAsset, const void* newHeader, const void
     if (replacement)
         RuiPublishImageAtlasDescriptors(*destination, atlasHandle, true);
     ReleaseSRWLockExclusive(&g_RuiImageDescriptorMap->lock);
+    RuiAfterImageAtlasReplace(atlasHandle);
 }
 
 DECLARE_HOOK(Pak_RegisterAssetBindingType, rtech_game.DLL + 0x7BE0,
@@ -278,6 +419,7 @@ DECLARE_HOOK(Pak_RegisterAssetBindingType, rtech_game.DLL + 0x7BE0,
         binding->assetCapacity = static_cast<uint32_t>(g_PakRuiImageAtlases.size());
         binding->replaceAssetFunc = RuiReplacePakImageAtlas;
     }
+    RuiConfigureImageAtlasAssetBinding(*binding);
 
     return hook.Original(binding, priority, affinity);
 })

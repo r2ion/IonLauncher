@@ -83,10 +83,20 @@ struct RuiResolvedImageAsset
     uint8_t flags;
 };
 
+using RuiCreateImageAtlasGpuBuffer_t = uint32_t (*)(RuiImageAtlas*, const RuiImageAtlasGpuRecord*);
+using RuiDestroyImageAtlasGpuBuffer_t = void (*)(RuiImageAtlas*);
+
+extern RuiCreateImageAtlasGpuBuffer_t RuiImageAtlas_CreateGpuBuffer;
+extern RuiDestroyImageAtlasGpuBuffer_t RuiImageAtlas_DestroyGpuBuffer;
+
 extern std::shared_mutex g_RuiImageAtlasMutex;
 RuiImageAtlasHandle RuiRegisterImageAtlas(const RuiImageAtlas& atlas, std::span<const RuiImageAtlasGpuRecord> records);
 void RuiUnregisterImageAtlas(RuiImageAtlasHandle atlasHandle);
 RuiImageAtlasHandle RuiGetImageAtlasHandle(RuiImageHandle imageHandle);
 RuiImageAtlas* RuiGetImageAtlas(RuiImageAtlasHandle atlasHandle);
 bool RuiResolveImageAsset(RuiImageHandle imageHandle, RuiResolvedImageAsset& asset);
+bool RuiResolvePakImageAtlas(const char* pakPath, const char* atlasPath, RuiImageAtlasHandle& handle);
+bool RuiCommitImageAtlas(RuiImageAtlasHandle handle, const RuiImageAtlas& contents, bool publishNames = true);
 bool RuiIsDynamicImageAsset(RuiImageHandle imageHandle);
+bool RuiGetImageAtlasGpuRecord(const RuiImageAtlas& atlas, uint16_t imageIndex, RuiImageAtlasGpuRecord& record);
+uint64_t RuiGetImageAtlasGpuGeneration(const RuiImageAtlas& atlas);

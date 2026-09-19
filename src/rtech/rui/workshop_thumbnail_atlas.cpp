@@ -1,14 +1,10 @@
 #include "rtech/rui/workshop_thumbnail_atlas.h"
 
-#include "materialsystem/dx11_device.h"
+#include "materialsystem/cmatqueuedrendercontext.h"
 #include "rtech/paktools.h"
-#include "tier0/frametask.h"
-#include "tier0/module.h"
-
-#include <Windows.h>
+#include "windows/id3dx.h"
 
 #include <cstdio>
-#include <utility>
 
 static constexpr char g_WorkshopTextureAsset[] = "texture/ns/modworkshop_thumbnail_atlas";
 
@@ -24,97 +20,9 @@ CWorkshopThumbnailAtlas::CWorkshopThumbnailAtlas() : m_CellScratch(static_cast<s
 {
 }
 
-bool CWorkshopThumbnailAtlas::IsRenderThread() const noexcept
-{
-    const uint32_t threadId = m_RenderThreadId.load(std::memory_order_acquire);
-    return threadId != 0 && threadId == GetCurrentThreadId();
-}
-
-void CWorkshopThumbnailAtlas::Dispatch(std::function<void()> task)
-{
-    if (!task)
-        return;
-    if (IsRenderThread())
-    {
-        task();
-        return;
-    }
-
-    bool scheduleDispatch = false;
-    {
-        std::scoped_lock lock(m_TaskMutex);
-        m_Tasks.push_back(std::move(task));
-        if (!m_DispatchScheduled)
-        {
-            m_DispatchScheduled = true;
-            scheduleDispatch = true;
-        }
-    }
-
-    if (scheduleDispatch)
-        RunInMainThread([this] { Schedule(); });
-}
-
-uint64_t CWorkshopThumbnailAtlas::RunMaterialTasks(uint64_t, uint32_t, uint32_t, uint64_t)
-{
-    Get().RunPending();
-    return 0;
-}
-
-void CWorkshopThumbnailAtlas::RunPending()
-{
-    m_RenderThreadId.store(GetCurrentThreadId(), std::memory_order_release);
-    for (;;)
-    {
-        std::deque<std::function<void()>> tasks;
-        {
-            std::scoped_lock lock(m_TaskMutex);
-            if (m_Tasks.empty())
-            {
-                m_DispatchScheduled = false;
-                break;
-            }
-            tasks.swap(m_Tasks);
-        }
-
-        for (std::function<void()>& task : tasks)
-            task();
-    }
-    m_RenderThreadId.store(0, std::memory_order_release);
-}
-
-void CWorkshopThumbnailAtlas::Schedule()
-{
-    if (const QueueMaterialTask queueMaterialTask = m_QueueMaterialTask.load(std::memory_order_acquire))
-    {
-        queueMaterialTask(RunMaterialTasks, 0, 0, 0, 0);
-        return;
-    }
-
-    std::scoped_lock lock(m_TaskMutex);
-    m_DispatchScheduled = false;
-}
-
-void CWorkshopThumbnailAtlas::InitializeRenderer(CModule module)
-{
-    m_QueueMaterialTask.store(module.Offset(0x88D50).RCast<QueueMaterialTask>(), std::memory_order_release);
-
-    bool scheduleDispatch = false;
-    {
-        std::scoped_lock lock(m_TaskMutex);
-        if (!m_Tasks.empty() && !m_DispatchScheduled)
-        {
-            m_DispatchScheduled = true;
-            scheduleDispatch = true;
-        }
-    }
-    if (scheduleDispatch)
-        RunInMainThread([this] { Schedule(); });
-}
-
 bool CWorkshopThumbnailAtlas::Initialize()
 {
-    if (!IsRenderThread())
+    if (!ThreadInRenderThread())
     {
         spdlog::error("ModWorkshop thumbnail atlas must be initialized on the material render thread");
         return false;
@@ -131,14 +39,14 @@ bool CWorkshopThumbnailAtlas::IsReady() const
 
 bool CWorkshopThumbnailAtlas::InitializeLocked()
 {
-    const CDx11Device::Snapshot device = CDx11Device::GetSnapshot();
-    if (!device)
+    ID3D11Device* const device = D3D11Device();
+    if (!device || !D3D11DeviceContext())
     {
         ReleaseLocked();
         return false;
     }
 
-    if (m_Device == device.m_pDevice && m_Texture && m_ShaderResourceView && m_AtlasHandle != RUI_INVALID_IMAGE_ATLAS)
+    if (m_Device == device && m_Texture && m_ShaderResourceView && m_AtlasHandle != RUI_INVALID_IMAGE_ATLAS)
         return true;
 
     ReleaseLocked();
@@ -157,7 +65,7 @@ bool CWorkshopThumbnailAtlas::InitializeLocked()
     description.SampleDesc.Count = 1;
     description.Usage = D3D11_USAGE_DEFAULT;
     description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    HRESULT result = device.m_pDevice->CreateTexture2D(&description, &initialData, m_Texture.GetAddressOf());
+    HRESULT result = device->CreateTexture2D(&description, &initialData, m_Texture.GetAddressOf());
     if (FAILED(result))
     {
         spdlog::error("ModWorkshop thumbnail atlas texture creation failed: 0x{:08X}", static_cast<uint32_t>(result));
@@ -165,7 +73,7 @@ bool CWorkshopThumbnailAtlas::InitializeLocked()
         return false;
     }
 
-    result = device.m_pDevice->CreateShaderResourceView(m_Texture.Get(), nullptr, m_ShaderResourceView.GetAddressOf());
+    result = device->CreateShaderResourceView(m_Texture.Get(), nullptr, m_ShaderResourceView.GetAddressOf());
     if (FAILED(result))
     {
         spdlog::error("ModWorkshop thumbnail atlas SRV creation failed: 0x{:08X}", static_cast<uint32_t>(result));
@@ -233,7 +141,7 @@ bool CWorkshopThumbnailAtlas::InitializeLocked()
         return false;
     }
 
-    m_Device = device.m_pDevice;
+    m_Device = device;
     return true;
 }
 
@@ -241,8 +149,8 @@ bool CWorkshopThumbnailAtlas::UploadSlotLocked(size_t slot, const uint8_t* rgba,
 {
     if (slot >= SLOT_COUNT || !rgba || !m_Texture)
         return false;
-    const CDx11Device::Snapshot device = CDx11Device::GetSnapshot();
-    if (!device || device.m_pDevice != m_Device)
+    ID3D11DeviceContext* const context = D3D11DeviceContext();
+    if (!context || D3D11Device() != m_Device)
         return false;
 
     const uint32_t cellX = static_cast<uint32_t>(slot % ATLAS_COLUMNS) * CELL_WIDTH;
@@ -255,13 +163,13 @@ bool CWorkshopThumbnailAtlas::UploadSlotLocked(size_t slot, const uint8_t* rgba,
         .bottom = cellY + CELL_HEIGHT,
         .back = 1,
     };
-    device.m_pContext->UpdateSubresource(m_Texture.Get(), 0, &destination, rgba, rowPitch, 0);
+    context->UpdateSubresource(m_Texture.Get(), 0, &destination, rgba, rowPitch, 0);
     return true;
 }
 
 bool CWorkshopThumbnailAtlas::UpdateSlotRgba(size_t slot, std::span<const uint8_t> rgba, uint32_t rowPitch)
 {
-    if (!IsRenderThread() || slot >= SLOT_COUNT || rowPitch < CELL_WIDTH * 4)
+    if (!ThreadInRenderThread() || slot >= SLOT_COUNT || rowPitch < CELL_WIDTH * 4)
         return false;
     const size_t requiredBytes = static_cast<size_t>(rowPitch) * (CELL_HEIGHT - 1) + static_cast<size_t>(CELL_WIDTH) * 4;
     if (rgba.size() < requiredBytes)
@@ -275,7 +183,7 @@ bool CWorkshopThumbnailAtlas::UpdateSlotRgba(size_t slot, std::span<const uint8_
 
 bool CWorkshopThumbnailAtlas::FillPlaceholder(size_t slot, bool failed)
 {
-    if (!IsRenderThread() || slot >= SLOT_COUNT)
+    if (!ThreadInRenderThread() || slot >= SLOT_COUNT)
         return false;
     std::scoped_lock lock(m_TextureMutex);
     if (!InitializeLocked())
@@ -308,6 +216,3 @@ void CWorkshopThumbnailAtlas::ReleaseLocked()
     m_Texture.Reset();
     m_Device = nullptr;
 }
-
-ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", WorkshopThumbnailRenderTasks,
-                   [](CModule module) { CWorkshopThumbnailAtlas::Get().InitializeRenderer(module); })

@@ -3,6 +3,7 @@
 #include "config/profile.h"
 #include "core/tier0.h"
 #include "dedicated/dedicated.h"
+#include "materialsystem/cmatqueuedrendercontext.h"
 #include "rtech/rui/workshop_thumbnail_atlas.h"
 #include "tier0/frametask.h"
 
@@ -19,8 +20,8 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
-#include <fstream>
 #include <format>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -439,20 +440,20 @@ void CWorkshopThumbnailService::StoreDecoded(const std::string& key, std::shared
 
 void CWorkshopThumbnailService::ScheduleFlush()
 {
-	if (m_FlushDispatched.exchange(true, std::memory_order_acq_rel))
-		return;
-	CWorkshopThumbnailAtlas::Get().Dispatch([this] { FlushUploads(); });
+    if (m_FlushDispatched.exchange(true, std::memory_order_acq_rel))
+        return;
+    RunInRenderThread([this] { FlushUploads(); });
 }
 
 void CWorkshopThumbnailService::EnqueueUpload(ThumbnailUpload upload)
 {
-	{
-		std::scoped_lock lock(m_UploadMutex);
+    {
+        std::scoped_lock lock(m_UploadMutex);
 		if (m_Uploads.size() >= CWorkshopThumbnailAtlas::SLOT_COUNT * 2)
 			m_Uploads.pop_front();
 		m_Uploads.push_back(std::move(upload));
-	}
-	ScheduleFlush();
+    }
+    ScheduleFlush();
 }
 
 void CWorkshopThumbnailService::FlushUploads()
@@ -689,37 +690,37 @@ void CWorkshopThumbnailService::RequestPage(uint64_t generation, std::span<const
 			original.hasThumbnail = false;
 			ModWorkshopThumbnail preview = *entry.thumbnail;
 			preview.hasThumbnail = true;
-			jobs.push_back({.generation = generation,
-			                .slot = slot,
-			                .modId = entry.id,
-			                .key = key,
-			                .url = CModWorkshopClient::BuildThumbnailUrl(original),
-			                .fallbackUrl = entry.thumbnail->hasThumbnail ? CModWorkshopClient::BuildThumbnailUrl(preview) : std::string()});
-		}
-	}
+            jobs.push_back({.generation = generation,
+                            .slot = slot,
+                            .modId = entry.id,
+                            .key = key,
+                            .url = CModWorkshopClient::BuildThumbnailUrl(original),
+                            .fallbackUrl = entry.thumbnail->hasThumbnail ? CModWorkshopClient::BuildThumbnailUrl(preview) : std::string()});
+        }
+    }
 
-	CWorkshopThumbnailAtlas::Get().Dispatch([this, generation]
-	{
-		if (m_CurrentGeneration.load(std::memory_order_acquire) != generation)
-			return;
-		CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
-		if (!atlas.Initialize())
-			return;
-		for (size_t slot = 0; slot < CWorkshopThumbnailAtlas::SLOT_COUNT; ++slot)
-			atlas.FillPlaceholder(slot);
-	});
+    RunInRenderThread([this, generation]
+    {
+        if (m_CurrentGeneration.load(std::memory_order_acquire) != generation)
+            return;
+        CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
+        if (!atlas.Initialize())
+            return;
+        for (size_t slot = 0; slot < CWorkshopThumbnailAtlas::SLOT_COUNT; ++slot)
+            atlas.FillPlaceholder(slot);
+    });
 
-	EnsureWorkers();
-	{
-		std::scoped_lock lock(m_WorkerMutex);
-		m_Jobs.clear();
-		for (ThumbnailJob& job : jobs)
-		{
-			if (!job.url.empty())
-				m_Jobs.push_back(std::move(job));
-		}
-	}
-	m_JobsChanged.notify_all();
+    EnsureWorkers();
+    {
+        std::scoped_lock lock(m_WorkerMutex);
+        m_Jobs.clear();
+        for (ThumbnailJob& job : jobs)
+        {
+            if (!job.url.empty())
+                m_Jobs.push_back(std::move(job));
+        }
+    }
+    m_JobsChanged.notify_all();
 }
 
 void CWorkshopThumbnailService::RequestLocalPage(uint64_t generation, std::span<const LocalIconRequest> icons)
@@ -762,28 +763,28 @@ void CWorkshopThumbnailService::RequestLocalPage(uint64_t generation, std::span<
 			original.hasThumbnail = false;
 			ModWorkshopThumbnail preview = icon.thumbnail;
 			preview.hasThumbnail = true;
-			jobs.push_back({.generation = generation,
-			                .slot = slot,
-			                .modId = icon.id,
-			                .key = key,
-			                .url = CModWorkshopClient::BuildThumbnailUrl(original),
-			                .fallbackUrl = icon.thumbnail.hasThumbnail ? CModWorkshopClient::BuildThumbnailUrl(preview) : std::string(),
-			                .localIcon = true});
-		}
-	}
+            jobs.push_back({.generation = generation,
+                            .slot = slot,
+                            .modId = icon.id,
+                            .key = key,
+                            .url = CModWorkshopClient::BuildThumbnailUrl(original),
+                            .fallbackUrl = icon.thumbnail.hasThumbnail ? CModWorkshopClient::BuildThumbnailUrl(preview) : std::string(),
+                            .localIcon = true});
+        }
+    }
 
-	CWorkshopThumbnailAtlas::Get().Dispatch([this, generation]
-	{
-		if (m_CurrentGeneration.load(std::memory_order_acquire) != generation)
-			return;
-		CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
-		if (!atlas.Initialize())
-			return;
-		for (size_t slot = 0; slot < CWorkshopThumbnailAtlas::SLOT_COUNT; ++slot)
-			atlas.FillPlaceholder(slot);
-	});
+    RunInRenderThread([this, generation]
+    {
+        if (m_CurrentGeneration.load(std::memory_order_acquire) != generation)
+            return;
+        CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
+        if (!atlas.Initialize())
+            return;
+        for (size_t slot = 0; slot < CWorkshopThumbnailAtlas::SLOT_COUNT; ++slot)
+            atlas.FillPlaceholder(slot);
+    });
 
-	EnsureWorkers();
+    EnsureWorkers();
 	{
 		std::scoped_lock lock(m_WorkerMutex);
 		m_Jobs.clear();
@@ -820,22 +821,22 @@ void CWorkshopThumbnailService::RepaintVisible()
 {
 	std::array<std::shared_ptr<const std::vector<uint8_t>>, CWorkshopThumbnailAtlas::SLOT_COUNT> visible;
 	{
-		std::scoped_lock lock(m_AssignmentMutex);
-		visible = m_VisiblePixels;
-	}
-	CWorkshopThumbnailAtlas::Get().Dispatch([visible = std::move(visible)]
-	{
-		CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
-		if (!atlas.Initialize())
-			return;
-		for (size_t slot = 0; slot < visible.size(); ++slot)
-		{
-			if (visible[slot])
-				atlas.UpdateSlotRgba(slot, *visible[slot]);
-			else
-				atlas.FillPlaceholder(slot);
-		}
-	});
+        std::scoped_lock lock(m_AssignmentMutex);
+        visible = m_VisiblePixels;
+    }
+    RunInRenderThread([visible = std::move(visible)]
+    {
+        CWorkshopThumbnailAtlas& atlas = CWorkshopThumbnailAtlas::Get();
+        if (!atlas.Initialize())
+            return;
+        for (size_t slot = 0; slot < visible.size(); ++slot)
+        {
+            if (visible[slot])
+                atlas.UpdateSlotRgba(slot, *visible[slot]);
+            else
+                atlas.FillPlaceholder(slot);
+        }
+    });
 }
 
 void CWorkshopThumbnailService::Shutdown()

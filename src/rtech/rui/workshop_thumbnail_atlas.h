@@ -6,16 +6,11 @@
 #include <wrl/client.h>
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
-#include <functional>
 #include <mutex>
 #include <span>
 #include <vector>
-
-class CModule;
 
 struct ID3D11Device;
 struct ID3D11Texture2D;
@@ -41,8 +36,6 @@ class CWorkshopThumbnailAtlas final
         return *pInstance;
     }
 
-    void Dispatch(std::function<void()> task);
-    void InitializeRenderer(CModule module);
     bool Initialize();
     bool IsReady() const;
     bool FillPlaceholder(size_t slot, bool failed = false);
@@ -52,26 +45,12 @@ class CWorkshopThumbnailAtlas final
     CWorkshopThumbnailAtlas& operator=(const CWorkshopThumbnailAtlas&) = delete;
 
   private:
-    using MaterialTaskCallback = uint64_t (*)(uint64_t, uint32_t, uint32_t, uint64_t);
-    using QueueMaterialTask = void (*)(MaterialTaskCallback, uint64_t, uint32_t, uint32_t, uint64_t);
-
     CWorkshopThumbnailAtlas();
     ~CWorkshopThumbnailAtlas() = delete;
-
-    static uint64_t RunMaterialTasks(uint64_t, uint32_t, uint32_t, uint64_t);
-    bool IsRenderThread() const noexcept;
-    void RunPending();
-    void Schedule();
 
     bool InitializeLocked();
     bool UploadSlotLocked(size_t slot, const uint8_t* rgba, uint32_t rowPitch);
     void ReleaseLocked();
-
-    std::mutex m_TaskMutex;
-    std::deque<std::function<void()>> m_Tasks;
-    std::atomic<uint32_t> m_RenderThreadId = 0;
-    std::atomic<QueueMaterialTask> m_QueueMaterialTask = nullptr;
-    bool m_DispatchScheduled = false;
 
     mutable std::mutex m_TextureMutex;
     TextureAsset_s m_TextureAsset{};

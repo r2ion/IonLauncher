@@ -121,8 +121,10 @@ add_library(
     "logging/sourceconsole.cpp"
     "logging/sourceconsole.h"
     "materialsystem/nscustomdxbuffer.cpp"
-    "materialsystem/dx11_device.cpp"
-    "materialsystem/dx11_device.h"
+    "materialsystem/cmatqueuedrendercontext.cpp"
+    "materialsystem/cmatqueuedrendercontext.h"
+    "windows/id3dx.cpp"
+    "windows/id3dx.h"
     "masterserver/masterserver.cpp"
     "masterserver/masterserver.h"
     "mathlib/crc32.cpp"
@@ -136,6 +138,8 @@ add_library(
     # "modsystem/compiled/vmt_icons.cpp"
     "modsystem/mod.cpp"
     "modsystem/mod.h"
+    "modsystem/modatlas.cpp"
+    "modsystem/modatlas.h"
     "modsystem/modmanager.cpp"
     "modsystem/modmanager.h"
     "modsystem/modinstaller.cpp"
@@ -351,6 +355,7 @@ target_link_libraries(
             minizip
             libzstd_static
             lzham
+            DirectXTex
             # VTFLib::VTFLib
             ws2_32.lib
             crypt32.lib

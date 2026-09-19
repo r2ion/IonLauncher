@@ -207,6 +207,18 @@ set(WEBP_USE_THREAD OFF)
 CPMAddPackage("gh:gabime/spdlog@1.17.0")
 CPMAddPackage("gh:facebook/zstd@1.5.7")
 
+CPMAddPackage(
+    NAME DirectXTex
+    GITHUB_REPOSITORY microsoft/DirectXTex
+    GIT_TAG may2026
+    OPTIONS
+        "BUILD_TOOLS OFF"
+        "BUILD_SAMPLE OFF"
+        "BUILD_DX11 OFF"
+        "BUILD_DX12 OFF"
+        "BC_USE_OPENMP OFF"
+)
+
 set(RAPIDJSON_GIT_TAG "24b5e7a8b27f42fa16b96fc70aade9106cf7102f" CACHE STRING "rapidjson git tag/branch/commit to fetch")
 
 # Use configured rapidjson ref for modern CMake compatibility

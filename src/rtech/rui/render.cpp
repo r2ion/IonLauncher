@@ -4,6 +4,7 @@
 //
 //=============================================================================//
 
+#include "modsystem/modatlas.h"
 #include "rtech/rui/atlas.h"
 #include "rtech/rui/font.h"
 #include "rtech/rui/rui.h"
@@ -11,6 +12,7 @@
 #include "tier0/module.h"
 #include "tier1/convar.h"
 #include "tier1/strtools.h"
+#include "tools/particleeditor/particletoolssystem.h"
 
 #include <algorithm>
 #include <cmath>
@@ -190,16 +192,13 @@ void RuiApplyAntiAliasPadding(RuiGlobalState* globals, RuiInstance* rui, const R
     const fltx4 pointClipX = RuiProjectionDot(point, globals->viewProjection[0], true);
     const fltx4 directionClipY = RuiProjectionDot(direction, globals->viewProjection[1], false);
     const fltx4 pointClipY = RuiProjectionDot(point, globals->viewProjection[1], true);
-    const fltx4 projectedX =
-        MulSIMD(SubSIMD(MulSIMD(directionClipX, clipW), MulSIMD(pointClipX, directionW)), ReplicateX4(globals->viewportWidth));
-    const fltx4 projectedY =
-        MulSIMD(SubSIMD(MulSIMD(directionClipY, clipW), MulSIMD(pointClipY, directionW)), ReplicateX4(globals->viewportHeight));
+    const fltx4 projectedX = MulSIMD(SubSIMD(MulSIMD(directionClipX, clipW), MulSIMD(pointClipX, directionW)), ReplicateX4(globals->viewportWidth));
+    const fltx4 projectedY = MulSIMD(SubSIMD(MulSIMD(directionClipY, clipW), MulSIMD(pointClipY, directionW)), ReplicateX4(globals->viewportHeight));
 
     const fltx4 padDiameter = ReplicateX4(g_pRuiPadDistance->GetFloat() * 2.0f);
     const fltx4 padDiameterSq = MulSIMD(padDiameter, padDiameter);
     const fltx4 cornerScale = LoadUnalignedSIMD(setup->cornerExtraScaleSq.Base());
-    const fltx4 cornerPadding =
-        MulSIMD(MulSIMD(MulSIMD(horizontalScale, verticalScale), cornerScale), padDiameterSq);
+    const fltx4 cornerPadding = MulSIMD(MulSIMD(MulSIMD(horizontalScale, verticalScale), cornerScale), padDiameterSq);
     const fltx4 padding = AddSIMD(cornerPadding, padDiameterSq);
     const fltx4 clipWSqPadding = MulSIMD(MulSIMD(padding, clipW), clipW);
     const fltx4 projectedLengthSq = AddSIMD(MulSIMD(projectedX, projectedX), MulSIMD(projectedY, projectedY));
@@ -216,8 +215,7 @@ void RuiApplyAntiAliasPadding(RuiGlobalState* globals, RuiInstance* rui, const R
 
     const fltx4 linearBase = MulSIMD(clipWSqPadding, clipW);
     const fltx4 linearTerm = MulSIMD(linearBase, directionW);
-    const fltx4 rootExpression =
-        AddSIMD(MulSIMD(MulSIMD(linearBase, clipW), discriminant), MulSIMD(linearTerm, linearTerm));
+    const fltx4 rootExpression = AddSIMD(MulSIMD(MulSIMD(linearBase, clipW), discriminant), MulSIMD(linearTerm, linearTerm));
     const fltx4 squareRootTerm = SqrtSIMD(AndSIMD(rootExpression, positive));
     const fltx4 distance = MulSIMD(AndSIMD(AddSIMD(squareRootTerm, linearTerm), positive), reciprocal);
 
@@ -243,10 +241,9 @@ static float RuiRefinedReciprocal(float value)
     return _mm_cvtss_f32(_mm_add_ss(estimate, _mm_mul_ss(correction, estimate)));
 }
 
-bool RuiDrawImageAtlasEntry(RuiGlobalState* globals, RuiInstance* rui, RuiDrawBatch* batch, const RuiBaseUv* baseUv,
-                            const RuiTransform* transform, RuiTransformSign orientation, const RuiResolvedImageAsset& image,
-                            const RuiBounds* clippedBounds, const RuiBounds* geometryBounds, const Vector4D* uvMin,
-                            const Vector4D* uvExtent)
+bool RuiDrawImageAtlasEntry(RuiGlobalState* globals, RuiInstance* rui, RuiDrawBatch* batch, const RuiBaseUv* baseUv, const RuiTransform* transform,
+                            RuiTransformSign orientation, const RuiResolvedImageAsset& image, const RuiBounds* clippedBounds,
+                            const RuiBounds* geometryBounds, const Vector4D* uvMin, const Vector4D* uvExtent)
 {
     RuiImageAtlas* atlas = image.atlas;
     if (!atlas)
@@ -303,14 +300,12 @@ bool RuiDrawImageAtlasEntry(RuiGlobalState* globals, RuiInstance* rui, RuiDrawBa
     const float mappingScaleY[3] = {slopeY, centerFractionY * slopeY * centerReciprocalY, slopeY};
     const float mappingBiasX[3] = {
         0.0f,
-        nineSlice.normalizedBounds[0] -
-            nineSlice.normalizedBounds[0] * centerFractionX * centerReciprocalX,
+        nineSlice.normalizedBounds[0] - nineSlice.normalizedBounds[0] * centerFractionX * centerReciprocalX,
         1.0f - slopeX,
     };
     const float mappingBiasY[3] = {
         0.0f,
-        nineSlice.normalizedBounds[1] -
-            nineSlice.normalizedBounds[1] * centerFractionY * centerReciprocalY,
+        nineSlice.normalizedBounds[1] - nineSlice.normalizedBounds[1] * centerFractionY * centerReciprocalY,
         1.0f - slopeY,
     };
 
@@ -318,8 +313,8 @@ bool RuiDrawImageAtlasEntry(RuiGlobalState* globals, RuiInstance* rui, RuiDrawBa
     {
         for (size_t column = 0; column < 3; ++column)
         {
-            if (gridX[column + 1] <= geometryBounds->left || gridX[column] >= geometryBounds->right ||
-                gridY[row + 1] <= geometryBounds->top || gridY[row] >= geometryBounds->bottom)
+            if (gridX[column + 1] <= geometryBounds->left || gridX[column] >= geometryBounds->right || gridY[row + 1] <= geometryBounds->top ||
+                gridY[row] >= geometryBounds->bottom)
             {
                 continue;
             }
@@ -332,10 +327,8 @@ bool RuiDrawImageAtlasEntry(RuiGlobalState* globals, RuiInstance* rui, RuiDrawBa
             mapping.primaryBasisX[1] *= mappingScaleY[row];
             mapping.primaryBasisY[0] *= mappingScaleX[column];
             mapping.primaryBasisY[1] *= mappingScaleY[row];
-            mapping.primaryOrigin[0] =
-                mapping.primaryOrigin[0] * mappingScaleX[column] + mappingBiasX[column];
-            mapping.primaryOrigin[1] =
-                mapping.primaryOrigin[1] * mappingScaleY[row] + mappingBiasY[row];
+            mapping.primaryOrigin[0] = mapping.primaryOrigin[0] * mappingScaleX[column] + mappingBiasX[column];
+            mapping.primaryOrigin[1] = mapping.primaryOrigin[1] * mappingScaleY[row] + mappingBiasY[row];
             mapping.imageIndex = baseUv->imageIndex;
             mapping.maskImageIndex = baseUv->maskImageIndex;
             mapping.computedStyleIndex = baseUv->computedStyleIndex;
@@ -344,8 +337,12 @@ bool RuiDrawImageAtlasEntry(RuiGlobalState* globals, RuiInstance* rui, RuiDrawBa
             const RuiBounds pieceBounds = {gridX[column], gridY[row], gridX[column + 1], gridY[row + 1]};
             RuiProjectedQuad positions;
             RuiProjectBounds(*transform, pieceBounds, positions);
-            const uint16_t pieceEdges = static_cast<uint16_t>(
-                edgeMask & ((column == 0 ? 1 : column == 2 ? 2 : 0) | (row == 0 ? 4 : row == 2 ? 8 : 0)));
+            const uint16_t pieceEdges = static_cast<uint16_t>(edgeMask & ((column == 0   ? 1
+                                                                           : column == 2 ? 2
+                                                                                         : 0) |
+                                                                          (row == 0   ? 4
+                                                                           : row == 2 ? 8
+                                                                                      : 0)));
             if (pieceEdges)
                 RuiApplyAntiAliasPadding(globals, rui, &antiAlias, &g_uiAaLrtbScaleForEdgeMask[pieceEdges], &positions);
 
@@ -373,8 +370,7 @@ bool RuiDrawImage(RuiGlobalState& globals, RuiInstance& rui, RuiDrawBatch& batch
                   const RuiResolvedImageAsset& image, const RuiResolvedImageAsset* mask, const RuiImageRenderJob* job, const RuiBounds& bounds,
                   const Vector2D& uvMin, const Vector2D& uvMax, uint16_t flags, uint16_t styleIndex, bool buildDefaultMask)
 {
-    if (!image.atlas || !image.atlas->images || image.imageIndex < 0 || static_cast<uint16_t>(image.imageIndex) >= image.atlas->imageCount ||
-        static_cast<uint16_t>(image.imageIndex) < image.atlas->nineSliceImageCount)
+    if (!image.atlas || !image.atlas->images || image.imageIndex < 0 || static_cast<uint16_t>(image.imageIndex) >= image.atlas->imageCount)
     {
         return true;
     }
@@ -384,8 +380,6 @@ bool RuiDrawImage(RuiGlobalState& globals, RuiInstance& rui, RuiDrawBatch& batch
     RuiBounds clipped;
     if (!RuiClipImageBounds(image.atlas->images[image.imageIndex], bounds, uvMin, uvMax, g_RuiLrtbClampMasksByMode, flags, nullptr, clipped))
         return true;
-    if (!RuiDrawBatch_BindImageAtlas(&batch, image.atlas))
-        return false;
 
     RuiBaseUv mapping{};
     RuiBuildPrimaryMapping(mapping, inverse, image.atlas->images[image.imageIndex], uvMin, uvMax);
@@ -399,22 +393,15 @@ bool RuiDrawImage(RuiGlobalState& globals, RuiInstance& rui, RuiDrawBatch& batch
     mapping.computedStyleIndex = static_cast<int16_t>(batch.computedStyleCount + styleIndex);
     mapping.flags = flags;
 
-    RuiProjectedQuad positions;
-    RuiProjectBounds(transform, clipped, positions);
-    RuiApplyAntiAlias(globals, rui, transform, flags, positions);
-
-    RuiDrawQuad quad{.vertexCount = 4, .vertexCapacity = 4};
-    RuiStoreQuad(quad, positions, inverse.sign);
-    if (!rui.drawInfo || static_cast<uint32_t>(rui.drawInfo->mode) >= 4)
-        return false;
-    return g_RuiDrawInfoHandlers[static_cast<uint32_t>(rui.drawInfo->mode)](rui.drawInfo, &mapping, &quad, &batch);
+    alignas(16) const Vector4D repeatedUvMin{uvMin.x, uvMin.y, uvMin.x, uvMin.y};
+    alignas(16) const Vector4D uvExtent{uvMax.x - uvMin.x, uvMax.y - uvMin.y, uvMax.x - uvMin.x, uvMax.y - uvMin.y};
+    return RuiDrawImageAtlasEntry(&globals, &rui, &batch, &mapping, &transform, inverse.sign, image, &clipped, &bounds, &repeatedUvMin, &uvExtent);
 }
 
 bool RuiDrawInlineImage(RuiGlobalState& globals, RuiInstance& rui, RuiDrawBatch& batch, const RuiTransform& transform,
                         const RuiInverseTransform& inverse, const RuiResolvedImageAsset& image, const RuiBounds& bounds, uint16_t styleIndex)
 {
-    if (!image.atlas || !image.atlas->images || image.imageIndex < 0 ||
-        static_cast<uint16_t>(image.imageIndex) >= image.atlas->imageCount)
+    if (!image.atlas || !image.atlas->images || image.imageIndex < 0 || static_cast<uint16_t>(image.imageIndex) >= image.atlas->imageCount)
     {
         return true;
     }
@@ -485,6 +472,9 @@ bool RuiRenderDynamicImage(RuiRenderContext& context, RuiInstance& rui, const Ru
     const RuiTransform& transform = rui.runtime->transforms[job.transformIndex];
     RuiInverseTransform inverse;
     if (!RuiInvertTransform(transform, inverse))
+        return true;
+
+    if (maskPointer && mask.atlas != image.atlas)
         return true;
 
     const RuiBounds bounds = {
@@ -1207,9 +1197,12 @@ DECLARE_HOOK(RuiRenderImageJob, engine.dll + 0xF72F0,
     const RuiImageHandle image = rui->GetValue<RuiImageHandle>(job->imageOffset);
     const RuiImageHandle mask = rui->GetValue<RuiImageHandle>(job->maskImageOffset);
     std::shared_lock atlasLock(g_RuiImageAtlasMutex);
-    if (!RuiIsDynamicImageAsset(image) && !RuiIsDynamicImageAsset(mask))
+    const RuiImageAtlasHandle imageAtlas = RuiGetImageAtlasHandle(image);
+    const RuiImageAtlasHandle maskAtlas = RuiGetImageAtlasHandle(mask);
+    const bool nativeImage = imageAtlas == RUI_INVALID_IMAGE_ATLAS || imageAtlas < RUI_NATIVE_IMAGE_ATLAS_CAPACITY;
+    const bool nativeMask = maskAtlas == RUI_INVALID_IMAGE_ATLAS || maskAtlas < RUI_NATIVE_IMAGE_ATLAS_CAPACITY;
+    if (nativeImage && nativeMask)
     {
-        atlasLock.unlock();
         return hook.Original(context, rui, job, batch);
     }
     return RuiRenderDynamicImage(*context, *rui, *job, *batch);
@@ -1222,7 +1215,6 @@ DECLARE_HOOK(RuiRenderEllipseJob, engine.dll + 0xF7A80,
     std::shared_lock atlasLock(g_RuiImageAtlasMutex);
     if (!RuiIsDynamicImageAsset(image))
     {
-        atlasLock.unlock();
         return hook.Original(context, rui, job, batch);
     }
     return RuiRenderDynamicEllipse(*context, *rui, *job, *batch);
@@ -1234,7 +1226,6 @@ DECLARE_HOOK(RuiMeasureTextJob, engine.dll + 0xF6980, [](auto& hook, RuiInstance
     std::shared_lock atlasLock(g_RuiImageAtlasMutex);
     if (!RuiTextUsesDynamicImage(*rui, rui->runtime->textContext, job))
     {
-        atlasLock.unlock();
         return hook.Original(rui, renderJobOffset);
     }
     return RuiMeasureText(*rui, renderJobOffset);
@@ -1246,7 +1237,6 @@ DECLARE_HOOK(RuiRenderTextJob, engine.dll + 0xF5840,
     std::shared_lock atlasLock(g_RuiImageAtlasMutex);
     if (!RuiTextUsesDynamicImage(*rui, context, *job))
     {
-        atlasLock.unlock();
         return hook.Original(context, rui, job, batch);
     }
     return RuiRenderDynamicText(*context, *rui, *job, *batch);
@@ -1265,4 +1255,22 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", RuiRender, RuiImageAtlasRegistry, [](C
     g_RuiFonts = module.Offset(0x12A4E550).RCast<RuiFont**>();
     g_RuiFontAtlasIndices = module.Offset(0x12A4E650).RCast<uint8_t*>();
     DISPATCH_MODULE(RuiRenderHooks);
+})
+
+DECLARE_HOOK(SuppressParticleEditorRui, engine.dll + 0xFC7A0, [](auto& hook, RuiRenderContext* context)
+{
+    if (context)
+        RuiBeginImageAtlasFrame(context->stage);
+
+    if (!context || !ParticleTools::GetParticleToolSystem().IsEditorInputEnabled())
+    {
+        hook.Original(context);
+        return;
+    }
+
+    const std::uint16_t instanceCount = context->instanceCount;
+    context->instanceCount = 0;
+    context->drawBatchCount = 0;
+    hook.Original(context);
+    context->instanceCount = instanceCount;
 })

@@ -9,6 +9,7 @@
 #include "engine/r2engine.h"
 #include "masterserver/masterserver.h"
 #include "miles/audio.h"
+#include "modsystem/modatlas.h"
 #include "modsystem/modinstaller.h"
 #include "modsystem/modshellext.h"
 #include "modsystem/modworkshop_inventory.h"
@@ -279,6 +280,38 @@ bool ModManager::HasLoadedPackageMods(const fs::path& packageRoot, std::span<con
     return true;
 }
 
+std::vector<RuiImageAtlasAppend> ReadRpakAtlasAppends(const Mod& mod, const std::string& pakName, const rapidjson::Value& sources)
+{
+    std::vector<RuiImageAtlasAppend> appends;
+    if (!sources.IsObject() || sources.ObjectEmpty())
+    {
+        spdlog::error("Mod {} has invalid Atlases for {}: expected a nonempty object keyed by source atlas.", mod.Name, pakName);
+        return appends;
+    }
+
+    const std::string pakPath = (fs::path("./") / mod.m_ModDirectory / "paks" / pakName).string();
+    for (auto source = sources.MemberBegin(); source != sources.MemberEnd(); ++source)
+    {
+        std::string sourceAtlasPath(source->name.GetString(), source->name.GetStringLength());
+        if (sourceAtlasPath.empty() || sourceAtlasPath.find('\0') != std::string::npos || !source->value.IsString() ||
+            source->value.GetStringLength() == 0 ||
+            std::string_view(source->value.GetString(), source->value.GetStringLength()).find('\0') != std::string_view::npos)
+        {
+            spdlog::error("Mod {} has invalid Atlases for {}: source and target atlases must be nonempty asset paths.", mod.Name, pakName);
+            return {};
+        }
+        if (std::any_of(appends.begin(), appends.end(),
+                        [&](const RuiImageAtlasAppend& entry) { return entry.sourceAtlasPath == sourceAtlasPath; }))
+        {
+            spdlog::error("Mod {} has invalid Atlases for {}: duplicate source atlas '{}'.", mod.Name, pakName, sourceAtlasPath);
+            return {};
+        }
+
+        appends.push_back({pakPath, std::move(sourceAtlasPath), std::string(source->value.GetString(), source->value.GetStringLength())});
+    }
+    return appends;
+}
+
 void ModManager::LoadMods()
 {
     const bool wasLoaded = m_bHasLoadedMods;
@@ -298,6 +331,7 @@ void ModManager::LoadMods()
     m_CompiledFiles.clear();
     fs::remove_all(GetCompiledAssetsPath());
 
+    std::vector<RuiImageAtlasAppend> atlasAppends;
     for (Mod& mod : m_LoadedMods)
     {
         if (!mod.m_bEnabled)
@@ -463,6 +497,15 @@ void ModManager::LoadMods()
                     }
                 }
 
+                const rapidjson::Value* atlasAppendConfig = nullptr;
+                if (bUseRpakJson && dRpakJson.HasMember("Atlases"))
+                {
+                    if (dRpakJson["Atlases"].IsObject())
+                        atlasAppendConfig = &dRpakJson["Atlases"];
+                    else
+                        spdlog::error("Mod {} has invalid rpak.json. Atlases must be an object keyed by RPak filename.", mod.Name);
+                }
+
                 for (fs::directory_entry file : fs::directory_iterator(mod.m_ModDirectory / "paks"))
                 {
                     // ensure we're only loading rpaks
@@ -480,6 +523,17 @@ void ModManager::LoadMods()
                     }
                     else
                     {
+                        if (atlasAppendConfig && atlasAppendConfig->HasMember(pakName))
+                        {
+                            const auto ownerCount = std::count_if(
+                                atlasAppendConfig->MemberBegin(), atlasAppendConfig->MemberEnd(), [&](const auto& owner)
+                                { return std::string_view(owner.name.GetString(), owner.name.GetStringLength()) == pakName; });
+                            if (ownerCount == 1)
+                                modPak.m_atlasAppends = ReadRpakAtlasAppends(mod, pakName, (*atlasAppendConfig)[pakName]);
+                            else
+                                spdlog::error("Mod {} has invalid Atlases: duplicate RPak filename '{}'.", mod.Name, pakName);
+                        }
+
                         modPak.m_preload = (dRpakJson.HasMember("Preload") && dRpakJson["Preload"].IsObject() &&
                                             dRpakJson["Preload"].HasMember(pakName) && dRpakJson["Preload"][pakName].IsTrue());
 
@@ -496,8 +550,7 @@ void ModManager::LoadMods()
                             goto REGISTER_STARPAK;
                         }
 
-                        // this is the only bit of rpak.json that isn't really deprecated. Even so, it will be moved over to the mod.json
-                        // eventually
+                        // Per-map load regex.
                         if (dRpakJson.HasMember(pakName))
                         {
                             if (!dRpakJson[pakName].IsString())
@@ -557,6 +610,19 @@ void ModManager::LoadMods()
                                 spdlog::info("Mod {} registered starpak '{}'", mod.Name, str);
                                 str = "";
                             }
+                        }
+                    }
+                }
+
+                if (atlasAppendConfig)
+                {
+                    for (auto owner = atlasAppendConfig->MemberBegin(); owner != atlasAppendConfig->MemberEnd(); ++owner)
+                    {
+                        const std::string pakName(owner->name.GetString(), owner->name.GetStringLength());
+                        if (std::none_of(mod.Rpaks.begin(), mod.Rpaks.end(), [&](const ModRpakEntry& pak) { return pak.m_pakName == pakName; }))
+                        {
+                            spdlog::error("Mod {} has invalid Atlases for '{}': expected an existing RPak filename in this mod.", mod.Name,
+                                          pakName);
                         }
                     }
                 }
@@ -652,6 +718,9 @@ void ModManager::LoadMods()
                     }
                 }
             }
+
+            for (const ModRpakEntry& pak : mod.Rpaks)
+                atlasAppends.insert(atlasAppends.end(), pak.m_atlasAppends.begin(), pak.m_atlasAppends.end());
         }
         catch (const std::bad_alloc&)
         {
@@ -669,6 +738,8 @@ void ModManager::LoadMods()
     // build modinfo obj for masterserver
     BuildModInfo();
 
+    RuiConfigureImageAtlasAppends(atlasAppends);
+
     m_bHasLoadedMods = true;
     if (wasLoaded)
         RequestModelReload();
@@ -677,6 +748,7 @@ void ModManager::LoadMods()
 bool ModManager::UnloadMods(bool unloadRpaksNow)
 {
     // clean up stuff from mods before we unload
+    RuiConfigureImageAtlasAppends({});
     m_DependencyConstants.clear();
 
     bool unloadedAll = RemoveModSearchPaths();

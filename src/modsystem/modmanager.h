@@ -179,10 +179,7 @@ public:
 	bool GetModVPKModelSource(const fs::path& path, std::string& vpkPath) const;
 	std::string NormaliseModFilePath(const fs::path path) const;
 	void CompileAssetsForFile(const char* filename);
-
 	void DeleteRemoteMod(const char* modName, const char* version);
-
-	// Generated assets live under runtime/compiled; KeyValues patches are applied at load time.
 	void BuildScriptsRson();
 	void BuildLocalPackageIcons();
 	void DumpCompiledKeyValues();

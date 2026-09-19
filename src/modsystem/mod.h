@@ -1,5 +1,7 @@
 #pragma once
 
+#include "modsystem/modatlas.h"
+
 #include <regex>
 #include <string_view>
 
@@ -66,11 +68,12 @@ public:
 	{
 	}
 
-	Mod& m_parent;
-	std::string m_pakName;
-	std::regex m_loadRegex;
+    Mod& m_parent;
+    std::string m_pakName;
+    std::regex m_loadRegex;
+    std::vector<RuiImageAtlasAppend> m_atlasAppends;
 
-	// these exist purely for backwards compatibility, i don't really like them anymore
+    // these exist purely for backwards compatibility, i don't really like them anymore
 
 	// Preload, loads before the first rpak is loaded
 	bool m_preload = false;

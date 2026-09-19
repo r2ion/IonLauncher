@@ -18,7 +18,7 @@
 #include "cmaterialglue.h"
 #include "materialsystem/itextureinternal.h"
 #include "rendersystem/schema/texture.g.h"
-#include "materialsystem/dx11_device.h"
+#include "windows/id3dx.h"
 #include "tier0/frametask.h"
 #include <wrl/client.h>
 #include "rtech/pakfilesystem.h"
@@ -172,9 +172,9 @@ static void BindTextureHandleToPixelShader(uint32_t textureSlot, uint32_t sample
 	BindPixelTextureHandle(textureSlot, textureHandle);
 
 	ID3D11SamplerState* sampler = ResolveTextureSampler(textureHandle);
-	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
-	if (sampler && dx11)
-		dx11.m_pContext->PSSetSamplers(samplerSlot, 1, &sampler);
+	ID3D11DeviceContext* const context = D3D11DeviceContext();
+	if (sampler && context)
+		context->PSSetSamplers(samplerSlot, 1, &sampler);
 }
 
 
@@ -388,8 +388,9 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 
 	const __int64 result = *reinterpret_cast<const __int64*>(a4 + 8);
 
-	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
-	if (!dx11)
+	ID3D11Device* const device = D3D11Device();
+	ID3D11DeviceContext* const context = D3D11DeviceContext();
+	if (!device || !context)
 		return result;
 
 	uint32_t pixelId = 0;
@@ -419,7 +420,7 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		{
 			vertexShader = cached->second.Get();
 		}
-		else if (SUCCEEDED(dx11.m_pDevice->CreateVertexShader(
+		else if (SUCCEEDED(device->CreateVertexShader(
 				vertexByteCode->data(), vertexByteCode->size(), nullptr, &vertexShader)))
 		{
 			WaterVcsVertexShaders.emplace(vertexId, vertexShader);
@@ -437,7 +438,7 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		{
 			pixelShader = cached->second.Get();
 		}
-		else if (SUCCEEDED(dx11.m_pDevice->CreatePixelShader(
+		else if (SUCCEEDED(device->CreatePixelShader(
 				pixelByteCode->data(), pixelByteCode->size(), nullptr, &pixelShader)))
 		{
 			WaterVcsPixelShaders.emplace(pixelId, pixelShader);
@@ -451,8 +452,8 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 	
 	if (vertexShader && pixelShader)
 	{
-		dx11.m_pContext->VSSetShader(vertexShader, nullptr, 0);
-		dx11.m_pContext->PSSetShader(pixelShader, nullptr, 0);
+		context->VSSetShader(vertexShader, nullptr, 0);
+		context->PSSetShader(pixelShader, nullptr, 0);
 	}
 	
 
@@ -488,8 +489,8 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		viewDesc.Buffer.FirstElement = 0;
 		viewDesc.Buffer.NumElements = 1;
 
-		if (FAILED(dx11.m_pDevice->CreateBuffer(&bufferDesc, &initial, &tonemapBuffer))
-			|| FAILED(dx11.m_pDevice->CreateShaderResourceView(tonemapBuffer, &viewDesc, &tonemapView)))
+		if (FAILED(device->CreateBuffer(&bufferDesc, &initial, &tonemapBuffer))
+			|| FAILED(device->CreateShaderResourceView(tonemapBuffer, &viewDesc, &tonemapView)))
 		{
 			spdlog::error("failed to create the tonemapGlobals buffer for t16");
 			if (tonemapBuffer)
@@ -501,12 +502,12 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 	}
 
 	if (tonemapView)
-		dx11.m_pContext->PSSetShaderResources(16, 1, &tonemapView);
+		context->PSSetShaderResources(16, 1, &tonemapView);
 
 	// The water constant buffer, at the offset the engine's own execute uses.
 	ID3D11Buffer* const* const constantBuffer = reinterpret_cast<ID3D11Buffer* const*>(a4 + 0x10);
-	dx11.m_pContext->VSSetConstantBuffers(0, 1, constantBuffer);
-	dx11.m_pContext->PSSetConstantBuffers(0, 1, constantBuffer);
+	context->VSSetConstantBuffers(0, 1, constantBuffer);
+	context->PSSetConstantBuffers(0, 1, constantBuffer);
 	if (SetupWaterTextureBindings)
 		SetupWaterTextureBindings(*reinterpret_cast<const __int64*>(a4 + 0x78), 14);
 
@@ -519,8 +520,9 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 	auto* const material = reinterpret_cast<CMaterialGlue*>(
 		reinterpret_cast<std::uint8_t*>(rawMaterialData) - kMaterialShaderDataOffset);
 
-	const CDx11Device::Snapshot dx11 = CDx11Device::GetSnapshot();
-	if (!dx11)
+	ID3D11Device* const device = D3D11Device();
+	ID3D11DeviceContext* const context = D3D11DeviceContext();
+	if (!device || !context)
 		return subResult;
 
 	//bind textures to slots if existing
@@ -546,7 +548,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 			if (!TextureSRV)
 				continue;
 
-			dx11.m_pContext->PSSetShaderResources(slot, 1, &TextureSRV);
+			context->PSSetShaderResources(slot, 1, &TextureSRV);
 
 		}
 	}
@@ -586,7 +588,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 		static ID3D11Buffer* resource = nullptr;
 		if (!resource)
 		{
-			if (HRESULT res = dx11.m_pDevice->CreateBuffer(&desc, nullptr, &resource); !SUCCEEDED(res))
+			if (HRESULT res = device->CreateBuffer(&desc, nullptr, &resource); !SUCCEEDED(res))
 			{
 				spdlog::error("Failed to create buffer {:X}", (uint32_t)res);
 				return subResult;
@@ -594,7 +596,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 		}
 
 		D3D11_MAPPED_SUBRESOURCE mappedSubResource;
-		if (!SUCCEEDED(dx11.m_pContext->Map(resource, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSubResource)))
+		if (!SUCCEEDED(context->Map(resource, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSubResource)))
 		{
 			spdlog::error("failed to map data");
 			return subResult;
@@ -606,8 +608,8 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
 
 		memcpy(pData, &NSCustomBuffersPerMaterial[material->guid], sizeof(Ns_Constant_Buffer));
 
-		dx11.m_pContext->Unmap(resource, 0);
-		dx11.m_pContext->PSSetConstantBuffers(4, 1, &resource);
+		context->Unmap(resource, 0);
+		context->PSSetConstantBuffers(4, 1, &resource);
 	}
 
 
@@ -617,7 +619,7 @@ DECLARE_HOOK(ShaderExecute, materialsystem_dx11.dll + 0x511D0, [](auto& hook, __
         auto it = NSMaterialPixelShaders.find(material->guid);
         if (it != NSMaterialPixelShaders.end() && it->second != nullptr)
         {
-            dx11.m_pContext->PSSetShader(it->second.Get(), nullptr, 0);
+            context->PSSetShader(it->second.Get(), nullptr, 0);
         }
     }
 

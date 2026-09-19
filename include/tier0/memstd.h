@@ -12,6 +12,7 @@ extern "C" __declspec(noinline) void* __cdecl _realloc_base(void* const block, s
 extern "C" __declspec(noinline) void* __cdecl _recalloc_base(void* const block, size_t const count, size_t const size);
 extern "C" __declspec(noinline) void __cdecl _free_base(void* const block);
 extern "C" __declspec(noinline) size_t __cdecl _msize(void* const block);
+extern "C" __declspec(noinline) size_t __cdecl _msize_base(void* const block) noexcept;
 extern "C" __declspec(noinline) char* __cdecl _strdup_base(const char* src);
 
 void* operator new(size_t n);

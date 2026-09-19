@@ -70,6 +70,11 @@ size_t _msize(void* const block)
 	return g_pMemAllocSingleton->GetSize(block);
 }
 
+size_t _msize_base(void* const block) noexcept
+{
+	return _msize(block);
+}
+
 char* _strdup_base(const char* src)
 {
 	char* str;

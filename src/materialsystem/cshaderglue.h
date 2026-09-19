@@ -7,25 +7,24 @@
 
 class CShaderGlue : public IShaderDraw
 {
-public:
-	const char* GetName() const override;
-	std::uint64_t Unknown1() override;
-	void* Unknown2() override;
-	std::uint64_t Unknown3() override;
-	int SetupShader(
-		std::uint64_t count, std::uint64_t unknown, void* materialData) override;
+  public:
+    const char* GetName() const override;
+    std::uint64_t Unknown1() override;
+    void* Unknown2() override;
+    std::uint64_t Unknown3() override;
+    int SetupShader(std::uint64_t count, std::uint64_t unknown, void* materialData) override;
 
-	const char* name;
-	std::uint64_t unknown10;
-	std::uint16_t resourceBindingSlot;
-	std::uint16_t textureInputCount;
-	std::uint16_t shadowSamplerCount;
-	std::uint16_t unknownBindingSlot;
-	std::uint16_t unknownBindingCount;
-	std::uint8_t unknown22[6];
-	std::uint64_t unknown28[4];
-	void* vertexShader;
-	void* pixelShader;
+    const char* name;
+    std::uint64_t unknown10;
+    std::uint16_t resourceBindingSlot;
+    std::uint16_t textureInputCount;
+    std::uint16_t shadowSamplerCount;
+    std::uint16_t unknownBindingSlot;
+    std::uint16_t unknownBindingCount;
+    std::uint8_t unknown22[6];
+    std::uint64_t unknown28[4];
+    void* vertexShader;
+    void* pixelShader;
 };
 static_assert(sizeof(CShaderGlue) == 0x58);
 static_assert(offsetof(CShaderGlue, name) == 0x8);

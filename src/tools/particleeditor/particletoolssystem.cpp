@@ -10,7 +10,6 @@
 #include "client/viewrender.h"
 #include "materialsystem/imatrendercontext.h"
 #include "plugins/interfaces/interface_registry.h"
-#include "rtech/rui/rui.h"
 #include "tier0/frametask.h"
 #include "tier0/hooks.h"
 #include "toolframework/itooldictionary.h"
@@ -85,23 +84,6 @@ DECLARE_HOOK(LoadParticleToolsFromEngineManifest, engine.dll + 0x243790, [](auto
 {
     hook.Original(framework);
     ParticleTools::GetParticleToolSystem().LoadIntoEngineToolFramework(framework, false);
-})
-
-// Keep the engine's RUI job bookkeeping intact while preventing game-owned
-// HUD, cockpit, and world-space RUI from painting over the editor workspace.
-DECLARE_HOOK(SuppressParticleEditorRui, engine.dll + 0xFC7A0, [](auto& hook, RuiRenderContext* context)
-{
-    if (!context || !ParticleTools::GetParticleToolSystem().IsEditorInputEnabled())
-    {
-        hook.Original(context);
-        return;
-    }
-
-    const std::uint16_t instanceCount = context->instanceCount;
-    context->instanceCount = 0;
-    context->drawBatchCount = 0;
-    hook.Original(context);
-    context->instanceCount = instanceCount;
 })
 
 // Replace the player view at retail's per-frame setup boundary. Rebuilding the
