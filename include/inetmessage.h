@@ -2,11 +2,16 @@
 
 #include "tier1/bitbuf.h"
 
+enum MessageReplayInteraction
+{
+	IN_REPLAY = 0,
+	IN_REPLAY_FORCE_PREDICTED_TIME = 1,
+	NOT_IN_REPLAY = 2,
+	ONLY_IN_REPLAY = 3,
+};
 
 class INetMessage;
 class CNetChan;
-
-
 
 class INetMessage
 {
