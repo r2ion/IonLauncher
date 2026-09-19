@@ -186,8 +186,8 @@ public:
 	void BuildScriptsRson();
 	void BuildLocalPackageIcons();
 	void DumpCompiledKeyValues();
-	bool ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourceName, KeyValuesLoadFromTextBufferFn loadFromBuffer,
-		IBaseFileSystem* fileSystem, const char* pathID, KeyValuesEvaluateSymbolFn evaluateSymbol, int flags);
+	bool ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourceName, KeyValuesLoadFromTextBuffer_t loadFromBuffer,
+		IBaseFileSystem* fileSystem, const char* pathID, KeyValuesEvaluateSymbol_t evaluateSymbol, int flags);
 	void InvalidateKeyValuesPatches(const char* pathPrefix);
 	void BuildPdef();
 	void BuildKBActionsList();
