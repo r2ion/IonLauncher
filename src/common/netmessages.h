@@ -149,7 +149,6 @@ class CLC_Move : public CNetMessage
     bf_write m_DataOut;
 };
 
-// R2 uses the R5SDK bit-buffer payload shape, but has no m_nMsgType field.
 class SVC_PlaylistOverrides : public CNetMessage
 {
   public:

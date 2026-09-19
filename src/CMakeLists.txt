@@ -365,6 +365,7 @@ target_link_libraries(
             version.lib
             winmm.lib
             dxgi.lib
+            d3dcompiler.lib
             shlwapi.lib
             comctl32.lib
             comdlg32.lib

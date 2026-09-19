@@ -664,6 +664,8 @@ void ModManager::LoadMods()
         }
     }
 
+    BuildKeyValuesPatchIndex();
+
     // build modinfo obj for masterserver
     BuildModInfo();
 
@@ -709,7 +711,10 @@ bool ModManager::UnloadMods(bool unloadRpaksNow)
     }
     m_ModFiles.clear();
     m_CompiledFiles.clear();
-    m_CompiledAssetFiles.clear();
+    {
+        std::scoped_lock lock(m_KeyValuesMutex);
+        m_KeyValuesPatches.clear();
+    }
     {
         std::error_code ec;
         fs::remove_all(GetCompiledAssetsPath(), ec);
@@ -1530,45 +1535,12 @@ void ModManager::CompileAssetsForFile(const char* filename)
     const std::string normalisedPath = NormaliseModFilePath(fs::path(filename));
     const size_t fileHash = STR_HASH(normalisedPath);
 
-    const auto compiledFile = m_CompiledAssetFiles.find(normalisedPath);
-    if (compiledFile != m_CompiledAssetFiles.end())
-    {
-        const VanillaCompatibility::CompatibilityMode compatibilityMode = g_pVanillaCompatibility->GetVanillaCompatibility()
-                                                                              ? VanillaCompatibility::CompatibilityMode::Vanilla
-                                                                              : VanillaCompatibility::CompatibilityMode::Northstar;
-        if (compiledFile->second != compatibilityMode)
-        {
-            m_CompiledFiles.erase(normalisedPath);
-            TryBuildKeyValues(filename);
-        }
-        else
-        {
-            m_CompiledFiles.insert(normalisedPath);
-        }
-        return;
-    }
-
     if (fileHash == m_hScriptsRsonHash)
         BuildScriptsRson();
     else if (fileHash == m_hPdefHash)
         BuildPdef();
     else if (fileHash == m_hKBActHash)
         BuildKBActionsList();
-    else
-    {
-        // check if we should build keyvalues, depending on whether any of our mods have patch kvs for this file
-        for (Mod& mod : m_LoadedMods)
-        {
-            if (!mod.m_bEnabled)
-                continue;
-
-            if (mod.KeyValues.find(fileHash) != mod.KeyValues.end())
-            {
-                TryBuildKeyValues(filename);
-                return;
-            }
-        }
-    }
 }
 
 void ModManager::DeleteRemoteMod(const char* modName, const char* version)

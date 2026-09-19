@@ -2,18 +2,19 @@
 #include "tier1/convar.h"
 #include "tier0/memstd.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
+#include "tier1/keyvalues.h"
 
 #include "rapidjson/document.h"
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <mutex>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <regex>
 #include <span>
 #include "mod.h"
-#include "tier0/vanilla.h"
 
 namespace fs = std::filesystem;
 
@@ -65,6 +66,22 @@ private:
 	CModelLoader* m_pModelLoader = nullptr;
 	std::unordered_map<std::string, bool> m_EnabledStateOverrides;
 
+	struct KeyValuesPatch_t
+	{
+		fs::path m_Path;
+		std::string m_Contents;
+		bool m_bRequiredOnClient;
+	};
+	struct KeyValuesPatchSet_t
+	{
+		std::vector<KeyValuesPatch_t> m_Patches;
+		bool m_bLoaded = false;
+	};
+	std::mutex m_KeyValuesMutex;
+	std::unordered_map<std::string, std::shared_ptr<KeyValuesPatchSet_t>> m_KeyValuesPatches;
+	void BuildKeyValuesPatchIndex();
+	std::shared_ptr<const KeyValuesPatchSet_t> GetKeyValuesPatches(const char* resourceName);
+
 	void LoadMods();
 	bool UnloadMods(bool unloadRpaksNow);
 	void RunModelReload();
@@ -82,7 +99,6 @@ private:
 public:
 	std::vector<Mod> m_LoadedMods;
 	std::unordered_map<std::string, ModOverrideFile> m_ModFiles;
-	std::unordered_map<std::string, VanillaCompatibility::CompatibilityMode> m_CompiledAssetFiles;
 	std::unordered_set<std::string> m_CompiledFiles;
 	std::unordered_map<std::string, std::string> m_DependencyConstants;
 	std::unordered_set<std::string> m_PluginDependencyConstants;
@@ -142,12 +158,6 @@ private:
 	 **/
 	void BuildModInfo();
 	bool IsSafeKeyValuesDumpPath(const fs::path& path);
-	void AppendWeaponModNames(KeyValues& keyValues, std::vector<std::string>& weaponModNames);
-	void MergeKeyValuesRoots(KeyValues& keyValues, const KeyValues& baseKeyValues);
-	bool WriteKeyValuesTextFile(const fs::path& path, const std::string& contents);
-	bool WriteWeaponModOrderFile(const fs::path& path, const char* rootName, const std::vector<std::string>& weaponModOrder);
-	bool ReadConditionalKeyValues(const fs::path& filePath, bool keepNorthstar, std::string& contents);
-	static bool EvaluateGameModeKeyValuesSymbol(const char* symbol);
 
 public:
 	explicit ModManager(const CModule& engineModule);
@@ -172,11 +182,13 @@ public:
 
 	void DeleteRemoteMod(const char* modName, const char* version);
 
-	// compile asset type stuff, these are done in files under runtime/compiled/
+	// Generated assets live under runtime/compiled; KeyValues patches are applied at load time.
 	void BuildScriptsRson();
 	void BuildLocalPackageIcons();
 	void DumpCompiledKeyValues();
-	void TryBuildKeyValues(const char* filename);
+	bool ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourceName, KeyValuesLoadFromTextBufferFn loadFromBuffer,
+		IBaseFileSystem* fileSystem, const char* pathID, KeyValuesEvaluateSymbolFn evaluateSymbol, int flags);
+	void InvalidateKeyValuesPatches(const char* pathPrefix);
 	void BuildPdef();
 	void BuildKBActionsList();
 };

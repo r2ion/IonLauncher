@@ -1,7 +1,11 @@
 #include "tier1/keyvalues.h"
 #include "vstdlib/ikeyvaluessystem.h"
-#include "filesystem/ifilesystem.h"
+#include "core/filesystem/filesystem.h"
+#include "modsystem/modmanager.h"
+#include "tier0/vanilla.h"
+#include "util/utils.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <cwchar>
@@ -10,10 +14,33 @@
 #include <limits>
 #include <sstream>
 #include <string_view>
+#include <utility>
+#include <vector>
 #include <winnt.h>
 
 // implementation of the ConVar class
 // heavily based on https://github.com/Mauler125/r5sdk/blob/master/r5dev/vpc/keyvalues.cpp
+
+static int (*s_UTF8ToUnicode)(const char* pUTF8, wchar_t* pwchDest, int cubDestSizeInBytes);
+static int (*s_UnicodeToUTF8)(const wchar_t* pUnicode, char* pUTF8, int cubDestSizeInBytes);
+KeyValuesSystemFn KeyValuesSystem = nullptr;
+KeyValuesLoadFromTextBuffer_t KeyValuesLoadFromTextBuffer = nullptr;
+KeyValuesEvaluateSymbol_t DefaultKeyValuesSymbol = nullptr;
+thread_local KeyValuesEvaluateSymbol_t g_pKeyValuesSymbol = nullptr;
+thread_local std::vector<const char*> g_KeyValuesPatchingResources;
+
+// not the best solution but whatever
+#define DECLARE_KEYVALUES_LOADER(name, dll, address, textOffset)                                                                                     \
+    static KeyValuesLoadFromTextBuffer_t s_##name##LoadText = nullptr;                                                                               \
+    DECLARE_HOOK(name, address,                                                                                                                      \
+                 [](auto& hook, KeyValues* self, const char* resourceName, void* buffer, IBaseFileSystem* fileSystem, const char* pathID,            \
+                    KeyValuesEvaluateSymbol_t evaluateSymbol, int flags) -> char                                                                     \
+    { return LoadKeyValuesBuffer(hook, s_##name##LoadText, self, resourceName, buffer, fileSystem, pathID, evaluateSymbol, flags); })                \
+    ON_DLL_LOAD(dll, name, [](CModule module)                                                                                                        \
+    {                                                                                                                                                \
+        s_##name##LoadText = module.Offset(textOffset).RCast<KeyValuesLoadFromTextBuffer_t>();                                                       \
+        DISPATCH_HOOK(KeyValuesHooks, name)                                                                                                          \
+    })
 
 #define MAKE_3_BYTES_FROM_1_AND_2(x1, x2) ((((uint16_t)x2) << 8) | (uint8_t)(x1))
 #define SPLIT_3_BYTES_INTO_1_AND_2(x1, x2, x3)                                                                                             \
@@ -23,9 +50,7 @@
 		x2 = (uint16_t)((x3) >> 8);                                                                                                        \
 	} while (0)
 
-static int (*s_UTF8ToUnicode)(const char* pUTF8, wchar_t* pwchDest, int cubDestSizeInBytes);
-static int (*s_UnicodeToUTF8)(const wchar_t* pUnicode, char* pUTF8, int cubDestSizeInBytes);
-KeyValuesSystemFn KeyValuesSystem = nullptr;
+DECLARE_MODULE(KeyValuesHooks)
 
 static void WriteKeyValuesIndent(std::ostream& output, const std::size_t depth)
 {
@@ -1297,27 +1322,6 @@ void KeyValues::RecursiveCopyKeyValues(KeyValues& src)
 	}
 }
 
-void KeyValues::RecursiveMergeKeyValues(const KeyValues& baseKeyValues)
-{
-	for (const KeyValues* baseChild = baseKeyValues.m_pSub; baseChild; baseChild = baseChild->m_pPeer)
-	{
-		KeyValues* matchingChild = nullptr;
-		for (KeyValues* child = m_pSub; child; child = child->m_pPeer)
-		{
-			if (!strcmp(baseChild->GetName(), child->GetName()))
-			{
-				matchingChild = child;
-				break;
-			}
-		}
-
-		if (matchingChild)
-			matchingChild->RecursiveMergeKeyValues(*baseChild);
-		else
-			AddSubKey(baseChild->MakeCopy());
-	}
-}
-
 //-----------------------------------------------------------------------------
 // Purpose: Make a new copy of all subkeys, add them all to the passed-in keyvalues
 // Input  : *pParent -
@@ -1437,48 +1441,76 @@ ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 	KeyValuesSystem = module.GetExportedFunction("KeyValuesSystem").RCast<KeyValuesSystemFn>();
 })
 
-DECLARE_MODULE(KeyValuesHooks)
-
-using KeyValuesLoadFromTextBufferFn =
-	char(__fastcall*)(KeyValues*, const char*, const char*, void*, void*, KeyValuesEvaluateSymbolFn, int);
-static KeyValuesLoadFromTextBufferFn s_KeyValuesLoadFromTextBuffer = nullptr;
-
-bool KeyValues_LoadFromBuffer(KeyValues* keyValues,
-	const char* resourceName,
-	const char* buffer,
-	IFileSystem* fileSystem,
-	KeyValuesEvaluateSymbolFn evaluateSymbol)
+bool EvaluateKeyValuesSymbol(const char* symbol)
 {
-	if (!s_KeyValuesLoadFromTextBuffer || !keyValues || !resourceName || !buffer)
-		return false;
+    const char* name = *symbol == '$' ? symbol + 1 : symbol;
+    const bool vanilla = g_pVanillaCompatibility && g_pVanillaCompatibility->GetVanillaCompatibility();
+    if (!_stricmp(name, "NORTHSTAR"))
+        return !vanilla;
+    if (!_stricmp(name, "VANILLA"))
+        return vanilla;
 
-	IBaseFileSystem* baseFileSystem = fileSystem ? static_cast<IBaseFileSystem*>(fileSystem) : nullptr;
-	return s_KeyValuesLoadFromTextBuffer(keyValues, resourceName, buffer, baseFileSystem, nullptr, evaluateSymbol, 2) != 0;
+    return (g_pKeyValuesSymbol ? g_pKeyValuesSymbol : DefaultKeyValuesSymbol)(symbol);
+}
+
+template <typename Hook>
+char LoadKeyValuesBuffer(Hook& hook, KeyValuesLoadFromTextBuffer_t loadText, KeyValues* self, const char* resourceName, void* buffer,
+                                IBaseFileSystem* fileSystem, const char* pathID, KeyValuesEvaluateSymbol_t evaluateSymbol, int flags)
+{
+    if (!DefaultKeyValuesSymbol)
+        return hook.Original(self, resourceName, buffer, fileSystem, pathID, evaluateSymbol, flags);
+
+    const KeyValuesEvaluateSymbol_t previousSymbol = g_pKeyValuesSymbol;
+    if (evaluateSymbol != EvaluateKeyValuesSymbol)
+        g_pKeyValuesSymbol = evaluateSymbol ? evaluateSymbol : DefaultKeyValuesSymbol;
+    const ScopeGuard restoreSymbol([previousSymbol] { g_pKeyValuesSymbol = previousSymbol; });
+    const char result = hook.Original(self, resourceName, buffer, fileSystem, pathID, EvaluateKeyValuesSymbol, flags);
+    if (!result || !g_pModManager || !loadText || !resourceName)
+        return result;
+
+    const char* patchResource = !strcmp(resourceName, "playlists") ? "playlists_v2.txt" : resourceName;
+    if (std::ranges::any_of(g_KeyValuesPatchingResources, [patchResource](const char* path) { return !_stricmp(path, patchResource); }))
+        return result;
+    g_KeyValuesPatchingResources.push_back(patchResource);
+    const ScopeGuard restoreResource([] { g_KeyValuesPatchingResources.pop_back(); });
+    return g_pModManager->ApplyKeyValuesPatches(*self, patchResource, loadText, fileSystem, pathID, EvaluateKeyValuesSymbol, flags);
+}
+
+bool KeyValues_LoadFromBuffer(KeyValues* keyValues, const char* resourceName, const char* buffer, IFileSystem* fileSystem,
+                              KeyValuesEvaluateSymbol_t evaluateSymbol)
+{
+    if (!KeyValuesLoadFromTextBuffer || !keyValues || !resourceName || !buffer)
+        return false;
+
+    IBaseFileSystem* baseFileSystem = fileSystem ? static_cast<IBaseFileSystem*>(fileSystem) : nullptr;
+    return KeyValuesLoadFromTextBuffer(keyValues, resourceName, buffer, baseFileSystem, nullptr, evaluateSymbol, 2) != 0;
 }
 
 // clang-format off
 DECLARE_HOOK(KeyValues__LoadFromBuffer, engine.dll + 0x426C30,
-[](auto& hook, KeyValues* self, const char* pResourceName, void* pBuffer, void* pFileSystem, void* a5, void* a6, int a7) -> char
-// clang-format on
+[](auto& hook, KeyValues* self, const char* pResourceName, void* pBuffer, IBaseFileSystem* pFileSystem,
+	const char* pathID, KeyValuesEvaluateSymbol_t evaluateSymbol, int flags) -> char
+             // clang-format on
 {
-	static void* pSavedFilesystemPtr = nullptr;
-
-	// this is just to allow playlists to get a valid pFileSystem ptr for kv building, other functions that call this particular overload of
-	// LoadFromBuffer seem to get called on network stuff exclusively not exactly sure what the address wanted here is, so just taking it
-	// from a function call that always happens before playlists is loaded
-
-	// note: would be better if we could serialize this to disk for playlists, as this method breaks saving playlists in demos
-	if (pFileSystem != nullptr)
-		pSavedFilesystemPtr = pFileSystem;
-	if (!pFileSystem && !strcmp(pResourceName, "playlists"))
-		pFileSystem = pSavedFilesystemPtr;
-	return hook.Original(self, pResourceName, pBuffer, pFileSystem, a5, a6, a7);
+    if (!pFileSystem && pResourceName && !strcmp(pResourceName, "playlists"))
+        pFileSystem = static_cast<IBaseFileSystem*>(g_pFilesystem);
+    return LoadKeyValuesBuffer(hook, KeyValuesLoadFromTextBuffer, self, pResourceName, pBuffer, pFileSystem, pathID, evaluateSymbol, flags);
 })
 
-ON_DLL_LOAD("engine.dll", EngineKeyValues, [](CModule module)
+ON_DLL_LOAD_RELIESON("engine.dll", EngineKeyValues, (Filesystem), [](CModule module)
 {
-	// 0x426AD0 is the public text-buffer wrapper. It constructs the CUtlBuffer
-	// consumed by the hooked parser at 0x426C30.
-	s_KeyValuesLoadFromTextBuffer = module.Offset(0x426AD0).RCast<KeyValuesLoadFromTextBufferFn>();
-	DISPATCH_MODULE(KeyValuesHooks)
+    // 0x426AD0 is the public text-buffer wrapper. It constructs the CUtlBuffer
+    // consumed by the hooked parser at 0x426C30.
+    KeyValuesLoadFromTextBuffer = module.Offset(0x426AD0).RCast<KeyValuesLoadFromTextBuffer_t>();
+    DefaultKeyValuesSymbol = module.Offset(0x43C070).RCast<KeyValuesEvaluateSymbol_t>();
+    DISPATCH_MODULE(KeyValuesHooks)
 })
+
+DECLARE_KEYVALUES_LOADER(ClientKeyValues, "client.dll", client.dll + 0x72C450, 0x72C2F0)
+DECLARE_KEYVALUES_LOADER(ServerKeyValues, "server.dll", server.dll + 0x71F130, 0x71EFD0)
+DECLARE_KEYVALUES_LOADER(MaterialKeyValues, "materialsystem_dx11.dll", materialsystem_dx11.dll + 0x127BF0, 0x127A90)
+DECLARE_KEYVALUES_LOADER(FilesystemKeyValues, "filesystem_stdio.dll", filesystem_stdio.dll + 0x50150, 0x4FFF0)
+DECLARE_KEYVALUES_LOADER(LocalizeKeyValues, "localize.dll", localize.dll + 0x22890, 0x22730)
+DECLARE_KEYVALUES_LOADER(VGuiKeyValues, "vgui2.dll", vgui2.dll + 0x3E440, 0x3E2E0)
+DECLARE_KEYVALUES_LOADER(VGuiSurfaceKeyValues, "vguimatsurface.dll", vguimatsurface.dll + 0x4C8C0, 0x4C760)
+DECLARE_KEYVALUES_LOADER(LauncherKeyValues, "launcher.dll", launcher.dll + 0x22F30, 0x22DD0)

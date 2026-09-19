@@ -7,8 +7,12 @@
 #include <string>
 
 class IFileSystem;
+class IBaseFileSystem;
+class KeyValues;
 
-using KeyValuesEvaluateSymbolFn = bool (*)(const char* symbol);
+using KeyValuesEvaluateSymbol_t = bool (*)(const char* symbol);
+using KeyValuesLoadFromTextBuffer_t =
+	char (*)(KeyValues*, const char*, const char*, IBaseFileSystem*, const char*, KeyValuesEvaluateSymbol_t, int);
 
 enum KeyValuesTypes_t : char
 {
@@ -121,7 +125,6 @@ public:
 	void RecursiveCopyKeyValues(KeyValues& src);
 	void CopySubkeys(KeyValues* pParent) const;
 	KeyValues* MakeCopy(void) const;
-	void RecursiveMergeKeyValues(const KeyValues& baseKeyValues);
 	bool SaveToFile(const char* fileName) const;
 	void UsesEscapeSequences(bool state);
 
@@ -163,4 +166,4 @@ bool KeyValues_LoadFromBuffer(KeyValues* keyValues,
 	const char* resourceName,
 	const char* buffer,
 	IFileSystem* fileSystem,
-	KeyValuesEvaluateSymbolFn evaluateSymbol = nullptr);
+	KeyValuesEvaluateSymbol_t evaluateSymbol = nullptr);
