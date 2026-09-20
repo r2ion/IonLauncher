@@ -12,8 +12,8 @@
 #include "modsystem/modatlas.h"
 #include "modsystem/modinstaller.h"
 #include "modsystem/modshellext.h"
-#include "modsystem/modworkshop_inventory.h"
-#include "modsystem/modworkshop_service.h"
+#include "modsystem/modbrowser.h"
+#include "modsystem/modinventory.h"
 #include "rtech/pakfilesystem.h"
 #include "rtech/pakstate.h"
 #include "tier0/frametask.h"
@@ -222,15 +222,29 @@ void ModManager::ReloadMods()
     RunInMainThread([this]() { LoadMods(); });
 }
 
-bool ModManager::UnloadModsForFilesystemMutation()
+bool ModManager::UnloadModsForFilesystemMutation(std::span<const fs::path> packageRoots)
 {
     if (!m_bHasLoadedMods)
         return true;
 
+    auto enabledStates = CaptureEnabledStatesForPackages(packageRoots);
+    for (Mod& mod : m_LoadedMods)
+    {
+        for (const fs::path& root : packageRoots)
+        {
+            if (ModPaths::IsAtOrBelow(mod.m_ModDirectory, root) ||
+                (!mod.m_PackageDirectory.empty() && ModPaths::Equal(mod.m_PackageDirectory, root)))
+            {
+                mod.m_bEnabled = false;
+                break;
+            }
+        }
+    }
+
     const bool unloaded = UnloadMods(true);
     m_bRuntimeUnloadedForFilesystemMutation = true;
     if (!unloaded)
-        LoadMods();
+        ReloadModsWithEnabledStates(std::move(enabledStates));
     return unloaded;
 }
 
@@ -257,6 +271,7 @@ void ModManager::ReloadModsWithEnabledStates(std::unordered_map<std::string, boo
 {
     m_EnabledStateOverrides = std::move(enabledStates);
     LoadMods();
+    ExportModsConfigurationToFile();
     m_EnabledStateOverrides.clear();
 }
 
@@ -1192,9 +1207,9 @@ void ModManager::DiscoverMods()
         rapidjson::PrettyWriter<rapidjson::OStreamWrapper> writer(writeStreamWrapper);
         m_EnabledModsCfg.Accept(writer);
     }
-    CModWorkshopInventory::Get().RefreshLocal();
+    CModInventory::Get().RefreshLocal();
     if (!IsDedicatedServer())
-        CModWorkshopService::Get().RefreshTrackedMods(true);
+        CModBrowserService::Get().RefreshTrackedMods(true);
 }
 
 void ModManager::BuildModInfo()

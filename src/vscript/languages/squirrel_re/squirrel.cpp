@@ -8,6 +8,7 @@
 #include "modsystem/modsavefiles.h"
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
+#include "rtech/rui/scriptatlas.h"
 #include "squirreldocumentation.h"
 #include "tier0/vanilla.h"
 #include "util/utils.h"
@@ -265,6 +266,8 @@ void SquirrelManager::VMDestroyed()
     }
 
     g_pPluginManager->InformSqvmDestroying(m_pSQVM);
+    if (m_context != ScriptContext::SERVER)
+        CScriptAtlasManager::Get().ReleaseOwner(reinterpret_cast<uintptr_t>(m_pSQVM));
 
     // Discard the previous vm and delete the message buffer.
     SquirrelMessageBuffer* messageBuffer = nullptr;

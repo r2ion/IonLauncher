@@ -3,9 +3,10 @@
 #include "config/profile.h"
 #include "core/tier0.h"
 #include "modsystem/modmanager.h"
-#include "modsystem/modworkshop_inventory.h"
 #include "modsystem/platform/modplatform.h"
+#include "modsystem/modinventory.h"
 #include "modsystem/platform/modworkshop.h"
+#include "modsystem/platform/modhttp.h"
 #include "modsystem/platform/thunderstore.h"
 #include "tier0/frametask.h"
 
@@ -99,10 +100,15 @@ bool CModInstallService::NormalizeAbsolutePath(const fs::path& path, fs::path& n
 	return !error && !normalized.empty();
 }
 
-std::string CModInstallService::PathKey(const fs::path& path)
+std::string CModInstallService::PathUtf8(const fs::path& path)
 {
 	const std::u8string utf8Path = path.generic_u8string();
-	return LowerAscii(std::string(reinterpret_cast<const char*>(utf8Path.data()), utf8Path.size()));
+	return std::string(reinterpret_cast<const char*>(utf8Path.data()), utf8Path.size());
+}
+
+std::string CModInstallService::PathKey(const fs::path& path)
+{
+	return LowerAscii(PathUtf8(path));
 }
 
 bool CModInstallService::TryGetDirectChildRoot(const fs::path& path, const fs::path& allowedRoot, fs::path& directChild)
@@ -204,6 +210,8 @@ bool CModInstallService::InspectInstalledRemoval(int modIndex, InstalledRemovalT
 	target.name = matched.Name;
 	target.version = matched.Version;
 	target.managedModId = ParseManagedModId(matched);
+	target.source = matched.m_Source;
+	target.packageId = matched.m_ManagedId.value_or("");
 	bool containsCoreMod = false;
 	for (const Mod& mod : g_pModManager->m_LoadedMods)
 	{
@@ -293,7 +301,7 @@ bool CModInstallService::ContainsSupportedManifest(std::span<const ArchiveEntry>
 	{
 		if (entry.directory)
 			continue;
-		const std::string path = entry.relativePath.generic_string();
+		const std::string path = PathUtf8(entry.relativePath);
 		if (path.starts_with(prefix) && IsSupportedManifestPath(std::string_view(path).substr(prefix.size())))
 			return true;
 	}
@@ -309,7 +317,7 @@ bool CModInstallService::PathMatchesKey(const fs::path& path, std::string_view k
 bool CModInstallService::InspectArchive(const fs::path& archivePath, std::vector<ArchiveEntry>& entries, std::string& errorMessage)
 {
 	entries.clear();
-	unzFile archive = unzOpen64(archivePath.string().c_str());
+	unzFile archive = unzOpen64(PathUtf8(archivePath).c_str());
 	if (!archive)
 	{
 		errorMessage = "Downloaded file is not a readable ZIP archive";
@@ -394,7 +402,7 @@ bool CModInstallService::InspectArchive(const fs::path& archivePath, std::vector
 	std::string rootPrefix;
 	if (!ContainsSupportedManifest(entries, ""))
 	{
-		const std::string firstPath = entries.front().relativePath.generic_string();
+		const std::string firstPath = PathUtf8(entries.front().relativePath);
 		const size_t separator = firstPath.find('/');
 		const std::string firstComponent = firstPath.substr(0, separator);
 		if (firstComponent.empty())
@@ -405,7 +413,7 @@ bool CModInstallService::InspectArchive(const fs::path& archivePath, std::vector
 		rootPrefix = firstComponent + "/";
 		for (const ArchiveEntry& entry : entries)
 		{
-			const std::string path = entry.relativePath.generic_string();
+			const std::string path = PathUtf8(entry.relativePath);
 			if (path != firstComponent && !path.starts_with(rootPrefix))
 			{
 				errorMessage = "Archive has files outside its package root";
@@ -423,7 +431,7 @@ bool CModInstallService::InspectArchive(const fs::path& archivePath, std::vector
 	std::unordered_set<std::string> filePaths;
 	for (ArchiveEntry& entry : entries)
 	{
-		std::string path = entry.relativePath.generic_string();
+		std::string path = PathUtf8(entry.relativePath);
 		if (!rootPrefix.empty())
 		{
 			if (path == rootPrefix.substr(0, rootPrefix.size() - 1))
@@ -478,7 +486,7 @@ bool CModInstallService::ExtractArchive(const fs::path& archivePath, const fs::p
 		return false;
 	}
 
-	unzFile archive = unzOpen64(archivePath.string().c_str());
+	unzFile archive = unzOpen64(PathUtf8(archivePath).c_str());
 	if (!archive || unzGoToFirstFile(archive) != UNZ_OK)
 	{
 		if (archive)
@@ -535,7 +543,7 @@ bool CModInstallService::ExtractArchive(const fs::path& archivePath, const fs::p
 			{
 				unzCloseCurrentFile(archive);
 				unzClose(archive);
-				errorMessage = std::format("Failed creating staged file '{}'", destination.string());
+				errorMessage = std::format("Failed creating staged file '{}'", PathUtf8(destination));
 				return false;
 			}
 
@@ -590,13 +598,13 @@ bool CModInstallService::ExtractArchive(const fs::path& archivePath, const fs::p
 	return true;
 }
 
-bool CModInstallService::ReadStagedManifest(const fs::path& manifestPath, ModWorkshopContainedMod& containedMod, std::string& errorMessage)
+bool CModInstallService::ReadStagedManifest(const fs::path& manifestPath, ModContainedMod& containedMod, std::string& errorMessage)
 {
 	std::error_code filesystemError;
 	const uintmax_t size = fs::file_size(manifestPath, filesystemError);
 	if (filesystemError || size == 0 || size > MAX_MANIFEST_BYTES)
 	{
-		errorMessage = std::format("Invalid staged manifest '{}'", manifestPath.string());
+		errorMessage = std::format("Invalid staged manifest '{}'", PathUtf8(manifestPath));
 		return false;
 	}
 	std::ifstream input(manifestPath, std::ios::binary);
@@ -604,7 +612,7 @@ bool CModInstallService::ReadStagedManifest(const fs::path& manifestPath, ModWor
 	input.read(contents.data(), static_cast<std::streamsize>(contents.size()));
 	if (!input)
 	{
-		errorMessage = std::format("Failed reading staged manifest '{}'", manifestPath.string());
+		errorMessage = std::format("Failed reading staged manifest '{}'", PathUtf8(manifestPath));
 		return false;
 	}
 
@@ -612,13 +620,19 @@ bool CModInstallService::ReadStagedManifest(const fs::path& manifestPath, ModWor
 	document.Parse<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag>(contents.data(), contents.size());
 	if (document.HasParseError() || !document.IsObject())
 	{
-		errorMessage = std::format("Staged manifest '{}' is invalid JSON", manifestPath.string());
+		errorMessage = std::format("Staged manifest '{}' is invalid JSON", PathUtf8(manifestPath));
 		return false;
 	}
 	const auto name = document.FindMember("Name");
-	if (name == document.MemberEnd() || !name->value.IsString() || name->value.GetStringLength() == 0)
+	if (name == document.MemberEnd() || !name->value.IsString() || name->value.GetStringLength() == 0 ||
+	    std::string_view(name->value.GetString(), name->value.GetStringLength()).find('\0') != std::string_view::npos)
 	{
-		errorMessage = std::format("Staged manifest '{}' has no valid Name", manifestPath.string());
+		errorMessage = std::format("Staged manifest '{}' has no valid Name", PathUtf8(manifestPath));
+		return false;
+	}
+	if (Mod::IsCoreModName(std::string_view(name->value.GetString(), name->value.GetStringLength())))
+	{
+		errorMessage = "Core Northstar mods cannot be installed or replaced by the mod browser";
 		return false;
 	}
 	containedMod.name.assign(name->value.GetString(), name->value.GetStringLength());
@@ -628,14 +642,14 @@ bool CModInstallService::ReadStagedManifest(const fs::path& manifestPath, ModWor
 	return true;
 }
 
-bool CModInstallService::ValidateStagedPackage(const fs::path& stagingRoot, std::vector<ModWorkshopContainedMod>& containedMods,
+bool CModInstallService::ValidateStagedPackage(const fs::path& stagingRoot, std::vector<ModContainedMod>& containedMods,
                                                std::string& errorMessage)
 {
 	containedMods.clear();
 	std::error_code filesystemError;
 	if (fs::is_regular_file(stagingRoot / "mod.json", filesystemError))
 	{
-		ModWorkshopContainedMod mod;
+		ModContainedMod mod;
 		if (!ReadStagedManifest(stagingRoot / "mod.json", mod, errorMessage))
 			return false;
 		containedMods.push_back(std::move(mod));
@@ -656,7 +670,7 @@ bool CModInstallService::ValidateStagedPackage(const fs::path& stagingRoot, std:
 			{
 				continue;
 			}
-			ModWorkshopContainedMod mod;
+			ModContainedMod mod;
 			if (!ReadStagedManifest(entry.path() / "mod.json", mod, errorMessage))
 				return false;
 			containedMods.push_back(std::move(mod));
@@ -838,16 +852,29 @@ bool CModInstallService::ResolveUnmanagedReplacements(uint64_t generation, std::
 	std::unordered_map<std::string, size_t> planByModName;
 	for (size_t planIndex = 0; planIndex < plans.size(); ++planIndex)
 	{
-		for (const ModWorkshopContainedMod& containedMod : plans[planIndex].containedMods)
-			planByModName.try_emplace(containedMod.name, planIndex);
+		for (const ModContainedMod& containedMod : plans[planIndex].containedMods)
+		{
+			if (!planByModName.try_emplace(containedMod.name, planIndex).second)
+			{
+				errorMessage = std::format("Multiple staged packages contain mod '{}'", containedMod.name);
+				return false;
+			}
+		}
 	}
 	if (planByModName.empty())
 		return true;
 
 	auto scan = std::make_shared<ConflictScan>();
+	std::vector<std::string> oldRootKeys;
+	oldRootKeys.reserve(plans.size());
+	for (const PackagePlan& plan : plans)
+	{
+		fs::path normalized;
+		oldRootKeys.push_back(plan.oldRoot && NormalizeAbsolutePath(*plan.oldRoot, normalized) ? PathKey(normalized) : std::string());
+	}
 	scan->rootsByPlan.resize(plans.size());
 	bool callbackResult = false;
-	const bool completed = RunOnMainThreadAndWait([scan, planByModName = std::move(planByModName)]
+	const bool completed = RunOnMainThreadAndWait([scan, planByModName = std::move(planByModName), oldRootKeys = std::move(oldRootKeys)]
 	{
 		if (!g_pModManager)
 		{
@@ -867,7 +894,7 @@ bool CModInstallService::ResolveUnmanagedReplacements(uint64_t generation, std::
 		for (const Mod& mod : g_pModManager->m_LoadedMods)
 		{
 			const auto plan = planByModName.find(mod.Name);
-			if (plan == planByModName.end() || mod.m_Source == ModSource::Remote || mod.m_Source == ModSource::ModWorkshop)
+			if (plan == planByModName.end() || mod.m_Source == ModSource::Remote)
 				continue;
 			if (Mod::IsCoreModName(mod.Name))
 			{
@@ -879,6 +906,13 @@ bool CModInstallService::ResolveUnmanagedReplacements(uint64_t generation, std::
 			if (!TryDeriveRemovalRoot(mod, root) || !ValidateRemovalRoot(root))
 			{
 				scan->error = std::format("The existing '{}' installation cannot be replaced safely", mod.Name);
+				return false;
+			}
+			if (PathKey(root) == oldRootKeys[plan->second])
+				continue;
+			if (mod.m_Source == ModSource::ModWorkshop || mod.m_Source == ModSource::Thunderstore)
+			{
+				scan->error = std::format("Mod '{}' belongs to another managed package; remove that package before installing", mod.Name);
 				return false;
 			}
 
@@ -942,7 +976,7 @@ bool CModInstallService::ResolveUnmanagedReplacements(uint64_t generation, std::
 		m_MigrationGeneration = generation;
 		m_MigrationDecision = MigrationDecision::Pending;
 	}
-	Transition(ModInstallOperationState::AwaitingMigration, "#MWS_MIGRATION_MESSAGE", names);
+	Transition(ModInstallOperationState::AwaitingMigration, "#MOD_BROWSER_MIGRATION_MESSAGE", names);
 
 	MigrationDecision decision = MigrationDecision::None;
 	{
@@ -969,11 +1003,29 @@ bool CModInstallService::ResolveUnmanagedReplacements(uint64_t generation, std::
 	return true;
 }
 
-bool CModInstallService::UnloadRuntimeForFilesystemMutation(std::string& errorMessage)
+bool CModInstallService::UnloadRuntimeForFilesystemMutation(const std::vector<PackagePlan>& plans, std::string& errorMessage)
 {
-	Transition(ModInstallOperationState::Reloading, "#MWS_OPERATION_RELOADING");
+	Transition(ModInstallOperationState::Reloading, "#MOD_BROWSER_OPERATION_RELOADING");
+	std::vector<fs::path> packageRoots;
+	for (const PackagePlan& plan : plans)
+	{
+		if (plan.oldRoot)
+			packageRoots.push_back(*plan.oldRoot);
+		packageRoots.insert(packageRoots.end(), plan.replacementRoots.begin(), plan.replacementRoots.end());
+	}
 	bool unloadResult = false;
-	const bool completed = RunOnMainThreadAndWait([] { return g_pModManager && g_pModManager->UnloadModsForFilesystemMutation(); }, unloadResult);
+	const bool completed = RunOnMainThreadAndWait([packageRoots = std::move(packageRoots)]
+	{
+		if (!g_pModManager)
+			return false;
+		for (const Mod& mod : g_pModManager->m_LoadedMods)
+		{
+			if (Mod::IsCoreModName(mod.Name) && std::ranges::any_of(packageRoots, [&](const fs::path& root)
+			    { return ModPaths::IsAtOrBelow(mod.m_ModDirectory, root); }))
+				return false;
+		}
+		return g_pModManager->UnloadModsForFilesystemMutation(packageRoots);
+	}, unloadResult);
 	if (!completed || !unloadResult)
 	{
 		errorMessage = completed ? "Failed unloading mod assets; removal was cancelled" : "Timed out while unloading mod assets";
@@ -983,9 +1035,10 @@ bool CModInstallService::UnloadRuntimeForFilesystemMutation(std::string& errorMe
 }
 
 bool CModInstallService::ResolveModWorkshop(uint64_t modId, bool root, ModInstallAction action, uint64_t expectedSelectedFileId,
-                                            const ModWorkshopRequestOptions& options, const std::unordered_set<std::string>& installedModNames,
+                                            const ModRequestOptions& options, const std::unordered_set<std::string>& installedModNames,
                                             std::vector<PackagePlan>& plans, std::unordered_map<uint64_t, size_t>& resolved,
-                                            std::unordered_set<uint64_t>& visiting, std::string& errorMessage)
+                                            std::unordered_set<uint64_t>& visiting, ThunderstoreResolution& thunderstore,
+                                            std::string& errorMessage)
 {
 	if (resolved.contains(modId))
 		return true;
@@ -996,7 +1049,7 @@ bool CModInstallService::ResolveModWorkshop(uint64_t modId, bool root, ModInstal
 	}
 
 	ModWorkshopDetails details;
-	ModWorkshopError requestError;
+	ModRequestError requestError;
 	if (!m_Client.GetMod(modId, details, requestError, options))
 	{
 		errorMessage = requestError.message;
@@ -1017,7 +1070,7 @@ bool CModInstallService::ResolveModWorkshop(uint64_t modId, bool root, ModInstal
 		return false;
 	}
 
-	const std::optional<ModWorkshopTrackedPackage> installed = CModWorkshopInventory::Get().FindPackage(modId);
+	const std::optional<ModTrackedPackage> installed = CModInventory::Get().FindPackage(modId);
 	if (!root && installed && installed->installedState && installed->installedState->selectedFileId == details.selectedFile->id)
 	{
 		visiting.erase(modId);
@@ -1041,7 +1094,7 @@ bool CModInstallService::ResolveModWorkshop(uint64_t modId, bool root, ModInstal
 		if (dependency.optional)
 			continue;
 		if (!dependency.name.empty() && installedModNames.contains(dependency.name) &&
-		    (!dependency.modId || !CModWorkshopInventory::Get().FindPackage(*dependency.modId)))
+		    (!dependency.modId || !CModInventory::Get().FindPackage(*dependency.modId)))
 		{
 			continue;
 		}
@@ -1049,45 +1102,18 @@ bool CModInstallService::ResolveModWorkshop(uint64_t modId, bool root, ModInstal
 		{
 			std::string namespaceName;
 			std::string packageName;
-			CThunderstoreClient::PackageDetails dependencyDetails;
 			if (!CThunderstoreClient::ParsePackageUrl(dependency.url, namespaceName, packageName) ||
-			    !CThunderstoreClient::FetchPackageDetails(namespaceName, packageName, dependencyDetails))
+			    !ResolveThunderstore(namespaceName + "-" + packageName, {}, false, ModInstallAction::Install, options, plans, thunderstore,
+			                         errorMessage))
 			{
-				const std::string& dependencyLabel = dependency.name.empty() ? dependency.url : dependency.name;
-				errorMessage = std::format("Failed resolving required Thunderstore dependency '{}'", dependencyLabel);
+				if (errorMessage.empty())
+					errorMessage = std::format("Failed resolving required Thunderstore dependency '{}'", dependency.url);
 				visiting.erase(modId);
 				return false;
 			}
-			if (IsCancelled())
-			{
-				errorMessage = "Installation cancelled";
-				visiting.erase(modId);
-				return false;
-			}
-
-			const std::string managedId = dependencyDetails.m_Namespace + "/" + dependencyDetails.m_Name;
-			const bool alreadyPlanned = std::ranges::any_of(plans, [&](const PackagePlan& candidate)
-			{ return candidate.source == ModSource::Thunderstore && candidate.managedId == managedId; });
-			if (alreadyPlanned)
-				continue;
-
-			PackagePlan dependencyPlan;
-			dependencyPlan.source = ModSource::Thunderstore;
-			dependencyPlan.managedId = managedId;
-			dependencyPlan.name = dependency.name.empty() ? dependencyDetails.m_Name : dependency.name;
-			dependencyPlan.author = dependencyDetails.m_Namespace;
-			dependencyPlan.version = dependencyDetails.m_Version;
-			dependencyPlan.downloadUrl = dependencyDetails.m_DownloadUrl;
-			dependencyPlan.iconFilename = IconFilenameForPath(dependencyDetails.m_IconUrl);
-			if (!dependencyPlan.iconFilename.empty())
-				dependencyPlan.iconUrl = dependencyDetails.m_IconUrl;
-			dependencyPlan.destination = GetPackageFolderPath() / ("ts-" + SanitizeFolderComponent(dependencyDetails.m_Namespace) + "-" +
-			                                                       SanitizeFolderComponent(dependencyDetails.m_Name) + "-" +
-			                                                       SanitizeFolderComponent(dependencyDetails.m_Version));
-			plans.push_back(std::move(dependencyPlan));
 		}
 		else if (!dependency.modId || !ResolveModWorkshop(*dependency.modId, false, ModInstallAction::Install, 0, options, installedModNames, plans,
-		                                                  resolved, visiting, errorMessage))
+		                                                  resolved, visiting, thunderstore, errorMessage))
 		{
 			if (errorMessage.empty())
 				errorMessage = std::format("Required dependency '{}' has no installable id", dependency.name);
@@ -1132,10 +1158,211 @@ bool CModInstallService::ResolveModWorkshop(uint64_t modId, bool root, ModInstal
 	return true;
 }
 
+bool CModInstallService::ResolveThunderstore(const std::string& packageId, const std::string& version, bool root, ModInstallAction action,
+                                           const ModRequestOptions& options, std::vector<PackagePlan>& plans,
+                                           ThunderstoreResolution& resolution, std::string& errorMessage)
+{
+	if (IsCancelled())
+	{
+		errorMessage = "Installation cancelled while resolving dependencies";
+		return false;
+	}
+	std::string namespaceName;
+	std::string packageName;
+	if (packageId.size() > 128 || !CThunderstoreClient::ParsePackageId(packageId, namespaceName, packageName))
+	{
+		errorMessage = std::format("Invalid Thunderstore package identity '{}'", packageId);
+		return false;
+	}
+	const std::string key = LowerAscii(packageId);
+	// Northstar's runtime already supplies the launcher/core package. Never install it into the mod tree.
+	if (key == "northstar-northstar")
+	{
+		if (!root)
+			return true;
+		errorMessage = "The Northstar launcher must be managed outside the mod browser";
+		return false;
+	}
+	if (resolution.visiting.contains(key))
+	{
+		errorMessage = std::format("Thunderstore dependency cycle at '{}'", packageId);
+		return false;
+	}
+	const auto required = resolution.versions.find(key);
+	if (required != resolution.versions.end() && !version.empty() && required->second != version)
+	{
+		errorMessage = std::format("Contradictory Thunderstore versions for '{}': {} and {}", packageId, required->second, version);
+		return false;
+	}
+	if (resolution.resolved.contains(key))
+		return true;
+	if (resolution.versions.size() >= 256 || resolution.visiting.size() >= 64)
+	{
+		errorMessage = "Thunderstore dependency graph exceeds the safety limit";
+		return false;
+	}
+
+	CThunderstoreClient::PackageDetails details;
+	ModRequestError requestError;
+	const bool fetched = version.empty()
+	    ? CThunderstoreClient::FetchPackageDetails(namespaceName, packageName, details, options, &requestError)
+	    : CThunderstoreClient::FetchPackageVersion(namespaceName, packageName, version, details, options, &requestError);
+	if (!fetched)
+	{
+		errorMessage = requestError.message.empty() ? std::format("Failed resolving Thunderstore package '{}'", packageId) : requestError.message;
+		return false;
+	}
+	const std::string canonicalId = details.m_Namespace + "-" + details.m_Name;
+	if (LowerAscii(canonicalId) != key || details.m_Version.empty() || (!version.empty() && details.m_Version != version) ||
+	    details.m_DownloadUrl.empty() || !details.m_Active || details.m_FileSize > MAX_ARCHIVE_BYTES)
+	{
+		errorMessage = std::format("Thunderstore returned invalid or mismatched package metadata for '{}'", packageId);
+		return false;
+	}
+	if (root)
+	{
+		auto snapshot = std::make_shared<ModInstallOperationSnapshot>(*GetSnapshot());
+		snapshot->packageId = canonicalId;
+		snapshot->name = details.m_Name;
+		snapshot->version = details.m_Version;
+		Publish(std::move(snapshot));
+	}
+
+	const auto inventory = CModInventory::Get().GetSnapshot();
+	const ModTrackedPackage* installed = nullptr;
+	for (const ModTrackedPackage& package : inventory->packages)
+	{
+		if (package.source != ModSource::Thunderstore || LowerAscii(package.packageId) != key)
+			continue;
+		if (installed)
+		{
+			errorMessage = std::format("Thunderstore package '{}' is tracked by multiple directories", canonicalId);
+			return false;
+		}
+		installed = &package;
+	}
+	if (root && action == ModInstallAction::Install && installed)
+	{
+		errorMessage = "Thunderstore package is already installed";
+		return false;
+	}
+	if (root && action == ModInstallAction::Update && (!installed || installed->installedVersion.empty()))
+	{
+		errorMessage = "Tracked Thunderstore manifest version is required before updating";
+		return false;
+	}
+	if (installed && (!ValidateRemovalRoot(installed->packageRoot) ||
+	                  std::ranges::any_of(installed->containedMods, [](const ModContainedMod& mod) { return Mod::IsCoreModName(mod.name); })))
+	{
+		errorMessage = "The installed Thunderstore package cannot be replaced safely";
+		return false;
+	}
+
+	resolution.versions.emplace(key, details.m_Version);
+	resolution.visiting.insert(key);
+	for (const std::string& dependency : details.m_Dependencies)
+	{
+		const size_t separator = dependency.rfind('-');
+		if (separator == std::string::npos || CThunderstoreClient::BuildDownloadUrl(dependency).empty())
+		{
+			errorMessage = std::format("Invalid pinned Thunderstore dependency '{}'", dependency);
+			resolution.visiting.erase(key);
+			return false;
+		}
+		const std::string dependencyId = dependency.substr(0, separator);
+		const std::string dependencyVersion = dependency.substr(separator + 1);
+		if (!ResolveThunderstore(dependencyId, dependencyVersion, false, ModInstallAction::Install, options, plans, resolution, errorMessage))
+		{
+			if (errorMessage.empty())
+				errorMessage = std::format("Invalid pinned Thunderstore dependency '{}'", dependency);
+			resolution.visiting.erase(key);
+			return false;
+		}
+	}
+	resolution.visiting.erase(key);
+	resolution.resolved.insert(key);
+	// Resolve even current dependencies first: their own pinned dependency graph must remain satisfied.
+	if (!root && installed && !installed->containedMods.empty() && installed->installedVersion == details.m_Version)
+		return true;
+
+	PackagePlan plan;
+	plan.source = ModSource::Thunderstore;
+	plan.managedId = canonicalId;
+	plan.name = std::move(details.m_Name);
+	plan.author = std::move(details.m_Namespace);
+	plan.version = std::move(details.m_Version);
+	plan.expectedDownloadSize = details.m_FileSize;
+	plan.downloadUrl = std::move(details.m_DownloadUrl);
+	plan.iconFilename = IconFilenameForPath(details.m_IconUrl);
+	if (!plan.iconFilename.empty())
+		plan.iconUrl = std::move(details.m_IconUrl);
+	plan.dependencies = std::move(details.m_Dependencies);
+	if (installed)
+		plan.oldRoot = installed->packageRoot;
+	plan.destination = GetPackageFolderPath() / ("ts-" + canonicalId);
+	plans.push_back(std::move(plan));
+	return true;
+}
+
+bool CModInstallService::ValidateThunderstoreManifest(const PackagePlan& plan, std::string& errorMessage)
+{
+	const fs::path manifestPath = plan.stagingRoot / "manifest.json";
+	std::error_code filesystemError;
+	const uintmax_t size = fs::file_size(manifestPath, filesystemError);
+	if (filesystemError || size == 0 || size > MAX_MANIFEST_BYTES)
+	{
+		errorMessage = "Thunderstore archive has no bounded package manifest.json";
+		return false;
+	}
+	std::ifstream input(manifestPath, std::ios::binary);
+	std::string contents(static_cast<size_t>(size), '\0');
+	input.read(contents.data(), static_cast<std::streamsize>(contents.size()));
+	if (!input)
+	{
+		errorMessage = "Failed reading the staged Thunderstore package manifest";
+		return false;
+	}
+	rapidjson::Document document;
+	document.Parse(contents.data(), contents.size());
+	if (document.HasParseError() || !document.IsObject())
+	{
+		errorMessage = "Thunderstore package manifest is not valid JSON";
+		return false;
+	}
+	const auto name = document.FindMember("name");
+	const auto version = document.FindMember("version_number");
+	const auto dependencies = document.FindMember("dependencies");
+	if (name == document.MemberEnd() || !name->value.IsString() ||
+	    std::string_view(name->value.GetString(), name->value.GetStringLength()) != plan.name ||
+	    version == document.MemberEnd() || !version->value.IsString() ||
+	    std::string_view(version->value.GetString(), version->value.GetStringLength()) != plan.version ||
+	    dependencies == document.MemberEnd() || !dependencies->value.IsArray())
+	{
+		errorMessage = "Thunderstore archive manifest does not match the resolved package and version";
+		return false;
+	}
+	std::unordered_set<std::string> expected(plan.dependencies.begin(), plan.dependencies.end());
+	for (const auto& dependency : dependencies->value.GetArray())
+	{
+		if (!dependency.IsString() ||
+		    expected.erase(std::string(dependency.GetString(), dependency.GetStringLength())) != 1)
+		{
+			errorMessage = "Thunderstore archive dependencies do not match the resolved pinned dependency graph";
+			return false;
+		}
+	}
+	if (!expected.empty())
+	{
+		errorMessage = "Thunderstore archive is missing resolved dependency declarations";
+		return false;
+	}
+	return true;
+}
+
 bool CModInstallService::StagePlan(PackagePlan& plan, size_t planIndex, const fs::path& jobRoot, uint64_t totalExpectedBytes,
                                    uint64_t completedExpectedBytes, std::string& errorMessage)
 {
-	Transition(ModInstallOperationState::Downloading, "#MWS_OPERATION_DOWNLOADING", plan.name, plan.version);
+	Transition(ModInstallOperationState::Downloading, "#MOD_BROWSER_OPERATION_DOWNLOADING", plan.name, plan.version);
 	const fs::path downloadsRoot = jobRoot / "downloads";
 	std::error_code filesystemError;
 	fs::create_directories(downloadsRoot, filesystemError);
@@ -1148,7 +1375,7 @@ bool CModInstallService::StagePlan(PackagePlan& plan, size_t planIndex, const fs
 	plan.stagingRoot = jobRoot / "staging" / std::format("package-{}", planIndex);
 	plan.backupRoot = jobRoot / "backups" / std::format("package-{}", planIndex);
 
-	ModWorkshopRequestOptions options;
+	ModRequestOptions options;
 	options.timeoutSeconds = 600;
 	options.connectTimeoutSeconds = 15;
 	if (plan.expectedDownloadSize > MAX_ARCHIVE_BYTES)
@@ -1163,8 +1390,8 @@ bool CModInstallService::StagePlan(PackagePlan& plan, size_t planIndex, const fs
 	options.progress = [this, totalExpectedBytes, completedExpectedBytes](uint64_t current, uint64_t)
 	{ ReportProgress(completedExpectedBytes + current, totalExpectedBytes); };
 
-	ModWorkshopError requestError;
-	if (!m_Client.GetFile(plan.downloadUrl, plan.archivePath, plan.downloadedSize, requestError, options))
+	ModRequestError requestError;
+	if (!CModHttpClient::GetFile(plan.downloadUrl, plan.archivePath, plan.downloadedSize, requestError, options))
 	{
 		errorMessage = requestError.message;
 		return false;
@@ -1175,34 +1402,36 @@ bool CModInstallService::StagePlan(PackagePlan& plan, size_t planIndex, const fs
 		return false;
 	}
 
-	Transition(ModInstallOperationState::Validating, "#MWS_OPERATION_VALIDATING");
+	Transition(ModInstallOperationState::Validating, "#MOD_BROWSER_OPERATION_VALIDATING");
 	if (!ComputeSha256(plan.archivePath, plan.sha256, errorMessage))
 		return false;
 	std::vector<ArchiveEntry> entries;
 	if (!InspectArchive(plan.archivePath, entries, errorMessage))
 		return false;
 
-	Transition(ModInstallOperationState::Staging, "#MWS_OPERATION_STAGING");
+	Transition(ModInstallOperationState::Staging, "#MOD_BROWSER_OPERATION_STAGING");
 	if (!ExtractArchive(plan.archivePath, plan.stagingRoot, entries, [this] { return IsCancelled(); },
 	                    [this](uint64_t progressValue, uint64_t totalValue) { ReportProgress(progressValue, totalValue); }, errorMessage) ||
 	    !ValidateStagedPackage(plan.stagingRoot, plan.containedMods, errorMessage))
 	{
 		return false;
 	}
+	if (plan.source == ModSource::Thunderstore && !ValidateThunderstoreManifest(plan, errorMessage))
+		return false;
 
 	if (!HasPackageIcon(plan.stagingRoot) && !plan.iconUrl.empty() && !plan.iconFilename.empty())
 	{
-		ModWorkshopRequestOptions iconOptions;
+		ModRequestOptions iconOptions;
 		iconOptions.timeoutSeconds = 45;
 		iconOptions.connectTimeoutSeconds = 15;
 		iconOptions.maxResponseBytes = MAX_ICON_BYTES;
 		iconOptions.isCancelled = [this] { return IsCancelled(); };
 		const fs::path iconPath = plan.stagingRoot / plan.iconFilename;
 		uint64_t iconBytes = 0;
-		ModWorkshopError iconError;
-		bool iconDownloaded = m_Client.GetFile(plan.iconUrl, iconPath, iconBytes, iconError, iconOptions) && iconBytes != 0;
+		ModRequestError iconError;
+		bool iconDownloaded = CModHttpClient::GetFile(plan.iconUrl, iconPath, iconBytes, iconError, iconOptions) && iconBytes != 0;
 		if (!iconDownloaded && !plan.iconFallbackUrl.empty() && !IsCancelled())
-			iconDownloaded = m_Client.GetFile(plan.iconFallbackUrl, iconPath, iconBytes, iconError, iconOptions) && iconBytes != 0;
+			iconDownloaded = CModHttpClient::GetFile(plan.iconFallbackUrl, iconPath, iconBytes, iconError, iconOptions) && iconBytes != 0;
 		if (IsCancelled())
 		{
 			errorMessage = "Installation cancelled";
@@ -1210,6 +1439,17 @@ bool CModInstallService::StagePlan(PackagePlan& plan, size_t planIndex, const fs
 		}
 		if (!iconDownloaded)
 			spdlog::warn("Could not cache the package icon for '{}': {}", plan.name, iconError.message);
+	}
+	// Provider markers supplied by an archive must never override the provider selected by the user.
+	for (const char* marker : {MODWORKSHOP_MARKER_FILE, THUNDERSTORE_MARKER_FILE, MODWORKSHOP_STATE_FILE})
+	{
+		filesystemError.clear();
+		fs::remove(plan.stagingRoot / marker, filesystemError);
+		if (filesystemError)
+		{
+			errorMessage = "Failed clearing archive-supplied tracking metadata";
+			return false;
+		}
 	}
 
 	if (!CModPlatform::WriteManagedMarker(plan.stagingRoot, plan.source, plan.managedId))
@@ -1244,7 +1484,7 @@ bool CModInstallService::ReloadAndVerify(const std::vector<PackagePlan>& plans, 
 	{
 		ExpectedPackage package;
 		package.root = plan.destination;
-		for (const ModWorkshopContainedMod& mod : plan.containedMods)
+		for (const ModContainedMod& mod : plan.containedMods)
 			package.names.push_back(mod.name);
 		expected.push_back(std::move(package));
 	}
@@ -1294,10 +1534,23 @@ bool CModInstallService::CommitPlans(std::vector<PackagePlan>& plans, const std:
 	std::unordered_set<std::string> destinations;
 	for (const PackagePlan& plan : plans)
 	{
+		if (plan.oldRoot)
+		{
+			const auto managedId = CModPlatform::TryReadManagedId(*plan.oldRoot, plan.source);
+			std::string normalizedId = managedId.value_or("");
+			if (plan.source == ModSource::Thunderstore)
+				std::ranges::replace(normalizedId, '/', '-');
+			if (!ValidateRemovalRoot(*plan.oldRoot) || CModPlatform::GetManagedSourceForPath(*plan.oldRoot) != plan.source ||
+			    LowerAscii(normalizedId) != LowerAscii(plan.managedId))
+			{
+				errorMessage = "Tracked package ownership changed before commit";
+				return false;
+			}
+		}
 		fs::path normalizedDestination;
 		if (!NormalizeAbsolutePath(plan.destination, normalizedDestination))
 		{
-			errorMessage = std::format("Could not normalize destination '{}'", plan.destination.string());
+			errorMessage = std::format("Could not normalize destination '{}'", PathUtf8(plan.destination));
 			return false;
 		}
 		const std::string destinationKey = PathKey(normalizedDestination);
@@ -1312,17 +1565,17 @@ bool CModInstallService::CommitPlans(std::vector<PackagePlan>& plans, const std:
 		std::error_code filesystemError;
 		if (fs::exists(plan.destination, filesystemError) && !ownsDestination)
 		{
-			errorMessage = std::format("Destination '{}' already belongs to another package", plan.destination.string());
+			errorMessage = std::format("Destination '{}' already belongs to another package", PathUtf8(plan.destination));
 			return false;
 		}
 	}
 
 	const bool replacesInstalledPackage =
 	    std::ranges::any_of(plans, [](const PackagePlan& plan) { return plan.oldRoot.has_value() || !plan.replacementRoots.empty(); });
-	if (replacesInstalledPackage && !UnloadRuntimeForFilesystemMutation(errorMessage))
+	if (replacesInstalledPackage && !UnloadRuntimeForFilesystemMutation(plans, errorMessage))
 		return false;
 
-	Transition(ModInstallOperationState::Committing, "#MWS_OPERATION_COMMITTING");
+	Transition(ModInstallOperationState::Committing, "#MOD_BROWSER_OPERATION_COMMITTING");
 	std::vector<CommitRecord> records;
 	records.reserve(plans.size());
 	std::error_code filesystemError;
@@ -1351,7 +1604,7 @@ bool CModInstallService::CommitPlans(std::vector<PackagePlan>& plans, const std:
 			filesystemError.clear();
 			if (!fs::exists(replacementRoot, filesystemError) || filesystemError)
 			{
-				errorMessage = std::format("Existing replacement package '{}' is no longer available", replacementRoot.string());
+				errorMessage = std::format("Existing replacement package '{}' is no longer available", PathUtf8(replacementRoot));
 				replacementFailed = true;
 				break;
 			}
@@ -1386,7 +1639,7 @@ bool CModInstallService::CommitPlans(std::vector<PackagePlan>& plans, const std:
 	bool commitComplete = records.size() == plans.size() && std::ranges::all_of(records, [](const CommitRecord& record) { return record.newPlaced; });
 	if (commitComplete)
 	{
-		Transition(ModInstallOperationState::Reloading, "#MWS_OPERATION_RELOADING");
+		Transition(ModInstallOperationState::Reloading, "#MOD_BROWSER_OPERATION_RELOADING");
 		commitComplete = ReloadAndVerify(plans, enabledStates, errorMessage);
 	}
 	if (commitComplete)
@@ -1447,12 +1700,14 @@ bool CModInstallService::ExecuteInstalledRemove(const InstallRequest& request, s
 
 	PackagePlan plan;
 	plan.modId = request.modId;
+	plan.source = request.source;
+	plan.managedId = request.packageId;
 	plan.name = request.installedRemovalName;
 	plan.version = request.installedRemovalVersion;
 	plan.oldRoot = request.installedRemovalRoot;
 	plan.destination = request.installedRemovalRoot;
 	const fs::path jobRoot =
-	    fs::path(GetNorthstarPrefix()) / "cache" / "modworkshop" / "jobs" / std::format("{}-{}", GetCurrentProcessId(), request.generation);
+	    fs::path(GetNorthstarPrefix()) / "cache" / "modbrowser" / "jobs" / std::format("{}-{}", GetCurrentProcessId(), request.generation);
 	plan.backupRoot = jobRoot / "backups" / "removed-installed-mod";
 
 	std::vector<PackagePlan> plans{plan};
@@ -1475,9 +1730,23 @@ bool CModInstallService::ExecuteInstalledRemove(const InstallRequest& request, s
 		errorMessage = "Installed mod removal root changed before removal";
 		return false;
 	}
-	if (!UnloadRuntimeForFilesystemMutation(errorMessage))
+	if ((plan.source == ModSource::ModWorkshop || plan.source == ModSource::Thunderstore) && !plan.managedId.empty())
+	{
+		const auto managedId = CModPlatform::TryReadManagedId(*plan.oldRoot, plan.source);
+		std::string normalizedId = managedId.value_or("");
+		if (plan.source == ModSource::Thunderstore)
+			std::ranges::replace(normalizedId, '/', '-');
+		if (CModPlatform::GetManagedSourceForPath(*plan.oldRoot) != plan.source || LowerAscii(normalizedId) != LowerAscii(plan.managedId))
+		{
+			errorMessage = "Tracked package ownership changed before removal";
+			return false;
+		}
+	}
+	if (IsCancelled())
 		return false;
-	Transition(ModInstallOperationState::Committing, "#MWS_OPERATION_REMOVING", plan.name, plan.version);
+	if (!UnloadRuntimeForFilesystemMutation(plans, errorMessage))
+		return false;
+	Transition(ModInstallOperationState::Committing, "#MOD_BROWSER_OPERATION_REMOVING", plan.name, plan.version);
 	fs::rename(*plan.oldRoot, plan.backupRoot, filesystemError);
 	if (filesystemError)
 	{
@@ -1486,7 +1755,7 @@ bool CModInstallService::ExecuteInstalledRemove(const InstallRequest& request, s
 		return false;
 	}
 
-	Transition(ModInstallOperationState::Reloading, "#MWS_OPERATION_RELOADING_AFTER_REMOVAL");
+	Transition(ModInstallOperationState::Reloading, "#MOD_BROWSER_OPERATION_RELOADING_AFTER_REMOVAL");
 	bool reloadResult = false;
 	const fs::path removedRoot = *plan.oldRoot;
 	const bool completed = RunOnMainThreadAndWait([removedRoot]
@@ -1524,94 +1793,51 @@ bool CModInstallService::ExecuteInstalledRemove(const InstallRequest& request, s
 	return false;
 }
 
-bool CModInstallService::ExecuteRemove(const InstallRequest& request, std::string& errorMessage)
+bool CModInstallService::ExecuteRemove(const InstallRequest& request, std::string& errorMessage, bool& preserveRecoveryFiles)
 {
-	CModWorkshopInventory::Get().RefreshLocal();
-	const std::optional<ModWorkshopTrackedPackage> package = CModWorkshopInventory::Get().FindPackage(request.modId);
+	CModInventory::Get().RefreshLocal();
+	const auto package = request.source == ModSource::Thunderstore
+	    ? CModInventory::Get().FindPackage(ModSource::Thunderstore, request.packageId)
+	    : CModInventory::Get().FindPackage(request.modId);
 	if (!package)
 	{
-		errorMessage = "Tracked ModWorkshop package is not installed";
+		errorMessage = "Tracked package is not installed or its tracking is ambiguous";
 		return false;
 	}
-	if (IsCancelled())
-		return false;
-
-	PackagePlan plan;
-	plan.modId = request.modId;
-	plan.name = package->containedMods.empty() ? std::to_string(request.modId) : package->containedMods.front().name;
-	plan.oldRoot = package->packageRoot;
-	plan.destination = package->packageRoot;
-	const fs::path jobRoot =
-	    fs::path(GetNorthstarPrefix()) / "cache" / "modworkshop" / "jobs" / std::format("{}-{}", GetCurrentProcessId(), request.generation);
-	plan.backupRoot = jobRoot / "backups" / "removed-package";
-
-	std::vector<PackagePlan> plans{plan};
-	std::unordered_set<std::string> names;
-	std::unordered_map<std::string, bool> enabledStates;
-	if (!CaptureRuntimeState(plans, names, enabledStates, errorMessage))
-		return false;
-
-	std::error_code filesystemError;
-	fs::create_directories(plan.backupRoot.parent_path(), filesystemError);
-	if (filesystemError)
+	if (std::ranges::any_of(package->containedMods, [](const ModContainedMod& mod) { return Mod::IsCoreModName(mod.name); }))
 	{
-		errorMessage = std::format("Failed creating rollback storage: {}", filesystemError.message());
+		errorMessage = "Core Northstar packages cannot be removed by the mod browser";
 		return false;
 	}
-	if (!ValidateRemovalRoot(*plan.oldRoot))
-	{
-		errorMessage = "Tracked package removal root is no longer safe";
-		return false;
-	}
-	if (!UnloadRuntimeForFilesystemMutation(errorMessage))
-		return false;
-	Transition(ModInstallOperationState::Committing, "#MWS_OPERATION_REMOVING", plan.name);
-	fs::rename(*plan.oldRoot, plan.backupRoot, filesystemError);
-	if (filesystemError)
-	{
-		errorMessage = std::format("Failed moving package to rollback storage: {}", filesystemError.message());
-		ReloadAfterRollback(enabledStates, errorMessage);
-		return false;
-	}
-
-	Transition(ModInstallOperationState::Reloading, "#MWS_OPERATION_RELOADING_AFTER_REMOVAL");
-	bool reloadResult = false;
-	const bool completed = RunOnMainThreadAndWait([]
-	{
-		if (!g_pModManager)
-			return false;
-		g_pModManager->ReloadModsWithEnabledStates({});
-		return true;
-	}, reloadResult);
-	if (!completed || !reloadResult)
-	{
-		fs::rename(plan.backupRoot, *plan.oldRoot, filesystemError);
-		ReloadAfterRollback(enabledStates, errorMessage);
-		errorMessage = "Mod reload failed; removed package was restored";
-		return false;
-	}
-	fs::remove_all(jobRoot, filesystemError);
-	return true;
+	InstallRequest removal = request;
+	removal.installedRemovalRoot = package->packageRoot;
+	removal.installedRemovalName = package->containedMods.empty() ? request.packageId : package->containedMods.front().name;
+	removal.installedRemovalVersion = package->installedVersion;
+	return ExecuteInstalledRemove(removal, errorMessage, preserveRecoveryFiles);
 }
 
 bool CModInstallService::ExecuteInstall(const InstallRequest& request, std::string& errorMessage, bool& preserveRecoveryFiles)
 {
-	CModWorkshopInventory::Get().RefreshLocal();
-	Transition(ModInstallOperationState::FetchingDetails, "#MWS_OPERATION_FETCHING_DETAILS");
+	CModInventory::Get().RefreshLocal();
+	Transition(ModInstallOperationState::FetchingDetails, "#MOD_BROWSER_OPERATION_FETCHING_DETAILS");
 	std::unordered_set<std::string> installedModNames;
 	std::unordered_map<std::string, bool> enabledStates;
 	std::vector<PackagePlan> emptyPlans;
 	if (!CaptureRuntimeState(emptyPlans, installedModNames, enabledStates, errorMessage))
 		return false;
 
-	Transition(ModInstallOperationState::ResolvingDependencies, "#MWS_OPERATION_RESOLVING_DEPENDENCIES");
-	ModWorkshopRequestOptions options;
+	Transition(ModInstallOperationState::ResolvingDependencies, "#MOD_BROWSER_OPERATION_RESOLVING_DEPENDENCIES");
+	ModRequestOptions options;
 	options.isCancelled = [this] { return IsCancelled(); };
 	std::vector<PackagePlan> plans;
 	std::unordered_map<uint64_t, size_t> resolved;
 	std::unordered_set<uint64_t> visiting;
-	if (!ResolveModWorkshop(request.modId, true, request.action, request.expectedSelectedFileId, options, installedModNames, plans, resolved,
-	                        visiting, errorMessage))
+	ThunderstoreResolution thunderstore;
+	const bool resolvedRoot = request.source == ModSource::Thunderstore
+	    ? ResolveThunderstore(request.packageId, {}, true, request.action, options, plans, thunderstore, errorMessage)
+	    : ResolveModWorkshop(request.modId, true, request.action, request.expectedSelectedFileId, options, installedModNames, plans, resolved,
+	                         visiting, thunderstore, errorMessage);
+	if (!resolvedRoot)
 	{
 		return false;
 	}
@@ -1621,12 +1847,21 @@ bool CModInstallService::ExecuteInstall(const InstallRequest& request, std::stri
 		return false;
 	}
 	const PackagePlan& rootPlan = plans.back();
-	if (request.action == ModInstallAction::Update && rootPlan.oldRoot)
+	if (request.source == ModSource::ModWorkshop && request.action == ModInstallAction::Update && plans.size() == 1 && rootPlan.oldRoot)
 	{
-		const auto installed = CModWorkshopInventory::Get().FindPackage(request.modId);
+		const auto installed = CModInventory::Get().FindPackage(request.modId);
 		if (installed && installed->installedState && installed->installedState->selectedFileId == rootPlan.selectedFileId)
 		{
-			Transition(ModInstallOperationState::Done, "#MWS_OPERATION_ALREADY_CURRENT", rootPlan.name, rootPlan.version);
+			Transition(ModInstallOperationState::Done, "#MOD_BROWSER_OPERATION_ALREADY_CURRENT", rootPlan.name, rootPlan.version);
+			return true;
+		}
+	}
+	if (request.source == ModSource::Thunderstore && request.action == ModInstallAction::Update && plans.size() == 1 && rootPlan.oldRoot)
+	{
+		const auto installed = CModInventory::Get().FindPackage(ModSource::Thunderstore, rootPlan.managedId);
+		if (installed && !installed->containedMods.empty() && installed->installedVersion == rootPlan.version)
+		{
+			Transition(ModInstallOperationState::Done, "#MOD_BROWSER_OPERATION_ALREADY_CURRENT", rootPlan.name, rootPlan.version);
 			return true;
 		}
 	}
@@ -1634,7 +1869,7 @@ bool CModInstallService::ExecuteInstall(const InstallRequest& request, std::stri
 	if (!CaptureRuntimeState(plans, installedModNames, enabledStates, errorMessage))
 		return false;
 	const fs::path jobRoot =
-	    fs::path(GetNorthstarPrefix()) / "cache" / "modworkshop" / "jobs" / std::format("{}-{}", GetCurrentProcessId(), request.generation);
+	    fs::path(GetNorthstarPrefix()) / "cache" / "modbrowser" / "jobs" / std::format("{}-{}", GetCurrentProcessId(), request.generation);
 	std::error_code filesystemError;
 	fs::remove_all(jobRoot, filesystemError);
 	fs::create_directories(jobRoot, filesystemError);
@@ -1695,7 +1930,7 @@ void CModInstallService::RunWorker()
 		std::string errorMessage;
 		bool preserveRecoveryFiles = false;
 		const bool success = !request.installedRemovalRoot.empty()        ? ExecuteInstalledRemove(request, errorMessage, preserveRecoveryFiles)
-		                     : request.action == ModInstallAction::Remove ? ExecuteRemove(request, errorMessage)
+		                     : request.action == ModInstallAction::Remove ? ExecuteRemove(request, errorMessage, preserveRecoveryFiles)
 		                                                                  : ExecuteInstall(request, errorMessage, preserveRecoveryFiles);
 		const bool cancelled = m_CancelRequested.load(std::memory_order_acquire);
 		const ModInstallOperationState currentState = GetSnapshot()->state;
@@ -1703,13 +1938,13 @@ void CModInstallService::RunWorker()
 		{
 			Transition(ModInstallOperationState::Done,
 			           cancelled && (currentState == ModInstallOperationState::Committing || currentState == ModInstallOperationState::Reloading)
-			               ? "#MWS_OPERATION_COMPLETED_AFTER_CANCELLATION"
-			               : "#MWS_OPERATION_COMPLETED");
+			               ? "#MOD_BROWSER_OPERATION_COMPLETED_AFTER_CANCELLATION"
+			               : "#MOD_BROWSER_OPERATION_COMPLETED");
 		}
 		else if (!success)
 		{
 			Transition(cancelled && !preserveRecoveryFiles ? ModInstallOperationState::Cancelled : ModInstallOperationState::Failed,
-			           errorMessage.empty() ? (cancelled ? "#MWS_OPERATION_CANCELLED" : "#MWS_OPERATION_FAILED") : std::move(errorMessage));
+			           errorMessage.empty() ? (cancelled ? "#MOD_BROWSER_OPERATION_CANCELLED" : "#MOD_BROWSER_OPERATION_FAILED") : std::move(errorMessage));
 		}
 
 		m_CancelRequested.store(false, std::memory_order_release);
@@ -1738,6 +1973,7 @@ bool CModInstallService::Request(ModInstallAction action, uint64_t modId, uint64
 		m_PendingRequest = InstallRequest{
 		    .generation = generation,
 		    .modId = modId,
+		    .packageId = std::to_string(modId),
 		    .action = action,
 		    .expectedSelectedFileId = expectedSelectedFileId,
 		};
@@ -1746,9 +1982,45 @@ bool CModInstallService::Request(ModInstallAction action, uint64_t modId, uint64
 	auto queued = std::make_shared<ModInstallOperationSnapshot>();
 	queued->generation = generation;
 	queued->modId = modId;
+	queued->packageId = std::to_string(modId);
 	queued->action = action;
 	queued->state = ModInstallOperationState::Queued;
-	queued->message = "#MWS_OPERATION_QUEUED";
+	queued->message = "#MOD_BROWSER_OPERATION_QUEUED";
+	Publish(std::move(queued));
+	m_RequestChanged.notify_one();
+	return true;
+}
+
+bool CModInstallService::RequestThunderstore(ModInstallAction action, std::string packageId)
+{
+	std::string namespaceName;
+	std::string packageName;
+	if (m_Stopped.load(std::memory_order_acquire) || packageId.size() > 128 ||
+	    !CThunderstoreClient::ParsePackageId(packageId, namespaceName, packageName) ||
+	    LowerAscii(packageId) == "northstar-northstar")
+		return false;
+	uint64_t generation = 0;
+	{
+		std::scoped_lock lock(m_RequestMutex);
+		if (m_Busy || m_PendingRequest)
+			return false;
+		m_Busy = true;
+		generation = ++m_NextGeneration;
+		m_PendingRequest = InstallRequest{
+		    .generation = generation,
+		    .source = ModSource::Thunderstore,
+		    .packageId = packageId,
+		    .action = action,
+		};
+	}
+	m_CancelRequested.store(false, std::memory_order_release);
+	auto queued = std::make_shared<ModInstallOperationSnapshot>();
+	queued->generation = generation;
+	queued->source = ModSource::Thunderstore;
+	queued->packageId = std::move(packageId);
+	queued->action = action;
+	queued->state = ModInstallOperationState::Queued;
+	queued->message = "#MOD_BROWSER_OPERATION_QUEUED";
 	Publish(std::move(queued));
 	m_RequestChanged.notify_one();
 	return true;
@@ -1771,6 +2043,8 @@ bool CModInstallService::RequestInstalledModRemoval(int modIndex)
 		InstallRequest request;
 		request.generation = generation;
 		request.modId = target.managedModId;
+		request.source = target.source;
+		request.packageId = target.packageId;
 		request.action = ModInstallAction::Remove;
 		request.installedRemovalRoot = target.root;
 		request.installedRemovalName = target.name;
@@ -1782,11 +2056,13 @@ bool CModInstallService::RequestInstalledModRemoval(int modIndex)
 	auto queued = std::make_shared<ModInstallOperationSnapshot>();
 	queued->generation = generation;
 	queued->modId = target.managedModId;
+	queued->source = target.source;
+	queued->packageId = target.packageId;
 	queued->action = ModInstallAction::Remove;
 	queued->state = ModInstallOperationState::Queued;
 	queued->name = std::move(target.name);
 	queued->version = std::move(target.version);
-	queued->message = "#MWS_OPERATION_QUEUED";
+	queued->message = "#MOD_BROWSER_OPERATION_QUEUED";
 	Publish(std::move(queued));
 	m_RequestChanged.notify_one();
 	return true;
@@ -1829,7 +2105,7 @@ void CModInstallService::Cancel()
 	{
 		auto deferred = std::make_shared<ModInstallOperationSnapshot>(*current);
 		deferred->cancellationDeferred = true;
-		deferred->message = "#MWS_CANCELLATION_DEFERRED";
+		deferred->message = "#MOD_BROWSER_CANCELLATION_DEFERRED";
 		Publish(std::move(deferred));
 	}
 }

@@ -265,7 +265,7 @@ bool CModPlatform::ReadWorkshopPackageState(const fs::path& packageRoot, ModWork
 		state.containedMods.reserve(containedMods->Size());
 		for (const rapidjson::Value& value : containedMods->GetArray())
 		{
-			ModWorkshopContainedMod containedMod{.name = CModPlatformJson::ReadString(value, "name"),
+			ModContainedMod containedMod{.name = CModPlatformJson::ReadString(value, "name"),
 			                                     .version = CModPlatformJson::ReadString(value, "version")};
 			if (!value.IsObject() || containedMod.name.empty())
 			{
@@ -301,7 +301,7 @@ bool CModPlatform::WriteWorkshopPackageState(const fs::path& packageRoot, const 
 	CModPlatformJson::AddString(document, "installed_at", state.installedAt, allocator);
 
 	rapidjson::Value containedMods(rapidjson::kArrayType);
-	for (const ModWorkshopContainedMod& containedMod : state.containedMods)
+	for (const ModContainedMod& containedMod : state.containedMods)
 	{
 		rapidjson::Value value(rapidjson::kObjectType);
 		CModPlatformJson::AddString(value, "name", containedMod.name, allocator);

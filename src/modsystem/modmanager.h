@@ -162,7 +162,7 @@ private:
 public:
 	explicit ModManager(const CModule& engineModule);
 	void ReloadMods();
-	bool UnloadModsForFilesystemMutation();
+	bool UnloadModsForFilesystemMutation(std::span<const fs::path> packageRoots);
 	void RequestModelReload();
 	std::unordered_map<std::string, bool> CaptureEnabledStatesForPackages(std::span<const fs::path> packageRoots) const;
 	void ReloadModsWithEnabledStates(std::unordered_map<std::string, bool> enabledStates);

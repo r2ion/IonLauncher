@@ -54,6 +54,8 @@ struct ModInstallOperationSnapshot
 {
 	uint64_t generation = 0;
 	uint64_t modId = 0;
+	ModSource source = ModSource::ModWorkshop;
+	std::string packageId;
 	ModInstallAction action = ModInstallAction::Install;
 	ModInstallOperationState state = ModInstallOperationState::Idle;
 	std::string name;
@@ -83,6 +85,7 @@ public:
 	}
 
 	bool Request(ModInstallAction action, uint64_t modId, uint64_t expectedSelectedFileId = 0);
+	bool RequestThunderstore(ModInstallAction action, std::string packageId);
 	bool RequestInstalledModRemoval(int modIndex);
 	InstalledModRemovalInfo GetInstalledModRemovalInfo(int modIndex) const;
 	void Cancel();
@@ -117,6 +120,8 @@ private:
 	{
 		uint64_t generation = 0;
 		uint64_t modId = 0;
+		ModSource source = ModSource::ModWorkshop;
+		std::string packageId;
 		ModInstallAction action = ModInstallAction::Install;
 		uint64_t expectedSelectedFileId = 0;
 		std::filesystem::path installedRemovalRoot;
@@ -130,6 +135,8 @@ private:
 		std::string name;
 		std::string version;
 		uint64_t managedModId = 0;
+		ModSource source = ModSource::Unknown;
+		std::string packageId;
 		int deleteModCount = 0;
 		bool canDelete = false;
 	};
@@ -161,13 +168,21 @@ private:
 		std::string iconFallbackUrl;
 		std::string iconFilename;
 		std::string sha256;
-		std::vector<ModWorkshopContainedMod> containedMods;
+		std::vector<ModContainedMod> containedMods;
+		std::vector<std::string> dependencies;
 		std::optional<std::filesystem::path> oldRoot;
 		std::filesystem::path destination;
 		std::vector<std::filesystem::path> replacementRoots;
 		std::filesystem::path archivePath;
 		std::filesystem::path stagingRoot;
 		std::filesystem::path backupRoot;
+	};
+
+	struct ThunderstoreResolution
+	{
+		std::unordered_map<std::string, std::string> versions;
+		std::unordered_set<std::string> visiting;
+		std::unordered_set<std::string> resolved;
 	};
 
 	struct CommitRecord
@@ -198,6 +213,7 @@ private:
 	static bool HasPackageIcon(const std::filesystem::path& packageRoot);
 	static std::string LowerAscii(std::string value);
 	static bool NormalizeAbsolutePath(const std::filesystem::path& path, std::filesystem::path& normalized);
+	static std::string PathUtf8(const std::filesystem::path& path);
 	static std::string PathKey(const std::filesystem::path& path);
 	static bool TryGetDirectChildRoot(const std::filesystem::path& path, const std::filesystem::path& allowedRoot,
 	                                  std::filesystem::path& directChild);
@@ -213,10 +229,11 @@ private:
 	static bool ExtractArchive(const std::filesystem::path& archivePath, const std::filesystem::path& stagingRoot,
 	                           std::span<const ArchiveEntry> entries, const std::function<bool()>& cancelled,
 	                           const std::function<void(uint64_t, uint64_t)>& progress, std::string& errorMessage);
-	static bool ReadStagedManifest(const std::filesystem::path& manifestPath, ModWorkshopContainedMod& containedMod, std::string& errorMessage);
-	static bool ValidateStagedPackage(const std::filesystem::path& stagingRoot, std::vector<ModWorkshopContainedMod>& containedMods,
+	static bool ReadStagedManifest(const std::filesystem::path& manifestPath, ModContainedMod& containedMod, std::string& errorMessage);
+	static bool ValidateStagedPackage(const std::filesystem::path& stagingRoot, std::vector<ModContainedMod>& containedMods,
 	                                  std::string& errorMessage);
 	static bool ComputeSha256(const std::filesystem::path& filePath, std::string& hashText, std::string& errorMessage);
+	static bool ValidateThunderstoreManifest(const PackagePlan& plan, std::string& errorMessage);
 
 	CModWorkshopClient m_Client;
 	mutable std::mutex m_SnapshotMutex;
@@ -253,11 +270,14 @@ private:
 	bool RunOnMainThreadAndWait(std::function<bool()> function, bool& result);
 	bool CaptureRuntimeState(const std::vector<PackagePlan>& plans, std::unordered_set<std::string>& installedModNames,
 	                         std::unordered_map<std::string, bool>& enabledStates, std::string& errorMessage);
-	bool UnloadRuntimeForFilesystemMutation(std::string& errorMessage);
+	bool UnloadRuntimeForFilesystemMutation(const std::vector<PackagePlan>& plans, std::string& errorMessage);
 	bool ResolveModWorkshop(uint64_t modId, bool root, ModInstallAction action, uint64_t expectedSelectedFileId,
-	                        const ModWorkshopRequestOptions& options, const std::unordered_set<std::string>& installedModNames,
+	                        const ModRequestOptions& options, const std::unordered_set<std::string>& installedModNames,
 	                        std::vector<PackagePlan>& plans, std::unordered_map<uint64_t, size_t>& resolved, std::unordered_set<uint64_t>& visiting,
-	                        std::string& errorMessage);
+	                        ThunderstoreResolution& thunderstore, std::string& errorMessage);
+	bool ResolveThunderstore(const std::string& packageId, const std::string& version, bool root, ModInstallAction action,
+	                        const ModRequestOptions& options, std::vector<PackagePlan>& plans,
+	                        ThunderstoreResolution& resolution, std::string& errorMessage);
 	bool StagePlan(PackagePlan& plan, size_t planIndex, const std::filesystem::path& jobRoot, uint64_t totalExpectedBytes,
 	               uint64_t completedExpectedBytes, std::string& errorMessage);
 	bool ResolveUnmanagedReplacements(uint64_t generation, std::vector<PackagePlan>& plans, std::unordered_map<std::string, bool>& enabledStates,
@@ -267,7 +287,7 @@ private:
 	bool CommitPlans(std::vector<PackagePlan>& plans, const std::unordered_map<std::string, bool>& enabledStates, std::string& errorMessage,
 	                 bool& preserveRecoveryFiles);
 	bool ExecuteInstalledRemove(const InstallRequest& request, std::string& errorMessage, bool& preserveRecoveryFiles);
-	bool ExecuteRemove(const InstallRequest& request, std::string& errorMessage);
+	bool ExecuteRemove(const InstallRequest& request, std::string& errorMessage, bool& preserveRecoveryFiles);
 	bool ExecuteInstall(const InstallRequest& request, std::string& errorMessage, bool& preserveRecoveryFiles);
 	void RunWorker();
 };

@@ -1,16 +1,12 @@
 #include "modsystem/modinstaller.h"
 #include "modsystem/modmanager.h"
-#include "modsystem/modworkshop_inventory.h"
-#include "rtech/rui/workshop_thumbnail_atlas.h"
-#include "rtech/rui/workshop_thumbnail_service.h"
+#include "modsystem/modinventory.h"
+#include "modsystem/platform/modworkshop.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
-#include "vscript/languages/squirrel_re/squirrel/sqarray.h"
 
 #include <algorithm>
-#include <charconv>
 
 #include <array>
-#include <atomic>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -22,25 +18,16 @@ class CModMenuSquirrel final
 {
 public:
 	static bool FindModIcon(const Mod& mod, fs::path& iconPath);
-	static const ModWorkshopTrackedPackage* FindWorkshopPackage(const Mod& mod, const ModWorkshopInventorySnapshot* inventory);
-	static void EnsureModIconCallback();
+	static const ModTrackedPackage* FindManagedPackage(const Mod& mod, const ModInventorySnapshot* inventory);
 
-	template <ScriptContext context> static void PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModWorkshopInventorySnapshot* inventory, size_t modIndex);
+	template <ScriptContext context> static void PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModInventorySnapshot* inventory, size_t modIndex);
 
-	static uint64_t NextIconGeneration()
-	{
-		return s_IconGeneration.fetch_add(1, std::memory_order_relaxed) + 1;
-	}
 
 private:
 	static fs::path FindRemotePackageRoot(const Mod& mod);
 	static std::vector<std::string> CollectModAssets(const Mod& mod);
 	static void AddAsset(std::vector<std::string>& assets, std::string_view type, std::string_view value);
-	static void OnIconReady(uint64_t generation, size_t slot);
-
-	inline static std::atomic<uint64_t> s_IconGeneration = 0;
 	inline static constexpr std::array<std::string_view, 4> ICON_FILENAMES = {"icon.webp", "icon.png", "icon.jpg", "icon.jpeg"};
-	inline static bool s_IconCallbackInitialized = false;
 };
 
 fs::path CModMenuSquirrel::FindRemotePackageRoot(const Mod& mod)
@@ -68,33 +55,25 @@ bool CModMenuSquirrel::FindModIcon(const Mod& mod, fs::path& iconPath)
 			std::error_code error;
 			if (fs::is_regular_file(candidate, error) && !error)
 			{
-				iconPath = candidate;
-				return true;
+				iconPath = fs::canonical(candidate, error);
+				if (!error)
+					return true;
 			}
 		}
 	}
 	return false;
 }
 
-const ModWorkshopTrackedPackage* CModMenuSquirrel::FindWorkshopPackage(const Mod& mod, const ModWorkshopInventorySnapshot* inventory)
+const ModTrackedPackage* CModMenuSquirrel::FindManagedPackage(const Mod& mod, const ModInventorySnapshot* inventory)
 {
-	if (!inventory || mod.m_Source != ModSource::ModWorkshop || !mod.m_ManagedId || mod.m_ManagedId->empty())
+	if (!inventory || !mod.m_ManagedId || mod.m_ManagedId->empty())
 		return nullptr;
-	uint64_t modId = 0;
-	const std::string_view text = *mod.m_ManagedId;
-	const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), modId);
-	if (error != std::errc() || end != text.data() + text.size())
-		return nullptr;
-	const auto package = std::ranges::find(inventory->packages, modId, &ModWorkshopTrackedPackage::modId);
+	const auto package = std::ranges::find_if(inventory->packages, [&mod](const ModTrackedPackage& candidate) {
+		return candidate.source == mod.m_Source && candidate.packageId == *mod.m_ManagedId;
+	});
 	return package == inventory->packages.end() ? nullptr : &*package;
 }
 
-void CModMenuSquirrel::OnIconReady(uint64_t generation, size_t slot)
-{
-	SquirrelManager* squirrel = g_pSquirrel[ScriptContext::UI];
-	if (squirrel && squirrel->m_pSQVM)
-		squirrel->AsyncCall("NSUICodeCallback_ModIconReady", static_cast<int>(generation), static_cast<int>(slot));
-}
 
 void CModMenuSquirrel::AddAsset(std::vector<std::string>& assets, std::string_view type, std::string_view value)
 {
@@ -105,13 +84,6 @@ void CModMenuSquirrel::AddAsset(std::vector<std::string>& assets, std::string_vi
 	asset.append(type).append(": ").append(value);
 }
 
-void CModMenuSquirrel::EnsureModIconCallback()
-{
-	if (s_IconCallbackInitialized)
-		return;
-	CWorkshopThumbnailService::Get().SetLocalIconReadyCallback(OnIconReady);
-	s_IconCallbackInitialized = true;
-}
 
 std::vector<std::string> CModMenuSquirrel::CollectModAssets(const Mod& mod)
 {
@@ -141,9 +113,9 @@ std::vector<std::string> CModMenuSquirrel::CollectModAssets(const Mod& mod)
 }
 
 template <ScriptContext context>
-void CModMenuSquirrel::PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModWorkshopInventorySnapshot* inventory, size_t modIndex)
+void CModMenuSquirrel::PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModInventorySnapshot* inventory, size_t modIndex)
 {
-	g_pSquirrel[context]->pushnewstructinstance(sqvm, 17);
+	g_pSquirrel[context]->pushnewstructinstance(sqvm, 21);
 
 	// name
 	g_pSquirrel[context]->pushstring(sqvm, mod.Name.c_str(), -1);
@@ -193,8 +165,8 @@ void CModMenuSquirrel::PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModWorkshopInve
 	g_pSquirrel[context]->pushinteger(sqvm, static_cast<int>(mod.m_Source));
 	g_pSquirrel[context]->sealstructslot(sqvm, 10);
 
-	const ModWorkshopTrackedPackage* trackedPackage = CModMenuSquirrel::FindWorkshopPackage(mod, inventory);
-	const ModWorkshopUpdateState updateState = trackedPackage ? trackedPackage->updateState : ModWorkshopUpdateState::LegacyUnknown;
+	const ModTrackedPackage* trackedPackage = CModMenuSquirrel::FindManagedPackage(mod, inventory);
+	const ModUpdateState updateState = trackedPackage ? trackedPackage->updateState : ModUpdateState::LegacyUnknown;
 	g_pSquirrel[context]->pushinteger(sqvm, static_cast<int>(updateState));
 	g_pSquirrel[context]->sealstructslot(sqvm, 11);
 
@@ -209,7 +181,8 @@ void CModMenuSquirrel::PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModWorkshopInve
 	g_pSquirrel[context]->sealstructslot(sqvm, 14);
 
 	fs::path iconPath;
-	g_pSquirrel[context]->pushbool(sqvm, CModMenuSquirrel::FindModIcon(mod, iconPath) || (trackedPackage && trackedPackage->remoteThumbnail));
+	const bool hasLocalIcon = CModMenuSquirrel::FindModIcon(mod, iconPath);
+	g_pSquirrel[context]->pushbool(sqvm, hasLocalIcon || (trackedPackage && (!trackedPackage->remoteThumbnailUrl.empty() || trackedPackage->remoteThumbnail)));
 	g_pSquirrel[context]->sealstructslot(sqvm, 15);
 
 	g_pSquirrel[context]->newarray(sqvm);
@@ -219,6 +192,32 @@ void CModMenuSquirrel::PushMod(HSQUIRRELVM sqvm, Mod& mod, const ModWorkshopInve
 		g_pSquirrel[context]->arrayappend(sqvm, -2);
 	}
 	g_pSquirrel[context]->sealstructslot(sqvm, 16);
+
+	const std::u8string iconPathUtf8 = hasLocalIcon ? iconPath.u8string() : std::u8string();
+	g_pSquirrel[context]->pushstring(sqvm, reinterpret_cast<const char*>(iconPathUtf8.c_str()));
+	g_pSquirrel[context]->sealstructslot(sqvm, 17);
+	std::string iconUrl = trackedPackage ? trackedPackage->remoteThumbnailUrl : std::string();
+	std::string iconVersion = trackedPackage ? trackedPackage->remoteUpdatedAt : std::string();
+	std::string iconFallbackUrl;
+	if (trackedPackage && trackedPackage->remoteThumbnail)
+	{
+		const ModWorkshopThumbnail& thumbnail = *trackedPackage->remoteThumbnail;
+		if (iconUrl.empty())
+			iconUrl = CModWorkshopClient::BuildThumbnailUrl(thumbnail);
+		iconVersion = thumbnail.updatedAt;
+		if (thumbnail.hasThumbnail)
+		{
+			ModWorkshopThumbnail original = thumbnail;
+			original.hasThumbnail = false;
+			iconFallbackUrl = CModWorkshopClient::BuildThumbnailUrl(original);
+		}
+	}
+	g_pSquirrel[context]->pushstring(sqvm, iconUrl.c_str());
+	g_pSquirrel[context]->sealstructslot(sqvm, 18);
+	g_pSquirrel[context]->pushstring(sqvm, iconVersion.c_str());
+	g_pSquirrel[context]->sealstructslot(sqvm, 19);
+	g_pSquirrel[context]->pushstring(sqvm, iconFallbackUrl.c_str());
+	g_pSquirrel[context]->sealstructslot(sqvm, 20);
 
 	// add current object to squirrel array
 	g_pSquirrel[context]->arrayappend(sqvm, -2);
@@ -241,54 +240,11 @@ ADD_SQFUNC("bool", NSRemoveMod, "int modIndex", "Queues safe removal of the inde
 	return SQRESULT_NOTNULL;
 }
 
-ADD_SQFUNC("int", NSRequestModIconPage, "array<int> modIndices", "Loads available local package icons into the shared image atlas.",
-           ScriptContext::UI)
-{
-	CModMenuSquirrel::EnsureModIconCallback();
-	std::vector<CWorkshopThumbnailService::LocalIconRequest> icons;
-	const std::shared_ptr<const ModWorkshopInventorySnapshot> inventory = CModWorkshopInventory::Get().GetSnapshot();
-	const SQObject& argument = sqvm->_stackOfCurrentFunction[1];
-	if (argument._Type == OT_ARRAY && argument._VAL.asArray)
-	{
-		SQArray* indices = argument._VAL.asArray;
-		const size_t count = std::min(static_cast<size_t>(std::max(indices->_usedSlots, 0)), CWorkshopThumbnailAtlas::SLOT_COUNT);
-		icons.reserve(count);
-		for (size_t slot = 0; slot < count; ++slot)
-		{
-			CWorkshopThumbnailService::LocalIconRequest request;
-			const SQObject& value = indices->_values[slot];
-			if (value._Type == OT_INTEGER)
-			{
-				const int index = value._VAL.asInteger;
-				if (index >= 0 && static_cast<size_t>(index) < g_pModManager->m_LoadedMods.size())
-				{
-					const Mod& mod = g_pModManager->m_LoadedMods[static_cast<size_t>(index)];
-					request.id = static_cast<uint64_t>(index) + 1;
-					if (!CModMenuSquirrel::FindModIcon(mod, request.path))
-					{
-						if (const ModWorkshopTrackedPackage* package = CModMenuSquirrel::FindWorkshopPackage(mod, inventory.get());
-						    package && package->remoteThumbnail)
-						{
-							request.thumbnail = *package->remoteThumbnail;
-							request.hasThumbnail = true;
-						}
-					}
-				}
-			}
-			icons.push_back(std::move(request));
-		}
-	}
-
-	const uint64_t generation = CModMenuSquirrel::NextIconGeneration();
-	CWorkshopThumbnailService::Get().RequestLocalPage(generation, icons);
-	g_pSquirrel[context]->pushinteger(sqvm, static_cast<int>(generation));
-	return SQRESULT_NOTNULL;
-}
 
 ADD_SQFUNC("array<ModInfo>", NSGetModsInformation, "", "", ScriptContext::SERVER | ScriptContext::CLIENT | ScriptContext::UI)
 {
 	g_pSquirrel[context]->newarray(sqvm, 0);
-	const std::shared_ptr<const ModWorkshopInventorySnapshot> inventory = CModWorkshopInventory::Get().GetSnapshot();
+	const std::shared_ptr<const ModInventorySnapshot> inventory = CModInventory::Get().GetSnapshot();
 
 	for (size_t modIndex = 0; modIndex < g_pModManager->m_LoadedMods.size(); ++modIndex)
 	{
@@ -302,7 +258,7 @@ ADD_SQFUNC("array<ModInfo>", NSGetModInformation, "string modName", "", ScriptCo
 {
 	const SQChar* modName = g_pSquirrel[context]->getstring(sqvm, 1);
 	g_pSquirrel[context]->newarray(sqvm, 0);
-	const std::shared_ptr<const ModWorkshopInventorySnapshot> inventory = CModWorkshopInventory::Get().GetSnapshot();
+	const std::shared_ptr<const ModInventorySnapshot> inventory = CModInventory::Get().GetSnapshot();
 
 	for (size_t modIndex = 0; modIndex < g_pModManager->m_LoadedMods.size(); ++modIndex)
 	{

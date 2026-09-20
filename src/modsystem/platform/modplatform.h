@@ -18,7 +18,15 @@ inline constexpr const char* THUNDERSTORE_MARKER_FILE = ".ts_id";
 inline constexpr const char* MODWORKSHOP_STATE_FILE = ".mws_state.json";
 inline constexpr int MODWORKSHOP_STATE_SCHEMA = 1;
 
-struct ModWorkshopContainedMod
+struct ModPageMetadata
+{
+    int currentPage = 1;
+    int lastPage = 1;
+    int perPage = 0;
+    int total = 0;
+};
+
+struct ModContainedMod
 {
 	std::string name;
 	std::string version;
@@ -35,7 +43,7 @@ struct ModWorkshopPackageState
 	std::string remoteModUpdatedAt;
 	std::string sha256;
 	std::string installedAt;
-	std::vector<ModWorkshopContainedMod> containedMods;
+	std::vector<ModContainedMod> containedMods;
 };
 
 class CModPlatform final

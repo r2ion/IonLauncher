@@ -1,5 +1,12 @@
 #pragma once
 
+#include <string>
+
+bool IsHttpDisabled();
+bool IsLocalHttpAllowed();
+bool DisableHttpSsl();
+bool IsHttpDestinationHostAllowed(const std::string& host, std::string& outHostname, std::string& outAddress, std::string& outPort);
+
 enum class ScriptContext : int;
 
 // These definitions below should match on the Squirrel side so we can easily pass them along through a function.
@@ -45,7 +52,7 @@ namespace HttpRequestMethod
 	}
 
 	/** Whether or not the given method should be treated like a POST for curlopts. */
-	bool UsesCurlPostOptions(HttpRequestMethod::Type method)
+	inline bool UsesCurlPostOptions(HttpRequestMethod::Type method)
 	{
 		switch (method)
 		{
@@ -60,7 +67,7 @@ namespace HttpRequestMethod
 	}
 
 	/** Whether or not the given http request method can have query parameters in the URL. */
-	bool CanHaveQueryParameters(HttpRequestMethod::Type method)
+	inline bool CanHaveQueryParameters(HttpRequestMethod::Type method)
 	{
 		return method == HttpRequestMethod::HRM_GET || UsesCurlPostOptions(method);
 	}

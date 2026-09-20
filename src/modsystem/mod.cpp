@@ -4,6 +4,8 @@
 #include "modsystem/platform/modplatform.h"
 #include "rapidjson/error/en.h"
 
+#include <algorithm>
+
 ModSource Mod::ResolveModSourceFromPath(const fs::path& modDir)
 {
     if (ModPaths::IsAtOrBelow(modDir, GetRemoteModFolderPath()))
@@ -101,8 +103,12 @@ Mod::Mod(fs::path modDir, const char* jsonBuf)
 	m_Source = ResolveModSourceFromPath(m_ModDirectory);
 	if (const std::optional<fs::path> packageRoot = CModPlatform::FindContainingPackageRoot(m_ModDirectory))
 		m_PackageDirectory = *packageRoot;
-	if (m_Source == ModSource::ModWorkshop)
+	if (m_Source == ModSource::ModWorkshop || m_Source == ModSource::Thunderstore)
+	{
 		m_ManagedId = CModPlatform::TryReadManagedId(m_ModDirectory, m_Source);
+		if (m_Source == ModSource::Thunderstore && m_ManagedId)
+			std::ranges::replace(*m_ManagedId, '/', '-');
+	}
 
 	m_bWasReadSuccessfully = true;
 }

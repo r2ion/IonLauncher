@@ -5,7 +5,7 @@
 #include "engine/r2engine.h"
 #include "core/tier0.h"
 #include "modsystem/modinstaller.h"
-#include "modsystem/modworkshop_inventory.h"
+#include "modsystem/modinventory.h"
 #include "modsystem/platform/modworkshop.h"
 #include "modsystem/platform/modplatform.h"
 #include "modsystem/platform/thunderstore.h"
@@ -116,7 +116,7 @@ std::optional<ModDownloader::ModWorkshopAlternative> ModDownloader::FindModWorks
 		return std::nullopt;
 
 	CModWorkshopClient client;
-	ModWorkshopError error;
+	ModRequestError error;
 	uint64_t gameId = 0;
 	if (!client.ResolveGameId("titanfall-2", gameId, error))
 	{
@@ -178,7 +178,7 @@ bool ModDownloader::DownloadModWorkshop(const modentry_s& requested, const ModWo
 	};
 
 	CModInstallService& service = CModInstallService::Get();
-	const std::optional<ModWorkshopTrackedPackage> installed = CModWorkshopInventory::Get().FindPackage(alternative.modId);
+	const std::optional<ModTrackedPackage> installed = CModInventory::Get().FindPackage(alternative.modId);
 	const ModInstallAction action = installed && installed->installedState ? ModInstallAction::Update : ModInstallAction::Install;
 	if (!service.Request(action, alternative.modId, alternative.selectedFileId))
 	{
