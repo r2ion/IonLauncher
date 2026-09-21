@@ -202,7 +202,7 @@ bool ModManager::ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourc
                 mod = next;
             }
             KeyValues** tail = &mods->m_pSub;
-            for (const auto* names : {&requiredNames, &originalNames, &optionalNames})
+            for (const auto* names : {&originalNames, &requiredNames, &optionalNames})
             {
                 for (const uint32_t name : *names)
                 {
