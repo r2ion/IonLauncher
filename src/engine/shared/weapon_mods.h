@@ -100,6 +100,7 @@ struct ServerWeaponInfo_t
     std::byte m_Reserved2[0x28];
 };
 
+
 template <typename WeaponInfo> using ParseWeaponModGroupFn = std::uintptr_t (*)(KeyValues*, WeaponInfo*, const char*, WeaponModGroup_t*);
 
 using PrecacheWeaponModAssetFn = std::uintptr_t (*)(const char*);
@@ -118,6 +119,7 @@ template <typename WeaponInfo> class CWeaponModHandler
     void Initialize(const CModule& module);
     void InitializeWeaponInfo(WeaponInfo* pWeaponInfo);
 
+    bool SetField(void* pWeapon, const char* pFieldName, const char* pValue, const std::byte* pData, std::size_t valueSize);
     template <typename OriginalFn> std::uint32_t* ParseWeaponInfo(WeaponInfo* pWeaponInfo, KeyValues* pRoot, OriginalFn&& original);
 
     template <typename OriginalFn>
@@ -155,6 +157,7 @@ template <typename WeaponInfo> class CWeaponModHandler
     std::uint32_t GetModGroupCount(const WeaponInfo* pWeaponInfo) const;
     const WeaponModGroup_t* GetModGroups(const WeaponInfo* pWeaponInfo) const;
     void PrepareWeaponParse(WeaponInfo* pWeaponInfo, KeyValues* pRoot);
+    const char* GetWeaponName(const WeaponInfo* pWeaponInfo) const;
     void FinishWeaponParse(WeaponInfo* pWeaponInfo);
     std::vector<WeaponModCodeEntry_t>* FindEntries(WeaponInfo* pWeaponInfo);
     bool GetGroupRange(const std::vector<WeaponModCodeEntry_t>& entries, const WeaponModGroup_t& group, std::size_t& firstEntry,

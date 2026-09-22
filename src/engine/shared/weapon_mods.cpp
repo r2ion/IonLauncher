@@ -5,23 +5,146 @@
 #include "tier0/frametask.h"
 #include "tier1/keyvalues.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
+#include "vscript/languages/squirrel_re/squirrel/sqstring.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
+#include <charconv>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <string>
+#include <system_error>
 #include <vector>
-
 DECLARE_MODULE(WeaponModHooks)
 
 constexpr std::uint32_t RetailCodeLimit = 200;
 constexpr std::uint32_t MaxModGroupCount = 31;
 constexpr std::size_t StoredModGroupCount = 32;
 constexpr std::size_t MaxEncodedEntryCount = static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) + 1;
+static_assert(offsetof(ClientWeaponInfo_t, m_CompiledData) == offsetof(FileWeaponInfo_t, modValueDefaults));
 
 static CWeaponModHandler<ClientWeaponInfo_t> g_ClientWeaponMods;
 static CWeaponModHandler<ServerWeaponInfo_t> g_ServerWeaponMods;
+
+static bool ScriptValueToWeaponFieldString(const SQObject& value, std::string& output)
+{
+    char buffer[128];
+    char* pEnd = buffer;
+    std::errc error{};
+
+    switch (value._Type)
+    {
+    case OT_INTEGER:
+    {
+        const auto result = std::to_chars(buffer, std::end(buffer), _integer(value));
+        pEnd = result.ptr;
+        error = result.ec;
+        break;
+    }
+    case OT_FLOAT:
+    {
+        const auto result =
+            std::to_chars(buffer, std::end(buffer), _float(value), std::chars_format::general, std::numeric_limits<float>::max_digits10);
+        pEnd = result.ptr;
+        error = result.ec;
+        break;
+    }
+    case OT_BOOL:
+        output = _bool(value) ? "1" : "0";
+        return true;
+    case OT_VECTOR:
+    {
+        const SQFloat* pVector = _vector(value);
+        const int length = std::snprintf(buffer, sizeof(buffer), "%.9g %.9g %.9g", pVector[0], pVector[1], pVector[2]);
+        if (length < 0 || static_cast<std::size_t>(length) >= sizeof(buffer))
+            return false;
+        output.assign(buffer, static_cast<std::size_t>(length));
+        return true;
+    }
+    default:
+        return false;
+    }
+
+    if (error != std::errc{})
+        return false;
+
+    output.assign(buffer, pEnd);
+    return true;
+}
+
+static bool ScriptValueToWeaponFieldData(const SQObject& value, ScriptDataType_t fieldType,
+                                         std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)>& output, std::size_t& outputSize)
+{
+    switch (fieldType)
+    {
+    case FIELD_BOOLEAN:
+        if (value._Type != OT_BOOL)
+            return false;
+        outputSize = sizeof(bool);
+        std::memcpy(output.data(), &value._VAL.asInteger, outputSize);
+        return true;
+    case FIELD_INTEGER:
+        if (value._Type != OT_INTEGER)
+            return false;
+        outputSize = sizeof(int);
+        std::memcpy(output.data(), &value._VAL.asInteger, outputSize);
+        return true;
+    case FIELD_FLOAT:
+    {
+        if (value._Type != OT_FLOAT && value._Type != OT_INTEGER)
+            return false;
+        const float numericValue = value._Type == OT_FLOAT ? value._VAL.asFloat : static_cast<float>(value._VAL.asInteger);
+        outputSize = sizeof(numericValue);
+        std::memcpy(output.data(), &numericValue, outputSize);
+        return true;
+    }
+    case FIELD_VECTOR:
+        if (value._Type != OT_VECTOR)
+            return false;
+        outputSize = sizeof(Vector3D);
+        std::memcpy(output.data(), _vector(value), outputSize);
+        return true;
+    default:
+        return false;
+    }
+}
+
+ADD_SQFUNC("bool", NSSetWeaponInfoFileKeyField, "entity weapon, string key, var value",
+           "Sets a shared scalar or vector client weapon-info key when this function is called.", ScriptContext::CLIENT)
+{
+    C_WeaponX* pWeapon = g_pSquirrel[context]->template getentity<C_WeaponX>(sqvm, 1);
+    const char* pFieldName = g_pSquirrel[context]->getstring(sqvm, 2);
+    if (!pWeapon || !pFieldName || !*pFieldName)
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "NSSetWeaponInfoFileKeyField requires a valid weapon and non-empty key");
+        return SQRESULT_ERROR;
+    }
+
+    const ScriptVariant_t currentValue = pWeapon->GetWeaponInfoFileKeyField(pFieldName);
+    const SQObject& scriptValue = sqvm->_stackOfCurrentFunction[3];
+    std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)> valueData{};
+    std::size_t valueSize = 0;
+    if (!ScriptValueToWeaponFieldData(scriptValue, currentValue.GetType(), valueData, valueSize))
+    {
+        g_pSquirrel[context]->raiseerror(
+            sqvm, "NSSetWeaponInfoFileKeyField value type does not match an existing bool, int, float, or vector field");
+        return SQRESULT_ERROR;
+    }
+
+    std::string value;
+    if (!ScriptValueToWeaponFieldString(scriptValue, value))
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "NSSetWeaponInfoFileKeyField only accepts int, float, bool, or vector values");
+        return SQRESULT_ERROR;
+    }
+
+    const bool updated = g_ClientWeaponMods.SetField(pWeapon, pFieldName, value.c_str(), valueData.data(), valueSize);
+    g_pSquirrel[context]->pushbool(sqvm, updated);
+    return SQRESULT_NOTNULL;
+}
 std::uint16_t WeaponModCodeEntry_t::GetStringOffset() const
 {
     std::uint16_t offset;
@@ -170,6 +293,74 @@ template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::InitializeWea
 {
     m_EntriesByWeapon.erase(pWeaponInfo);
 }
+
+template <typename WeaponInfo> const char* CWeaponModHandler<WeaponInfo>::GetWeaponName(const WeaponInfo* pWeaponInfo) const
+{
+    constexpr std::size_t WeaponNameOffset = offsetof(FileWeaponInfo_t, szClassName);
+    constexpr std::size_t WeaponNameCapacity = sizeof(FileWeaponInfo_t::szClassName);
+    const char* pWeaponName = reinterpret_cast<const char*>(pWeaponInfo) + WeaponNameOffset;
+    return std::memchr(pWeaponName, '\0', WeaponNameCapacity) ? pWeaponName : nullptr;
+}
+
+template <typename WeaponInfo>
+bool CWeaponModHandler<WeaponInfo>::SetField(void* pWeapon, const char* pFieldName, const char* pValue, const std::byte* pData,
+                                             std::size_t valueSize)
+{
+    if (!pWeapon || !pFieldName || !*pFieldName || !pValue || !pData || !valueSize ||
+        valueSize > sizeof(WeaponModCodeEntry_t::m_Value) || !m_pGetWeaponInfo || !m_pFieldDescriptors)
+    {
+        return false;
+    }
+
+    WeaponInfo* pWeaponInfo = m_pGetWeaponInfo(pWeapon);
+    const char* pWeaponName = pWeaponInfo ? GetWeaponName(pWeaponInfo) : nullptr;
+    const auto parseHook = HookSys::FindHook("ParseWeaponModGroup_Client");
+    if (!pWeaponInfo || !pWeaponName || !*pWeaponName || !parseHook)
+        return false;
+
+    KeyValues section("NS_SCRIPT_OVERRIDE");
+    section.SetString(pFieldName, pValue);
+
+    const auto parseGroup = HookSys::GetOriginalFunction<ParseWeaponModGroupFn<WeaponInfo>>(parseHook);
+    const std::uint32_t previousCodeCount = GetCodeCount(pWeaponInfo);
+    SetCodeCount(pWeaponInfo, 0);
+
+    WeaponModGroup_t parsedGroup{};
+    parseGroup(&section, pWeaponInfo, pWeaponName, &parsedGroup);
+    const std::uint32_t parsedCodeCount = GetCodeCount(pWeaponInfo);
+    SetCodeCount(pWeaponInfo, previousCodeCount);
+
+    if (parsedCodeCount != 1 || parsedGroup.m_EntryCount != 1)
+        return false;
+
+    const WeaponModCodeEntry_t& entry = pWeaponInfo->m_WeaponMods.m_CodeEntries[0];
+    std::vector<WeaponModCodeEntry_t>* pModEntries = FindEntries(pWeaponInfo);
+    if (!pModEntries)
+        return false;
+
+    for (WeaponModCodeEntry_t& modEntry : *pModEntries)
+    {
+        if (modEntry.m_FieldIndex != entry.m_FieldIndex)
+            continue;
+
+        modEntry.m_HasValue = entry.m_HasValue;
+        std::memcpy(modEntry.m_Value, pData, valueSize);
+    }
+    const WeaponFieldDescriptor_t& descriptor = m_pFieldDescriptors[entry.m_FieldIndex];
+    if (descriptor.m_CompiledOffset > sizeof(pWeaponInfo->m_CompiledData.m_Data) ||
+        valueSize > sizeof(pWeaponInfo->m_CompiledData.m_Data) - descriptor.m_CompiledOffset)
+    {
+        return false;
+    }
+
+    std::byte* pCompiledValue = pWeaponInfo->m_CompiledData.m_Data + descriptor.m_CompiledOffset;
+    std::byte* pCurrentValue =
+        reinterpret_cast<std::byte*>(&static_cast<C_WeaponX*>(pWeapon)->m_modVars) + descriptor.m_CompiledOffset;
+    std::memcpy(pCompiledValue, pData, valueSize);
+    std::memcpy(pCurrentValue, pData, valueSize);
+    return true;
+}
+
 
 template <typename WeaponInfo> std::size_t CWeaponModHandler<WeaponInfo>::CountChildren(KeyValues* pSection)
 {
