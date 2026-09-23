@@ -20,6 +20,8 @@ class CBoneMergeCache;
 class CJiggleBones;
 class C_RopeKeyframe;
 
+struct ClientModelRenderInfo_t;
+struct DrawModelState_t;
 struct KeyHitboxes
 {
     int m_keyHitboxes[9];
@@ -68,10 +70,7 @@ class C_BaseAnimating : public C_BaseEntity
                                               const matrix3x4_t& cameraTransform, const BoneList* boneList, CBoneBitList& boneComputed) = 0; // 205
     virtual void UpdateIKLocks(float currentTime) = 0;                                                                                       // 206
     virtual void CalculateIKLocks(float currentTime) = 0;                                                                                    // 207
-  private:
-    virtual void UnknownEntity208() = 0;
-
-  public:
+    virtual void DoInternalDrawModel(ClientModelRenderInfo_t* info, DrawModelState_t* state, matrix3x4_t* boneToWorld) = 0; // 208
     virtual const matrix3x4_t* GetHandIKOffset() const = 0;       // 209
     virtual void DoAnimationEventsHdr(const CStudioHdr* hdr) = 0; // 210
     virtual void FireEvent(const Vector3D& origin, const QAngle& angles, int event, const char* options, const float* cycleTime,
@@ -93,10 +92,7 @@ class C_BaseAnimating : public C_BaseEntity
     virtual unsigned int ComputeClientSideAnimationFlags() = 0;                                                                                // 225
     virtual bool IsActivityFinished() = 0;            // 226
     virtual bool ForbidThreadedBoneSetup() const = 0; // 227
-  private:
-    virtual void UnknownEntity228() = 0;
-
-  public:
+    virtual bool ShouldFlipViewModel() = 0; // 228
     virtual C_BaseAnimating* GetBoneSetupDependency() = 0;                                                // 229
     virtual void ClearPredictedAnimEvents() = 0;                                                          // 230
     virtual void ExecPredictedAnimEvent(int event, const char* options) = 0;                              // 231
@@ -105,10 +101,7 @@ class C_BaseAnimating : public C_BaseEntity
     virtual void FormatViewModelAttachment(int attachment, matrix3x4_t& matrix) = 0;                      // 234
     virtual bool IsMenuModel() const = 0;                                                                 // 235
     virtual bool CalcAttachments() = 0; // 236
-  private:
-    virtual void UnknownEntity237() = 0;
-
-  public:
+    virtual float LastBoneChangedTime() = 0; // 237
     virtual bool UpdateBlending(int flags, const RenderableInstance_t& instance) = 0; // 238
 
     CStudioHdr* GetModelPtr() const;

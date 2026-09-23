@@ -1,0 +1,8 @@
+#pragma once
+
+enum WeaponActiveState_e : int
+{
+    WEAPON_NOT_CARRIED = 0,
+    WEAPON_IS_CARRIED_BY_PLAYER = 1,
+    WEAPON_IS_ACTIVE = 2,
+};

@@ -1,9 +1,10 @@
 #pragma once
 
+#include "basecombatweapon_shared.h"
 #include "client/baseanimating.h"
 #include "engine/ehandle.h"
-#include "weapon_parse.h"
 #include "vscript/ivscript.h"
+#include "weapon_parse.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -12,28 +13,51 @@ class C_BaseCombatCharacter;
 class C_CombatWeaponClone;
 class IPhysicsConstraint;
 
-enum WeaponActiveState_e : int
-{
-    WEAPON_NOT_CARRIED = 0,
-    WEAPON_IS_CARRIED_BY_PLAYER = 1,
-    WEAPON_IS_ACTIVE = 2,
-};
-
 class C_BaseCombatWeapon : public C_BaseAnimating
 {
   public:
     virtual void OnPickedUp(C_BaseCombatCharacter* newOwner) = 0; // 239
 
-    WEAPON_FILE_INFO_HANDLE GetWeaponFileInfoHandle() const { return m_weaponInfoFileHandle; }
-    const FileWeaponInfo_t& GetWpnData() const { return *GetFileWeaponInfoFromHandle(GetWeaponFileInfoHandle()); }
-    C_BaseCombatCharacter* GetWeaponOwner() const { return m_weaponOwner.Get(); }
-    bool IsReloading() const { return m_bInReload; }
-    int GetWeaponActivity() const { return m_weaponActivity; }
-    float GetWeaponIdleTime() const { return m_flTimeWeaponIdle; }
-    void SetWeaponIdleTime(float time) { m_flTimeWeaponIdle = time; }
-    unsigned int GetWeaponPrimaryClipCount() const { return m_ammoInClip; }
-    unsigned int GetWeaponPrimaryAmmoCount() const { return m_ammoInStockpile; }
-    WeaponActiveState_e GetActiveState() const { return m_ActiveState; }
+    WEAPON_FILE_INFO_HANDLE GetWeaponFileInfoHandle() const
+    {
+        return m_weaponInfoFileHandle;
+    }
+    const FileWeaponInfo_t& GetWpnData() const
+    {
+        return *GetFileWeaponInfoFromHandle(GetWeaponFileInfoHandle());
+    }
+    C_BaseCombatCharacter* GetWeaponOwner() const
+    {
+        return m_weaponOwner.Get();
+    }
+    bool IsReloading() const
+    {
+        return m_bInReload;
+    }
+    int GetWeaponActivity() const
+    {
+        return m_weaponActivity;
+    }
+    float GetWeaponIdleTime() const
+    {
+        return m_flTimeWeaponIdle;
+    }
+    void SetWeaponIdleTime(float time)
+    {
+        m_flTimeWeaponIdle = time;
+    }
+    unsigned int GetWeaponPrimaryClipCount() const
+    {
+        return m_ammoInClip;
+    }
+    unsigned int GetWeaponPrimaryAmmoCount() const
+    {
+        return m_ammoInStockpile;
+    }
+    WeaponActiveState_e GetActiveState() const
+    {
+        return m_ActiveState;
+    }
 
     ScriptStringOrNull GetPrintName() const;
     ScriptStringOrNull GetWeaponDescription() const;
@@ -63,8 +87,8 @@ class C_BaseCombatWeapon : public C_BaseAnimating
     int m_IdealActivity;
     int m_ownerMuzzleAttachment;
     WEAPON_FILE_INFO_HANDLE m_weaponInfoFileHandle; // 0x1280
-    IPhysicsConstraint* m_pConstraint; // 0x1288
-    Vector3D m_cachedAttachmentOrigin; // 0x1290
+    IPhysicsConstraint* m_pConstraint;              // 0x1288
+    Vector3D m_cachedAttachmentOrigin;              // 0x1290
     QAngle m_cachedAttachmentAngles;
     WeaponActiveState_e m_OldActiveState;    // 0x12A8
     C_CombatWeaponClone* m_pWorldModelClone; // 0x12B0

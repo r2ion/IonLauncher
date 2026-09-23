@@ -8,6 +8,8 @@ struct Quaternion;
 enum class eSmartAmmoLockType : int;
 struct animevent_t;
 struct matrix3x4_t;
+struct RecordedAnimFrame;
+struct RecordedAnimLayerFrame;
 
 class CBaseAnimating : public CBaseEntity
 {
@@ -42,18 +44,14 @@ class CBaseAnimating : public CBaseEntity
   public:
     virtual bool GetAttachment(int attachment, matrix3x4_t& transform) = 0; // 262
     virtual void OnScriptAnimStart(int sequence) = 0; // 263
-  protected:
-    virtual void ReservedEntitySlot264() = 0; // 264
-    virtual void ReservedEntitySlot265() = 0; // 265
-    virtual void ReservedEntitySlot266() = 0; // 266
-  public:
+    virtual void OnRecordedAnimationEnded() = 0; // 264
+    virtual void UpdateRecordedAnimation() = 0;  // 265
+    virtual void ApplyRecordedAnimationLayers(const RecordedAnimFrame* frame, const RecordedAnimLayerFrame* layerFrames) = 0; // 266
     virtual void InitBoneControllers() = 0; // 267
     virtual Vector3D GetGroundSpeedVelocity() = 0; // 268
     virtual void InvalidateBoneCache() = 0; // 269
     virtual bool IsViewModel() = 0; // 270
-  protected:
-    virtual void ReservedEntitySlot271() = 0; // 271
-  public:
+    virtual bool ForbidThreadedBoneSetup() const = 0; // 271
     virtual void ClearPredictedAnimEvents() = 0; // 272
     virtual void ExecPredictedAnimEvent(int event, const char* options) = 0; // 273
 

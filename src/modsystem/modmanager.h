@@ -70,7 +70,6 @@ private:
 	{
 		fs::path m_Path;
 		std::string m_Contents;
-		bool m_bRequiredOnClient;
 	};
 	struct KeyValuesPatchSet_t
 	{

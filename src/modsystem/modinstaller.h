@@ -93,6 +93,7 @@ public:
 	bool DecideMigration(uint64_t generation, bool accept);
 	void SetOperationChangedCallback(OperationChangedCallback callback);
 	void Shutdown();
+	static bool NormalizeArchivePath(std::string_view rawName, std::string& normalized, bool& directory, std::string& errorMessage);
 
 	CModInstallService(const CModInstallService&) = delete;
 	CModInstallService& operator=(const CModInstallService&) = delete;
@@ -221,7 +222,6 @@ private:
 	static bool ValidateRemovalRoot(const std::filesystem::path& deletionRoot);
 	static uint64_t ParseManagedModId(const Mod& mod);
 	static bool IsReservedWindowsName(std::string_view component);
-	static bool NormalizeArchivePath(std::string_view rawName, std::string& normalized, bool& directory, std::string& errorMessage);
 	static bool IsSupportedManifestPath(std::string_view relativePath);
 	static bool ContainsSupportedManifest(std::span<const ArchiveEntry> entries, std::string_view prefix);
 	static bool PathMatchesKey(const std::filesystem::path& path, std::string_view key);

@@ -58,22 +58,6 @@ class CKeyValuesPatchMerge
     }
 };
 
-void AppendWeaponModNames(KeyValues& keyValues, std::vector<uint32_t>& names, std::unordered_set<uint32_t>& seen)
-{
-    for (KeyValues* root = &keyValues; root; root = root->m_pPeer)
-    {
-        if (KeyValues* mods = root->FindKey("Mods"))
-        {
-            for (KeyValues* mod = mods->m_pSub; mod; mod = mod->m_pPeer)
-            {
-                const uint32_t name = KeyValuesNameSymbol(*mod);
-                if (seen.insert(name).second)
-                    names.push_back(name);
-            }
-        }
-    }
-}
-
 void ModManager::BuildKeyValuesPatchIndex()
 {
     std::scoped_lock lock(m_KeyValuesMutex);
@@ -88,7 +72,7 @@ void ModManager::BuildKeyValuesPatchIndex()
             auto& patches = m_KeyValuesPatches[NormaliseModFilePath(path)];
             if (!patches)
                 patches = std::make_shared<KeyValuesPatchSet_t>();
-            patches->m_Patches.push_back({mod->m_ModDirectory / "keyvalues" / fs::path(path), {}, mod->RequiredOnClient});
+            patches->m_Patches.push_back({mod->m_ModDirectory / "keyvalues" / fs::path(path), {}});
         }
     }
 }
@@ -107,7 +91,7 @@ void ModManager::InvalidateKeyValuesPatches(const char* pathPrefix)
             auto replacement = std::make_shared<KeyValuesPatchSet_t>();
             replacement->m_Patches.reserve(patches->m_Patches.size());
             for (const KeyValuesPatch_t& patch : patches->m_Patches)
-                replacement->m_Patches.push_back({patch.m_Path, {}, patch.m_bRequiredOnClient});
+                replacement->m_Patches.push_back({patch.m_Path, {}});
             patches = std::move(replacement);
         }
         patches->m_bLoaded = false;
@@ -155,14 +139,9 @@ bool ModManager::ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourc
     if (!patches)
         return true;
 
-    const bool isWeaponData = !strcmp(keyValues.GetName(), "WeaponData");
     KeyValues merged(keyValues.GetName());
     merged.UsesEscapeSequences(keyValues.m_bHasEscapeSequences != 0);
     CKeyValuesPatchMerge merger;
-    std::vector<uint32_t> requiredNames, originalNames, optionalNames;
-    std::unordered_set<uint32_t> requiredSeen, originalSeen, optionalSeen;
-    if (isWeaponData)
-        AppendWeaponModNames(keyValues, originalNames, originalSeen);
 
     for (const KeyValuesPatch_t& patch : patches->m_Patches)
     {
@@ -173,9 +152,6 @@ bool ModManager::ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourc
             spdlog::warn("Could not parse KeyValues patch {}.", patch.m_Path);
             return false;
         }
-        if (isWeaponData)
-            AppendWeaponModNames(parsed, patch.m_bRequiredOnClient ? requiredNames : optionalNames,
-                                 patch.m_bRequiredOnClient ? requiredSeen : optionalSeen);
         for (KeyValues* root = &parsed; root; root = root->m_pPeer)
             merger.Merge(merged, *root);
     }
@@ -184,39 +160,6 @@ bool ModManager::ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourc
     delete keyValues.m_pSub;
     keyValues.m_pSub = std::exchange(merged.m_pSub, nullptr);
 
-    if (isWeaponData)
-    {
-        if (KeyValues* mods = keyValues.FindKey("Mods"))
-        {
-            std::unordered_map<uint32_t, std::pair<KeyValues*, KeyValues*>> byName;
-            for (KeyValues* mod = mods->m_pSub; mod;)
-            {
-                KeyValues* next = mod->m_pPeer;
-                auto& [head, tail] = byName[KeyValuesNameSymbol(*mod)];
-                if (tail)
-                    tail->m_pPeer = mod;
-                else
-                    head = mod;
-                tail = mod;
-                mod->m_pPeer = nullptr;
-                mod = next;
-            }
-            KeyValues** tail = &mods->m_pSub;
-            for (const auto* names : {&originalNames, &requiredNames, &optionalNames})
-            {
-                for (const uint32_t name : *names)
-                {
-                    const auto found = byName.find(name);
-                    if (found == byName.end())
-                        continue;
-                    *tail = found->second.first;
-                    tail = &found->second.second->m_pPeer;
-                    byName.erase(found);
-                }
-            }
-            *tail = nullptr;
-        }
-    }
     return true;
 }
 

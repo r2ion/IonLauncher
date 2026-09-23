@@ -5,6 +5,7 @@
 #include <type_traits>
 
 #include "common/qlimits.h"
+#include "engine/shared/signonstate.h"
 #include "inetchannel.h"
 #include "inetmessage.h"
 #include "tier1/utlvector.h"
@@ -125,6 +126,43 @@ class CNetMessage : public INetMessage
     bool m_bReliable;
     CNetChan* m_NetChannel;
     INetMessageHandler* m_pMessageHandler;
+};
+
+class NET_SignonState : public CNetMessage
+{
+  public:
+    NET_SignonState();
+    NET_SignonState(eSignonState state, std::int32_t spawnCount);
+
+    bool Process() override;
+    bool ReadFromBuffer(bf_read* buffer) override;
+    bool WriteToBuffer(bf_write* buffer) override;
+    int GetType() const override
+    {
+        return static_cast<int>(NetMessageType::net_SignonState);
+    }
+    const char* GetName() const override
+    {
+        return "net_SignonState";
+    }
+    const char* ToString() const override;
+    size_t GetSize() const override
+    {
+        return sizeof(*this);
+    }
+
+    eSignonState m_nSignonState;
+    std::int32_t m_nSpawnCount;
+    char m_szMapName[32];
+    char m_szGameMode[32];
+    std::int32_t m_nPlaylistVersion;
+    // this is a bit fucked up
+	union
+    {
+        bool m_bSendPlaylists;
+        bool m_bIsExtendedClient;
+    };
+    char m_szPlaylistName[32];
 };
 
 class NET_SetConVar : public CNetMessage

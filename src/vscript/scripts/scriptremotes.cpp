@@ -1,327 +1,86 @@
+#include "client/hud_scriptelements.h"
+#include "server/remote_functions.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
-#include "tier0/vanilla.h"
 
-/*
-⢸⣿⣿⣿⢿⣿⣽⣷⣾⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀
-⢸⣿⣿⣿⡶⠛⡿⢻⣿⣿⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⠟⠋⠁⣬⣿⣿⠀⠀⠀
-⠀⣿⣿⣿⣿⡆⠀⠈⠉⠻⢿⣿⣿⣷⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣾⣿⣿⣿⣿⠉⠀⣀⣠⣾⣿⣿⡿⠀⠀⠀
-⠀⠸⣿⣿⣿⣿⣦⡄⢀⠀⠀⠬⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠀⢠⣿⣿⣿⣿⣿⣿⡿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀
-⠀⠀⢻⣿⣿⣿⣿⣷⣼⣧⣴⡞⢹⣿⣿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣽⣿⣿⣿⣿⣿⣿⣿⣶⣬⠉⢻⣿⣿⣀⣠⠀⠀
-⠀⠀⠀⢻⣿⣿⣿⣿⣿⣿⣿⣦⡼⣿⣿⣿⣿⣧⣤⣶⣶⣶⣶⣶⣶⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣤⣿⣿⣿⣿⣿⣿⣤
-⠀⠀⠀⠀⢹⣿⣿⣿⣿⣿⣿⣿⣷⣿⣯⣿⣿⣿⣿⣿⣿⠋⠉⠙⠉⠛⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣙⢿⣿⣿⣿⣿⣿⣿
-⠀⠀⠀⠀⠘⣿⣿⢹⣿⣿⣿⣽⣿⣿⣿⣿⣿⣿⣿⣿⠇⠀⠀⠀⠀⠀⠀⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
-⠀⠀⠀⠀⠀⠈⢿⣿⣿⣿⣿⣿⣿⣿⣿⢿⣿⣿⣿⡿⠀⡀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
-⠀⠀⠀⠀⠀⠀⠀⠙⠻⣿⣟⣿⣿⣿⣿⣿⣿⣿⣿⣧⣂⠕⠀⠁⠀⠨⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠏⠀⣹⣿⣿⣿⣿⣿⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢻⣿⣿⢿⣿⣿⣿⣿⣿⣟⡾⢀⠀⠐⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠁⠀⠀⢹⣿⣿⣿⠟⢿⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⢿⣾⣷⣿⡿⣿⣻⡭⠀⠀⠊⠄⠀⡠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⢲⣾⣾⣿⣿⡏⠀⣸⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣮⡏⣿⢿⣿⣽⣿⣿⡔⠀⠈⠀⠀⠛⢀⣿⣿⣿⣿⣽⣿⣿⣷⣿⣿⣿⣿⠀⠈⣿⣿⣿⣿⠿⡿⢿⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣷⢭⣻⣫⣿⣿⣿⡵⠀⠓⡐⠠⠡⢭⣽⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠛⢛⣋⣿⣿⣿⣾⣿⣿⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣽⣶⡴⣿⣿⣿⠏⠉⠀⢀⣧⡀⠀⣜⣟⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⣿⣿⡟⢻⣿⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⣿⡿⠋⣻⡟⠀⠀⠐⠀⢯⠀⠀⢨⣽⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠉⠉⠉⠙⠒⠛⠿⢷⡈⣿⣿
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⡃⠀⠀⠀⠀⠀⠀⠒⢬⣦⡄⢀⡽⠻⣿⣿⣿⣿⣿⣿⣿⠟⡁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣆⠀⠀⠀⠀⠀⠀⢐⠊⠈⠂⣾⠀⠂⠀⠈⣹⣿⣿⣿⡃⢰⠁⣀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡄⠂⠀⠀⠀⠀⣀⣰⣥⣥⠀⠠⢿⣿⣧⣽⡄⠀⣿⣿⠋⠀⣼⣞⠁⠈⢢⠀⢀⡔⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⣿⣿⣿⣾⣶⣿⣿⣿⣿⣿⣤⢺⡇⠀⠐⠋⠀⠁⠠⠞⣶⡛⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⡿⢿⣿⣿⣿⣿⣿⣿⣿⣿⠿⡌⠀⠁⠀⠀⠀⡀⠂⠀⡯⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⡀⠈⠻⣷⣿⣿⣿⣿⣿⣯⣿⣿⣿⢿⣽⠏⠀⠀⠀⠀⠰⠏⠀⠠⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢙⢮⣷⣿⣿⣿⠿⠋⠉⣹⡽⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⢶⣒⣋⣼⣋⡻⠾⠘⠋⠀⠀⠀⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-		sonny missed breakfast on schedule because of this
-*/
+#include <string>
 
-// i hate this but checking for _remote_functions_mp.gnut in the stackinfos is unreliable for whatever reason so we have to just match the
-// function names
-std::set<std::string> g_VanillaRemoteFunctions = {
-	"ServerCallback_CreateSpectrePaletteLighting",
-	"ServerCallback_StopWargamesPodAmbienceSound",
-	"ServerCallback_SpawnIMCFactionLeaderForIntro",
-	"ServerCallback_SpawnMilitiaFactionLeaderForIntro",
-	"ServerCallback_ClearFactionLeaderIntro",
-	"ServerCallback_PlayPodTransitionScreenFX",
-	"ServerCallback_DpadCommSay",
-	"ServerCallback_CaptialShips",
-	"ServerCallback_RewardReadyMessage",
-	"ServerCallback_TitanReadyMessage",
-	"ServerCallback_FPS_Test",
-	"ServerCallback_FPS_Avg",
-	"DebugSetFrontline",
-	"ServerCallback_StartCinematicNodeEditor",
-	"ServerCallback_AISkitDebugMessage",
-	"ServerCallback_UpdateClientChallengeProgress",
-	"ServerCallback_EventNotification",
-	"SCB_RefreshBurnCardSelector",
-	"ServerCallback_EjectConfirmed",
-	"SCB_AddGrenadeIndicatorForEntity",
-	"SCB_SetUserPerformance",
-	"SCB_UpdateSponsorables",
-	"SCB_ClientDebug",
-	"ScriptCallback_UnlockAchievement",
-	"ServerCallback_UpdateHeroStats",
-	"ServerCallback_GiveSentryTurret",
-	"ServerCallback_TurretReport",
-	"ServerCallback_TurretWorldIconShow",
-	"ServerCallback_TurretWorldIconHide",
-	"ServerCallback_LoadoutNotification",
-	"ServerCallback_ItemNotification",
-	"ServerCallback_AnnouncePathLevelUp",
-	"ServerCallback_SonarPulseFromPosition",
-	"ServerCallback_OpenShopMenu",
-	"ServerCallback_CloseShopMenu",
-	"ServerCallback_StartShieldPlayer",
-	"ServerCallback_StopShieldPlayer",
-	"ServerCallback_AddShieldedPlayer",
-	"ServerCallback_RemoveShieldedPlayer",
-	"SCB_SmartAmmoForceLockedOntoHudDraw",
-	"ServerCallback_UpdateMarker",
-	"DisablePrecacheErrors",
-	"RestorePrecacheErrors",
-	"SCB_PlayTitanCockpitSounds",
-	"SCB_StopTitanCockpitSounds",
-	"ServerCallback_RewardUsed",
-	"ServerCallback_VanguardUpgradeMessage",
-	"ServerCallback_HardpointChanged",
-	"ServerCallback_DisableHudForEvac",
-	"ServerCallback_AT_AnnouncePreParty",
-	"ServerCallback_AT_AnnounceBoss",
-	"ServerCallback_AT_AnnounceWaveOver",
-	"ServerCallback_AT_YouKilledBoss",
-	"ServerCallback_AT_YouCollectedBox",
-	"ServerCallback_AT_WarnPlayerBounty",
-	"ServerCallback_AT_YouSurvivedBounty",
-	"ServerCallback_AT_TeammateSurvivedBounty",
-	"ServerCallback_AT_PromptBossRodeo",
-	"ServerCallback_AT_PromptBossExecute",
-	"ServerCallback_AT_BossDoomed",
-	"ServerCallback_AT_OnPlayerConnected",
-	"ServerCallback_AT_UpdateMostWanted",
-	"ServerCallback_AT_ScoreSplashStartMultTimer",
-	"ServerCallback_AT_ShowRespawnBonusLoss",
-	"ServerCallback_AT_BankOpen",
-	"ServerCallback_AT_BankClose",
-	"ServerCallback_AT_FinishDeposit",
-	"ServerCallback_AT_ShowATScorePopup",
-	"ServerCallback_AT_BossDamageScorePopup",
-	"ServerCallback_AT_PlayerKillScorePopup",
-	"ServerCallback_AT_ShowStolenBonus",
-	"ServerCallback_AT_ClearCampAndBossPortraits",
-	"ServerCallback_AT_PulseBankAntena",
-	"ServerCallback_AITDM_OnPlayerConnected",
-	"ServerCallback_CP_PlayMatchEndingMusic",
-	// "ServerCallback_CP_PrintHardpointOccupants",
-	"ServerCallback_CTF_PlayMatchNearEndMusic",
-	"ServerCallback_CTF_StartReturnFlagProgressBar",
-	"ServerCallback_CTF_StopReturnFlagProgressBar",
-	"ServerCallback_FW_FriendlyBaseAttacked",
-	"ServerCallback_FW_NotifyTitanRequired",
-	"ServerCallback_FW_NotifyEnterFriendlyArea",
-	"ServerCallback_FW_NotifyExitFriendlyArea",
-	"ServerCallback_FW_NotifyEnterEnemyArea",
-	"ServerCallback_FW_NotifyExitEnemyArea",
-	"ServerCallback_FW_SetObjective",
-	"ServerCallback_MFD_StartNewMarkCountdown",
-	"ServerCallback_LTSThirtySecondWarning",
-	"ServerCallback_ColiseumDisplayTickets",
-	"ServerCallback_ColiseumIntro",
-	"ServerCallback_SPEEDBALL_LastPlayer",
-	"ServerCallback_SPEEDBALL_LastFlagOwner",
-	"ServerCallback_FD_AnnouncePreParty",
-	"ServerCallback_FD_ClearPreParty",
-	"ServerCallback_FD_PingMinimap",
-	"ServerCallback_FD_MoneyFly",
-	"ServerCallback_FD_SayThanks",
-	"ServerCallback_FD_DisplayHarvesterKiller",
-	"ServerCallback_FD_NotifyStoreOpen",
-	"ServerCallback_ShowCycleHint",
-	"ServerCallback_OpenBoostStore",
-	"ServerCallback_UpdateMoney",
-	"ServerCallback_UpdateTeamReserve",
-	"ServerCallback_EnableDropshipBoostStore",
-	"ServerCallback_DisableDropshipBoostStore",
-	"ServerCallback_UpdateTurretCount",
-	"ServerCallback_UpdatePlayerHasBattery",
-	"ServerCallback_UpdateAmpedWeaponState",
-	"ServerCallback_BoostStoreTitanHint",
-	"ServerCallback_UpdateGameStats",
-	"ServerCallback_ShowGameStats",
-	"ServerCallback_FD_UpdateWaveInfo",
-	"ServerCallback_FD_NotifyMVP",
-	"ServerCallback_NukeGrenadeWindowOpen",
-	"ServerCallback_NukeGrenadeWindowClosed",
-	"ServerCallback_RegisterTeamTitanMenuButtons",
-	"ServerCallback_OpenTeamTitanMenu",
-	"ServerCallback_CloseTeamTitanMenu",
-	"ServerCallback_UpdateTeamTitanMenuTime",
-	"ServerCallback_UpdateTeamTitanSelectionMenu",
-	"ServerCallback_ResetEntSkyScale",
-	"ServerCallback_SetEntSkyScale",
-	"ServerCallback_ResetMapSettings",
-	"ServerCallback_SetMapSettings",
-	"ServerCallback_ToneMapping",
-	"ServerCallback_LaptopFX",
-	"ServerCallback_YouDied",
-	"ServerCallback_YouRespawned",
-	"ServerCallback_ShowDeathHint",
-	"ServerCallback_ShowNextSpawnMessage",
-	"ServerCallback_HideNextSpawnMessage",
-	"ServerCallback_AnnounceWinner",
-	"ServerCallback_AnnounceRoundWinner",
-	"ServerCallback_GuidedMissileDestroyed",
-	"ServerCallback_DoClientSideCinematicMPMoment",
-	"ServerCallback_SetAssistInformation",
-	"ServerCallback_TitanEMP",
-	"ServerCallback_AirburstIconUpdate",
-	"ServerCallback_TitanCockpitBoot",
-	"ServerCallback_DataKnifeStartLeech",
-	"ServerCallback_DataKnifeCancelLeech",
-	"ServerCallback_ControlPanelRefresh",
-	"ServerCallback_TurretRefresh",
-	"ServerCallback_CreateEvacShipIcon",
-	"ServerCallback_DestroyEvacShipIcon",
-	"ServerCallback_AddCapturePoint",
-	"ServerCallback_TitanDisembark",
-	"ServerCallback_OnEntityKilled",
-	"ServerCallback_OnTitanKilled",
-	"ServerCallback_PlayerConnectedOrDisconnected",
-	"SCBUI_PlayerConnectedOrDisconnected",
-	"ServerCallback_PlayerChangedTeams",
-	"ServerCallback_AnnounceTitanReservation",
-	"ServerCallback_ReplacementTitanSpawnpoint",
-	"ServerCallback_TitanTookDamage",
-	"ServerCallback_PilotTookDamage",
-	"ServerCallback_PlayerUsesBurnCard",
-	"ServerCallback_ScreenShake",
-	"ServerCallback_MinimapPulse",
-	"ServerCallback_UpdateOverheadIconForNPC",
-	"ServerCallback_SetFlagHomeOrigin",
-	"ServerCallback_StartBatteryTimer",
-	"ServerCallback_TitanBatteryDown",
-	"ServerCallback_SpottingHighlight",
-	"ServerCallback_SpottingDeny",
-	"ServerCallback_PlayerLeveledUp",
-	"ServerCallback_TitanLeveledUp",
-	"ServerCallback_TitanXPAdded",
-	"ServerCallback_WeaponLeveledUp",
-	"ServerCallback_WeaponXPAdded",
-	"ServerCallback_WeaponChallengeCompleted",
-	"ServerCallback_TitanChallengeCompleted",
-	"ServerCallback_PlayerChallengeCompleted",
-	"ServerCallback_UpdateRodeoRiderHud",
-	"ServerCallback_UpdateTeamTitanSelection",
-	"ServerCallback_FFASuddenDeathAnnouncement",
-	"ServerCallback_IncomingAirdrop",
-	"ServerCallback_TitanLostHealthSegment",
-	"ServerCallback_PlayScreenFXWarpJump",
-	"ServerCallback_Phantom_Scan",
-	"ServerCallback_RodeoScreenShake",
-	"ServerCallback_RodeoerEjectWarning",
-	"ServerCallback_TitanEmbark",
-	"ServerCallback_DogFight",
-	"ServerCallback_Announcement",
-	"ServerCallback_GameModeAnnouncement",
-	"ServerCallback_ScoreEvent",
-	"ServerCallback_CallingCardEvent",
-	"ServerCallback_PlayConversation",
-	"ServerCallback_PlayTitanConversation",
-	"ServerCallback_PlaySquadConversation",
-	"ServerCallback_CreateDropShipIntLighting",
-	"ServerCallback_EvacObit",
-	"ServerCallback_ShowTurretHint",
-	"ServerCallback_HideTurretHint",
-	"ServerCallback_ShowTurretInUseHint",
-	"ServerCallback_UpdateBurnCardTitle",
-	"ServerCallback_UpdateTitanModeHUD",
-	"ServerCallback_GiveMatchLossProtection",
-	"ServerCallback_SquadLeaderBonus",
-	"ServerCallback_SquadLeaderDoubleXP",
-	"ServerCallback_TitanFallWarning",
-	"SCB_TitanDialogue",
-	"ServerCallback_PlayLobbyScene",
-	"ServerCallback_PilotCreatedGunShield",
-	"ServerCallback_BeginSmokeSight",
-	"ServerCallback_EndSmokeSight",
-	"UpdateCachedPilotLoadout",
-	"UpdateCachedTitanLoadout",
-	"UpdateAllCachedPilotLoadouts",
-	"UpdateAllCachedTitanLoadouts",
-	"ServerCallback_UpdatePilotModel",
-	"ServerCallback_UpdateTitanModel",
-	"ServerCallback_MVUpdateModelBounds",
-	"ServerCallback_MVEnable",
-	"ServerCallback_MVDisable",
-	"ServerCallback_ModelViewerDisableConflicts",
-	"ServerCallback_Test",
-	"ServerCallback_SetClassicSkyScale",
-	"ServerCallback_ResetClassicSkyScale",
-	"ServerCallback_ClientInitComplete",
-	"SCB_LockCapturePointForTeam",
-	"SCB_UnlockCapturePointForTeam",
-	"ServerCallback_SetEntityVar",
-	"ServerCallback_SetServerVar",
-	"ServerCallback_PlayTeamMusicEvent",
-	"ServerCallback_PlayMusicToCompletion",
-	"ServerCallback_PlayMusic",
-	"ServerCallback_TitanCockpitEMP",
-	"ServerCallback_PlayerEarnedBurnCard",
-	"ServerCallback_PlayerStoppedBurnCard",
-	"ServerCallback_SetUIVar",
-	"ServerCallback_ShopPurchaseStatus",
-	"ServerCallback_OpenPilotLoadoutMenu",
-	"ServerCallback_GenericDialog",
-	"Dev_PrintClientMessage",
-	"Dev_BuildClientMessage",
-	"ServerCallback_DeploymentDeath",
-	"ServerCallback_AddArcConnectorToy",
-	"ServerCallback_PlayDialogueOnEntity",
-	"ServerCallback_PlayDialogueAtPosition",
-	"ServerCallback_PlayerConversation",
-	"SCB_SetDoubleXPStatus",
-	"SCB_SetScoreMeritState",
-	"SCB_SetCompleteMeritState",
-	"SCB_SetWinMeritState",
-	"SCB_SetEvacMeritState",
-	"SCB_SetMeritCount",
-	"SCB_SetWeaponMeritCount",
-	"SCB_SetTitanMeritCount",
-	"SCB_UpdateTitanLoadouts",
-	"SCB_SetHighlightFlagDisableDeathFade",
-	"SCB_UpdateRankedPlayMenu",
-	"SCB_UpdateBC",
-	"SCB_RefreshBlackMarket",
-	"ServerCallback_ShopOpenBurnCardPack",
-	"ServerCallback_ShopOpenGenericItem",
-	"SCB_RefreshCards",
-	"SCB_UpdateEmptySlots",
-	"SCB_UpdateBCFooter",
-	"SCB_MarkedChanged",
-	"ServerCallback_PlayBattleChatter",
-	"ServerCallback_PlayFactionDialogue",
-	"ServerCallback_ForcePlayFactionDialogue",
-	"ServerCallback_SpawnFactionCommanderInDropship",
-	"ServerCallback_PlaySpectreChatterMP",
-	"ServerCallback_PlayGruntChatterMP",
-	"ServerCallback_EarnMeterAwarded",
-	"ServerCallback_GetObjectiveReminderOnLoad",
-	"ServerCallback_ClearObjectiveReminderOnLoad",
-	"ServerCallback_PingMinimap",
-};
-
-REPLACE_SQFUNC(Remote_RegisterFunction, ScriptContext::CLIENT)
+template <ScriptContext context> SQRESULT CallOriginalRemoteScriptFunction(const char* functionName, HSQUIRRELVM sqvm)
 {
-	if (g_pVanillaCompatibility->GetVanillaCompatibility())
-	{
-		std::string functionName = g_pSquirrel[context]->getstring(sqvm, 1);
+    SquirrelManager* manager = g_pSquirrel[context];
+    const auto original = manager->m_funcOriginals.find(functionName);
+    if (original != manager->m_funcOriginals.end() && original->second)
+        return original->second(sqvm);
 
-		// spdlog::info("Remote_RegisterFunction called with function name: {}", functionName);
+    const std::string error = fmt::format("function '{}' is unavailable.", functionName);
+    manager->raiseerror(sqvm, error.c_str());
+    return SQRESULT_ERROR;
+}
 
-		if (g_VanillaRemoteFunctions.contains(functionName))
-			return g_pSquirrel[context]->m_funcOriginals["Remote_RegisterFunction"](sqvm);
-		else
-		{
-			spdlog::warn("Remote_RegisterFunction called with unknown function name: {}", functionName);
-			return SQRESULT_NULL;
-		}
-	}
+REPLACE_SQFUNC(Remote_BeginRegisteringFunctions, ScriptContext::CLIENT | ScriptContext::SERVER)
+{
+    if constexpr (context == ScriptContext::CLIENT)
+        CHudScriptElements::BeginRemoteFunctionRegistration();
+    else
+        g_ServerScriptRemoteFunctions.BeginRegistration();
 
-	return g_pSquirrel[context]->m_funcOriginals["Remote_RegisterFunction"](sqvm);
+    return CallOriginalRemoteScriptFunction<context>("Remote_BeginRegisteringFunctions", sqvm);
+}
+
+REPLACE_SQFUNC(Remote_EndRegisteringFunctions, ScriptContext::CLIENT | ScriptContext::SERVER)
+{
+    const SQRESULT result = CallOriginalRemoteScriptFunction<context>("Remote_EndRegisteringFunctions", sqvm);
+
+    if constexpr (context == ScriptContext::CLIENT)
+        CHudScriptElements::FinishRemoteFunctionRegistration();
+    else
+        g_ServerScriptRemoteFunctions.FinishRegistration();
+
+    return result;
+}
+
+template <ScriptContext context> static SQRESULT RegisterRemoteFunction(HSQUIRRELVM sqvm, const bool extended)
+{
+    bool callOriginal = false;
+    SQRESULT result;
+    if constexpr (context == ScriptContext::CLIENT)
+        result = CHudScriptElements::RegisterRemoteFunction(sqvm, extended, callOriginal);
+    else
+        result = g_ServerScriptRemoteFunctions.RegisterFunction(sqvm, extended, callOriginal);
+
+    if (SQ_FAILED(result) || !callOriginal)
+        return result;
+
+    return CallOriginalRemoteScriptFunction<context>("Remote_RegisterFunction", sqvm);
+}
+
+REPLACE_SQFUNC_WITH_ALIAS(Remote_RegisterFunction, "string name, bool extended = false", "NS_InternalRemote_RegisterFunction",
+                          ScriptContext::CLIENT | ScriptContext::SERVER)
+{
+    SquirrelManager* manager = g_pSquirrel[context];
+    const SQInteger parameterCount = sqvm->_top - sqvm->_stackbase - 1;
+    if (parameterCount != 1)
+    {
+        const std::string error = fmt::format("Remote_RegisterFunction expected 1 argument, got {}.", parameterCount);
+        manager->raiseerror(sqvm, error.c_str());
+        return SQRESULT_ERROR;
+    }
+
+    return RegisterRemoteFunction<context>(sqvm, false);
+}
+
+ADD_NAMED_SQFUNC_WITH_DEFAULTS("var", "Remote_RegisterFunction", Remote_RegisterFunctionWithExtended, "string name, bool extended = false",
+                               "Registers a remote function. Extended-only functions are sent by name and are unavailable to normal clients.", 1,
+                               ".sb", ScriptContext::CLIENT | ScriptContext::SERVER)
+{
+    SquirrelManager* manager = g_pSquirrel[context];
+    const SQInteger parameterCount = sqvm->_top - sqvm->_stackbase - 1;
+    if (parameterCount < 1 || parameterCount > 2)
+    {
+        const std::string error = fmt::format("Remote_RegisterFunction expected 1 or 2 arguments, got {}.", parameterCount);
+        manager->raiseerror(sqvm, error.c_str());
+        return SQRESULT_ERROR;
+    }
+
+    const bool extended = parameterCount == 2 && manager->getbool(sqvm, 2);
+    return RegisterRemoteFunction<context>(sqvm, extended);
 }

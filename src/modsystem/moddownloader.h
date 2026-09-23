@@ -4,8 +4,10 @@
 #include "mod.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 
-#include <optional>
 #include <atomic>
+#include <mutex>
+#include <optional>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
@@ -56,10 +58,12 @@ private:
 	char* modsListUrl;
 	rapidjson::Document m_Document;
 	std::vector<modentry_s> m_ParsedSchemaMods;
-	bool m_bIsListeningForServerMods = false;
+	mutable std::mutex m_ServerModInfoMutex;
+	std::atomic_bool m_bIsListeningForServerMods{false};
 	std::vector<modentry_s> m_ServerRequestedMods;
+	std::unordered_set<int> m_ReceivedServerModIndices;
 	int m_iTotalServerRequestedMods = 0;
-	bool m_bDownloadCallbacksActive = false;
+	std::atomic_bool m_bDownloadCallbacksActive{false};
 	std::atomic_bool m_bDownloadThreadRunning {false};
 	std::atomic<uint64_t> m_WorkshopOperationGeneration{0};
 	std::atomic<ModDownloadSourceChoice> m_SourceChoice{ModDownloadSourceChoice::NotDecided};
@@ -126,6 +130,7 @@ private:
 
 	void ParseSchemaDocument();
 	bool DownloadModInternal(const PendingModDownload& download);
+	bool StartModDownload(std::string modName, std::string modVersion, const VerifiedModVersion& version);
 	bool StartDownloadThread(
 		std::string modName,
 		std::string modVersion,
@@ -139,29 +144,21 @@ public:
 
 	void NotifyDownloadStarted()
 	{
-		if (m_bDownloadCallbacksActive)
-			return;
 		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
 			return;
-		m_bDownloadCallbacksActive = true;
+		if (m_bDownloadCallbacksActive.exchange(true, std::memory_order_acq_rel))
+			return;
 		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStarted");
 	}
 
-	void NotifyDownloadStopped()
-	{
-		if (!m_bDownloadCallbacksActive)
-			return;
-		m_bDownloadCallbacksActive = false;
-		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
-			return;
-		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStopped");
-	}
+	void NotifyDownloadStopped();
 
-	void NotifyConfirmDownloadMods(int modCount, const std::string& serverName)
+	bool NotifyConfirmDownloadMods(int modCount, const std::string& serverName)
 	{
 		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
-			return;
+			return false;
 		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", modCount, serverName.c_str());
+		return true;
 	}
 
 	bool NotifyChooseDownloadSource(const modentry_s& requested, const ModWorkshopAlternative& alternative)
@@ -190,7 +187,8 @@ public:
 
 	void FetchModsListFromAPI();
 	bool IsModAuthorized(std::string_view modName, std::string_view modVersion);
-	void DownloadMod(std::string modName, std::string modVersion);
+	bool DownloadMod(std::string modName, std::string modVersion);
+	bool DownloadServerMod(const modentry_s& mod);
 	bool IsDownloadThreadRunning() const { return m_bDownloadThreadRunning.load(); }
 	bool IsDownloadInProgress() const
 	{
@@ -242,13 +240,13 @@ public:
 	static int ServerModFetchingProgressCallback(
 		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
 	std::vector<modentry_s>& GetServerModsToInstall() { return m_ParsedSchemaMods; }
-	std::vector<modentry_s>& GetServerRequestedMods() { return m_ServerRequestedMods; }
+	std::vector<modentry_s> GetServerRequestedMods() const;
+	void BeginServerModInfoRequest();
+	void StopServerModInfoRequest();
+	void ClearServerRequestedMods();
 	bool SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& mod, int index, int totalMods);
 	bool RecvModInfoConnectionlessPacket(bf_read& msg);
-	bool AllowingServerModDownloads() { return m_bIsListeningForServerMods; }
-	void SetIsListeningForServerMods(bool state) { m_bIsListeningForServerMods = state; }
-	bool IsListeningForServerMods() { return m_bIsListeningForServerMods; }
-	void SetTotalServerRequestedMods(int totalMods) { m_iTotalServerRequestedMods = totalMods; }
-	int GetTotalServerRequestedMods() { return m_iTotalServerRequestedMods; }
+	bool IsListeningForServerMods() const { return m_bIsListeningForServerMods.load(std::memory_order_acquire); }
+	int GetTotalServerRequestedMods() const;
 	float GetServerModInfoTimeoutSeconds() const { return SERVER_MODINFO_TIMEOUT_SECONDS; }
 };

@@ -1,10 +1,20 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Purpose: User-message registration and client dispatch.
+//
+//=============================================================================//
+
+#ifndef USERMESSAGES_H
+#define USERMESSAGES_H
+#ifdef _WIN32
 #pragma once
+#endif
 
-class CUserMessageManager;
+#include "tier1/bitbuf.h"
+#include "tier1/utldict.h"
+#include "tier1/utlvector.h"
 
-extern CUserMessageManager* g_pUserMessageManager;
-
-enum UserMessageType
+enum UserMessages_t
 {
 	Geiger = 0,
 	Train,
@@ -69,13 +79,37 @@ enum UserMessageType
 	RemoteWeaponReload,
 };
 
-class CUserMessageManager
-{
-private:
-	std::vector<std::pair<const char*, unsigned int>> m_UserMessages;
+typedef void (*pfnUserMsgHook)(bf_read& msg);
 
-public:
-	void Register(const char* pszName, unsigned int uiSize);
-	void RegisterUserMessages();
-	void HookMessage(const char* pszName, void* pCallback);
+class CUserMessage
+{
+  public:
+    int size;
+    const char* name;
+
+    CUtlVector<pfnUserMsgHook> clienthooks;
 };
+
+class CUserMessages
+{
+  public:
+    CUserMessages();
+    ~CUserMessages();
+
+    int LookupUserMessage(const char* name);
+    int GetUserMessageSize(int index);
+    const char* GetUserMessageName(int index);
+    bool IsValidIndex(int index);
+
+    void Register(const char* name, int size);
+
+    void HookMessage(const char* name, pfnUserMsgHook hook);
+    bool DispatchUserMessage(int msgType, bf_read& msgData);
+
+  private:
+    CUtlDict<CUserMessage*, int> m_UserMessages;
+};
+
+extern CUserMessages* usermessages;
+
+#endif // USERMESSAGES_H

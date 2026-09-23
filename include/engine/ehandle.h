@@ -3,6 +3,8 @@
 
 #include "engine/basehandle.h"
 
+using EHANDLE = CBaseHandle;
+
 template <class T> class CHandle : public CBaseHandle
 {
   public:

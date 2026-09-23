@@ -1281,7 +1281,6 @@ bool CModInstallService::ResolveThunderstore(const std::string& packageId, const
 	}
 	resolution.visiting.erase(key);
 	resolution.resolved.insert(key);
-	// Resolve even current dependencies first: their own pinned dependency graph must remain satisfied.
 	if (!root && installed && !installed->containedMods.empty() && installed->installedVersion == details.m_Version)
 		return true;
 
@@ -1440,7 +1439,7 @@ bool CModInstallService::StagePlan(PackagePlan& plan, size_t planIndex, const fs
 		if (!iconDownloaded)
 			spdlog::warn("Could not cache the package icon for '{}': {}", plan.name, iconError.message);
 	}
-	// Provider markers supplied by an archive must never override the provider selected by the user.
+
 	for (const char* marker : {MODWORKSHOP_MARKER_FILE, THUNDERSTORE_MARKER_FILE, MODWORKSHOP_STATE_FILE})
 	{
 		filesystemError.clear();

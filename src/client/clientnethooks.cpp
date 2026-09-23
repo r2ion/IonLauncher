@@ -25,7 +25,7 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 		switch(packetType)
 		{
 			case S2C_MODDOWNLOADINFO:
-				return false;
+				return g_pModDownloader->RecvModInfoConnectionlessPacket(msg);
 			case S2A_CUSTOMSERVERINFO:
 				version = msg.ReadLong();
 				if(version != CUSTOMSERVERINFO_VERSION)

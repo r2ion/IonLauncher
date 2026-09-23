@@ -4,6 +4,7 @@
 #include "config/profile.h"
 #include "engine/r2engine.h"
 #include "core/tier0.h"
+#include "tier0/frametask.h"
 #include "modsystem/modinstaller.h"
 #include "modsystem/modinventory.h"
 #include "modsystem/platform/modworkshop.h"
@@ -20,6 +21,7 @@
 #include <compat/zip.h>
 #include <thread>
 #include <future>
+#include <chrono>
 #include <bcrypt.h>
 #include <winternl.h>
 #include <fstream>
@@ -110,6 +112,25 @@ ModDownloader::ModDownloader()
 	}
 }
 
+void ModDownloader::NotifyDownloadStopped()
+{
+	if (!m_bDownloadCallbacksActive.exchange(false, std::memory_order_acq_rel))
+		return;
+
+	if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
+		return;
+
+	g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_DownloadingModsStopped");
+	if (ThreadInMainThread())
+		return;
+
+	auto completion = std::make_shared<std::promise<void>>();
+	std::future<void> future = completion->get_future();
+	g_TaskQueue.Dispatch([completion] { completion->set_value(); }, 1);
+	if (future.wait_for(std::chrono::seconds(10)) != std::future_status::ready)
+		spdlog::error("Timed out waiting for the UI to process the mod download stopped callback.");
+}
+
 std::optional<ModDownloader::ModWorkshopAlternative> ModDownloader::FindModWorkshopAlternative(const modentry_s& requested) const
 {
 	if (requested.platform != ModSource::Thunderstore)
@@ -176,6 +197,8 @@ bool ModDownloader::DownloadModWorkshop(const modentry_s& requested, const ModWo
 	    .name = requested.name,
 	    .version = requested.version,
 	};
+	NotifyDownloadStarted();
+	ScopeGuard stopDownloadNotifications([this] { NotifyDownloadStopped(); });
 
 	CModInstallService& service = CModInstallService::Get();
 	const std::optional<ModTrackedPackage> installed = CModInventory::Get().FindPackage(alternative.modId);
@@ -673,7 +696,7 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 	modState.ratio = 0.0f;
 
 	// extracts the file in the archive at zipFilename to fileDestination on disk
-	auto extractFile = [&](fs::path fileDestination, char* zipFilename) -> bool
+	auto extractFile = [&](fs::path fileDestination, char* zipFilename, bool directory) -> bool
 	{
 		std::error_code ec;
 		spdlog::info("=> {}", fileDestination.generic_string());
@@ -691,7 +714,7 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 		}
 
 		// If current file is a directory, create directory...
-		if (fileDestination.generic_string().back() == '/')
+		if (directory)
 		{
 			// Create directory
 			if (!std::filesystem::create_directory(fileDestination, ec) && ec.value() != 0)
@@ -811,17 +834,34 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 		char zipFilename[256];
 		unz_file_info64 fileInfo;
 		status = unzGetCurrentFileInfo64(file, &fileInfo, zipFilename, sizeof(zipFilename), NULL, 0, NULL, 0);
-
-		// Get the destination path, correcting for rootDir
-		fs::path zipFilePath = zipFilename;
-		fs::path relativePath = zipFilePath.lexically_relative(rootDir);
-		// don't try to do anything with our root directory
-		if (zipFilePath.compare(rootDir))
+		if (status != UNZ_OK || fileInfo.size_filename >= sizeof(zipFilename))
 		{
-			fs::path fileDestination = destinationPath / relativePath;
+			spdlog::error("Failed reading a safe archive entry name.");
+			modState.state = FAILED_READING_ARCHIVE;
+			return;
+		}
 
-			// Extract file
-			if (!extractFile(fileDestination, zipFilename))
+		std::string normalizedArchivePath;
+		bool archiveDirectory = false;
+		std::string archivePathError;
+		if (!CModInstallService::NormalizeArchivePath(zipFilename, normalizedArchivePath, archiveDirectory, archivePathError))
+		{
+			spdlog::error("Refusing to extract mod archive: {}", archivePathError);
+			modState.state = FAILED_READING_ARCHIVE;
+			return;
+		}
+
+		const fs::path zipFilePath = fs::path(normalizedArchivePath);
+		const fs::path relativePath = rootDir.empty() ? zipFilePath : zipFilePath.lexically_relative(rootDir);
+		const auto firstComponent = relativePath.begin();
+		const bool isWithinRoot =
+		    !relativePath.empty() && relativePath != "." && !relativePath.is_absolute() && firstComponent != relativePath.end() &&
+		    *firstComponent != "..";
+		if (isWithinRoot)
+		{
+			const fs::path fileDestination = destinationPath / relativePath;
+
+			if (!extractFile(fileDestination, zipFilename, archiveDirectory))
 				return;
 
 			// Abort mod extraction if needed
@@ -848,34 +888,78 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 	modState.state = DONE;
 }
 
-void ModDownloader::DownloadMod(std::string modName, std::string modVersion)
+bool ModDownloader::StartModDownload(std::string modName, std::string modVersion, const VerifiedModVersion& version)
 {
 	if (IsDownloadInProgress())
 	{
 		spdlog::warn("Download already in progress, ignoring request for {} {}", modName, modVersion);
-		return;
+		return false;
 	}
 
-	// Check if mod can be auto-downloaded
-	if (!IsModAuthorized(std::string_view(modName), std::string_view(modVersion)))
-	{
-		spdlog::warn("Tried to download a mod that is not verified, aborting.");
-		modState.state = ABORTED;
-		return;
-	}
-
-	// Remove old versions of this mod before downloading the new version
-	for (auto& mod : g_pModManager->m_LoadedMods)
+	for (const auto& mod : g_pModManager->m_LoadedMods)
 	{
 		if (mod.Name == modName && mod.Version != modVersion && mod.IsRemote())
 		{
 			spdlog::info("Removing old version {} of mod {} before downloading version {}", mod.Version, modName, modVersion);
 			g_pModManager->DeleteRemoteMod(mod.Name.c_str(), mod.Version.c_str());
+			break;
 		}
 	}
 
-	VerifiedModVersion fullVersion = verifiedMods[modName].versions[modVersion];
-	StartDownloadThread(modName, modVersion, fullVersion, std::nullopt, std::nullopt, {});
+	return StartDownloadThread(modName, modVersion, version, std::nullopt, std::nullopt, {});
+}
+
+bool ModDownloader::DownloadMod(std::string modName, std::string modVersion)
+{
+	if (!IsModAuthorized(modName, modVersion))
+	{
+		spdlog::warn("Tried to download a mod that is not verified, aborting.");
+		modState.state = ABORTED;
+		return false;
+	}
+
+	const VerifiedModVersion& version = verifiedMods.at(modName).versions.at(modVersion);
+	return StartModDownload(std::move(modName), std::move(modVersion), version);
+}
+
+bool ModDownloader::DownloadServerMod(const modentry_s& mod)
+{
+	VerifiedModVersion version{
+	    .checksum = mod.checksum,
+	    .platform = mod.platform,
+	};
+
+	switch (mod.platform)
+	{
+	case ModSource::Thunderstore:
+		version.downloadLink = CThunderstoreClient::BuildDownloadUrl(mod.dependencyString);
+		break;
+	case ModSource::Unknown:
+		version.platform = ModSource::Remote;
+		version.downloadLink = mod.url;
+		break;
+	default:
+		spdlog::warn("Server requested mod {} v{} from an unsupported platform.", mod.name, mod.version);
+		modState = {
+		    .state = UNKNOWN_PLATFORM,
+		    .name = mod.name,
+		    .version = mod.version,
+		};
+		return false;
+	}
+
+	if (version.downloadLink.empty())
+	{
+		spdlog::warn("Server requested mod {} v{} without a valid download URL.", mod.name, mod.version);
+		modState = {
+		    .state = MOD_FETCHING_FAILED,
+		    .name = mod.name,
+		    .version = mod.version,
+		};
+		return false;
+	}
+
+	return StartModDownload(mod.name, mod.version, version);
 }
 
 bool ModDownloader::DownloadModInternal(const PendingModDownload& download)
@@ -970,6 +1054,11 @@ bool ModDownloader::StartDownloadThread(
 		spdlog::warn("Download thread already running, skipping start for {} {}", modName, modVersion);
 		return false;
 	}
+	modState = {
+	    .state = DOWNLOADING,
+	    .name = modName,
+	    .version = modVersion,
+	};
 
 	NotifyDownloadStarted();
 
@@ -979,8 +1068,8 @@ bool ModDownloader::StartDownloadThread(
 			ScopeGuard cleanup(
 				[&]
 				{
-					m_bDownloadThreadRunning = false;
 					NotifyDownloadStopped();
+					m_bDownloadThreadRunning = false;
 				});
 
 			for (const auto& dependency : dependencies)
@@ -1172,135 +1261,156 @@ bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& m
 	return true;
 }
 
+std::vector<ModDownloader::modentry_s> ModDownloader::GetServerRequestedMods() const
+{
+	std::scoped_lock lock(m_ServerModInfoMutex);
+	return m_ServerRequestedMods;
+}
+
+void ModDownloader::BeginServerModInfoRequest()
+{
+	std::scoped_lock lock(m_ServerModInfoMutex);
+	m_ServerRequestedMods.clear();
+	m_ReceivedServerModIndices.clear();
+	m_iTotalServerRequestedMods = 0;
+	m_bIsListeningForServerMods.store(true, std::memory_order_release);
+}
+
+void ModDownloader::StopServerModInfoRequest()
+{
+	std::scoped_lock lock(m_ServerModInfoMutex);
+	m_bIsListeningForServerMods.store(false, std::memory_order_release);
+}
+
+void ModDownloader::ClearServerRequestedMods()
+{
+	std::scoped_lock lock(m_ServerModInfoMutex);
+	m_bIsListeningForServerMods.store(false, std::memory_order_release);
+	m_ServerRequestedMods.clear();
+	m_ReceivedServerModIndices.clear();
+	m_iTotalServerRequestedMods = 0;
+}
+
+
+int ModDownloader::GetTotalServerRequestedMods() const
+{
+	std::scoped_lock lock(m_ServerModInfoMutex);
+	return m_iTotalServerRequestedMods;
+}
+
 bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 {
-	if(!g_pModDownloader->AllowingServerModDownloads())
+	if (!IsListeningForServerMods())
 		return false;
 
-	int protocolVersion = msg.ReadLong();
+	const int protocolVersion = msg.ReadLong();
+	if (protocolVersion != MODDOWNLOADINFO_VERSION)
+	{
+		spdlog::warn("Received server mod info with unsupported protocol version {}.", protocolVersion);
+		return false;
+	}
 
-	int modIndex = msg.ReadLong();
-	int totalMods = msg.ReadLong();
-
-	if(g_pModDownloader->m_iTotalServerRequestedMods != totalMods)
-		g_pModDownloader->m_iTotalServerRequestedMods = totalMods;
+	const int modIndex = msg.ReadLong();
+	const int totalMods = msg.ReadLong();
+	if (totalMods <= 0 || modIndex < 0 || modIndex >= totalMods)
+	{
+		spdlog::warn("Received server mod info with invalid index {}/{}.", modIndex, totalMods);
+		return false;
+	}
 
 	modentry_s modEntry;
 
 	char modName[128];
-	if(!msg.ReadString(modName, sizeof(modName)))
+	if (!msg.ReadString(modName, sizeof(modName)))
 		return false;
 
-	modEntry.name = std::string(modName);
+	modEntry.name = modName;
 
 	char modVersion[64];
-	if(!msg.ReadString(modVersion, sizeof(modVersion)))
+	if (!msg.ReadString(modVersion, sizeof(modVersion)))
 		return false;
 
-	modEntry.version = std::string(modVersion);
+	modEntry.version = modVersion;
 
-	char platformChar = msg.ReadChar();
-
+	const char platformChar = msg.ReadChar();
 	char dependencyOrUrl[256];
 
-	switch(platformChar)
+	switch (platformChar)
 	{
-		case 'T':
-			modEntry.platform = ModSource::Thunderstore;
-			if(!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
-				return false;
-			modEntry.dependencyString = std::string(dependencyOrUrl);
+	case 'T':
+		modEntry.platform = ModSource::Thunderstore;
+		if (!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
+			return false;
+		modEntry.dependencyString = dependencyOrUrl;
 		if (CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString).empty())
 		{
 			spdlog::warn("Received mod info packet with an invalid Thunderstore dependency string, skipping mod.");
 			return false;
 		}
 		break;
-		case 'M':
-			modEntry.platform = ModSource::ModWorkshop;
-			spdlog::error("Received ModWorkshop platform mod info from server, which is unsupported, skipping mod.");
+	case 'M':
+		spdlog::error("Received ModWorkshop platform mod info from server, which is unsupported, skipping mod.");
+		return false;
+	case 'U':
+		modEntry.platform = ModSource::Unknown;
+		if (!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
 			return false;
-		case 'U':
-			modEntry.platform = ModSource::Unknown;
-			if(!msg.ReadString(dependencyOrUrl, sizeof(dependencyOrUrl)))
-				return false;
-			modEntry.url = std::string(dependencyOrUrl);
-			break;
-		default:
-			spdlog::warn("Received mod info packet with unrecognized platform char {}, skipping mod.", platformChar);
-			return false;
+		modEntry.url = dependencyOrUrl;
+		break;
+	default:
+		spdlog::warn("Received mod info packet with unrecognized platform char {}, skipping mod.", platformChar);
+		return false;
 	}
 
-	bool hasChecksum = msg.ReadByte();
-	if(hasChecksum)
+	const bool hasChecksum = msg.ReadByte();
+	if (hasChecksum)
 	{
 		char checksum[128];
-		if(!msg.ReadString(checksum, sizeof(checksum)))
+		if (!msg.ReadString(checksum, sizeof(checksum)))
 			return false;
-		modEntry.checksum = std::string(checksum);
+		modEntry.checksum = checksum;
 	}
-	else
-		modEntry.checksum = "";
-
-	g_pModDownloader->m_ServerRequestedMods.push_back(modEntry);
-
-	spdlog::info("{}/{} {} v{} [{}] ({} / {})", modIndex + 1, totalMods, modEntry.name, modEntry.version, GetPlatformString(modEntry.platform),
-		dependencyOrUrl, modEntry.checksum.empty() ? "no checksum" : modEntry.checksum.c_str());
 
 
-	if( g_pModDownloader->verifiedMods.contains( modEntry.name ) )
+	bool allModsReceived = false;
 	{
-		if( !g_pModDownloader->verifiedMods[ modEntry.name ].versions.contains( modEntry.version ) )
+		std::scoped_lock lock(m_ServerModInfoMutex);
+		if (!m_bIsListeningForServerMods.load(std::memory_order_acquire))
+			return false;
+
+		if (m_iTotalServerRequestedMods == 0)
+			m_iTotalServerRequestedMods = totalMods;
+		else if (m_iTotalServerRequestedMods != totalMods)
 		{
-			VerifiedModVersion versionInfo;
-			versionInfo.checksum = modEntry.checksum;
-			versionInfo.platform = modEntry.platform;
-
-			switch( modEntry.platform )
-			{
-				case ModSource::Thunderstore:
-					versionInfo.downloadLink = CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString);
-					break;
-				case ModSource::Unknown:
-					versionInfo.downloadLink = modEntry.url;
-					break;
-				default:
-					spdlog::warn("Received mod {} v{} from server has unsupported platform for auto-download, skipping adding to verified mods.", modEntry.name, modEntry.version);
-					return true;
-			}
-
-			g_pModDownloader->verifiedMods[ modEntry.name ].versions.insert( { modEntry.version, versionInfo } );
-		}
-	}
-	else
-	{
-		VerifiedModDetails modDetails;
-		VerifiedModVersion versionInfo;
-		versionInfo.checksum = modEntry.checksum;
-		versionInfo.platform = modEntry.platform;
-
-		switch( modEntry.platform )
-		{
-			case ModSource::Thunderstore:
-				versionInfo.downloadLink = CThunderstoreClient::BuildDownloadUrl(modEntry.dependencyString);
-				break;
-			case ModSource::Unknown:
-				versionInfo.downloadLink = modEntry.url;
-				break;
-			default:
-				spdlog::warn("Received mod {} v{} from server has unsupported platform for auto-download, skipping adding to verified mods.", modEntry.name, modEntry.version);
-				return true;
+			spdlog::warn(
+				"Received server mod info with conflicting total (expected {}, got {}).",
+				m_iTotalServerRequestedMods,
+				totalMods);
+			return false;
 		}
 
-		modDetails.versions.insert( { modEntry.version, versionInfo } );
-		g_pModDownloader->verifiedMods.insert( { modEntry.name, modDetails } );
+		if (!m_ReceivedServerModIndices.insert(modIndex).second)
+			return true;
+
+		m_ServerRequestedMods.push_back(modEntry);
+
+		allModsReceived = m_ReceivedServerModIndices.size() == static_cast<size_t>(m_iTotalServerRequestedMods);
+		if (allModsReceived)
+			m_bIsListeningForServerMods.store(false, std::memory_order_release);
 	}
 
-	if(g_pModDownloader->m_ServerRequestedMods.size() == static_cast<size_t>(g_pModDownloader->GetTotalServerRequestedMods()))
-	{
-		spdlog::info("All {} server mods received.", g_pModDownloader->GetTotalServerRequestedMods());
-		g_pModDownloader->SetIsListeningForServerMods(false);
-	}
+	spdlog::info(
+		"{}/{} {} v{} [{}] ({} / {})",
+		modIndex + 1,
+		totalMods,
+		modEntry.name,
+		modEntry.version,
+		GetPlatformString(modEntry.platform),
+		dependencyOrUrl,
+		modEntry.checksum.empty() ? "no checksum" : modEntry.checksum.c_str());
+
+	if (allModsReceived)
+		spdlog::info("All {} server mods received.", totalMods);
 
 	return true;
 }
@@ -1320,7 +1430,7 @@ ADD_SQFUNC("array<RequiredModInfo>", NSGetServerRequestedMods, "", "", ScriptCon
 {
 	g_pSquirrel[context]->newarray(sqvm, 0);
 
-	const auto& serverMods = g_pModDownloader->GetServerRequestedMods();
+	const auto serverMods = g_pModDownloader->GetServerRequestedMods();
 	for (size_t i = 0; i < serverMods.size(); ++i)
 	{
 		const auto& mod = serverMods[i];
@@ -1363,16 +1473,14 @@ ADD_SQFUNC("void", NSDecideModDownloadSource, "int source", "", ScriptContext::U
 
 ADD_SQFUNC("void", NSClearServerRequestedMods, "", "", ScriptContext::UI)
 {
-	g_pModDownloader->GetServerRequestedMods().clear();
-	g_pModDownloader->SetTotalServerRequestedMods(0);
-	g_pModDownloader->SetIsListeningForServerMods(false);
+	g_pModDownloader->ClearServerRequestedMods();
 
 	return SQRESULT_NULL;
 }
 
 ADD_SQFUNC("void", NSAllowServerModDownloads, "", "", ScriptContext::UI)
 {
-	g_pModDownloader->SetIsListeningForServerMods(true);
+	g_pModDownloader->BeginServerModInfoRequest();
 
 	return SQRESULT_NULL;
 }

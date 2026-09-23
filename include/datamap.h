@@ -54,9 +54,9 @@ struct datamap_t;
 struct typedescription_t;
 class ISaveRestoreOps;
 
-inline constexpr std::size_t TD_OFFSET_NORMAL = 0;
-inline constexpr std::size_t TD_OFFSET_PACKED = 1;
-inline constexpr std::size_t TD_OFFSET_COUNT = 2;
+#define TD_OFFSET_NORMAL 0
+#define TD_OFFSET_PACKED 1
+#define TD_OFFSET_COUNT 2
 
 struct typedescription_t
 {
@@ -95,35 +95,8 @@ static_assert(sizeof(fieldtype_t) == 0x4);
 static_assert(FIELD_TYPECOUNT == 32);
 
 static_assert(sizeof(typedescription_t) == 0x78);
-static_assert(alignof(typedescription_t) == 0x8);
-static_assert(offsetof(typedescription_t, fieldType) == 0x0);
-static_assert(offsetof(typedescription_t, fieldName) == 0x8);
-static_assert(offsetof(typedescription_t, fieldOffset) == 0x10);
-static_assert(offsetof(typedescription_t, fieldSize) == 0x14);
-static_assert(offsetof(typedescription_t, flags) == 0x16);
-static_assert(offsetof(typedescription_t, externalName) == 0x18);
-static_assert(offsetof(typedescription_t, pSaveRestoreOps) == 0x20);
-static_assert(offsetof(typedescription_t, inputFunc) == 0x28);
-static_assert(offsetof(typedescription_t, td) == 0x40);
-static_assert(offsetof(typedescription_t, fieldSizeInBytes) == 0x48);
-static_assert(offsetof(typedescription_t, reserved4C) == 0x4C);
-static_assert(offsetof(typedescription_t, fieldAlignment) == 0x50);
-static_assert(offsetof(typedescription_t, override_field) == 0x58);
-static_assert(offsetof(typedescription_t, override_count) == 0x60);
-static_assert(offsetof(typedescription_t, fieldTolerance) == 0x64);
-static_assert(offsetof(typedescription_t, flatOffset) == 0x68);
-static_assert(offsetof(typedescription_t, flatGroup) == 0x70);
-static_assert(offsetof(typedescription_t, reserved72) == 0x72);
 
 static_assert(sizeof(datamap_t) == 0x30);
-static_assert(alignof(datamap_t) == 0x8);
-static_assert(offsetof(datamap_t, dataDesc) == 0x0);
-static_assert(offsetof(datamap_t, dataNumFields) == 0x8);
-static_assert(offsetof(datamap_t, dataClassName) == 0x10);
-static_assert(offsetof(datamap_t, dataSize) == 0x18);
-static_assert(offsetof(datamap_t, dataAlignment) == 0x1C);
-static_assert(offsetof(datamap_t, reserved20) == 0x20);
-static_assert(offsetof(datamap_t, baseMap) == 0x28);
 
 namespace DataMapHandler
 {

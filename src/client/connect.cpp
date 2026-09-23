@@ -12,7 +12,10 @@
 #include "tier0/frametask.h"
 #include "tier0/vanilla.h"
 #include "tier1/cvar.h"
+#include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
+
+#include <algorithm>
 
 DECLARE_MODULE(ConnectHooks)
 
@@ -399,52 +402,68 @@ bool ConnectionManager::HasRequiredModVersion(std::string_view name, std::string
 
 void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 {
-	int unverifiedModCount = g_pModDownloader->GetTotalServerRequestedMods();
-	std::vector<ModDownloader::modentry_s> unverifiedMods = g_pModDownloader->GetServerRequestedMods();
-
+	const std::vector<ModDownloader::modentry_s> serverDownloads = g_pModDownloader->GetServerRequestedMods();
+	std::vector<ModDownloader::modentry_s> unverifiedModsToDownload;
 	bool needToDownloadMods = false;
 
 	UpdateMessage("#CHECKING_REQUIRED_MODS");
 
-	for (const auto& mod : unverifiedMods)
-	{
-		if (!HasRequiredModVersion(mod.name, mod.version))
-		{
-			needToDownloadMods = true;
-			break;
-		}
-	}
-
 	for (const RemoteModInfo& mod : info->requiredMods)
 	{
-		if (!HasRequiredModVersion(mod.Name, mod.Version))
+		if (HasRequiredModVersion(mod.Name, mod.Version))
+			continue;
+
+		needToDownloadMods = true;
+
+		const auto advertisedDownload = std::find_if(
+			serverDownloads.begin(),
+			serverDownloads.end(),
+			[&mod](const ModDownloader::modentry_s& download)
+			{
+				return download.name == mod.Name && download.version == mod.Version;
+			});
+		if (advertisedDownload != serverDownloads.end())
 		{
-			needToDownloadMods = true;
-			break;
+			unverifiedModsToDownload.push_back(*advertisedDownload);
+			continue;
+		}
+
+		if (!g_pModDownloader->IsModAuthorized(mod.Name, mod.Version))
+		{
+			Interrupt(fmt::format(
+				"{}\n{}",
+				Localize("#MISSING_MOD", mod.Name.c_str(), mod.Version.c_str(), static_cast<const char*>(nullptr)),
+				Localize("#MOD_NOT_VERIFIED", static_cast<const char*>(nullptr))));
+			return;
 		}
 	}
 
 	if (!needToDownloadMods)
 		return;
 
-	if (!m_bUseSCRPlaque && unverifiedModCount > 0)
+	if (!unverifiedModsToDownload.empty())
 	{
-		g_pModDownloader->NotifyConfirmDownloadMods(unverifiedModCount, info->name);
-		while (m_eModAcceptState == eModAcceptState::NOT_DECIDED && !IsCancelled())
+		if (!g_pModDownloader->NotifyConfirmDownloadMods(static_cast<int>(unverifiedModsToDownload.size()), info->name))
+		{
+			const ModDownloader::modentry_s& mod = unverifiedModsToDownload.front();
+			Interrupt(fmt::format(
+				"{}\n{}",
+				Localize("#MISSING_MOD", mod.name.c_str(), mod.version.c_str(), static_cast<const char*>(nullptr)),
+				Localize("#MOD_NOT_VERIFIED", static_cast<const char*>(nullptr))));
+			return;
+		}
+		while (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::NOT_DECIDED && !IsCancelled())
 			Sleep(100);
 
-		if (m_eModAcceptState == eModAcceptState::DENIED)
+		if (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::DENIED)
 			Interrupt();
 
 		RETURN_IF_CANCELLED()
 	}
 
 	std::vector<WorkshopSelection> workshopSelections;
-	for (const ModDownloader::modentry_s& mod : unverifiedMods)
+	for (const ModDownloader::modentry_s& mod : unverifiedModsToDownload)
 	{
-		if (HasRequiredModVersion(mod.name, mod.version))
-			continue;
-
 		const std::optional<ModDownloader::ModWorkshopAlternative> alternative = g_pModDownloader->FindModWorkshopAlternative(mod);
 		if (!alternative)
 			continue;
@@ -463,7 +482,6 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 			workshopSelections.push_back({mod.name, mod.version, *alternative});
 	}
 
-	g_pModDownloader->NotifyDownloadStarted();
 
 	for (const auto& mod : info->requiredMods)
 	{
@@ -477,11 +495,11 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 		for (const WorkshopSelection& selection : workshopSelections)
 		{
 			if (selection.m_Name == mod.Name && selection.m_Version == mod.Version)
-				{
+			{
 				workshopSelection = &selection;
-					break;
-				}
+				break;
 			}
+		}
 		if (workshopSelection)
 		{
 			spdlog::info("Installing ModWorkshop mod {} for server requirement {} v{}", workshopSelection->m_Alternative.modId, mod.Name,
@@ -491,8 +509,23 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 		}
 		else
 		{
+			const auto advertisedDownload = std::find_if(
+				serverDownloads.begin(),
+				serverDownloads.end(),
+				[&mod](const ModDownloader::modentry_s& download)
+				{
+					return download.name == mod.Name && download.version == mod.Version;
+				});
+
 			spdlog::info("Auto-downloading mod {} version {}", mod.Name, mod.Version);
-		g_pModDownloader->DownloadMod(mod.Name, mod.Version);
+			const bool started = advertisedDownload != serverDownloads.end()
+				? g_pModDownloader->DownloadServerMod(*advertisedDownload)
+				: g_pModDownloader->DownloadMod(mod.Name, mod.Version);
+			if (!started)
+			{
+				Interrupt(fmt::format("Failed to start download for {} v{}", mod.Name, mod.Version));
+				return;
+			}
 		}
 		m_bDownloadedMods = true;
 
@@ -559,8 +592,6 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 
 		RETURN_IF_CANCELLED()
 	}
-
-	g_pModDownloader->NotifyDownloadStopped();
 
 	RETURN_IF_CANCELLED()
 
@@ -658,8 +689,18 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			RETURN_IF_CANCELLED()
 
+			g_pModDownloader->BeginServerModInfoRequest();
 			std::string netAdr = fmt::format("[::ffff:{}]:{}", ip, port);
 			SendInfoRequestPacket(CNetAdr(netAdr.c_str()), false, true);
+
+			const float modInfoStartTime = g_PlatFloatTime();
+			const float modInfoTimeout = g_pModDownloader->GetServerModInfoTimeoutSeconds();
+			while (g_pModDownloader->IsListeningForServerMods() && !IsCancelled() &&
+			       g_PlatFloatTime() - modInfoStartTime < modInfoTimeout)
+			{
+				Sleep(50);
+			}
+			g_pModDownloader->StopServerModInfoRequest();
 
 			RETURN_IF_CANCELLED()
 

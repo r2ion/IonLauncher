@@ -6,31 +6,46 @@
 #endif
 
 #include "vscript/ivscript.h"
+#include "vscript/languages/squirrel_re/vsquirrel.h"
+
 #include <array>
 
-struct CSquirrelVM;
-
-class CScriptScope
+template <ScriptContext context> class CScriptScopeT
 {
-public:
+  public:
     enum Flags_t
     {
         EXTERNAL = 0x01
     };
 
-    CScriptScope() : m_hScope(INVALID_HSCRIPT), m_flags(0) {}
-    ~CScriptScope() { Term(); }
-    CScriptScope(const CScriptScope&) = delete;
-    CScriptScope& operator=(const CScriptScope&) = delete;
+    CScriptScopeT() : m_hScope(INVALID_HSCRIPT), m_flags(0)
+    {
+    }
+    ~CScriptScopeT()
+    {
+        Term();
+    }
+    CScriptScopeT(const CScriptScopeT&) = delete;
+    CScriptScopeT& operator=(const CScriptScopeT&) = delete;
 
+    static constexpr ScriptContext GetContext()
+    {
+        return context;
+    }
     static CSquirrelVM* GetVM();
-    bool IsInitialized() const { return m_hScope != INVALID_HSCRIPT; }
+    bool IsInitialized() const
+    {
+        return m_hScope != INVALID_HSCRIPT;
+    }
     bool Init(const char* pszName);
     bool Init(HSCRIPT hScope, bool bExternal = true);
     bool InitGlobal();
     void Term();
     void InvalidateCachedValues();
-    operator HSCRIPT() const { return IsInitialized() ? m_hScope : nullptr; }
+    operator HSCRIPT() const
+    {
+        return IsInitialized() ? m_hScope : nullptr;
+    }
 
     bool ValueExists(const char* pszKey) const;
     bool SetValue(const char* pszKey, const ScriptVariant_t& value);
@@ -50,15 +65,13 @@ public:
     bool FunctionExists(const char* pszFunction) const;
     ScriptStatus_t ExecuteFunction(HSCRIPT hFunction, ScriptVariant_t* pArgs, int nArgs, ScriptVariant_t* pReturn = nullptr) const;
 
-    template <typename... Args>
-    ScriptStatus_t Call(HSCRIPT hFunction, ScriptVariant_t* pReturn = nullptr, const Args&... arguments) const
+    template <typename... Args> ScriptStatus_t Call(HSCRIPT hFunction, ScriptVariant_t* pReturn = nullptr, const Args&... arguments) const
     {
         std::array<ScriptVariant_t, sizeof...(Args)> args{ScriptVariant_t(arguments)...};
         return ExecuteFunction(hFunction, args.data(), static_cast<int>(args.size()), pReturn);
     }
 
-    template <typename... Args>
-    ScriptStatus_t Call(const char* pszFunction, ScriptVariant_t* pReturn = nullptr, const Args&... arguments) const
+    template <typename... Args> ScriptStatus_t Call(const char* pszFunction, ScriptVariant_t* pReturn = nullptr, const Args&... arguments) const
     {
         HSCRIPT hFunction = LookupFunction(pszFunction);
         if (!hFunction)
@@ -73,11 +86,13 @@ public:
     CUtlVectorConservative<HSCRIPT*> m_FuncHandles;
 };
 
+using CServerScriptScope = CScriptScopeT<ScriptContext::SERVER>;
+using CClientScriptScope = CScriptScopeT<ScriptContext::CLIENT>;
+using CUIScriptScope = CScriptScopeT<ScriptContext::UI>;
+
 #define VScriptAddEnumToScope_(scope, enumVal, scriptName) (scope).SetValue(scriptName, static_cast<int>(enumVal))
 #define VScriptAddEnumToScope(scope, enumVal) VScriptAddEnumToScope_(scope, enumVal, #enumVal)
 
-static_assert(sizeof(CScriptScope) == 0x20);
-static_assert(offsetof(CScriptScope, m_flags) == 0x8);
-static_assert(offsetof(CScriptScope, m_FuncHandles) == 0x10);
+static_assert(sizeof(CClientScriptScope) == 0x20);
 
 #endif // SCRIPT_SCOPE_H

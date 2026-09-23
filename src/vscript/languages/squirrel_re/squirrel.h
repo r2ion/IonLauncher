@@ -114,6 +114,8 @@ class SquirrelManager
     std::shared_ptr<spdlog::logger> m_logger;
     CSquirrelVM* m_pSQVM;
     std::map<std::string, SQFunction> m_funcOverrides = {};
+    std::map<std::string, std::string> m_funcOverrideArgTypes = {};
+    std::map<std::string, std::string> m_funcOverrideNativeNames = {};
     std::map<std::string, SQFunction> m_funcOriginals = {};
 
     bool m_bFatalCompilationErrors = false;
@@ -131,9 +133,10 @@ class SquirrelManager
     void VMCreated(CSquirrelVM* newSqvm);
     void VMDestroyed();
     SquirrelExecutionResult ExecuteCode(const char* code, const char* logCode = nullptr);
-    void AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func);
+    void AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func,
+                             uint32_t defaultParameterCount = 0, const char* typeMask = nullptr);
     SQRESULT setupfunc(const SQChar* funcname);
-    void AddFuncOverride(std::string name, SQFunction func);
+    void AddFuncOverride(std::string name, SQFunction func, const char* argTypes = nullptr, const char* nativeName = nullptr);
     void ProcessMessageBuffer();
 
 #pragma region SQVM funcs

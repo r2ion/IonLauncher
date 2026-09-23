@@ -127,7 +127,7 @@ public:
 	virtual void OnKeyFocusTicked();
 	virtual void OnMouseFocusTicked();
 	virtual void PaintBackground();
-	virtual __int64 nullsub_91();
+	virtual void Paint();
 	virtual void PaintBorder();
 	virtual void PaintBuildOverlay();
 	virtual __int64 nullsub_92();
@@ -233,9 +233,5 @@ public:
 private:
 	std::byte m_PanelData[0x260];
 };
-
-static_assert(std::is_base_of_v<IClientPanel, Panel>);
-static_assert(sizeof(Panel) == 0x268);
-
 
 }

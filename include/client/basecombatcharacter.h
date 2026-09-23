@@ -8,22 +8,16 @@ struct GrappleData_Client;
 
 class C_BaseCombatCharacter : public C_BaseAnimatingOverlay
 {
-  private:
-    virtual void UnknownEntity239() = 0;
-    virtual void UnknownEntity240() = 0;
-
-  public:
+    virtual const C_BaseCombatCharacter* MyCombatCharacterPointerConst() const = 0; // 239
+    virtual float ScriptGetAttackSpreadAngle() = 0;                                 // 240
     virtual bool Weapon_Switch(C_WeaponX* weapon) = 0;                                 // 241
     virtual bool Weapon_CanSwitchTo(C_WeaponX* weapon, bool checkAmmo) = 0;            // 242
     virtual bool Weapon_IsPlaying3pEquipActivity() = 0;                                // 243
     virtual bool Weapon_IsPlaying3pReloadActivity() = 0;                               // 244
     virtual const char* GetWeaponClass() const = 0;                                    // 245
     virtual void OnChangeActiveWeapon(C_WeaponX* oldWeapon, C_WeaponX* newWeapon) = 0; // 246
-  private:
-    virtual void UnknownEntity247() = 0;
-    virtual void UnknownEntity248() = 0;
-
-  public:
+    virtual void UpdateWeaponPoseParameterValues() = 0;                         // 247
+    virtual void Weapon_StartGestureAnim(int activity, float duration, bool autokill) = 0; // 248
     virtual void Weapon_EndGestureAnim(int activity, float blendOut) = 0;       // 249
     virtual void GrappleDetach() = 0;                                           // 250
     virtual bool IsGrappleActive() const = 0;                                   // 251

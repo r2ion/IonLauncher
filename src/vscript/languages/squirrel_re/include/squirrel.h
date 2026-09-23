@@ -40,57 +40,59 @@ enum SQRESULT : SQInteger
 
 enum class eSQReturnType
 {
-	Float = 0x1,
-	Vector = 0x3,
-	Integer = 0x5,
-	Boolean = 0x6,
-	Entity = 0xD,
-	String = 0x21,
-	Default = 0x20,
-	Arrays = 0x25,
-	Asset = 0x28,
-	Table = 0x26,
+    Float = 0x1,
+    Vector = 0x3,
+    Integer = 0x5,
+    Boolean = 0x6,
+    Entity = 0xD,
+    String = 0x21,
+    Default = 0x20,
+    Arrays = 0x25,
+    Asset = 0x28,
+    Table = 0x26,
 };
 
 struct SQBufferState
 {
-	const SQChar* buffer;
-	const SQChar* bufferPlusLength;
-	const SQChar* bufferAgain;
+    const SQChar* buffer;
+    const SQChar* bufferPlusLength;
+    const SQChar* bufferAgain;
 
-	SQBufferState(const SQChar* pszCode)
-	{
-		buffer = pszCode;
-		bufferPlusLength = pszCode + strlen(pszCode);
-		bufferAgain = pszCode;
-	}
+    SQBufferState(const SQChar* pszCode)
+    {
+        buffer = pszCode;
+        bufferPlusLength = pszCode + strlen(pszCode);
+        bufferAgain = pszCode;
+    }
 };
 
 typedef SQRESULT (*SQFunction)(HSQUIRRELVM sqvm);
 
 struct SQFuncRegistration
 {
-	const char* squirrelFuncName;
-	const char* cppFuncName;
-	const char* helpText;
-	const char* returnTypeString;
-	const char* argTypes;
-	uint32_t unknown1;
-	uint32_t devLevel;
-	const char* shortNameMaybe;
-	uint32_t unknown2;
-	eSQReturnType returnType;
-	uint32_t* externalBufferPointer;
-	uint64_t externalBufferSize;
-	uint64_t unknown3;
-	uint64_t unknown4;
-	SQFunction funcPtr;
+    const char* squirrelFuncName;
+    const char* cppFuncName;
+    const char* helpText;
+    const char* returnTypeString;
+    const char* argTypes;
+    std::uint8_t useTypeMask;
+    std::uint8_t isVariadic;
+    std::uint16_t padding_2A;
+    uint32_t devLevel;
+    const char* typeMask;
+    uint32_t defaultParameterCount;
+    eSQReturnType returnType;
+    uint32_t* externalBufferPointer;
+    uint64_t externalBufferSize;
+    uint64_t unknown3;
+    uint64_t unknown4;
+    SQFunction funcPtr;
 
-	SQFuncRegistration()
-	{
-		memset(this, 0, sizeof(SQFuncRegistration));
-		this->returnType = eSQReturnType::Default;
-	}
+    SQFuncRegistration()
+    {
+        memset(this, 0, sizeof(SQFuncRegistration));
+        this->returnType = eSQReturnType::Default;
+    }
 };
 
 struct alignas(8) SQStackInfos

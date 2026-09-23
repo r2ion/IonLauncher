@@ -1,43 +1,77 @@
 #include "engine/usermessages.h"
 
-CUserMessageManager* g_pUserMessageManager;
+#include "tier0/module.h"
 
-typedef void (__fastcall*CUserMessages__Register_t)(void* thisptr, const char* pszName, unsigned int uiSize);
-CUserMessages__Register_t CUserMessages__Register = nullptr;
-typedef void (__fastcall*CUserMessages__HookMessage_t)(void* thisptr, const char* pszName, void* pCallback);
-CUserMessages__HookMessage_t CUserMessages__HookMessage = nullptr;
-uintptr_t usermessages = 0;
+CUserMessages* usermessages = nullptr;
 
-void CUserMessageManager::RegisterUserMessages()
+using LookupUserMessage_t = int (*)(CUserMessages*, const char*);
+using GetUserMessageSize_t = int (*)(CUserMessages*, int);
+using GetUserMessageName_t = const char* (*)(CUserMessages*, int);
+using RegisterUserMessage_t = void (*)(CUserMessages*, const char*, int);
+using HookUserMessage_t = void (*)(CUserMessages*, const char*, pfnUserMsgHook);
+using DispatchUserMessage_t = bool (*)(CUserMessages*, int, bf_read&);
+
+LookupUserMessage_t CUserMessages__LookupUserMessage;
+GetUserMessageSize_t CUserMessages__GetUserMessageSize;
+GetUserMessageName_t CUserMessages_GetUserMessageName;
+RegisterUserMessage_t CUserMessages__RegisterUserMessage;
+HookUserMessage_t CUserMessages__HookUserMessage;
+DispatchUserMessage_t CUserMessages__DispatchUserMessage;
+
+CUserMessages::CUserMessages() = default;
+
+CUserMessages::~CUserMessages()
 {
-	for(const auto& [name, size] : m_UserMessages)
-	{
-		CUserMessages__Register(reinterpret_cast<void*>(usermessages), name, size);
-	}
+    const int count = m_UserMessages.Count();
+    for (int i = 0; i < count; ++i)
+        delete m_UserMessages[i];
+
+    m_UserMessages.RemoveAll();
 }
 
-void CUserMessageManager::Register(const char* pszName, unsigned int uiSize)
+int CUserMessages::LookupUserMessage(const char* name)
 {
-	m_UserMessages.emplace_back(pszName, uiSize);
+    return CUserMessages__LookupUserMessage(this, name);
 }
 
-void CUserMessageManager::HookMessage(const char* pszName, void* pCallback)
+int CUserMessages::GetUserMessageSize(int index)
 {
-	CUserMessages__HookMessage(reinterpret_cast<void*>(usermessages), pszName, pCallback);
+    return CUserMessages__GetUserMessageSize(this, index);
 }
 
-DECLARE_MODULE(UserMessagesHooks)
-
-DECLARE_HOOK(RegisterUserMessages, client.dll + 0x49E620, [](auto& hook)
+const char* CUserMessages::GetUserMessageName(int index)
 {
-	hook.Original();
-	g_pUserMessageManager->RegisterUserMessages();
-})
+    return CUserMessages_GetUserMessageName(this, index);
+}
+
+bool CUserMessages::IsValidIndex(int index)
+{
+    return m_UserMessages.IsValidIndex(index);
+}
+
+void CUserMessages::Register(const char* name, int size)
+{
+    CUserMessages__RegisterUserMessage(this, name, size);
+}
+
+void CUserMessages::HookMessage(const char* name, pfnUserMsgHook hook)
+{
+    CUserMessages__HookUserMessage(this, name, hook);
+}
+
+bool CUserMessages::DispatchUserMessage(int msgType, bf_read& msgData)
+{
+    return CUserMessages__DispatchUserMessage(this, msgType, msgData);
+}
 
 ON_DLL_LOAD_CLIENT("client.dll", UserMessages, [](CModule module)
 {
-	CUserMessages__Register = module.Offset(0x342890).RCast<CUserMessages__Register_t>();
-	usermessages = module.Offset(0xB28E98).GetPtr();
+    usermessages = *module.Offset(0xB28E98).RCast<CUserMessages**>();
 
-	DISPATCH_MODULE(UserMessagesHooks)
+    CUserMessages__DispatchUserMessage = module.Offset(0x340D20).RCast<DispatchUserMessage_t>();
+    CUserMessages_GetUserMessageName = module.Offset(0x341250).RCast<GetUserMessageName_t>();
+    CUserMessages__GetUserMessageSize = module.Offset(0x3412A0).RCast<GetUserMessageSize_t>();
+    CUserMessages__HookUserMessage = module.Offset(0x3415F0).RCast<HookUserMessage_t>();
+    CUserMessages__LookupUserMessage = module.Offset(0x342340).RCast<LookupUserMessage_t>();
+    CUserMessages__RegisterUserMessage = module.Offset(0x342890).RCast<RegisterUserMessage_t>();
 })

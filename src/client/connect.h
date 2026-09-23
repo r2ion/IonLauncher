@@ -73,7 +73,7 @@ private:
 	std::string m_szLastServerPassword;
 	std::string m_szLastServerAddress;
 	bool m_bDownloadedMods = false;
-	eModAcceptState m_eModAcceptState = eModAcceptState::NOT_DECIDED;
+	std::atomic<eModAcceptState> m_eModAcceptState{eModAcceptState::NOT_DECIDED};
 	bool m_bUnloadingRemoteModsOnMatchmaking = false;
 	bool m_bSolo = false;
 
@@ -92,8 +92,16 @@ private:
 	void InvokeConnectionMessageCallbacks(const std::string& message);
 
 	void AuthenticateToMasterServer();
+	static const char* LocalizationArgument(const std::string& argument) { return argument.c_str(); }
+	static const char* LocalizationArgument(const char* argument) { return argument; }
+	template <size_t Size>
+	static const char* LocalizationArgument(const char (&argument)[Size]) { return argument; }
 	template <typename... Args>
-	void UpdateMessage(const std::string& message = "", Args... args) { m_szProgressMessage = Localize(message.c_str(), args...); InvokeConnectionMessageCallbacks(m_szProgressMessage); }
+	void UpdateMessage(const std::string& message = "", const Args&... args)
+	{
+		m_szProgressMessage = Localize(message, LocalizationArgument(args)..., static_cast<const char*>(nullptr));
+		InvokeConnectionMessageCallbacks(m_szProgressMessage);
+	}
 
 	void FinaliseJoiningLocalServer();
 	void FinaliseJoiningServer(std::string& address);
@@ -106,36 +114,36 @@ public:
 	void Connect(const std::string& address, const std::string& password, bool useSCRPlaque, std::string mapName = "");
 	bool DeferMapLoad(std::string_view mapName);
 
-    template <typename... Args>
-    void Interrupt(const std::string& reason = "", Args... args)
-    {
-        m_bFailed = true;
-        m_szFailReason = reason;
+	void Interrupt(const std::string& reason = "")
+	{
+		m_bFailed = true;
+		m_szFailReason = reason;
 
-        m_bConnecting.store(false, std::memory_order_release);
-        m_flConnectionStartTime = 0.0f;
-        m_bAuthSucessful = false;
-        m_bRetrying = false;
-        m_bDownloadedMods = false;
-        m_eModAcceptState = eModAcceptState::NOT_DECIDED;
-        m_bUnloadingRemoteModsOnMatchmaking = false;
-        m_eCurrentMode = m_eLastMode;
+		m_bConnecting.store(false, std::memory_order_release);
+		m_flConnectionStartTime = 0.0f;
+		m_bAuthSucessful = false;
+		m_bRetrying = false;
+		m_bDownloadedMods = false;
+		m_eModAcceptState.store(eModAcceptState::NOT_DECIDED, std::memory_order_release);
+		m_bUnloadingRemoteModsOnMatchmaking = false;
+		m_eCurrentMode = m_eLastMode;
 		m_bSolo = false;
 		ClearPendingMap();
 
-        g_pModDownloader->CancelDownload();
+		g_pModDownloader->CancelDownload();
 
-        InvokeConnectionStoppedCallbacks(reason);
-        spdlog::info("Connection interrupted: {}", Localize(reason.c_str(), args...));
+		const std::string localizedReason = Localize(reason, static_cast<const char*>(nullptr));
+		InvokeConnectionStoppedCallbacks(reason);
+		spdlog::info("Connection interrupted: {}", localizedReason);
 
-        if (m_bUseSCRPlaque)
-        {
-            Cbuf_AddText(
-                Cbuf_GetCurrentPlayer(),
-                fmt::format("disconnect \"{}\"", Localize(reason.c_str(), args...)).c_str(),
-                cmd_source_t::kCommandSrcCode);
-        }
-    }
+		if (m_bUseSCRPlaque)
+		{
+			Cbuf_AddText(
+				Cbuf_GetCurrentPlayer(),
+				fmt::format("disconnect \"{}\"", localizedReason).c_str(),
+				cmd_source_t::kCommandSrcCode);
+		}
+	}
 	void Retrying(bool retrying) { m_bRetrying = retrying; }
 	void Finalise() { m_bConnecting.store(false, std::memory_order_release); InvokeConnectionStoppedCallbacks(); }
 	void ResetState()
@@ -164,7 +172,7 @@ public:
 	void SetMatchmaking() { m_eLastMode = m_eCurrentMode; m_eCurrentMode = eConnectionMode::Matchmaking; }
 	eConnectionMode DetermineModeFromAddress(const std::string& address);
 	bool IsRetrying() { return m_bRetrying; }
-	void SetModAcceptState(eModAcceptState state) { m_eModAcceptState = state; }
+	void SetModAcceptState(eModAcceptState state) { m_eModAcceptState.store(state, std::memory_order_release); }
 	bool UnloadingRemoteModsOnMatchmaking() { return m_bUnloadingRemoteModsOnMatchmaking; }
 	void SetUnloadingRemoteModsOnMatchmaking(bool unloading) { m_bUnloadingRemoteModsOnMatchmaking = unloading; }
 };

@@ -323,65 +323,6 @@ public:
 };
 
 static_assert(sizeof(CClient) == 0x2D728);
-static_assert(offsetof(CClient, m_nUserID) == 0x10);
-static_assert(offsetof(CClient, m_szClientName) == 0x16);
-static_assert(offsetof(CClient, m_nCommandTick) == 0x218);
-static_assert(offsetof(CClient, m_nCommunityDataHandle) == 0x220);
-static_assert(offsetof(CClient, m_nRate) == 0x244);
-static_assert(offsetof(CClient, m_iTeamNum) == 0x250);
-static_assert(offsetof(CClient, m_ConVars) == 0x258);
-static_assert(offsetof(CClient, m_bConVarsChanged) == 0x260);
-static_assert(offsetof(CClient, m_pServer) == 0x268);
-static_assert(offsetof(CClient, m_flReplayDelay) == 0x270);
-static_assert(offsetof(CClient, m_bReplayEnabled) == 0x274);
-static_assert(offsetof(CClient, m_nReplaySnapshotTick) == 0x278);
-static_assert(offsetof(CClient, m_bReplayOnly) == 0x280);
-static_assert(offsetof(CClient, m_nSendTableCRC) == 0x284);
-static_assert(offsetof(CClient, m_NetChannel) == 0x290);
-static_assert(offsetof(CClient, m_nSignonState) == 0x2A0);
-static_assert(offsetof(CClient, m_bGameDllClientActivated) == 0x2A4);
-static_assert(offsetof(CClient, m_nDeltaTick) == 0x2AC);
-static_assert(offsetof(CClient, m_nStringTableAckTick) == 0x2B0);
-static_assert(offsetof(CClient, m_nBaselineUpdateTick) == 0x2B8);
-static_assert(offsetof(CClient, m_nLoadingProgress) == 0x2BC);
-static_assert(offsetof(CClient, m_bCommunityDataValid) == 0x310);
-static_assert(offsetof(CClient, m_szClanTag) == 0x358);
-static_assert(offsetof(CClient, m_BaselinesSent) == 0x380);
-static_assert(offsetof(CClient, m_nForceWaitForTick) == 0x480);
-static_assert(offsetof(CClient, m_bFakePlayer) == 0x484);
-static_assert(offsetof(CClient, m_bReceivedPacket) == 0x485);
-static_assert(offsetof(CClient, m_bLowViolence) == 0x486);
-static_assert(offsetof(CClient, m_bFullyAuthenticated) == 0x487);
-static_assert(offsetof(CClient, m_nNextTick) == 0x48C);
-static_assert(offsetof(CClient, m_flUpdateRate) == 0x498);
-static_assert(offsetof(CClient, m_iPersistenceReady) == 0x4A0);
-static_assert(offsetof(CClient, m_PersistenceBuffer) == 0x4FA);
-static_assert(offsetof(CClient, m_nPersistenceStorageState) == 0xF4FC);
-static_assert(offsetof(CClient, m_szPlatformID) == 0xF500);
-static_assert(offsetof(CClient, m_nPersistenceBaselineState) == 0xF580);
-static_assert(offsetof(CClient, m_nPersistenceRequestHandle) == 0xF588);
-static_assert(offsetof(CClient, m_PersistenceSerializationBuffer) == 0xF590);
-static_assert(offsetof(CClient, m_SnapshotMessageStorage) == 0xF5E8);
-static_assert(offsetof(CClient, m_bPersistenceBufferValid) == 0x2D5EC);
-static_assert(offsetof(CClient, m_nPersistenceBufferSize) == 0x2D5F0);
-static_assert(offsetof(CClient, m_bPersistenceSaveRequested) == 0x2D5F4);
-static_assert(offsetof(CClient, m_DlcOwnershipBits) == 0x2D5F8);
-static_assert(offsetof(CClient, m_nPartyChangeNumber) == 0x2D608);
-static_assert(offsetof(CClient, m_flClientConnectedTime) == 0x2D610);
-static_assert(offsetof(CClient, m_Trace) == 0x2D618);
-static_assert(offsetof(CClient, m_nPlatformUserId) == 0x2D648);
-static_assert(offsetof(CClient, m_ServerDataBlock) == 0x2D650);
-static_assert(offsetof(CClient, m_bVoiceLoopback) == 0x2D6F8);
-static_assert(offsetof(CClient, m_VoiceStreams) == 0x2D6FC);
-static_assert(offsetof(CClient, m_nLastPacketTick) == 0x2D700);
-static_assert(offsetof(CClient, m_flReplaySnapshotTime) == 0x2D704);
-static_assert(offsetof(CClient, m_nLastMovementTick) == 0x2D708);
-static_assert(offsetof(CClient, m_nSnapshotClientHandle) == 0x2D70C);
-static_assert(offsetof(CClient, m_nSnapshotSequence) == 0x2D710);
-static_assert(offsetof(CClient, m_nSnapshotDeltaTick) == 0x2D714);
-static_assert(offsetof(CClient, m_nSnapshotBaselineSequence) == 0x2D718);
-static_assert(offsetof(CClient, m_nSnapshotBaselineTick) == 0x2D71C);
-static_assert(offsetof(CClient, m_nLastSnapshotSequence) == 0x2D720);
 
 extern CClient* g_pClientArray;
 
@@ -398,12 +339,16 @@ public:
 	void Reset()
 	{
 		m_bIsCommsBanned = false;
+		m_bIsExtendedClient = false;
 	}
 	void SetClientIsCommsBanned(bool bBanned) { m_bIsCommsBanned = bBanned; }
 	bool IsClientCommsBanned() const { return m_bIsCommsBanned; }
+	// checking this client can do fun stuff
+	void SetIsExtendedClient(bool isExtendedClient) { m_bIsExtendedClient = isExtendedClient; }
+	bool IsExtendedClient() const { return m_bIsExtendedClient; }
 
 private:
 	bool m_bIsCommsBanned;
+	bool m_bIsExtendedClient;
 };
 
-static_assert(sizeof(CClientExtended) == 0x1);

@@ -3,6 +3,7 @@
 #include <cassert>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 #include "core/filesystem/filesystem.h"
 #include "core/tier0.h"
@@ -52,9 +53,96 @@ struct MaterialNamedTextureMappings_t
 using FindNamedTextureFn = ITextureInternal* (__fastcall*)(const char* textureName);
 using BindPixelTextureHandleFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
 using ResolvePixelTextureAndSamplerFn = int64_t(__fastcall*)(uint32_t slot, int16_t textureHandle);
-using SetupWaterTextureBindingsFn = void(__fastcall*)(__int64 textureHandles, uint64_t textureCount);
+using WaterVertexDynamicIndexFn = uint32_t(__fastcall*)(uint64_t shaderFlags);
 
 DECLARE_MODULE(NSCustomDXBufferHooks)
+
+struct NativeModelMaterialBatch
+{
+    IMaterial* material;
+    void* skin;
+    void* vertices;
+    void* indices;
+};
+static_assert(sizeof(NativeModelMaterialBatch) == 32);
+
+static bool IsSkyBackgroundMaterial(IMaterial* material)
+{
+    if (!material)
+        return false;
+    // Retail strips %-prefixed compile keys. This runtime parameter explicitly
+    // opts a background mesh in without identifying a map, model or shader.
+    const auto handle = material->FindVarIndex("$skybackground", 0, true);
+    return handle >= 0 && material->GetIntValue(handle) != 0;
+}
+
+class ScopedBackgroundDepth
+{
+  public:
+    explicit ScopedBackgroundDepth(ID3D11DeviceContext* context) : m_Context(context)
+    {
+        m_Context->RSGetViewports(&m_Count, m_Saved.data());
+        auto background = m_Saved;
+        for (UINT index = 0; index < m_Count; ++index)
+            background[index].MinDepth = background[index].MaxDepth = 1.0f;
+        m_Context->RSSetViewports(m_Count, background.data());
+    }
+
+    ~ScopedBackgroundDepth()
+    {
+        m_Context->RSSetViewports(m_Count, m_Saved.data());
+    }
+
+  private:
+    ID3D11DeviceContext* m_Context;
+    UINT m_Count = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    std::array<D3D11_VIEWPORT, D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE> m_Saved{};
+};
+
+DECLARE_HOOK(DrawModelInstancesInternal, materialsystem_dx11.dll + 0x1CFE0,
+             [](auto& hook, uint32_t instanceCount, void* instances, int materialCount, const NativeModelMaterialBatch* batches,
+                uint32_t flags) -> int64_t
+{
+    ID3D11DeviceContext* const context = D3D11DeviceContext();
+    if (!context || instanceCount == 0 || materialCount <= 0)
+        return hook.Original(instanceCount, instances, materialCount, batches, flags);
+
+    int firstBackground = 0;
+    while (firstBackground < materialCount && !IsSkyBackgroundMaterial(batches[firstBackground].material))
+        ++firstBackground;
+    if (firstBackground == materialCount)
+        return hook.Original(instanceCount, instances, materialCount, batches, flags);
+
+    // Native order is 256 instances at a time, then every material batch.
+    // Split only marked submissions, retaining that order even when a model
+    // contains both background and ordinary scenery materials.
+    int64_t result = 0;
+    for (uint32_t firstInstance = 0; firstInstance < instanceCount;)
+    {
+        const uint32_t count = (std::min)(instanceCount - firstInstance, 256u);
+        auto* const chunk = static_cast<uint8_t*>(instances) + size_t(firstInstance) * 208;
+        for (int first = 0; first < materialCount;)
+        {
+            const bool background = IsSkyBackgroundMaterial(batches[first].material);
+            int end = first + 1;
+            while (end < materialCount && IsSkyBackgroundMaterial(batches[end].material) == background)
+                ++end;
+            if (background)
+            {
+                // A sky model can be drawn before OR after underwater terrain.
+                // Far depth tests correctly in both orders, without replacing
+                // its vertex/pixel shaders or changing their fog interpolants.
+                const ScopedBackgroundDepth depth(context);
+                result = hook.Original(count, chunk, end - first, batches + first, flags);
+            }
+            else
+                result = hook.Original(count, chunk, end - first, batches + first, flags);
+            first = end;
+        }
+        firstInstance += count;
+    }
+    return result;
+})
 
 static Ns_Constant_Buffer NSCustomDXBuffer;
 static std::mutex NSCustomDXBufferMutex;
@@ -73,7 +161,10 @@ static std::unordered_set<uint64_t> NSRegisteredTextureOverrides = {};
 static FindNamedTextureFn FindNamedTexture = nullptr;
 static BindPixelTextureHandleFn BindPixelTextureHandle = nullptr;
 static ResolvePixelTextureAndSamplerFn ResolvePixelTextureAndSampler = nullptr;
-static SetupWaterTextureBindingsFn SetupWaterTextureBindings = nullptr;
+static WaterVertexDynamicIndexFn WaterVertexDynamicIndex = nullptr;
+static uint32_t* WaterPixelDynamicIndex = nullptr;
+static ID3D11VertexShader** BoundVertexShader = nullptr;
+static ID3D11PixelShader** BoundPixelShader = nullptr;
 static ID3D11ShaderResourceView** StagedPixelTextures = nullptr;
 static ID3D11SamplerState** StagedPixelSamplers = nullptr;
 static uint64_t* StagedTextureBindingState = nullptr;
@@ -210,7 +301,7 @@ struct VcsSet_t
 	uint32_t m_SlotCount = 1;
 	std::vector<std::pair<uint32_t, uint32_t>> m_Dictionary;
 	std::vector<std::pair<uint32_t, uint32_t>> m_Aliases;    
-	std::map<uint32_t, std::vector<uint8_t>> m_Blocks; 
+	std::map<std::pair<uint32_t, uint32_t>, std::vector<uint8_t>> m_Blocks;
 
 	int32_t FindIndex(uint32_t comboId) const
 	{
@@ -238,7 +329,7 @@ struct VcsSet_t
 		if (index < 0)
 			return nullptr;
 
-		const auto block = m_Blocks.find(m_Dictionary[index].first);
+		const auto block = m_Blocks.find({m_Dictionary[index].first, comboId % m_SlotCount});
 		return block == m_Blocks.end() ? nullptr : &block->second;
 	}
 
@@ -254,64 +345,89 @@ static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11VertexShader>> WaterVcsVe
 
 bool VcsSet_t::Load(const uint8_t* data, const std::size_t size)
 {
-	if (!data || size < 0x20)
-		return false;
-
 	m_Loaded = false;
 	m_SlotCount = 1;
 	m_Dictionary.clear();
 	m_Aliases.clear();
 	m_Blocks.clear();
 
-	const auto readU32 = [data, size](size_t offset) -> uint32_t
+	if (!data || size < 32)
+		return false;
+
+	const auto readU32 = [data](size_t offset) -> uint32_t
 	{
-		uint32_t value = 0;
-		if (offset + sizeof(uint32_t) <= size)
-			memcpy(&value, data + offset, sizeof(uint32_t));
+		uint32_t value;
+		memcpy(&value, data + offset, sizeof(value));
 		return value;
 	};
 
-	if (readU32(0) != 6)
+	if (readU32(0) != 6 || readU32(8) == 0)
 		return false;
 
-	m_SlotCount = readU32(8);
-	if (m_SlotCount == 0)
-		m_SlotCount = 1;
-
 	const uint32_t entryCount = readU32(20);
+	if (entryCount < 2 || entryCount > (size - 32) / 8)
+		return false;
 	const size_t aliasCountOffset = 28 + static_cast<size_t>(entryCount) * 8;
 	const uint32_t aliasCount = readU32(aliasCountOffset);
 	const size_t aliasOffset = aliasCountOffset + 4;
+	if (aliasCount > (size - aliasOffset) / 8)
+		return false;
+	const size_t firstBlock = aliasOffset + static_cast<size_t>(aliasCount) * 8;
+	const size_t sentinel = 28 + static_cast<size_t>(entryCount - 1) * 8;
+	if (readU32(sentinel) != UINT32_MAX || readU32(sentinel + 4) != size)
+		return false;
 
-	for (uint32_t i = 0; i < entryCount; ++i)
+	VcsSet_t parsed;
+	parsed.m_SlotCount = readU32(8);
+	for (uint32_t i = 0; i + 1 < entryCount; ++i)
 	{
-		const uint32_t key = readU32(28 + static_cast<size_t>(i) * 8);
-		const uint32_t offset = readU32(28 + static_cast<size_t>(i) * 8 + 4);
-		if (offset == 0xFFFFFFFF)
-			continue;
+		const size_t entry = 28 + static_cast<size_t>(i) * 8;
+		const uint32_t key = readU32(entry);
+		const size_t start = readU32(entry + 4);
+		const size_t end = readU32(entry + 12);
+		if ((i != 0 && key <= parsed.m_Dictionary.back().first)
+			|| key == UINT32_MAX || start < firstBlock || end > size || start >= end || end - start < 8)
+			return false;
 
-		const uint32_t header = readU32(offset);
-		const uint32_t byteCodeLength = readU32(offset + 8);
-		if ((header >> 31) == 0 || byteCodeLength == 0 || offset + 12 + byteCodeLength > size)
-			continue;
-
-		const uint8_t* byteCode = data + offset + 12;
-		if (memcmp(byteCode, "DXBC", 4) != 0)
-			continue;
-
-		m_Dictionary.emplace_back(key, offset);
-
-		m_Blocks.emplace(key, std::vector<uint8_t>(byteCode, byteCode + byteCodeLength));
+		// Supplied VCS6 caches use one uncompressed record stream per static
+		// block, followed by the stream terminator. Unsupported caches stay native.
+		if (readU32(start) != (0x80000000u | (end - start - 8)) || readU32(end - 4) != UINT32_MAX)
+			return false;
+		size_t at = start + 4;
+		while (at < end - 4)
+		{
+			if (end - 4 - at < 8)
+				return false;
+			const uint32_t dynamicId = readU32(at);
+			const uint32_t length = readU32(at + 4);
+			at += 8;
+			if (dynamicId >= parsed.m_SlotCount || length < 32 || length > end - 4 - at
+				|| memcmp(data + at, "DXBC", 4) != 0 || readU32(at + 24) != length)
+				return false;
+			if (!parsed.m_Blocks.emplace(
+					std::make_pair(key, dynamicId), std::vector<uint8_t>(data + at, data + at + length)).second)
+				return false;
+			at += length;
+		}
+		parsed.m_Dictionary.emplace_back(key, static_cast<uint32_t>(start));
 	}
 
 	for (uint32_t i = 0; i < aliasCount; ++i)
 	{
-		const uint32_t key = readU32(aliasOffset + static_cast<size_t>(i) * 8);
-		const uint32_t value = readU32(aliasOffset + static_cast<size_t>(i) * 8 + 4);
-		m_Aliases.emplace_back(key, value);
+		const size_t at = aliasOffset + static_cast<size_t>(i) * 8;
+		const uint32_t key = readU32(at);
+		const uint32_t value = readU32(at + 4);
+		if (i != 0 && key <= parsed.m_Aliases.back().first)
+			return false;
+		const auto target = std::lower_bound(parsed.m_Dictionary.begin(), parsed.m_Dictionary.end(), value,
+			[](const std::pair<uint32_t, uint32_t>& entry, uint32_t targetKey) { return entry.first < targetKey; });
+		if (target == parsed.m_Dictionary.end() || target->first != value)
+			return false;
+		parsed.m_Aliases.emplace_back(key, value);
 	}
 
-	m_Loaded = !m_Dictionary.empty();
+	parsed.m_Loaded = !parsed.m_Blocks.empty();
+	*this = std::move(parsed);
 	return m_Loaded;
 }
 
@@ -348,9 +464,29 @@ static bool LoadWaterVcsSet(VcsSet_t& set, const char* stage)
 	return false;
 }
 
+DECLARE_HOOK(WaterInitParams, materialsystem_dx11.dll + 0x419A0,
+	[](auto& hook, __int64 shader, uint64_t* material, uint8_t* present) -> __int64
+{
+	// DX11 initialization permanently enables the legacy PC policy which
+	// deletes env_cubemap here. Keep the authored sentinel so the native
+	// texture loader and draw path can select the BSP cubemap normally.
+	// An explicit reflection texture still takes precedence, as in native.
+	const char* const envmap = material && material[1] && present && present[15] && !present[9]
+		? *reinterpret_cast<const char* const*>(material[1] + 128) : nullptr;
+	if (!envmap || _stricmp(envmap, "env_cubemap") != 0)
+		return hook.Original(shader, material, present);
+
+	const uint8_t envmapPresent = present[15];
+	present[15] = 0;
+	const __int64 result = hook.Original(shader, material, present);
+	present[15] = envmapPresent;
+	return result;
+})
+
 DECLARE_HOOK(InitWaterShader, materialsystem_dx11.dll + 0x41B50, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
 {
 	const __int64 result = hook.Original(a1, a2, a3, a4);
+	WaterCombos.erase(a3);
 
 	if (!a2 || !a4)
 		return result;
@@ -382,33 +518,30 @@ DECLARE_HOOK(InitWaterShader, materialsystem_dx11.dll + 0x41B50, [](auto& hook, 
 
 DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
 {
-
-	if (!a4)
-		return 0;
-
-	const __int64 result = *reinterpret_cast<const __int64*>(a4 + 8);
+	// Native selection owns dynamic fog/input-layout state, b0 and the fourteen
+	// water texture handles. A missing replacement must leave that draw intact.
+	const __int64 result = hook.Original(a1, a2, a3, a4);
 
 	ID3D11Device* const device = D3D11Device();
 	ID3D11DeviceContext* const context = D3D11DeviceContext();
 	if (!device || !context)
 		return result;
 
-	uint32_t pixelId = 0;
-	uint32_t vertexId = 0;
-    auto entry = WaterCombos.find(a3);
-    if (entry == WaterCombos.end())
-        entry = WaterCombos.find(a4);
+	// Init's third argument is the per-material data passed as Execute's fourth.
+	const auto entry = WaterCombos.find(a4);
+	if (entry == WaterCombos.end() || !g_WaterPsSet.m_Loaded || !g_WaterVsSet.m_Loaded)
+		return result;
 
-    if (entry != WaterCombos.end())
-    {
-        pixelId = entry->second.first;
-        vertexId = entry->second.second;
-    }
-        
-	const std::vector<uint8_t>* const vertexByteCode =
-		vertexId != 0 ? g_WaterVsSet.ByteCodeFor(vertexId) : nullptr;
-	const std::vector<uint8_t>* const pixelByteCode =
-		pixelId != 0 ? g_WaterPsSet.ByteCodeFor(pixelId) : nullptr;
+	const uint32_t vertexDynamic = WaterVertexDynamicIndex(*reinterpret_cast<const uint64_t*>(a3 + 8));
+	const uint32_t pixelDynamic = *WaterPixelDynamicIndex;
+	if (vertexDynamic >= g_WaterVsSet.m_SlotCount || pixelDynamic >= g_WaterPsSet.m_SlotCount)
+		return result;
+	const uint32_t pixelId = entry->second.first + pixelDynamic;
+	const uint32_t vertexId = entry->second.second + vertexDynamic;
+	const std::vector<uint8_t>* const vertexByteCode = g_WaterVsSet.ByteCodeFor(vertexId);
+	const std::vector<uint8_t>* const pixelByteCode = g_WaterPsSet.ByteCodeFor(pixelId);
+	if (!vertexByteCode || !pixelByteCode)
+		return result;
 
 	ID3D11VertexShader* vertexShader = nullptr;
 	ID3D11PixelShader* pixelShader = nullptr;
@@ -423,7 +556,7 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		else if (SUCCEEDED(device->CreateVertexShader(
 				vertexByteCode->data(), vertexByteCode->size(), nullptr, &vertexShader)))
 		{
-			WaterVcsVertexShaders.emplace(vertexId, vertexShader);
+			WaterVcsVertexShaders[vertexId].Attach(vertexShader);
 		}
 		else
 		{
@@ -441,7 +574,7 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		else if (SUCCEEDED(device->CreatePixelShader(
 				pixelByteCode->data(), pixelByteCode->size(), nullptr, &pixelShader)))
 		{
-			WaterVcsPixelShaders.emplace(pixelId, pixelShader);
+			WaterVcsPixelShaders[pixelId].Attach(pixelShader);
 		}
 		else
 		{
@@ -449,12 +582,8 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		}
 	}
 
-	
-	if (vertexShader && pixelShader)
-	{
-		context->VSSetShader(vertexShader, nullptr, 0);
-		context->PSSetShader(pixelShader, nullptr, 0);
-	}
+	if (!vertexShader || !pixelShader)
+		return result;
 	
 
 		struct TonemapGlobals_t
@@ -501,15 +630,16 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 		}
 	}
 
-	if (tonemapView)
-		context->PSSetShaderResources(16, 1, &tonemapView);
+	if (!tonemapView)
+		return result;
 
-	// The water constant buffer, at the offset the engine's own execute uses.
-	ID3D11Buffer* const* const constantBuffer = reinterpret_cast<ID3D11Buffer* const*>(a4 + 0x10);
-	context->VSSetConstantBuffers(0, 1, constantBuffer);
-	context->PSSetConstantBuffers(0, 1, constantBuffer);
-	if (SetupWaterTextureBindings)
-		SetupWaterTextureBindings(*reinterpret_cast<const __int64*>(a4 + 0x78), 14);
+	context->VSSetShader(vertexShader, nullptr, 0);
+	context->PSSetShader(pixelShader, nullptr, 0);
+	// Native setters skip redundant binds using these pointers. Keep their
+	// cache synchronized so the next native draw cannot retain our shaders.
+	*BoundVertexShader = vertexShader;
+	*BoundPixelShader = pixelShader;
+	context->PSSetShaderResources(16, 1, &tonemapView);
 
 	return result;
 })
@@ -936,11 +1066,16 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", CustomDXShaders, [](CModule module
 	FindNamedTexture = module.Offset(0x96F00).RCast<FindNamedTextureFn>();
 	BindPixelTextureHandle = module.Offset(0x267D0).RCast<BindPixelTextureHandleFn>();
 	ResolvePixelTextureAndSampler = module.Offset(0x26430).RCast<ResolvePixelTextureAndSamplerFn>();
-	SetupWaterTextureBindings = module.Offset(0x264F0).RCast<SetupWaterTextureBindingsFn>();
+	WaterVertexDynamicIndex = module.Offset(0x35E30).RCast<WaterVertexDynamicIndexFn>();
+	WaterPixelDynamicIndex = module.Offset(0x14F6DB4).RCast<uint32_t*>();
+	BoundVertexShader = module.Offset(0x19C3848).RCast<ID3D11VertexShader**>();
+	BoundPixelShader = module.Offset(0x19C3840).RCast<ID3D11PixelShader**>();
 	StagedPixelTextures = module.Offset(0x19ACA70).RCast<ID3D11ShaderResourceView**>();
 	StagedPixelSamplers = module.Offset(0x19AC9F0).RCast<ID3D11SamplerState**>();
 	StagedTextureBindingState = module.Offset(0x19ACB30).RCast<uint64_t*>();
 
+    DISPATCH_HOOK(NSCustomDXBufferHooks, DrawModelInstancesInternal)
+    DISPATCH_HOOK(NSCustomDXBufferHooks, WaterInitParams)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, InitWaterShader)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, Water_Execute)
 	DISPATCH_HOOK(NSCustomDXBufferHooks, ShaderExecute)
