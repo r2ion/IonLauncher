@@ -5,7 +5,6 @@
 #include "tier0/frametask.h"
 #include "tier1/keyvalues.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
-#include "vscript/languages/squirrel_re/squirrel/sqstring.h"
 
 #include <algorithm>
 #include <array>
@@ -26,39 +25,39 @@ constexpr std::size_t StoredModGroupCount = 32;
 constexpr std::size_t MaxEncodedEntryCount = static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) + 1;
 static_assert(offsetof(ClientWeaponInfo_t, m_CompiledData) == offsetof(FileWeaponInfo_t, modValueDefaults));
 
-static CWeaponModHandler<ClientWeaponInfo_t> g_ClientWeaponMods;
-static CWeaponModHandler<ServerWeaponInfo_t> g_ServerWeaponMods;
+CWeaponModHandler<ClientWeaponInfo_t> g_ClientWeaponMods;
+CWeaponModHandler<ServerWeaponInfo_t> g_ServerWeaponMods;
 
-static bool ScriptValueToWeaponFieldString(const SQObject& value, std::string& output)
+template <typename WeaponInfo> bool CWeaponModHandler<WeaponInfo>::WeaponFieldValueToString(const ScriptVariant_t& value, std::string& output)
 {
     char buffer[128];
     char* pEnd = buffer;
     std::errc error{};
 
-    switch (value._Type)
+    switch (value.GetType())
     {
-    case OT_INTEGER:
+    case FIELD_INTEGER:
     {
-        const auto result = std::to_chars(buffer, std::end(buffer), _integer(value));
+        const auto result = std::to_chars(buffer, std::end(buffer), static_cast<int>(value));
         pEnd = result.ptr;
         error = result.ec;
         break;
     }
-    case OT_FLOAT:
+    case FIELD_FLOAT:
     {
         const auto result =
-            std::to_chars(buffer, std::end(buffer), _float(value), std::chars_format::general, std::numeric_limits<float>::max_digits10);
+            std::to_chars(buffer, std::end(buffer), static_cast<float>(value), std::chars_format::general, std::numeric_limits<float>::max_digits10);
         pEnd = result.ptr;
         error = result.ec;
         break;
     }
-    case OT_BOOL:
-        output = _bool(value) ? "1" : "0";
+    case FIELD_BOOLEAN:
+        output = static_cast<bool>(value) ? "1" : "0";
         return true;
-    case OT_VECTOR:
+    case FIELD_VECTOR:
     {
-        const SQFloat* pVector = _vector(value);
-        const int length = std::snprintf(buffer, sizeof(buffer), "%.9g %.9g %.9g", pVector[0], pVector[1], pVector[2]);
+        const Vector3D& vector = static_cast<const Vector3D&>(value);
+        const int length = std::snprintf(buffer, sizeof(buffer), "%.9g %.9g %.9g", vector.x, vector.y, vector.z);
         if (length < 0 || static_cast<std::size_t>(length) >= sizeof(buffer))
             return false;
         output.assign(buffer, static_cast<std::size_t>(length));
@@ -75,75 +74,81 @@ static bool ScriptValueToWeaponFieldString(const SQObject& value, std::string& o
     return true;
 }
 
-static bool ScriptValueToWeaponFieldData(const SQObject& value, ScriptDataType_t fieldType,
-                                         std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)>& output, std::size_t& outputSize)
+static ScriptDataType_t WeaponDescriptorScriptType(const std::uint8_t descriptorType)
+{
+    switch (descriptorType)
+    {
+    case 1:
+        return FIELD_INTEGER;
+    case 2:
+        return FIELD_FLOAT;
+    case 3:
+        return FIELD_BOOLEAN;
+    case 6:
+        return FIELD_VECTOR;
+    default:
+        return FIELD_VOID;
+    }
+}
+
+static bool IsWeaponRuntimeFieldValueCompatible(const ScriptDataType_t fieldType, const ScriptDataType_t valueType)
 {
     switch (fieldType)
     {
     case FIELD_BOOLEAN:
-        if (value._Type != OT_BOOL)
-            return false;
-        outputSize = sizeof(bool);
-        std::memcpy(output.data(), &value._VAL.asInteger, outputSize);
-        return true;
+        return valueType == FIELD_BOOLEAN;
     case FIELD_INTEGER:
-        if (value._Type != OT_INTEGER)
-            return false;
-        outputSize = sizeof(int);
-        std::memcpy(output.data(), &value._VAL.asInteger, outputSize);
-        return true;
+        return valueType == FIELD_INTEGER;
     case FIELD_FLOAT:
-    {
-        if (value._Type != OT_FLOAT && value._Type != OT_INTEGER)
-            return false;
-        const float numericValue = value._Type == OT_FLOAT ? value._VAL.asFloat : static_cast<float>(value._VAL.asInteger);
-        outputSize = sizeof(numericValue);
-        std::memcpy(output.data(), &numericValue, outputSize);
-        return true;
-    }
+        return valueType == FIELD_FLOAT || valueType == FIELD_INTEGER;
     case FIELD_VECTOR:
-        if (value._Type != OT_VECTOR)
-            return false;
-        outputSize = sizeof(Vector3D);
-        std::memcpy(output.data(), _vector(value), outputSize);
-        return true;
+        return valueType == FIELD_VECTOR;
     default:
         return false;
     }
 }
 
-ADD_SQFUNC("bool", NSSetWeaponInfoFileKeyField, "entity weapon, string key, var value",
-           "Sets a shared scalar or vector client weapon-info key when this function is called.", ScriptContext::CLIENT)
+template <typename WeaponInfo>
+bool CWeaponModHandler<WeaponInfo>::WeaponFieldValueToData(const ScriptVariant_t& value, const ScriptDataType_t fieldType,
+                                                           std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)>& output,
+                                                           std::size_t& outputSize)
 {
-    C_WeaponX* pWeapon = g_pSquirrel[context]->template getentity<C_WeaponX>(sqvm, 1);
-    const char* pFieldName = g_pSquirrel[context]->getstring(sqvm, 2);
-    if (!pWeapon || !pFieldName || !*pFieldName)
-    {
-        g_pSquirrel[context]->raiseerror(sqvm, "NSSetWeaponInfoFileKeyField requires a valid weapon and non-empty key");
-        return SQRESULT_ERROR;
-    }
+    if (!IsWeaponRuntimeFieldValueCompatible(fieldType, value.GetType()))
+        return false;
 
-    const ScriptVariant_t currentValue = pWeapon->GetWeaponInfoFileKeyField(pFieldName);
-    const SQObject& scriptValue = sqvm->_stackOfCurrentFunction[3];
-    std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)> valueData{};
-    std::size_t valueSize = 0;
-    if (!ScriptValueToWeaponFieldData(scriptValue, currentValue.GetType(), valueData, valueSize))
+    switch (fieldType)
     {
-        g_pSquirrel[context]->raiseerror(
-            sqvm, "NSSetWeaponInfoFileKeyField value type does not match an existing bool, int, float, or vector field");
-        return SQRESULT_ERROR;
-    }
-
-    std::string value;
-    if (!ScriptValueToWeaponFieldString(scriptValue, value))
+    case FIELD_BOOLEAN:
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "NSSetWeaponInfoFileKeyField only accepts int, float, bool, or vector values");
-        return SQRESULT_ERROR;
+        const bool typedValue = static_cast<bool>(value);
+        outputSize = sizeof(typedValue);
+        std::memcpy(output.data(), &typedValue, outputSize);
+        return true;
     }
-
-    const bool updated = g_ClientWeaponMods.SetField(pWeapon, pFieldName, value.c_str(), valueData.data(), valueSize);
-    g_pSquirrel[context]->pushbool(sqvm, updated);
-    return SQRESULT_NOTNULL;
+    case FIELD_INTEGER:
+    {
+        const int typedValue = static_cast<int>(value);
+        outputSize = sizeof(typedValue);
+        std::memcpy(output.data(), &typedValue, outputSize);
+        return true;
+    }
+    case FIELD_FLOAT:
+    {
+        const float typedValue = value.GetType() == FIELD_FLOAT ? static_cast<float>(value) : static_cast<float>(static_cast<int>(value));
+        outputSize = sizeof(typedValue);
+        std::memcpy(output.data(), &typedValue, outputSize);
+        return true;
+    }
+    case FIELD_VECTOR:
+    {
+        const Vector3D& typedValue = static_cast<const Vector3D&>(value);
+        outputSize = sizeof(typedValue);
+        std::memcpy(output.data(), &typedValue, outputSize);
+        return true;
+    }
+    default:
+        return false;
+    }
 }
 std::uint16_t WeaponModCodeEntry_t::GetStringOffset() const
 {
@@ -265,6 +270,7 @@ template <> void CWeaponModHandler<ClientWeaponInfo_t>::Initialize(const CModule
 {
     m_EntriesByWeapon.clear();
     m_pParseGroup = module.Offset(0x3D15D0).RCast<ParseWeaponModGroupFn<ClientWeaponInfo_t>>();
+    m_pParseGroupHookName = "ParseWeaponModGroup_Client";
     m_pFieldDescriptors = module.Offset(0x942CA0).RCast<const WeaponFieldDescriptor_t*>();
     m_pPrecacheFlag4Asset = nullptr;
     m_pPrecacheClientFlag4Asset = module.Offset(0x195CD0).RCast<PrecacheClientWeaponModFlag4AssetFn>();
@@ -279,6 +285,7 @@ template <> void CWeaponModHandler<ServerWeaponInfo_t>::Initialize(const CModule
 {
     m_EntriesByWeapon.clear();
     m_pParseGroup = module.Offset(0x6CFDE0).RCast<ParseWeaponModGroupFn<ServerWeaponInfo_t>>();
+    m_pParseGroupHookName = "ParseWeaponModGroup_Server";
     m_pFieldDescriptors = module.Offset(0x997DC0).RCast<const WeaponFieldDescriptor_t*>();
     m_pPrecacheFlag4Asset = module.Offset(0x159C00).RCast<PrecacheWeaponModAssetFn>();
     m_pPrecacheClientFlag4Asset = nullptr;
@@ -303,64 +310,59 @@ template <typename WeaponInfo> const char* CWeaponModHandler<WeaponInfo>::GetWea
 }
 
 template <typename WeaponInfo>
-bool CWeaponModHandler<WeaponInfo>::SetField(void* pWeapon, const char* pFieldName, const char* pValue, const std::byte* pData,
-                                             std::size_t valueSize)
+bool CWeaponModHandler<WeaponInfo>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName, const ScriptVariant_t& value)
 {
-    if (!pWeapon || !pFieldName || !*pFieldName || !pValue || !pData || !valueSize ||
-        valueSize > sizeof(WeaponModCodeEntry_t::m_Value) || !m_pGetWeaponInfo || !m_pFieldDescriptors)
-    {
+    assert(pWeapon && pRuntimeValues && pFieldName && *pFieldName);
+    assert(m_pGetWeaponInfo && m_pFieldDescriptors && m_pParseGroupHookName);
+
+    std::string stringValue;
+    if (!WeaponFieldValueToString(value, stringValue))
         return false;
-    }
 
     WeaponInfo* pWeaponInfo = m_pGetWeaponInfo(pWeapon);
-    const char* pWeaponName = pWeaponInfo ? GetWeaponName(pWeaponInfo) : nullptr;
-    const auto parseHook = HookSys::FindHook("ParseWeaponModGroup_Client");
-    if (!pWeaponInfo || !pWeaponName || !*pWeaponName || !parseHook)
+    if (!pWeaponInfo)
         return false;
 
-    KeyValues section("NS_SCRIPT_OVERRIDE");
-    section.SetString(pFieldName, pValue);
+    const char* pWeaponName = GetWeaponName(pWeaponInfo);
+    if (!pWeaponName || !*pWeaponName)
+        return false;
+
+    const auto parseHook = HookSys::FindHook(m_pParseGroupHookName);
+    assert(parseHook);
+
+    KeyValues section("__SCRIPT_OVERRIDE__");
+    section.SetString(pFieldName, stringValue.c_str());
+
+    WeaponInfo scratchWeaponInfo = *pWeaponInfo;
+    SetCodeCount(&scratchWeaponInfo, 0);
 
     const auto parseGroup = HookSys::GetOriginalFunction<ParseWeaponModGroupFn<WeaponInfo>>(parseHook);
-    const std::uint32_t previousCodeCount = GetCodeCount(pWeaponInfo);
-    SetCodeCount(pWeaponInfo, 0);
-
     WeaponModGroup_t parsedGroup{};
-    parseGroup(&section, pWeaponInfo, pWeaponName, &parsedGroup);
-    const std::uint32_t parsedCodeCount = GetCodeCount(pWeaponInfo);
-    SetCodeCount(pWeaponInfo, previousCodeCount);
-
-    if (parsedCodeCount != 1 || parsedGroup.m_EntryCount != 1)
+    parseGroup(&section, &scratchWeaponInfo, pWeaponName, &parsedGroup);
+    if (GetCodeCount(&scratchWeaponInfo) != 1 || parsedGroup.m_EntryCount != 1)
         return false;
 
-    const WeaponModCodeEntry_t& entry = pWeaponInfo->m_WeaponMods.m_CodeEntries[0];
-    std::vector<WeaponModCodeEntry_t>* pModEntries = FindEntries(pWeaponInfo);
-    if (!pModEntries)
-        return false;
-
-    for (WeaponModCodeEntry_t& modEntry : *pModEntries)
-    {
-        if (modEntry.m_FieldIndex != entry.m_FieldIndex)
-            continue;
-
-        modEntry.m_HasValue = entry.m_HasValue;
-        std::memcpy(modEntry.m_Value, pData, valueSize);
-    }
+    const WeaponModCodeEntry_t& entry = scratchWeaponInfo.m_WeaponMods.m_CodeEntries[0];
     const WeaponFieldDescriptor_t& descriptor = m_pFieldDescriptors[entry.m_FieldIndex];
-    if (descriptor.m_CompiledOffset > sizeof(pWeaponInfo->m_CompiledData.m_Data) ||
-        valueSize > sizeof(pWeaponInfo->m_CompiledData.m_Data) - descriptor.m_CompiledOffset)
+    const ScriptDataType_t fieldType = WeaponDescriptorScriptType(descriptor.m_Type);
+    std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)> valueData{};
+    std::size_t valueSize = 0;
+    if (!WeaponFieldValueToData(value, fieldType, valueData, valueSize))
+        return false;
+    if (descriptor.m_CompiledOffset > sizeof(scratchWeaponInfo.m_CompiledData.m_Data) ||
+        valueSize > sizeof(scratchWeaponInfo.m_CompiledData.m_Data) - descriptor.m_CompiledOffset)
     {
         return false;
     }
 
-    std::byte* pCompiledValue = pWeaponInfo->m_CompiledData.m_Data + descriptor.m_CompiledOffset;
-    std::byte* pCurrentValue =
-        reinterpret_cast<std::byte*>(&static_cast<C_WeaponX*>(pWeapon)->m_modVars) + descriptor.m_CompiledOffset;
-    std::memcpy(pCompiledValue, pData, valueSize);
-    std::memcpy(pCurrentValue, pData, valueSize);
+    std::memcpy(static_cast<std::byte*>(pRuntimeValues) + descriptor.m_CompiledOffset, valueData.data(), valueSize);
     return true;
 }
 
+template bool CWeaponModHandler<ClientWeaponInfo_t>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName,
+                                                                     const ScriptVariant_t& value);
+template bool CWeaponModHandler<ServerWeaponInfo_t>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName,
+                                                                     const ScriptVariant_t& value);
 
 template <typename WeaponInfo> std::size_t CWeaponModHandler<WeaponInfo>::CountChildren(KeyValues* pSection)
 {
@@ -603,8 +605,7 @@ void CWeaponModHandler<WeaponInfo>::PrecacheFlaggedAssets(WeaponInfo* pWeaponInf
         {
             if (m_pPrecacheClientFlag4Asset)
             {
-                const std::uintptr_t descriptorOffset =
-                    static_cast<std::uintptr_t>(entry.m_FieldIndex) * sizeof(WeaponFieldDescriptor_t);
+                const std::uintptr_t descriptorOffset = static_cast<std::uintptr_t>(entry.m_FieldIndex) * sizeof(WeaponFieldDescriptor_t);
                 m_pPrecacheClientFlag4Asset(pValue, descriptorOffset, precacheValue);
             }
             else
@@ -697,8 +698,7 @@ void CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void* pOwner, s
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, float precacheValue,
-                                                   OriginalFn&& original)
+void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, float precacheValue, OriginalFn&& original)
 {
     auto* pEntries = FindEntries(pWeaponInfo);
     if (!pEntries)
@@ -759,11 +759,8 @@ DECLARE_HOOK(C_WeaponX_GetMods, client.dll + 0x5A7FA0, [](auto& hook, C_WeaponX*
 
     g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "GetMods: invalid weapon-info handle (0xFFFF)");
 
-	// crashes can happen due to weird server-side keyvalues bullshit, not sure if a disconnect is needed though
-    g_TaskQueue.Dispatch([]()
-    {
-        g_pEngineClient->Disconnect("#DISCONNECT_OUT_OF_SYNC");
-    });
+    // crashes can happen due to weird server-side keyvalues bullshit, not sure if a disconnect is needed though
+    g_TaskQueue.Dispatch([]() { g_pEngineClient->Disconnect("#DISCONNECT_OUT_OF_SYNC"); });
 
     return SQRESULT_ERROR;
 });
@@ -850,10 +847,7 @@ DECLARE_HOOK(ApplyWeaponModEntry_Server, server.dll + 0x6C75D0,
 
 DECLARE_HOOK(PrecacheWeaponModAssets_Client, client.dll + 0x3D1ED0,
              [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup, float precacheValue) -> void
-{
-    g_ClientWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, precacheValue,
-                                      [&]() { hook.Original(pWeaponInfo, pGroup, precacheValue); });
-});
+{ g_ClientWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, precacheValue, [&]() { hook.Original(pWeaponInfo, pGroup, precacheValue); }); });
 
 DECLARE_HOOK(PrecacheWeaponModAssets_Server, server.dll + 0x6D0190,
              [](auto& hook, ServerWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> void

@@ -272,6 +272,7 @@ add_library(
     "server/serverpresence.h"
     "server/usermessages.cpp"
     "server/usermessages.h"
+    "server/weaponx.cpp"
     "eos/eos_layer.cpp"
     "eos/eos_layer.h"
     "eos/eos_logging_manager.cpp"

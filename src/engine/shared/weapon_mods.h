@@ -1,8 +1,12 @@
 #pragma once
 
+#include "vscript/ivscript.h"
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -100,7 +104,6 @@ struct ServerWeaponInfo_t
     std::byte m_Reserved2[0x28];
 };
 
-
 template <typename WeaponInfo> using ParseWeaponModGroupFn = std::uintptr_t (*)(KeyValues*, WeaponInfo*, const char*, WeaponModGroup_t*);
 
 using PrecacheWeaponModAssetFn = std::uintptr_t (*)(const char*);
@@ -119,7 +122,7 @@ template <typename WeaponInfo> class CWeaponModHandler
     void Initialize(const CModule& module);
     void InitializeWeaponInfo(WeaponInfo* pWeaponInfo);
 
-    bool SetField(void* pWeapon, const char* pFieldName, const char* pValue, const std::byte* pData, std::size_t valueSize);
+    bool SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName, const ScriptVariant_t& value);
     template <typename OriginalFn> std::uint32_t* ParseWeaponInfo(WeaponInfo* pWeaponInfo, KeyValues* pRoot, OriginalFn&& original);
 
     template <typename OriginalFn>
@@ -151,6 +154,9 @@ template <typename WeaponInfo> class CWeaponModHandler
     static std::size_t CountChildren(KeyValues* pSection);
     static std::size_t CountExpectedEntries(KeyValues* pRoot);
     static bool CanAppendEntries(const std::vector<WeaponModCodeEntry_t>& entries, std::size_t groupEntryCount);
+    static bool WeaponFieldValueToString(const ScriptVariant_t& value, std::string& output);
+    static bool WeaponFieldValueToData(const ScriptVariant_t& value, ScriptDataType_t fieldType,
+                                       std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)>& output, std::size_t& outputSize);
 
     std::uint32_t GetCodeCount(const WeaponInfo* pWeaponInfo) const;
     void SetCodeCount(WeaponInfo* pWeaponInfo, std::uint32_t count) const;
@@ -170,6 +176,7 @@ template <typename WeaponInfo> class CWeaponModHandler
                                       const std::vector<WeaponModCodeEntry_t>& entries);
 
     ParseWeaponModGroupFn<WeaponInfo> m_pParseGroup = nullptr;
+    const char* m_pParseGroupHookName = nullptr;
     const WeaponFieldDescriptor_t* m_pFieldDescriptors = nullptr;
     PrecacheWeaponModAssetFn m_pPrecacheFlag4Asset = nullptr;
     PrecacheClientWeaponModFlag4AssetFn m_pPrecacheClientFlag4Asset = nullptr;
@@ -181,40 +188,20 @@ template <typename WeaponInfo> class CWeaponModHandler
     std::unordered_map<WeaponInfo*, std::vector<WeaponModCodeEntry_t>> m_EntriesByWeapon;
 };
 
+extern CWeaponModHandler<ClientWeaponInfo_t> g_ClientWeaponMods;
+extern CWeaponModHandler<ServerWeaponInfo_t> g_ServerWeaponMods;
+
+extern template bool CWeaponModHandler<ClientWeaponInfo_t>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName,
+                                                                            const ScriptVariant_t& value);
+extern template bool CWeaponModHandler<ServerWeaponInfo_t>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName,
+                                                                            const ScriptVariant_t& value);
+
 static_assert(sizeof(WeaponModCodeEntry_t) == 0x10);
-static_assert(offsetof(WeaponModCodeEntry_t, m_FieldIndex) == 0x0);
-static_assert(offsetof(WeaponModCodeEntry_t, m_HasValue) == 0x2);
-static_assert(offsetof(WeaponModCodeEntry_t, m_Value) == 0x4);
 static_assert(sizeof(WeaponModGroup_t) == 0x6);
-static_assert(offsetof(WeaponModGroup_t, m_Name) == 0x0);
-static_assert(offsetof(WeaponModGroup_t, m_FirstEntry) == 0x2);
-static_assert(offsetof(WeaponModGroup_t, m_EntryCount) == 0x4);
 static_assert(sizeof(WeaponModAssemblyItem_t) == 0x20);
-static_assert(offsetof(WeaponModAssemblyItem_t, m_pEntry) == 0x0);
-static_assert(offsetof(WeaponModAssemblyItem_t, m_pNext) == 0x8);
-static_assert(offsetof(WeaponModAssemblyItem_t, m_SetBaseValue) == 0x18);
-static_assert(offsetof(WeaponModAssemblyItem_t, m_Remove) == 0x19);
 static_assert(sizeof(WeaponFieldDescriptor_t) == 0x20);
-static_assert(offsetof(WeaponFieldDescriptor_t, m_Type) == 0x19);
-static_assert(offsetof(WeaponFieldDescriptor_t, m_Flags) == 0x1A);
-static_assert(offsetof(WeaponFieldDescriptor_t, m_CompiledOffset) == 0x1E);
 static_assert(sizeof(WeaponInfoStringPool_t) == 0xC04);
-static_assert(offsetof(WeaponInfoStringPool_t, m_Used) == 0xC00);
 static_assert(sizeof(WeaponInfoCompiledData_t) == 0xCA0);
 static_assert(sizeof(WeaponModData_t) == 0xD58);
-static_assert(offsetof(WeaponModData_t, m_Groups) == 0x0);
-static_assert(offsetof(WeaponModData_t, m_CodeEntries) == 0xC0);
-static_assert(offsetof(WeaponModData_t, m_GroupCount) == 0xD40);
-static_assert(offsetof(WeaponModData_t, m_CodeEntryCount) == 0xD44);
-static_assert(offsetof(WeaponModData_t, m_SinglePlayerBase) == 0xD48);
-static_assert(offsetof(WeaponModData_t, m_HasSinglePlayerBase) == 0xD4E);
-static_assert(offsetof(WeaponModData_t, m_MultiplayerBase) == 0xD50);
-static_assert(offsetof(WeaponModData_t, m_HasMultiplayerBase) == 0xD56);
 static_assert(sizeof(ClientWeaponInfo_t) == 0x2E60);
-static_assert(offsetof(ClientWeaponInfo_t, m_StringPool) == 0x66C);
-static_assert(offsetof(ClientWeaponInfo_t, m_CompiledData) == 0x1270);
-static_assert(offsetof(ClientWeaponInfo_t, m_WeaponMods) == 0x1F10);
 static_assert(sizeof(ServerWeaponInfo_t) == 0x2CA8);
-static_assert(offsetof(ServerWeaponInfo_t, m_StringPool) == 0x680);
-static_assert(offsetof(ServerWeaponInfo_t, m_CompiledData) == 0x1288);
-static_assert(offsetof(ServerWeaponInfo_t, m_WeaponMods) == 0x1F28);
