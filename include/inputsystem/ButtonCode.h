@@ -129,23 +129,22 @@ enum ButtonCode_t
 	KEY_F6,
 	KEY_F7,
 	KEY_F8,
-	KEY_F9,
-	KEY_F10,
-	KEY_F11,
-	KEY_F12,
-	KEY_CAPSLOCKTOGGLE,
-	KEY_NUMLOCKTOGGLE,
-	KEY_SCROLLLOCKTOGGLE,
-	KEY_CREDITSIGN,
+    KEY_F9,
+    KEY_F10,
+    KEY_F11,
+    KEY_F12,
+    KEY_CAPSLOCKTOGGLE,
+    KEY_NUMLOCKTOGGLE,
+    KEY_SCROLLLOCKTOGGLE,
 
-	KEY_LAST = KEY_CREDITSIGN,
-	KEY_COUNT = KEY_LAST - KEY_FIRST + 1,
+    KEY_LAST = KEY_SCROLLLOCKTOGGLE,
+    KEY_COUNT = KEY_LAST - KEY_FIRST + 1,
 
-	// Mouse
-	MOUSE_FIRST = KEY_LAST + 1,
+    // Mouse
+    MOUSE_FIRST = KEY_LAST + 1,
 
-	MOUSE_LEFT = MOUSE_FIRST,
-	MOUSE_RIGHT,
+    MOUSE_LEFT = MOUSE_FIRST,
+    MOUSE_RIGHT,
 	MOUSE_MIDDLE,
 	MOUSE_4,
 	MOUSE_5,
@@ -207,9 +206,13 @@ enum ButtonCode_t
 	KEY_XBUTTON_RTRIGGER,                              // ZAXIS NEGATIVE
 	KEY_XSTICK2_RIGHT,                                 // UAXIS POSITIVE
 	KEY_XSTICK2_LEFT,                                  // UAXIS NEGATIVE
-	KEY_XSTICK2_DOWN,                                  // VAXIS POSITIVE
-	KEY_XSTICK2_UP,                                    // VAXIS NEGATIVE
+    KEY_XSTICK2_DOWN,                                  // VAXIS POSITIVE
+    KEY_XSTICK2_UP,                                    // VAXIS NEGATIVE
 };
+
+static_assert(MOUSE_LEFT == 107);
+static_assert(MOUSE_LAST == 113);
+static_assert(JOYSTICK_FIRST == 114);
 
 //-----------------------------------------------------------------------------
 // Inline helpers
