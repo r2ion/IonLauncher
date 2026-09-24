@@ -10,11 +10,11 @@
 #include <cmath>
 #include <pclstats.h>
 
-bool b_LowLatencySDKEnabled = false;
-bool b_LowLatencyAvailable = false;
+static bool b_LowLatencySDKEnabled = false;
+static bool b_LowLatencyAvailable = false;
 
 // If false, the system will call 'NvAPI_D3D_SetSleepMode' to update the parameters.
-bool s_ReflexModeInfoUpToDate = false;
+bool b_ReflexModeInfoUpToDate = false;
 
 // This is 'NVAPI_OK' if the call to 'NvAPI_D3D_SetSleepMode' was successful.
 // If not, the Low Latency SDK will not run.
@@ -52,7 +52,7 @@ bool GeForce_IsLowLatencySDKAvailable()
 bool GeForce_InitLowLatencySDK()
 {
     b_LowLatencyAvailable = true;
-    s_ReflexModeInfoUpToDate = false;
+    b_ReflexModeInfoUpToDate = false;
     s_ReflexModeUpdateStatus = NvAPI_Status::NVAPI_OK;
     return b_LowLatencyAvailable;
 }
@@ -70,7 +70,7 @@ void GeForce_ShutdownLowLatencySDK()
 //-----------------------------------------------------------------------------
 void GeForce_MarkLowLatencyParametersOutOfDate()
 {
-    s_ReflexModeInfoUpToDate = false;
+    b_ReflexModeInfoUpToDate = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -78,7 +78,7 @@ void GeForce_MarkLowLatencyParametersOutOfDate()
 //-----------------------------------------------------------------------------
 static void GeForce_MarkLowLatencyParametersUpToDate()
 {
-    s_ReflexModeInfoUpToDate = true;
+    b_ReflexModeInfoUpToDate = true;
 }
 
 //-----------------------------------------------------------------------------
@@ -86,7 +86,7 @@ static void GeForce_MarkLowLatencyParametersUpToDate()
 //-----------------------------------------------------------------------------
 bool GeForce_HasPendingLowLatencyParameterUpdates()
 {
-    return !s_ReflexModeInfoUpToDate;
+    return !b_ReflexModeInfoUpToDate;
 }
 
 //-----------------------------------------------------------------------------

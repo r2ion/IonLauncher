@@ -29,21 +29,21 @@ static bool ScriptObjectToWeaponRuntimeFieldValue(const SQObject& object, Script
     }
 }
 
-ADD_NAMED_SQFUNC_WITH_DEFAULTS("bool", "NSSetWeaponInfoFileKeyField", NSSetClientWeaponInfoFileKeyField, "entity weapon, string key, var value",
+ADD_NAMED_SQFUNC_WITH_DEFAULTS("bool", "SetWeaponInfoFileKeyField", NSSetClientWeaponInfoFileKeyField, "entity weapon, string key, var value",
                                "Sets a scalar or vector field on one client WeaponX instance at runtime.", 0, nullptr, ScriptContext::CLIENT)
 {
     C_WeaponX* pWeapon = g_pSquirrel[context]->template getentity<C_WeaponX>(sqvm, 1);
     const char* pFieldName = g_pSquirrel[context]->getstring(sqvm, 2);
     if (!pWeapon || !pFieldName || !*pFieldName)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "NSSetWeaponInfoFileKeyField requires a valid weapon and non-empty key");
+        g_pSquirrel[context]->raiseerror(sqvm, "SetWeaponInfoFileKeyField requires a valid weapon and non-empty key");
         return SQRESULT_ERROR;
     }
 
     ScriptVariant_t value;
     if (!ScriptObjectToWeaponRuntimeFieldValue(sqvm->_stackOfCurrentFunction[3], value))
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "NSSetWeaponInfoFileKeyField only accepts int, float, bool, or vector values");
+        g_pSquirrel[context]->raiseerror(sqvm, "SetWeaponInfoFileKeyField only accepts int, float, bool, or vector values");
         return SQRESULT_ERROR;
     }
 

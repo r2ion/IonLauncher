@@ -10,10 +10,10 @@
 #include <d3d11.h>
 #include <ffx_antilag2_dx11.h>
 
-bool b_LowLatencySDKEnabled = false;
+static bool b_LowLatencySDKEnabled = false;
 
 // This will be true if the call to 'AMD::AntiLag2DX11::Initialize' succeeds.
-bool b_LowLatencyAvailable = false;
+static bool b_LowLatencyAvailable = false;
 
 AMD::AntiLag2DX11::Context s_LowLatencyContext = {};
 
