@@ -32,7 +32,8 @@ public:
 		std::string url;
 
 		std::string checksum;
-	};
+        bool optionalRequiredOnClient = false;
+    };
 
 	struct ModWorkshopAlternative
 	{
@@ -240,12 +241,15 @@ public:
 	static int ServerModFetchingProgressCallback(
 		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
 	std::vector<modentry_s>& GetServerModsToInstall() { return m_ParsedSchemaMods; }
-	std::vector<modentry_s> GetServerRequestedMods() const;
+    bool IsOptionalRequiredOnClient(const Mod& mod) const;
+    bool IsOptionalRequiredOnClient(const modentry_s& schemaMod) const;
+    std::vector<modentry_s> GetServerRequestedMods() const;
 	void BeginServerModInfoRequest();
 	void StopServerModInfoRequest();
-	void ClearServerRequestedMods();
-	bool SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& mod, int index, int totalMods);
-	bool RecvModInfoConnectionlessPacket(bf_read& msg);
+    void SetServerRequestedModCount(int totalMods);
+    void ClearServerRequestedMods();
+    bool SendModInfoConnectionlessPacket(netadr_t& adr, const modentry_s& mod, int index, int totalMods, int protocolVersion);
+    bool RecvModInfoConnectionlessPacket(bf_read& msg);
 	bool IsListeningForServerMods() const { return m_bIsListeningForServerMods.load(std::memory_order_acquire); }
 	int GetTotalServerRequestedMods() const;
 	float GetServerModInfoTimeoutSeconds() const { return SERVER_MODINFO_TIMEOUT_SECONDS; }

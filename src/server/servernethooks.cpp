@@ -10,9 +10,10 @@
 #include "modsystem/moddownloader.h"
 #include "core/tier0.h"
 
+#include <algorithm>
+#include <bcrypt.h>
 #include <string>
 #include <thread>
-#include <bcrypt.h>
 
 DECLARE_MODULE(ServerNetHooks)
 
@@ -182,7 +183,9 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 	int protocolVersion = msg.ReadLong();
 	bool requestedMods = msg.ReadByte() != 0;
 	int modDownloadVersion = msg.ReadLong();
-	bool authingIncomingClient = false;
+    const bool canSendRequestedMods = requestedMods && modDownloadVersion >= MODDOWNLOADINFO_MIN_VERSION;
+    const int responseModDownloadVersion = std::min(modDownloadVersion, MODDOWNLOADINFO_VERSION);
+    bool authingIncomingClient = false;
 	char uid[128];
 	char token[256];
 
@@ -248,17 +251,18 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 
 	auto& mods = g_pModDownloader->GetServerModsToInstall();
 
-	response.WriteLong(mods.size()); // required mods, do later
+    const int modCount = canSendRequestedMods ? static_cast<int>(mods.size()) : 0;
+    response.WriteLong(modCount);
 
-	NET_SendPacket(nullptr, NS_SERVER, &packet->from, response.GetData(), response.GetNumBytesWritten(), nullptr, false, 0, true);
+    NET_SendPacket(nullptr, NS_SERVER, &packet->from, response.GetData(), response.GetNumBytesWritten(), nullptr, false, 0, true);
 
-	if( requestedMods )
-	{
-		for(int i = 0; i < mods.size(); i++)
-		{
-			auto& mod = mods[i];
-			g_pModDownloader->SendModInfoConnectionlessPacket(packet->from, mod, i, mods.size());
-		}
+    if (canSendRequestedMods)
+    {
+        for (int i = 0; i < modCount; i++)
+        {
+            const auto& mod = mods[i];
+            g_pModDownloader->SendModInfoConnectionlessPacket(packet->from, mod, i, modCount, responseModDownloadVersion);
+        }
 	}
 
 	if(authingIncomingClient)

@@ -83,7 +83,11 @@ private:
 	void ConnectToP2PServer(const std::string& address);
 	void ConnectToDirectServer(const std::string& address);
 	void SendInfoRequestPacket(const CNetAdr& addr, bool serverAuthUs, bool requestMods);
-	void SetPendingMap(std::string mapName);
+    void RequestServerModInfo(const CNetAdr& addr, bool serverAuthUs);
+    static std::vector<RemoteModInfo> MergeOptionalServerRequirements(std::vector<RemoteModInfo> requiredMods);
+    void PrepareServerModsAndConnect(const CNetAdr& addr, bool serverAuthUs, std::vector<RemoteModInfo> requiredMods, bool disableUnrequiredMods,
+                                     std::string address, std::string serverName = {});
+    void SetPendingMap(std::string mapName);
 	void ClearPendingMap();
 	bool IsCancelled() { return !m_bConnecting.load(std::memory_order_acquire); }
 
@@ -106,9 +110,10 @@ private:
 	void FinaliseJoiningLocalServer();
 	void FinaliseJoiningServer(std::string& address);
 
-	void DownloadMods(bool remoteServer, RemoteServerInfo* info);
-	void ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address);
-public:
+    void DownloadMods(const std::vector<RemoteModInfo>& requiredMods, const std::string& serverName);
+    void ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address, bool disableUnrequiredMods);
+
+  public:
 	void Connect(const std::string& address, eConnectionMode mode, bool useSCRPlaque = true, std::string mapName = "");
 	void Connect(bool useSCRPlaque = true, std::string mapName = "");
 	void Connect(const std::string& address, const std::string& password, bool useSCRPlaque, std::string mapName = "");

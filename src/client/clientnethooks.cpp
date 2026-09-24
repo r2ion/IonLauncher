@@ -27,7 +27,8 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 			case S2C_MODDOWNLOADINFO:
 				return g_pModDownloader->RecvModInfoConnectionlessPacket(msg);
 			case S2A_CUSTOMSERVERINFO:
-				version = msg.ReadLong();
+            {
+                version = msg.ReadLong();
 				if(version != CUSTOMSERVERINFO_VERSION)
 					break;
 
@@ -47,15 +48,20 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 
 				msg.ReadByte();
 				serverAuthingUs = msg.ReadByte() != 0;
+                const int totalServerMods = msg.ReadLong();
+                if (msg.IsOverflowed())
+                    return false;
+                g_pModDownloader->SetServerRequestedModCount(totalServerMods);
 
-				if(serverAuthingUs && g_bNextServerAuthUs)
+                if(serverAuthingUs && g_bNextServerAuthUs)
 					g_bNextServerAllowingAuthUs = true;
 
 
 				g_bReceivedServerInfo.store(true, std::memory_order_release);
 				g_bListeningforCustomServerInfoPacket = false;
 				return true;
-			case S2C_CLIENTNOTIFY:
+            }
+            case S2C_CLIENTNOTIFY:
 				version = msg.ReadLong();
 				spdlog::info("Received client notify packet, version {}", version);
 				if(version != CLIENTNOTIFY_VERSION)

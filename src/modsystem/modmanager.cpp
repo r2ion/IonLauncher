@@ -10,10 +10,11 @@
 #include "masterserver/masterserver.h"
 #include "miles/audio.h"
 #include "modsystem/modatlas.h"
-#include "modsystem/modinstaller.h"
-#include "modsystem/modshellext.h"
 #include "modsystem/modbrowser.h"
+#include "modsystem/moddownloader.h"
+#include "modsystem/modinstaller.h"
 #include "modsystem/modinventory.h"
+#include "modsystem/modshellext.h"
 #include "rtech/pakfilesystem.h"
 #include "rtech/pakstate.h"
 #include "tier0/frametask.h"
@@ -133,6 +134,8 @@ ModManager::ModManager(const CModule& engineModule)
         STR_HASH("cfg\\server\\persistent_player_data_version_231.pdef" // this can have multiple versions, but we use 231 so that's what we hash
         );
     m_hKBActHash = STR_HASH("scripts\\kb_act.lst");
+
+    g_pModDownloader->LoadServerModSchema();
 
     LoadMods();
 }
@@ -1225,6 +1228,12 @@ void ModManager::BuildModInfo()
         if (!mod.m_bEnabled)
             continue;
 
+        if (g_pModDownloader->IsOptionalRequiredOnClient(mod))
+        {
+            spdlog::info("Omitting optional client requirement {} v{} from master server mod info", mod.Name, mod.Version);
+            continue;
+        }
+
         modinfoDoc["Mods"].PushBack(rapidjson::kObjectType, modinfoDoc.GetAllocator());
         modinfoDoc["Mods"][currentModIndex].AddMember("Name", rapidjson::StringRef(&mod.Name[0]), modinfoDoc.GetAllocator());
         modinfoDoc["Mods"][currentModIndex].AddMember("Version", rapidjson::StringRef(&mod.Version[0]), modinfoDoc.GetAllocator());
@@ -1694,7 +1703,7 @@ fs::path GetModIconPath()
     return fs::path(GetNorthstarPrefix()) / MOD_ICONS_SUFFIX;
 }
 
-ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer, EngineKeyValues), [](CModule module)
+ON_DLL_LOAD_RELIESON("engine.dll", ModManager, (ConCommand, MasterServer, EngineKeyValues, ModDownloader), [](CModule module)
 {
     g_pModManager = new ModManager(module);
     if (const std::optional<uint64_t> pendingUriInstall = CModShellExtension::Get().TakePendingWorkshopInstall())

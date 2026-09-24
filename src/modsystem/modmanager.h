@@ -150,15 +150,15 @@ private:
 	 **/
 	void DisableMultipleModVersions();
 
-	/**
+    bool IsSafeKeyValuesDumpPath(const fs::path& path);
+
+  public:
+    /**
 	 * Builds the modinfo object for sending to the masterserver.
 	 *
 	 * @returns nothing
 	 **/
 	void BuildModInfo();
-	bool IsSafeKeyValuesDumpPath(const fs::path& path);
-
-public:
 	explicit ModManager(const CModule& engineModule);
 	void ReloadMods();
 	bool UnloadModsForFilesystemMutation(std::span<const fs::path> packageRoots);

@@ -1,32 +1,33 @@
 #include "moddownloader.h"
 #include "common/netmessages.h"
-#include "util/utils.h"
 #include "config/profile.h"
-#include "engine/r2engine.h"
 #include "core/tier0.h"
-#include "tier0/frametask.h"
+#include "engine/r2engine.h"
 #include "modsystem/modinstaller.h"
 #include "modsystem/modinventory.h"
-#include "modsystem/platform/modworkshop.h"
+#include "modsystem/modmanager.h"
 #include "modsystem/platform/modplatform.h"
+#include "modsystem/platform/modworkshop.h"
 #include "modsystem/platform/thunderstore.h"
-#include <rapidjson/fwd.h>
-#include <rapidjson/writer.h>
-#include <rapidjson/error/en.h>
-#include <mz_strm_mem.h>
-#include <mz.h>
-#include <mz_strm.h>
-#include <mz_zip.h>
+#include "tier0/frametask.h"
+#include "util/utils.h"
+#include <bcrypt.h>
+#include <cctype>
+#include <chrono>
 #include <compat/unzip.h>
 #include <compat/zip.h>
-#include <thread>
-#include <future>
-#include <chrono>
-#include <bcrypt.h>
-#include <winternl.h>
 #include <fstream>
-#include <cctype>
+#include <future>
 #include <limits>
+#include <mz.h>
+#include <mz_strm.h>
+#include <mz_strm_mem.h>
+#include <mz_zip.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/fwd.h>
+#include <rapidjson/writer.h>
+#include <thread>
+#include <winternl.h>
 
 ConVar* Cvar_allow_mod_auto_download = nullptr;
 
@@ -1104,7 +1105,9 @@ void ModDownloader::CancelDownload()
 
 void ModDownloader::LoadServerModSchema()
 {
-	fs::path path = GetModFolderPath() / "servermodschema.json";
+    m_ParsedSchemaMods.clear();
+    m_Document.SetObject();
+    fs::path path = GetModFolderPath() / "servermodschema.json";
 	if (!fs::exists(path))
 	{
 		spdlog::warn("Server mod schema file not found at {}, skipping loading", path.generic_string());
@@ -1162,7 +1165,17 @@ void ModDownloader::ParseSchemaDocument()
 
 		modEntry.version = it->value["Version"].GetString();
 
-		ModSource platform = ModSource::Unknown;
+        if (it->value.HasMember("OptionalRequiredOnClient"))
+        {
+            if (!it->value["OptionalRequiredOnClient"].IsBool())
+            {
+                spdlog::error("Mod entry {} does not have a valid OptionalRequiredOnClient field, skipping.", modEntry.name);
+                continue;
+            }
+            modEntry.optionalRequiredOnClient = it->value["OptionalRequiredOnClient"].GetBool();
+        }
+
+        ModSource platform = ModSource::Unknown;
 
 		if(it->value.HasMember("Platform") && it->value["Platform"].IsString())
 		{
@@ -1213,16 +1226,42 @@ void ModDownloader::ParseSchemaDocument()
 	}
 }
 
-bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& mod, int index, int totalMods)
+bool ModDownloader::IsOptionalRequiredOnClient(const Mod& mod) const
 {
-	char buffer[512];
+    for (const modentry_s& schemaMod : m_ParsedSchemaMods)
+    {
+        if (schemaMod.optionalRequiredOnClient && schemaMod.name == mod.Name && schemaMod.version == mod.Version)
+            return true;
+    }
+    return false;
+}
+
+bool ModDownloader::IsOptionalRequiredOnClient(const modentry_s& schemaMod) const
+{
+    if (!schemaMod.optionalRequiredOnClient)
+        return false;
+
+    for (const Mod& loadedMod : g_pModManager->m_LoadedMods)
+    {
+        if (loadedMod.m_bEnabled && loadedMod.Name == schemaMod.name && loadedMod.Version == schemaMod.version)
+            return true;
+    }
+    return false;
+}
+
+bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, const modentry_s& mod, int index, int totalMods, int protocolVersion)
+{
+    if (protocolVersion < MODDOWNLOADINFO_MIN_VERSION || protocolVersion > MODDOWNLOADINFO_VERSION)
+        return false;
+
+    char buffer[512];
 	bf_write msg(buffer, sizeof(buffer));
 
 	msg.WriteLong(CONNECTIONLESS_HEADER);
 	msg.WriteByte(S2C_MODDOWNLOADINFO);
-	msg.WriteLong(MODDOWNLOADINFO_VERSION);
+    msg.WriteLong(protocolVersion);
 
-	msg.WriteLong(index);
+    msg.WriteLong(index);
 	msg.WriteLong(totalMods);
 
 	if(!msg.WriteString(mod.name.c_str()))
@@ -1256,7 +1295,13 @@ bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, modentry_s& m
 		if(!msg.WriteString(mod.checksum.c_str()))
 			return false;
 
-	NET_SendPacket(nullptr, NS_SERVER, &adr, msg.GetData(), msg.GetNumBytesWritten(), nullptr, false, 0, true);
+    if (protocolVersion >= MODDOWNLOADINFO_OPTIONAL_REQUIRED_ON_CLIENT_VERSION)
+        msg.WriteByte(IsOptionalRequiredOnClient(mod));
+
+    if (msg.IsOverflowed())
+        return false;
+
+    NET_SendPacket(nullptr, NS_SERVER, &adr, msg.GetData(), msg.GetNumBytesWritten(), nullptr, false, 0, true);
 
 	return true;
 }
@@ -1274,6 +1319,30 @@ void ModDownloader::BeginServerModInfoRequest()
 	m_ReceivedServerModIndices.clear();
 	m_iTotalServerRequestedMods = 0;
 	m_bIsListeningForServerMods.store(true, std::memory_order_release);
+}
+
+void ModDownloader::SetServerRequestedModCount(int totalMods)
+{
+    std::scoped_lock lock(m_ServerModInfoMutex);
+    if (!m_bIsListeningForServerMods.load(std::memory_order_acquire))
+        return;
+
+    if (totalMods < 0)
+    {
+        spdlog::warn("Received server mod info with invalid total {}.", totalMods);
+        m_bIsListeningForServerMods.store(false, std::memory_order_release);
+        return;
+    }
+
+    if (m_iTotalServerRequestedMods != 0 && m_iTotalServerRequestedMods != totalMods)
+    {
+        spdlog::warn("Received server mod info with conflicting total (expected {}, got {}).", m_iTotalServerRequestedMods, totalMods);
+        return;
+    }
+
+    m_iTotalServerRequestedMods = totalMods;
+    if (totalMods == 0 || m_ReceivedServerModIndices.size() >= static_cast<size_t>(totalMods))
+        m_bIsListeningForServerMods.store(false, std::memory_order_release);
 }
 
 void ModDownloader::StopServerModInfoRequest()
@@ -1304,8 +1373,8 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 		return false;
 
 	const int protocolVersion = msg.ReadLong();
-	if (protocolVersion != MODDOWNLOADINFO_VERSION)
-	{
+    if (protocolVersion < MODDOWNLOADINFO_MIN_VERSION || protocolVersion > MODDOWNLOADINFO_VERSION)
+    {
 		spdlog::warn("Received server mod info with unsupported protocol version {}.", protocolVersion);
 		return false;
 	}
@@ -1371,8 +1440,14 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 		modEntry.checksum = checksum;
 	}
 
+    if (protocolVersion >= MODDOWNLOADINFO_OPTIONAL_REQUIRED_ON_CLIENT_VERSION)
+    {
+        modEntry.optionalRequiredOnClient = msg.ReadByte() != 0;
+        if (msg.IsOverflowed())
+            return false;
+    }
 
-	bool allModsReceived = false;
+    bool allModsReceived = false;
 	{
 		std::scoped_lock lock(m_ServerModInfoMutex);
 		if (!m_bIsListeningForServerMods.load(std::memory_order_acquire))

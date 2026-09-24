@@ -7,6 +7,7 @@
 #include "eos/eos_layer.h"
 #include "masterserver/masterserver.h"
 #include "modsystem/moddownloader.h"
+#include "modsystem/modmanager.h"
 #include "plugins/pluginmanager.h"
 #include "server/auth/serverauthentication.h"
 #include "server/serverpresence.h"
@@ -29,6 +30,7 @@ void ServerStartingOrChangingMap()
     g_pVanillaCompatibility->SetCompatabilityMode(VanillaCompatibility::CompatibilityMode::Northstar);
 
     g_pModDownloader->LoadServerModSchema();
+    g_pModManager->BuildModInfo();
 
     // directly call _Cmd_Exec_f to avoid weirdness with ; being in mp_gamemode potentially
     // if we ran exec {mp_gamemode} and mp_gamemode contained semicolons, this could be used to execute more commands

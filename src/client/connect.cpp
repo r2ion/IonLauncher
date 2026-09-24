@@ -390,6 +390,76 @@ void ConnectionManager::SendInfoRequestPacket(const CNetAdr& addr, bool serverAu
 	}
 }
 
+void ConnectionManager::RequestServerModInfo(const CNetAdr& addr, bool serverAuthUs)
+{
+    g_pModDownloader->BeginServerModInfoRequest();
+    SendInfoRequestPacket(addr, serverAuthUs, true);
+
+    const float startTime = g_PlatFloatTime();
+    const float timeout = g_pModDownloader->GetServerModInfoTimeoutSeconds();
+    while (g_pModDownloader->IsListeningForServerMods() && !IsCancelled() && g_PlatFloatTime() - startTime < timeout)
+        Sleep(50);
+
+    g_pModDownloader->StopServerModInfoRequest();
+}
+
+std::vector<RemoteModInfo> ConnectionManager::MergeOptionalServerRequirements(std::vector<RemoteModInfo> requiredMods)
+{
+    for (const ModDownloader::modentry_s& serverMod : g_pModDownloader->GetServerRequestedMods())
+    {
+        if (!serverMod.optionalRequiredOnClient)
+            continue;
+
+        const auto existing = std::find_if(requiredMods.begin(), requiredMods.end(), [&serverMod](const RemoteModInfo& required)
+        { return required.Name == serverMod.name && required.Version == serverMod.version; });
+        if (existing == requiredMods.end())
+        {
+            spdlog::info("Treating server mod {} v{} as an optional client requirement", serverMod.name, serverMod.version);
+            requiredMods.push_back({serverMod.name, serverMod.version});
+        }
+    }
+    return requiredMods;
+}
+
+void ConnectionManager::PrepareServerModsAndConnect(const CNetAdr& addr, bool serverAuthUs, std::vector<RemoteModInfo> requiredMods,
+                                                    bool disableUnrequiredMods, std::string address, std::string serverName)
+{
+    if (!g_pCVar->FindVar("allow_mod_auto_download")->GetBool())
+    {
+        if (serverAuthUs)
+        {
+            SendInfoRequestPacket(addr, true, false);
+            RETURN_IF_CANCELLED()
+        }
+        FinaliseJoiningServer(address);
+        return;
+    }
+
+    RequestServerModInfo(addr, serverAuthUs);
+    RETURN_IF_CANCELLED()
+
+    requiredMods = MergeOptionalServerRequirements(std::move(requiredMods));
+    const bool needsDownload = std::any_of(requiredMods.begin(), requiredMods.end(),
+                                           [](const RemoteModInfo& required) { return !HasRequiredModVersion(required.Name, required.Version); });
+    if (needsDownload)
+    {
+        UpdateMessage("#MANIFEST_FETCHING_TEXT");
+        g_pModDownloader->FetchModsListFromAPI();
+
+        while (g_pModDownloader->modState.state == ModDownloader::MANIFEST_FETCHING && !IsCancelled())
+            Sleep(100);
+
+        RETURN_IF_CANCELLED()
+    }
+
+    if (serverName.empty())
+        serverName = g_szLastServerInfoName;
+    DownloadMods(requiredMods, serverName);
+    RETURN_IF_CANCELLED()
+
+    ReloadModsAndConnect(std::move(requiredMods), std::move(address), disableUnrequiredMods);
+}
+
 bool ConnectionManager::HasRequiredModVersion(std::string_view name, std::string_view version)
 {
 	for (const Mod& existingMod : g_pModManager->m_LoadedMods)
@@ -400,7 +470,7 @@ bool ConnectionManager::HasRequiredModVersion(std::string_view name, std::string
 	return false;
 }
 
-void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
+void ConnectionManager::DownloadMods(const std::vector<RemoteModInfo>& requiredMods, const std::string& serverName)
 {
 	const std::vector<ModDownloader::modentry_s> serverDownloads = g_pModDownloader->GetServerRequestedMods();
 	std::vector<ModDownloader::modentry_s> unverifiedModsToDownload;
@@ -408,8 +478,8 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 
 	UpdateMessage("#CHECKING_REQUIRED_MODS");
 
-	for (const RemoteModInfo& mod : info->requiredMods)
-	{
+    for (const RemoteModInfo& mod : requiredMods)
+    {
 		if (HasRequiredModVersion(mod.Name, mod.Version))
 			continue;
 
@@ -443,8 +513,8 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 
 	if (!unverifiedModsToDownload.empty())
 	{
-		if (!g_pModDownloader->NotifyConfirmDownloadMods(static_cast<int>(unverifiedModsToDownload.size()), info->name))
-		{
+        if (!g_pModDownloader->NotifyConfirmDownloadMods(static_cast<int>(unverifiedModsToDownload.size()), serverName.c_str()))
+        {
 			const ModDownloader::modentry_s& mod = unverifiedModsToDownload.front();
 			Interrupt(fmt::format(
 				"{}\n{}",
@@ -482,9 +552,8 @@ void ConnectionManager::DownloadMods(bool remoteServer, RemoteServerInfo* info)
 			workshopSelections.push_back({mod.name, mod.version, *alternative});
 	}
 
-
-	for (const auto& mod : info->requiredMods)
-	{
+    for (const RemoteModInfo& mod : requiredMods)
+    {
 		UpdateMessage("#DOWNLOADING_MOD_TEXT", mod.Name, mod.Version);
 
 		if (HasRequiredModVersion(mod.Name, mod.Version))
@@ -673,42 +742,8 @@ void ConnectionManager::ConnectToRemoteServer(const std::string& id, const std::
 
 			std::string address = fmt::format("{}:{}", ip, port);
 
-			if (!g_pCVar->FindVar("allow_mod_auto_download")->GetBool())
-			{
-				FinaliseJoiningServer(address);
-				return;
-			}
-
-			RETURN_IF_CANCELLED()
-
-			UpdateMessage("#MANIFEST_FETCHING_TEXT");
-			g_pModDownloader->FetchModsListFromAPI();
-
-			while (g_pModDownloader->modState.state == ModDownloader::MANIFEST_FETCHING && !IsCancelled())
-				Sleep(100);
-
-			RETURN_IF_CANCELLED()
-
-			g_pModDownloader->BeginServerModInfoRequest();
 			std::string netAdr = fmt::format("[::ffff:{}]:{}", ip, port);
-			SendInfoRequestPacket(CNetAdr(netAdr.c_str()), false, true);
-
-			const float modInfoStartTime = g_PlatFloatTime();
-			const float modInfoTimeout = g_pModDownloader->GetServerModInfoTimeoutSeconds();
-			while (g_pModDownloader->IsListeningForServerMods() && !IsCancelled() &&
-			       g_PlatFloatTime() - modInfoStartTime < modInfoTimeout)
-			{
-				Sleep(50);
-			}
-			g_pModDownloader->StopServerModInfoRequest();
-
-			RETURN_IF_CANCELLED()
-
-			DownloadMods(true, serverInfo);
-
-			RETURN_IF_CANCELLED()
-
-			ReloadModsAndConnect(serverInfo->requiredMods, std::move(address));
+            PrepareServerModsAndConnect(CNetAdr(netAdr.c_str()), false, serverInfo->requiredMods, true, std::move(address), serverInfo->name);
 		});
 
 	authThread.detach();
@@ -743,11 +778,7 @@ void ConnectionManager::ConnectToP2PServer(const std::string& address)
 
 			CNetAdr addr = CNetAdr(formattedIP.c_str());
 
-			SendInfoRequestPacket(addr, true, false);
-
-			RETURN_IF_CANCELLED()
-
-			FinaliseJoiningServer(formattedIP);
+            PrepareServerModsAndConnect(addr, true, {}, false, std::move(formattedIP));
 		});
 
 	authThread.detach();
@@ -785,25 +816,21 @@ void ConnectionManager::ConnectToDirectServer(const std::string& address)
 				return;
 			}
 
-			SendInfoRequestPacket(addr, true, false);
-
-			RETURN_IF_CANCELLED()
-
-			FinaliseJoiningServer(connectAddress);
+            PrepareServerModsAndConnect(addr, true, {}, false, std::move(connectAddress));
 		});
 
 	authThread.detach();
 }
 
-void ConnectionManager::ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address)
+void ConnectionManager::ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address, bool disableUnrequiredMods)
 {
 	UpdateMessage("#RELOADING_MODS");
 	const bool downloadedMods = m_bDownloadedMods;
 	if (m_bRetrying)
 		Sleep(500); // going too fast here can cause the UI to never start
 
-	RunInMainThread([this, requiredMods = std::move(requiredMods), address = std::move(address), downloadedMods]() mutable
-	{
+    RunInMainThread([this, requiredMods = std::move(requiredMods), address = std::move(address), downloadedMods, disableUnrequiredMods]() mutable
+    {
 		if (IsCancelled())
 			return;
 
@@ -827,8 +854,8 @@ void ConnectionManager::ReloadModsAndConnect(std::vector<RemoteModInfo> required
 
 			if (isRequired)
 				loaded.m_bEnabled = true;
-			else if (loaded.RequiredOnClient)
-				loaded.m_bEnabled = false;
+            else if (disableUnrequiredMods && loaded.RequiredOnClient)
+                loaded.m_bEnabled = false;
 
 			if (wasEnabled != loaded.m_bEnabled)
 				shouldReloadMods = true;
@@ -847,7 +874,7 @@ void ConnectionManager::ReloadModsAndConnect(std::vector<RemoteModInfo> required
 
 		if (!IsCancelled())
 			FinaliseJoiningServer(address);
-	});
+    });
 }
 
 void ConnectionManager::FinaliseJoiningServer(std::string& address)
