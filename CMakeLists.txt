@@ -246,6 +246,36 @@ CPMAddPackage(
 )
 
 CPMAddPackage(
+    NAME nvapi
+    GITHUB_REPOSITORY NVIDIA/nvapi
+    GIT_TAG 89b436577f824df469dbb0deaf2866f9ecd5b94b
+    DOWNLOAD_ONLY TRUE
+)
+add_library(nvapi INTERFACE)
+target_include_directories(nvapi SYSTEM INTERFACE "${nvapi_SOURCE_DIR}")
+target_link_libraries(nvapi INTERFACE "${nvapi_SOURCE_DIR}/amd64/nvapi64.lib")
+
+# NVIDIA publishes the PCLStats header separately from NVAPI in the Reflex SDK.
+CPMAddPackage(
+    NAME reflexsdk
+    GITHUB_REPOSITORY NVIDIA-RTX/REFLEX
+    GIT_TAG c2522cee75be7a952ab29281c4cf6d978c5e2e0e
+    DOWNLOAD_ONLY TRUE
+)
+add_library(reflexsdk INTERFACE)
+target_include_directories(reflexsdk SYSTEM INTERFACE "${reflexsdk_SOURCE_DIR}/Reflex_Stats")
+
+CPMAddPackage(
+    NAME antilag2
+    GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/AntiLag2-SDK
+    GIT_TAG 55f6ce71aaf152d8afb275096687638905ce8552
+    DOWNLOAD_ONLY TRUE
+)
+add_library(antilag2 INTERFACE)
+target_include_directories(antilag2 SYSTEM INTERFACE "${antilag2_SOURCE_DIR}")
+
+
+CPMAddPackage(
     NAME lzham
     GITHUB_REPOSITORY richgel999/lzham_alpha
     GIT_TAG 4f4544d9a490e088ae6fd63692c46d51bec0a392

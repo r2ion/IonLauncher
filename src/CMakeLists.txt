@@ -5,6 +5,53 @@ set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
 set(EOS_DLL "${EOS_SDK_PATH}/Bin/EOSSDK-Win64-Shipping.dll")
 set(EOS_LIB "${EOS_SDK_PATH}/Lib/EOSSDK-Win64-Shipping.lib")
 
+set(NS_NAV_RECAST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/navmesh/recast")
+set(NS_RECAST_SOURCES
+    "${NS_NAV_RECAST_ROOT}/Shared/Source/SharedAlloc.cpp"
+    "${NS_NAV_RECAST_ROOT}/Shared/Source/SharedAssert.cpp"
+    "${NS_NAV_RECAST_ROOT}/Shared/Source/SharedCommon.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/Recast.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastArea.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastContour.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastFilter.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastLayers.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastMesh.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastMeshDetail.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastRasterization.cpp"
+    "${NS_NAV_RECAST_ROOT}/Recast/Source/RecastRegion.cpp"
+    "${NS_NAV_RECAST_ROOT}/Detour/Source/DetourNavMesh.cpp"
+    "${NS_NAV_RECAST_ROOT}/Detour/Source/DetourNavMeshBuilder.cpp"
+    "${NS_NAV_RECAST_ROOT}/Detour/Source/DetourNavMeshQuery.cpp"
+    "${NS_NAV_RECAST_ROOT}/Detour/Source/DetourNode.cpp"
+    "${NS_NAV_RECAST_ROOT}/NavEditor/Source/ChunkyTriMesh.cpp"
+    )
+
+set(NS_NAV_STANDARD_HEADERS
+    <cfloat>
+    <cstdarg>
+    <cstddef>
+    <cstdint>
+    <cstdio>
+    <cstdlib>
+    <cstring>
+    <cmath>
+    <new>
+    <set>
+    )
+
+set(NS_NAVMESH_SOURCES
+    "navmesh/navmesh_authored.cpp"
+    "navmesh/navmesh_authored.h"
+    "navmesh/navmesh_bsp.cpp"
+    "navmesh/navmesh_bsp.h"
+    "navmesh/navmesh_builder.cpp"
+    "navmesh/navmesh_builder.h"
+    "navmesh/navmesh_format.cpp"
+    "navmesh/navmesh_format.h"
+    "navmesh/navmesh_geometry.cpp"
+    "navmesh/navmesh_geometry.h"
+    )
+
 add_library(
     NorthstarDLL SHARED
     "resources.rc"
@@ -45,7 +92,6 @@ add_library(
     "client/diskvmtfixes.cpp"
     "client/entity_client_tools.cpp"
     "client/languagehooks.cpp"
-    "client/latencyflex.cpp"
     "client/weaponchargeactivitymodifiers.cpp"
     "client/localchatwriter.cpp"
     "client/localchatwriter.h"
@@ -115,6 +161,9 @@ add_library(
     "engine/r2engine.h"
     "engine/usermessages.cpp"
     "engine/usermessages.h"
+    "engine/lowlatency.cpp"
+    "geforce/reflex.cpp"
+    "geforce/reflex.h"
     "logging/crashhandler.cpp"
     "logging/crashhandler.h"
     "logging/logging.cpp"
@@ -125,6 +174,7 @@ add_library(
     "materialsystem/nscustomdxbuffer.cpp"
     "materialsystem/cmatqueuedrendercontext.cpp"
     "materialsystem/cmatqueuedrendercontext.h"
+    "materialsystem/cmaterialsystem.h"
     "windows/id3dx.cpp"
     "windows/id3dx.h"
     "masterserver/masterserver.cpp"
@@ -162,6 +212,8 @@ add_library(
     "modsystem/modinventory.h"
     "modsystem/modbrowser.cpp"
     "modsystem/modbrowser.h"
+    ${NS_NAVMESH_SOURCES}
+    ${NS_RECAST_SOURCES}
     "plugins/interfaces/interface_registry.h"
     "plugins/interfaces/interface.cpp"
     "plugins/interfaces/sys/ISys.h"
@@ -196,15 +248,14 @@ add_library(
     "rtech/rui/rui.cpp"
     "rtech/rui/rui.h"
     "rtech/rstdlib.h"
+    "radeon/antilag.cpp"
+    "radeon/antilag.h"
     "server/auth/bansystem.cpp"
     "server/auth/bansystem.h"
     "server/auth/serverauthentication.cpp"
     "server/auth/serverauthentication.h"
     "server/alltalk.cpp"
-    "server/ai_helper.cpp"
-    "server/ai_helper.h"
     "server/ai_navmesh.cpp"
-    "server/ai_navmesh.h"
     "server/buildainfile.cpp"
     "server/player.cpp"
     "server/playerSettingsServer.cpp"
@@ -353,6 +404,7 @@ target_include_directories(
             "${rapidjson_SOURCE_DIR}/include"
             "${CMAKE_CURRENT_SOURCE_DIR}"
             "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
+            "${NS_NAV_RECAST_ROOT}"
             "${minizip-ng_SOURCE_DIR}"
     )
 
@@ -364,6 +416,9 @@ target_link_libraries(
             libzstd_static
             lzham
             DirectXTex
+            nvapi
+            reflexsdk
+            antilag2
             # VTFLib::VTFLib
             ws2_32.lib
             crypt32.lib
@@ -393,6 +448,7 @@ target_precompile_headers(
     NorthstarDLL
     PRIVATE
     pch.h
+    ${NS_NAV_STANDARD_HEADERS}
     )
 
 target_compile_definitions(

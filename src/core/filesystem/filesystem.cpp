@@ -172,6 +172,25 @@ bool TryReplaceFile(const char* pPath, bool shouldCompile, const char* pPathID =
     // can't just set all /s in path to \, since some paths aren't in writeable memory
     std::string normalisedPath = g_pModManager->NormaliseModFilePath(fs::path(pPath));
 
+    if ((iFileSourceType & FileSourceType_ModOverride) && normalisedPath.ends_with(".nm") &&
+        (normalisedPath.starts_with("maps\\navmesh\\") || normalisedPath.starts_with("maps/navmesh/")))
+    {
+        const fs::path generatedRoot = fs::absolute(GetGeneratedAssetsPath());
+        std::error_code error;
+        if (fs::is_regular_file(generatedRoot / fs::u8path(normalisedPath), error))
+        {
+            const std::u8string utf8Root = generatedRoot.u8string();
+            const std::string searchPath(reinterpret_cast<const char*>(utf8Root.data()), utf8Root.size());
+            std::scoped_lock lock(s_ModFilesystem.m_SearchPathMutex);
+            if (s_ModFilesystem.m_CurrentModPath != searchPath)
+            {
+                AddTrackedModSearchPathLocked(g_pFilesystem, searchPath, pPathID, PATH_ADD_TO_HEAD);
+                s_ModFilesystem.m_CurrentModPath = searchPath;
+            }
+            return true;
+        }
+    }
+
     if (iFileSourceType & FileSourceType_Compiled)
     {
         // only compile assets if we would accept a compiled asset in the first place
