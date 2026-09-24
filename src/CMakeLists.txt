@@ -162,6 +162,7 @@ add_library(
     "engine/usermessages.cpp"
     "engine/usermessages.h"
     "engine/lowlatency.cpp"
+    "engine/lowlatency.h"
     "geforce/reflex.cpp"
     "geforce/reflex.h"
     "logging/crashhandler.cpp"

@@ -8,8 +8,8 @@
 #include <memory>
 #include <utility>
 
-using MaterialRenderCallback_t = uint64_t (*)(uint64_t, uint32_t, uint32_t, uint64_t);
 void (*QueueMaterialSystemRenderThreadCallback)(MaterialRenderCallback_t, uint64_t, uint32_t, uint32_t, uint64_t);
+void (*FlushMaterialSystemRenderCommands)();
 int (*GetMaterialThreadIndex)();
 
 bool ThreadInRenderThread()
@@ -44,5 +44,6 @@ void RunInRenderThread(std::function<void()> functor)
 ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", MaterialRenderQueue, [](CModule module)
 {
     QueueMaterialSystemRenderThreadCallback = module.Offset(0x88D50).RCast<decltype(QueueMaterialSystemRenderThreadCallback)>();
+    FlushMaterialSystemRenderCommands = module.Offset(0x87D00).RCast<decltype(FlushMaterialSystemRenderCommands)>();
     GetMaterialThreadIndex = module.Offset(0x874E0).RCast<decltype(GetMaterialThreadIndex)>();
 })

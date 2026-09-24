@@ -1,14 +1,18 @@
-#include "cdll_int.h"
+#include "engine/lowlatency.h"
 #include "core/tier0.h"
 #include "core/tier1.h"
 #include "geforce/reflex.h"
 #include "materialsystem/cmaterialsystem.h"
+#include "materialsystem/cmatqueuedrendercontext.h"
 #include "radeon/antilag.h"
 #include "tier1/cvar.h"
 #include "windows/id3dx.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <dxgi.h>
+#include <limits>
 #include <memory>
 #include <pclstats.h>
 
@@ -25,19 +29,19 @@ bool b_UseLowLatency = false;
 bool b_MaterialSystemInitialized = false;
 bool b_PresentHookInstalled = false;
 std::atomic_bool b_PresentMarkersEnabled = false;
+ID3D11Device* g_LowLatencyDevice = nullptr;
+NvU64 g_SimulationFrameID = 0;
+bool g_SimulationFrameStarted = false;
+bool g_RenderFrameQueued = false;
+std::atomic_uint32_t g_PendingInputMarkers = 0;
+NvU64 g_RenderFrameID = 0;
 
 DECLARE_MODULE(LowLatencyHooks)
 
-NvU64 LowLatency_GetCurrentFrameCount()
+void LowLatency_MarkInputEvent()
 {
-    IMaterialSystem* const materialSystem = MaterialSystem();
-    return materialSystem ? static_cast<NvU64>(materialSystem->GetCurrentFrameCount()) : 0;
-}
-
-NvU64 LowLatency_GetSubmittedFrameID()
-{
-    const NvU64 currentFrame = LowLatency_GetCurrentFrameCount();
-    return currentFrame > 0 ? currentFrame - 1 : 0;
+    if (g_PCLStatsAvailable.load(std::memory_order_relaxed))
+        g_PendingInputMarkers.fetch_or(1u << TRIGGER_FLASH, std::memory_order_relaxed);
 }
 
 float NormalizeFrameRate(const float fpsMax)
@@ -64,24 +68,54 @@ void LowLatency_UpdateParameters()
                                        Cvar_gfx_nvnUseMarkersToOptimize->GetBool(), fpsMax);
 }
 
-void LowLatency_RunFrame()
+bool LowLatency_RunFrame()
 {
     if (!b_UseLowLatency || !b_MaterialSystemInitialized || !Cvar_fps_max_low_latency)
-        return;
+        return false;
 
-    if (GeForce_IsLowLatencySDKAvailable())
+    ID3D11Device* const device = D3D11Device();
+    if (!device)
+        return false;
+
+    const bool deviceChanged = device != g_LowLatencyDevice;
+    if (deviceChanged)
     {
-        if (GeForce_HasPendingLowLatencyParameterUpdates())
-            LowLatency_UpdateParameters();
+        if (g_LowLatencyDevice)
+        {
+            b_PresentMarkersEnabled.store(false, std::memory_order_relaxed);
+            FlushMaterialSystemRenderCommands();
+            g_RenderFrameID = 0;
+            Radeon_ShutdownLowLatencySDK();
+            GeForce_ShutdownLowLatencySDK();
+        }
 
-        GeForce_RunLowLatencyFrame(D3D11Device());
+        g_LowLatencyDevice = device;
+        GeForce_EnableLowLatencySDK(b_UseLowLatency);
+        GeForce_InitLowLatencySDK();
+        Radeon_EnableLowLatencySDK(b_UseLowLatency && Cvar_gfx_ffxUseLowLatency && Cvar_gfx_ffxUseLowLatency->GetBool());
+        if (MaterialSystem() && MaterialSystem()->GetCurrentAdapterVendorID() == AMD_VENDOR_ID)
+            Radeon_InitLowLatencySDK();
     }
+
+    LowLatency_UpdateParameters();
+    GeForce_RunLowLatencyFrame(device);
 
     if (Radeon_IsLowLatencySDKAvailable())
     {
-        const float maxFps = NormalizeFrameRate(Cvar_fps_max_low_latency->GetFloat());
-        Radeon_RunLowLatencyFrame(static_cast<unsigned int>(maxFps));
+        const double maxFps = NormalizeFrameRate(Cvar_fps_max_low_latency->GetFloat());
+        const auto frameLimit = static_cast<unsigned int>(
+            std::isfinite(maxFps) ? std::clamp(maxFps, 0.0, static_cast<double>(std::numeric_limits<unsigned int>::max())) : 0.0);
+        Radeon_RunLowLatencyFrame(frameLimit);
     }
+
+    if (deviceChanged)
+    {
+        spdlog::info("Low-latency SDKs initialized (NVIDIA Reflex: {}, AMD Anti-Lag 2: {}, PCLStats: available)",
+                     GeForce_IsLowLatencySDKAvailable() ? "available" : "unavailable",
+                     Radeon_IsLowLatencySDKAvailable() ? "available" : "unavailable");
+    }
+
+    return true;
 }
 
 void GFX_NVN_Changed_f(IConVar*, const char*, float, ChangeUserData_t)
@@ -94,18 +128,29 @@ void GFX_FFX_Changed_f(IConVar* const conVar, const char*, float, ChangeUserData
     const ConVar* const conVarRef = g_pCVar->FindVar(conVar->GetName());
     Radeon_EnableLowLatencySDK(b_UseLowLatency && conVarRef && conVarRef->GetBool());
 }
+uint64_t LowLatency_BeginRenderFrame(const uint64_t frameID, uint32_t, uint32_t, uint64_t)
+{
+    if (b_PresentMarkersEnabled.load(std::memory_order_relaxed))
+    {
+        g_RenderFrameID = frameID;
+        GeForce_SetLatencyMarker(D3D11Device(), RENDERSUBMIT_START, frameID);
+    }
+    return 0;
+}
 
 DECLARE_HOOK_ABSOLUTE(IDXGISwapChain__Present, 0,
                       ([](auto& hook, IDXGISwapChain* const swapChain, const UINT syncInterval, const UINT flags) -> HRESULT
 {
-    if (!b_PresentMarkersEnabled.load(std::memory_order_relaxed) || swapChain != DXGISwapChain() || (flags & DXGI_PRESENT_TEST))
+    if (!b_PresentMarkersEnabled.load(std::memory_order_relaxed) || !g_RenderFrameID || swapChain != DXGISwapChain() || (flags & DXGI_PRESENT_TEST))
         return hook.Original(swapChain, syncInterval, flags);
 
-    const NvU64 frameID = LowLatency_GetSubmittedFrameID();
-    GeForce_SetLatencyMarker(D3D11Device(), RENDERSUBMIT_END, frameID);
-    GeForce_SetLatencyMarker(D3D11Device(), PRESENT_START, frameID);
+    const NvU64 frameID = g_RenderFrameID;
+    g_RenderFrameID = 0;
+    ID3D11Device* const device = D3D11Device();
+    GeForce_SetLatencyMarker(device, RENDERSUBMIT_END, frameID);
+    GeForce_SetLatencyMarker(device, PRESENT_START, frameID);
     const HRESULT result = hook.Original(swapChain, syncInterval, flags);
-    GeForce_SetLatencyMarker(D3D11Device(), PRESENT_END, frameID);
+    GeForce_SetLatencyMarker(device, PRESENT_END, frameID);
     return result;
 }))
 
@@ -141,50 +186,49 @@ DECLARE_HOOK(CEngine__Frame, engine.dll + 0x1C8650,
              ([](auto& hook, void* const self) -> bool
 {
     const bool result = hook.Original(self);
-    if (result)
-        LowLatency_RunFrame();
+    if (result && g_SimulationFrameStarted)
+    {
+        GeForce_SetLatencyMarker(D3D11Device(), SIMULATION_END, g_SimulationFrameID);
+        g_SimulationFrameStarted = false;
+    }
     return result;
 }))
 
-DECLARE_HOOK(Host_CountRealTimePackets, engine.dll + 0x109710,
-             ([](auto& hook)
+DECLARE_HOOK(CEngineAPI__PumpMessages, engine.dll + 0x1C7150,
+             ([](auto& hook, void* const self)
 {
-    hook.Original();
-    GeForce_SetLatencyMarker(D3D11Device(), SIMULATION_START, LowLatency_GetCurrentFrameCount());
-}))
+    if (!g_SimulationFrameStarted && LowLatency_RunFrame())
+    {
+        ++g_SimulationFrameID;
+        g_SimulationFrameStarted = true;
+        g_RenderFrameQueued = false;
+        GeForce_SetLatencyMarker(D3D11Device(), SIMULATION_START, g_SimulationFrameID);
+    }
 
-DECLARE_HOOK(CClient_FrameStageNotify, client.dll + 0x1900A0,
-             ([](auto& hook, void* const self, const ClientFrameStage_t stage)
-{
-    hook.Original(self, stage);
-    if (stage == FRAME_RENDER_END)
-        GeForce_SetLatencyMarker(D3D11Device(), SIMULATION_END, LowLatency_GetSubmittedFrameID());
+    hook.Original(self);
+
+    if (g_SimulationFrameStarted)
+    {
+        const uint32_t inputMarkers = g_PendingInputMarkers.exchange(0, std::memory_order_relaxed);
+        if (inputMarkers & (1u << TRIGGER_FLASH))
+            GeForce_SetLatencyMarker(D3D11Device(), TRIGGER_FLASH, g_SimulationFrameID);
+        if (inputMarkers & (1u << PC_LATENCY_PING))
+            GeForce_SetLatencyMarker(D3D11Device(), PC_LATENCY_PING, g_SimulationFrameID);
+    }
 }))
 
 DECLARE_HOOK(CMaterialSystem__Init, materialsystem_dx11.dll + 0x61000,
              ([](auto& hook, void* const self) -> InitReturnVal_t
 {
     b_UseLowLatency = !CommandLine()->CheckParm("-gfx_disableLowLatency");
-    GeForce_EnableLowLatencySDK(b_UseLowLatency);
-    Radeon_EnableLowLatencySDK(b_UseLowLatency && Cvar_gfx_ffxUseLowLatency && Cvar_gfx_ffxUseLowLatency->GetBool());
-
-    if (b_UseLowLatency)
-    {
-        GeForce_InitLowLatencySDK();
-        Radeon_InitLowLatencySDK();
-
-        PCLSTATS_INIT(0);
-        g_PCLStatsAvailable = true;
-    }
 
     const InitReturnVal_t result = hook.Original(self);
     b_MaterialSystemInitialized = result == INIT_OK;
 
     if (b_UseLowLatency && b_MaterialSystemInitialized)
     {
-        spdlog::info("Low-latency SDKs initialized (NVIDIA Reflex: {}, AMD Anti-Lag 2: {}, PCLStats: available)",
-                     GeForce_IsLowLatencySDKAvailable() ? "available" : "unavailable",
-                     Radeon_IsLowLatencySDKAvailable() ? "available" : "unavailable");
+        PCLSTATS_INIT(0);
+        g_PCLStatsAvailable = true;
     }
     else if (!b_UseLowLatency)
     {
@@ -195,40 +239,40 @@ DECLARE_HOOK(CMaterialSystem__Init, materialsystem_dx11.dll + 0x61000,
 }))
 
 DECLARE_HOOK(CMaterialSystem__Shutdown, materialsystem_dx11.dll + 0x6A630,
-             ([](auto& hook, void* const self) -> int
+             ([](auto& hook, void* const self)
 {
     b_PresentMarkersEnabled.store(false, std::memory_order_relaxed);
     b_MaterialSystemInitialized = false;
+    g_SimulationFrameStarted = false;
+    g_PendingInputMarkers.store(0, std::memory_order_relaxed);
 
-    if (b_UseLowLatency)
+    if (g_LowLatencyDevice)
     {
-        if (g_PCLStatsAvailable)
-        {
-            PCLSTATS_SHUTDOWN();
-            g_PCLStatsAvailable = false;
-        }
-
+        FlushMaterialSystemRenderCommands();
+        g_RenderFrameID = 0;
         Radeon_ShutdownLowLatencySDK();
         GeForce_ShutdownLowLatencySDK();
+        g_LowLatencyDevice = nullptr;
     }
 
-    return hook.Original(self);
-}))
+    if (g_PCLStatsAvailable.exchange(false))
+    {
+        PCLSTATS_SHUTDOWN();
+    }
 
-DECLARE_HOOK(DoF_UpdateMainViewParams, materialsystem_dx11.dll + 0x38CE0,
-             ([](auto& hook, const float scalar)
-{
-    if (b_UseLowLatency)
-        GeForce_SetLatencyMarker(D3D11Device(), RENDERSUBMIT_START, LowLatency_GetCurrentFrameCount());
-
-    hook.Original(scalar);
+    hook.Original(self);
 }))
 
 DECLARE_HOOK(CMaterialSystem__BeginFrame, materialsystem_dx11.dll + 0x5A200,
              ([](auto& hook, void* const self, const float frameTime)
 {
-    if (b_UseLowLatency)
+    // Loading can redraw without advancing simulation; each simulation ID gets one render submission.
+    if (g_SimulationFrameStarted && !g_RenderFrameQueued)
+    {
         LowLatency_InstallPresentHook();
+        g_RenderFrameQueued = true;
+        QueueMaterialSystemRenderThreadCallback(LowLatency_BeginRenderFrame, g_SimulationFrameID, 0, 0, 0);
+    }
 
     hook.Original(self, frameTime);
 }))
@@ -237,7 +281,7 @@ DECLARE_HOOK(CInputSystem__WindowProc, inputsystem.dll + 0x8B80,
              ([](auto& hook, void* const unused, HWND const window, const UINT message, const WPARAM wParam, const LPARAM lParam) -> LRESULT
 {
     if (g_PCLStatsAvailable && PCLSTATS_IS_PING_MSG_ID(message))
-        GeForce_SetLatencyMarker(D3D11Device(), PC_LATENCY_PING, LowLatency_GetCurrentFrameCount());
+        g_PendingInputMarkers.fetch_or(1u << PC_LATENCY_PING, std::memory_order_relaxed);
 
     return hook.Original(unused, window, message, wParam, lParam);
 }))
@@ -263,12 +307,6 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", LowLatencyEngine, ConVar, [](CModule m
                                            false, 0.0f, false, 0.0f, GFX_FFX_Changed_f);
 
     LowLatencyHooks.DispatchForModule("engine.dll");
-})
-
-ON_DLL_LOAD_CLIENT("client.dll", LowLatencyClient, [](CModule module)
-{
-    NOTE_UNUSED(module);
-    LowLatencyHooks.DispatchForModule("client.dll");
 })
 
 ON_DLL_LOAD_CLIENT_RELIESON("materialsystem_dx11.dll", LowLatencyMaterialSystem, D3D11, [](CModule module)

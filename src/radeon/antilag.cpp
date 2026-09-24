@@ -10,12 +10,13 @@
 #include <d3d11.h>
 #include <ffx_antilag2_dx11.h>
 
-static bool b_LowLatencySDKEnabled = false;
+static bool s_LowLatencySDKEnabled = false;
 
 // This will be true if the call to 'AMD::AntiLag2DX11::Initialize' succeeds.
-static bool b_LowLatencyAvailable = false;
+static bool s_LowLatencyAvailable = false;
 
 AMD::AntiLag2DX11::Context s_LowLatencyContext = {};
+HRESULT s_LowLatencyUpdateStatus = S_OK;
 
 //-----------------------------------------------------------------------------
 // Purpose: enable/disable low latency SDK
@@ -23,7 +24,7 @@ AMD::AntiLag2DX11::Context s_LowLatencyContext = {};
 //-----------------------------------------------------------------------------
 void Radeon_EnableLowLatencySDK(const bool enable)
 {
-    b_LowLatencySDKEnabled = enable;
+    s_LowLatencySDKEnabled = enable;
 }
 
 //-----------------------------------------------------------------------------
@@ -31,9 +32,9 @@ void Radeon_EnableLowLatencySDK(const bool enable)
 //-----------------------------------------------------------------------------
 bool Radeon_IsLowLatencySDKAvailable()
 {
-    // NOTE: don't check on b_LowLatencySDKEnabled here as this needs to be
+    // NOTE: don't check on s_LowLatencySDKEnabled here as this needs to be
     // provided to the driver itself.
-    if (!b_LowLatencyAvailable)
+    if (!s_LowLatencyAvailable)
         return false;
 
     IMaterialSystem* const materialSystem = MaterialSystem();
@@ -47,10 +48,16 @@ bool Radeon_IsLowLatencySDKAvailable()
 //-----------------------------------------------------------------------------
 bool Radeon_InitLowLatencySDK()
 {
-    if (AMD::AntiLag2DX11::Initialize(&s_LowLatencyContext) == S_OK)
-        b_LowLatencyAvailable = true;
+    Radeon_ShutdownLowLatencySDK();
 
-    return b_LowLatencyAvailable;
+    const HRESULT result = AMD::AntiLag2DX11::Initialize(&s_LowLatencyContext);
+    s_LowLatencyAvailable = result == S_OK;
+    if (s_LowLatencyAvailable)
+        spdlog::info("AMD Anti-Lag 2 initialized (HRESULT 0x{:08X})", static_cast<unsigned long>(result));
+    else
+        spdlog::warn("AMD Anti-Lag 2 initialization failed (HRESULT 0x{:08X})", static_cast<unsigned long>(result));
+
+    return s_LowLatencyAvailable;
 }
 
 //-----------------------------------------------------------------------------
@@ -58,8 +65,10 @@ bool Radeon_InitLowLatencySDK()
 //-----------------------------------------------------------------------------
 void Radeon_ShutdownLowLatencySDK()
 {
+    s_LowLatencyAvailable = false;
     AMD::AntiLag2DX11::DeInitialize(&s_LowLatencyContext);
-    b_LowLatencyAvailable = false;
+    s_LowLatencyContext = {};
+    s_LowLatencyUpdateStatus = S_OK;
 }
 
 //-----------------------------------------------------------------------------
@@ -68,6 +77,16 @@ void Radeon_ShutdownLowLatencySDK()
 //-----------------------------------------------------------------------------
 void Radeon_RunLowLatencyFrame(const unsigned int maxFPS)
 {
-    if (Radeon_IsLowLatencySDKAvailable())
-        AMD::AntiLag2DX11::Update(&s_LowLatencyContext, b_LowLatencySDKEnabled, maxFPS);
+    if (!Radeon_IsLowLatencySDKAvailable())
+        return;
+
+    const HRESULT result = AMD::AntiLag2DX11::Update(&s_LowLatencyContext, s_LowLatencySDKEnabled, maxFPS);
+    if (result == s_LowLatencyUpdateStatus)
+        return;
+
+    s_LowLatencyUpdateStatus = result;
+    if (SUCCEEDED(result))
+        spdlog::info("AMD Anti-Lag 2 Update recovered (HRESULT 0x{:08X})", static_cast<unsigned long>(result));
+    else
+        spdlog::warn("AMD Anti-Lag 2 Update failed (HRESULT 0x{:08X})", static_cast<unsigned long>(result));
 }

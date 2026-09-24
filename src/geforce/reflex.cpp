@@ -8,20 +8,48 @@
 #include "materialsystem/cmaterialsystem.h"
 
 #include <cmath>
+#include <limits>
 #include <pclstats.h>
 
-static bool b_LowLatencySDKEnabled = false;
-static bool b_LowLatencyAvailable = false;
+static std::atomic_bool s_LowLatencySDKEnabled = false;
+static bool s_LowLatencyAvailable = false;
 
-// If false, the system will call 'NvAPI_D3D_SetSleepMode' to update the parameters.
-bool b_ReflexModeInfoUpToDate = false;
+bool s_ReflexParametersDirty = true;
+IUnknown* s_ReflexRequestedDevice = nullptr;
+NV_SET_SLEEP_MODE_PARAMS s_ReflexRequestedParams = {};
+ULONGLONG s_ReflexRetryAt = 0;
 
-// This is 'NVAPI_OK' if the call to 'NvAPI_D3D_SetSleepMode' was successful.
-// If not, the Low Latency SDK will not run.
-NvAPI_Status s_ReflexModeUpdateStatus = NvAPI_Status::NVAPI_OK;
+std::atomic<NvAPI_Status> s_ReflexModeUpdateStatus = NVAPI_OK;
+std::atomic<NvAPI_Status> s_ReflexSleepStatus = NVAPI_OK;
+std::atomic<NvAPI_Status> s_ReflexMarkerStatus = NVAPI_OK;
 
 // True if the PCL stats system was initialized.
-bool g_PCLStatsAvailable = false;
+std::atomic_bool g_PCLStatsAvailable = false;
+
+bool GeForce_CanUseLowLatencySDK()
+{
+    if (!s_LowLatencySDKEnabled.load(std::memory_order_relaxed))
+        return false;
+
+    IMaterialSystem* const materialSystem = MaterialSystem();
+    return materialSystem && materialSystem->GetCurrentAdapterVendorID() == NVIDIA_VENDOR_ID;
+}
+
+void GeForce_ReportStatus(const char* const operation, const NvAPI_Status status, std::atomic<NvAPI_Status>& previousStatus)
+{
+    if (previousStatus.load(std::memory_order_relaxed) == status || previousStatus.exchange(status, std::memory_order_relaxed) == status)
+        return;
+
+    if (status == NVAPI_OK)
+    {
+        spdlog::info("NVIDIA Reflex {} recovered", operation);
+        return;
+    }
+
+    NvAPI_ShortString error = {};
+    NvAPI_GetErrorMessage(status, error);
+    spdlog::warn("NVIDIA Reflex {} failed: {} ({})", operation, error, static_cast<int>(status));
+}
 
 //-----------------------------------------------------------------------------
 // Purpose: enable/disable low latency SDK
@@ -29,7 +57,8 @@ bool g_PCLStatsAvailable = false;
 //-----------------------------------------------------------------------------
 void GeForce_EnableLowLatencySDK(const bool enable)
 {
-    b_LowLatencySDKEnabled = enable;
+    if (s_LowLatencySDKEnabled.exchange(enable, std::memory_order_relaxed) != enable)
+        s_ReflexParametersDirty = true;
 }
 
 //-----------------------------------------------------------------------------
@@ -37,24 +66,21 @@ void GeForce_EnableLowLatencySDK(const bool enable)
 //-----------------------------------------------------------------------------
 bool GeForce_IsLowLatencySDKAvailable()
 {
-    if (!b_LowLatencySDKEnabled || !b_LowLatencyAvailable)
-        return false;
-
-    IMaterialSystem* const materialSystem = MaterialSystem();
-    // Only run on NVIDIA display drivers; AMD and Intel are not
-    // supported by NVIDIA Reflex.
-    return materialSystem && materialSystem->GetCurrentAdapterVendorID() == NVIDIA_VENDOR_ID;
+    return GeForce_CanUseLowLatencySDK() && s_LowLatencyAvailable;
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: initialize the low latency SDK
+// Purpose: reset configuration; capability is established by SetSleepMode
 //-----------------------------------------------------------------------------
-bool GeForce_InitLowLatencySDK()
+void GeForce_InitLowLatencySDK()
 {
-    b_LowLatencyAvailable = true;
-    b_ReflexModeInfoUpToDate = false;
-    s_ReflexModeUpdateStatus = NvAPI_Status::NVAPI_OK;
-    return b_LowLatencyAvailable;
+    s_LowLatencyAvailable = false;
+    s_ReflexParametersDirty = true;
+    s_ReflexRequestedDevice = nullptr;
+    s_ReflexRetryAt = 0;
+    s_ReflexModeUpdateStatus.store(NVAPI_OK, std::memory_order_relaxed);
+    s_ReflexSleepStatus.store(NVAPI_OK, std::memory_order_relaxed);
+    s_ReflexMarkerStatus.store(NVAPI_OK, std::memory_order_relaxed);
 }
 
 //-----------------------------------------------------------------------------
@@ -62,7 +88,8 @@ bool GeForce_InitLowLatencySDK()
 //-----------------------------------------------------------------------------
 void GeForce_ShutdownLowLatencySDK()
 {
-    b_LowLatencyAvailable = false;
+    GeForce_EnableLowLatencySDK(false);
+    GeForce_InitLowLatencySDK();
 }
 
 //-----------------------------------------------------------------------------
@@ -70,31 +97,7 @@ void GeForce_ShutdownLowLatencySDK()
 //-----------------------------------------------------------------------------
 void GeForce_MarkLowLatencyParametersOutOfDate()
 {
-    b_ReflexModeInfoUpToDate = false;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: mark the parameters as up-to-date
-//-----------------------------------------------------------------------------
-static void GeForce_MarkLowLatencyParametersUpToDate()
-{
-    b_ReflexModeInfoUpToDate = true;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: has the user requested any changes to the low latency parameters?
-//-----------------------------------------------------------------------------
-bool GeForce_HasPendingLowLatencyParameterUpdates()
-{
-    return !b_ReflexModeInfoUpToDate;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: returns whether the call to 'NvAPI_D3D_SetSleepMode' was successful
-//-----------------------------------------------------------------------------
-static bool GeForce_ParameterUpdateWasSuccessful()
-{
-    return s_ReflexModeUpdateStatus == NvAPI_Status::NVAPI_OK;
+    s_ReflexParametersDirty = true;
 }
 
 //-----------------------------------------------------------------------------
@@ -108,19 +111,47 @@ static bool GeForce_ParameterUpdateWasSuccessful()
 void GeForce_UpdateLowLatencyParameters(IUnknown* const device, const bool useLowLatencyMode, const bool useLowLatencyBoost,
                                         const bool useMarkersToOptimize, const float maxFramesPerSecond)
 {
-    if (!device || !std::isfinite(maxFramesPerSecond))
+    if (!device || !GeForce_CanUseLowLatencySDK() || !std::isfinite(maxFramesPerSecond))
         return;
+
+    NvU32 minimumIntervalUs = 0;
+    if (maxFramesPerSecond > 0)
+    {
+        // Keep the existing rounding for normal caps, but saturate before converting tiny FPS values.
+        const float intervalUs = (1000.0f / maxFramesPerSecond) * 1000.0f;
+        constexpr NvU32 maxIntervalUs = std::numeric_limits<NvU32>::max();
+        minimumIntervalUs = static_cast<double>(intervalUs) >= static_cast<double>(maxIntervalUs) ? maxIntervalUs : static_cast<NvU32>(intervalUs);
+    }
+
+    const bool lowLatencyBoost = useLowLatencyMode && useLowLatencyBoost;
+    const bool changed = s_ReflexParametersDirty || device != s_ReflexRequestedDevice ||
+                         s_ReflexRequestedParams.bLowLatencyMode != static_cast<NvBool>(useLowLatencyMode) ||
+                         s_ReflexRequestedParams.bLowLatencyBoost != static_cast<NvBool>(lowLatencyBoost) ||
+                         s_ReflexRequestedParams.minimumIntervalUs != minimumIntervalUs ||
+                         s_ReflexRequestedParams.bUseMarkersToOptimize != static_cast<NvBool>(useMarkersToOptimize);
+
+    if (!changed)
+    {
+        const NvAPI_Status status = s_ReflexModeUpdateStatus.load(std::memory_order_relaxed);
+        if (s_LowLatencyAvailable || status == NVAPI_NO_IMPLEMENTATION || status == NVAPI_NOT_SUPPORTED || GetTickCount64() < s_ReflexRetryAt)
+            return;
+    }
 
     NV_SET_SLEEP_MODE_PARAMS params = {};
     params.version = NV_SET_SLEEP_MODE_PARAMS_VER1;
-
     params.bLowLatencyMode = useLowLatencyMode;
-    params.bLowLatencyBoost = useLowLatencyMode && useLowLatencyBoost;
-    params.minimumIntervalUs = maxFramesPerSecond > 0 ? static_cast<NvU32>((1000.0f / maxFramesPerSecond) * 1000.0f) : 0;
+    params.bLowLatencyBoost = lowLatencyBoost;
+    params.minimumIntervalUs = minimumIntervalUs;
     params.bUseMarkersToOptimize = useMarkersToOptimize;
 
-    s_ReflexModeUpdateStatus = NvAPI_D3D_SetSleepMode(device, &params);
-    GeForce_MarkLowLatencyParametersUpToDate();
+    s_ReflexRequestedDevice = device;
+    s_ReflexRequestedParams = params;
+    s_ReflexParametersDirty = false;
+
+    const NvAPI_Status status = NvAPI_D3D_SetSleepMode(device, &params);
+    s_LowLatencyAvailable = status == NVAPI_OK;
+    s_ReflexRetryAt = s_LowLatencyAvailable ? 0 : GetTickCount64() + 1000;
+    GeForce_ReportStatus("SetSleepMode", status, s_ReflexModeUpdateStatus);
 }
 
 //-----------------------------------------------------------------------------
@@ -129,8 +160,8 @@ void GeForce_UpdateLowLatencyParameters(IUnknown* const device, const bool useLo
 //-----------------------------------------------------------------------------
 void GeForce_RunLowLatencyFrame(IUnknown* const device)
 {
-    if (device && GeForce_ParameterUpdateWasSuccessful())
-        NvAPI_D3D_Sleep(device);
+    if (device && GeForce_CanUseLowLatencySDK())
+        GeForce_ReportStatus("Sleep", NvAPI_D3D_Sleep(device), s_ReflexSleepStatus);
 }
 
 //-----------------------------------------------------------------------------
@@ -141,17 +172,17 @@ void GeForce_RunLowLatencyFrame(IUnknown* const device)
 //-----------------------------------------------------------------------------
 void GeForce_SetLatencyMarker(IUnknown* const device, const NV_LATENCY_MARKER_TYPE markerType, const NvU64 frameID)
 {
-    if (device && GeForce_ParameterUpdateWasSuccessful() && GeForce_IsLowLatencySDKAvailable())
+    if (device && GeForce_CanUseLowLatencySDK())
     {
         NV_LATENCY_MARKER_PARAMS params = {};
         params.version = NV_LATENCY_MARKER_PARAMS_VER1;
         params.frameID = frameID;
         params.markerType = markerType;
 
-        NvAPI_D3D_SetLatencyMarker(device, &params);
+        GeForce_ReportStatus("SetLatencyMarker", NvAPI_D3D_SetLatencyMarker(device, &params), s_ReflexMarkerStatus);
     }
 
-    if (g_PCLStatsAvailable)
+    if (g_PCLStatsAvailable.load(std::memory_order_acquire))
     {
         // PCLStats runs separately and is supported on non-NVIDIA hardware.
         PCLSTATS_MARKER(markerType, frameID);

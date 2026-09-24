@@ -1,19 +1,19 @@
 #ifndef GFSDK_REFLEX_H
 #define GFSDK_REFLEX_H
 
+#include <atomic>
 #include <nvapi.h>
 #include <unknwn.h>
 
-extern bool g_PCLStatsAvailable;
+extern std::atomic_bool g_PCLStatsAvailable;
 
 void GeForce_EnableLowLatencySDK(bool enable);
 bool GeForce_IsLowLatencySDKAvailable();
 
-bool GeForce_InitLowLatencySDK();
+void GeForce_InitLowLatencySDK();
 void GeForce_ShutdownLowLatencySDK();
 
 void GeForce_MarkLowLatencyParametersOutOfDate();
-bool GeForce_HasPendingLowLatencyParameterUpdates();
 
 void GeForce_UpdateLowLatencyParameters(IUnknown* device, bool useLowLatencyMode, bool useLowLatencyBoost, bool useMarkersToOptimize,
                                         float maxFramesPerSecond);
