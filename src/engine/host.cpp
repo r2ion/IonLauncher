@@ -6,7 +6,7 @@
 #include "util/printcommands.h"
 #include "util/printmaps.h"
 #include "client/ckf.h"
-#include "eos/eos_network.h"
+#include "eos/eos.h"
 
 DECLARE_MODULE(HostHooks)
 
@@ -33,7 +33,7 @@ DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_dedicatedserver", cmd_source_t::kCommandSrcCode);
 	else
 	{
-		eos::Initialize();
+		EOS_Init();
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_client", cmd_source_t::kCommandSrcCode);
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_listenserver", cmd_source_t::kCommandSrcCode);
 		FindBinds();

@@ -65,8 +65,6 @@ inline void HookAttach(PVOID* ppOriginal, PVOID pDetour)
 //-----------------------------------------------------------------------------
 void HookSys_Init();
 
-void* HookImportByOrdinal(const char* module, const char* targetDll, WORD targetOrdinal, void* replacement);
-void* HookImportByName(const char* module, const char* targetDll, const char* funcName, void* replacement);
 
 class ManualHook
 {

@@ -1,4 +1,5 @@
 #include "engine/net.h"
+#include "eos/eos.h"
 
 DECLARE_MODULE(NetHooks)
 
@@ -315,6 +316,37 @@ DECLARE_HOOK(GetIpStringFromClient, engine.dll + 0x2101A0, [](auto& hook, int64_
 	if (net_chan == nullptr)
 		return "null";
 	return hook.Original(a1);
+})
+
+DECLARE_HOOK(NET_SendPacket, engine.dll + 0x21C240,
+	[](auto& hook,
+		CNetChan* channel,
+		int sourceSocket,
+		const netadr_t* destination,
+		const std::uint8_t* data,
+		unsigned int size,
+		void* voicePayload,
+		bool compress,
+		int delayMilliseconds,
+		bool encrypt) -> int
+{
+	if (!destination || !EOS_IsFakeAddress(*destination))
+	{
+		return hook.Original(
+			channel,
+			sourceSocket,
+			destination,
+			data,
+			size,
+			voicePayload,
+			compress,
+			delayMilliseconds,
+			encrypt);
+	}
+
+	return EOS_SendPacket(sourceSocket, *destination, data, size)
+		? static_cast<int>(size)
+		: SOCKET_ERROR;
 })
 
 ON_DLL_LOAD("engine.dll", Net, [](CModule module)

@@ -5,7 +5,7 @@
 #include "engine/server/server.h"
 #include "engine/shared/exploit_fixes/ns_limits.h"
 #include "engine/shared/playlist.h"
-#include "eos/eos_layer.h"
+#include "eos/eos.h"
 #include "masterserver/masterserver.h"
 #include "modsystem/moddownloader.h"
 #include "modsystem/modmanager.h"
@@ -162,9 +162,7 @@ DECLARE_HOOK(CHostState__State_GameShutdown, engine.dll + 0x16E640, [](auto& hoo
         sLastMode.clear();
     }
 
-    auto& layer = eos::EosLayer::Instance();
-    if (layer.GetFakeIpLayer() != nullptr)
-        layer.GetFakeIpLayer()->Clear();
+    EOS_ResetPacketQueue();
 })
 
 DECLARE_HOOK(CHostState__FrameUpdate, engine.dll + 0x16DB00, [](auto& hook, CHostState* self, double flCurrentTime, float flFrameTime)
