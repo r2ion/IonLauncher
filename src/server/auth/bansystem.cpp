@@ -3,7 +3,6 @@
 #include "core/convar/concommand.h"
 #include "tier1/cvar.h"
 #include "dedicated/dedicated.h"
-#include "server/r2server.h"
 #include "engine/r2engine.h"
 #include "engine/client/client.h"
 #include "engine/client/clientstate.h"

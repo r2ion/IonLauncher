@@ -1,16 +1,16 @@
+#include "engine/client/client.h"
+#include "engine/r2engine.h"
+#include "server/player.h"
 #include "tier1/convar.h"
 #include "tier1/cvar.h"
-#include "engine/r2engine.h"
-#include "server/r2server.h"
-#include "engine/client/client.h"
 DECLARE_MODULE(ServerAllTalkHooks)
 
 size_t __fastcall ShouldAllowAlltalk()
 {
-	// this needs to return a 64 bit integer where 0 = true and 1 = false
-	static ConVar* Cvar_sv_alltalk = g_pCVar->FindVar("sv_alltalk");
-	if (Cvar_sv_alltalk->GetBool())
-		return 0;
+    // this needs to return a 64 bit integer where 0 = true and 1 = false
+    static ConVar* Cvar_sv_alltalk = g_pCVar->FindVar("sv_alltalk");
+    if (Cvar_sv_alltalk->GetBool())
+        return 0;
 
 	// lobby should default to alltalk, otherwise don't allow it
 	return strcmp(g_pGlobals->m_pMapName, "mp_lobby");

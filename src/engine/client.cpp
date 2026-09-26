@@ -1,5 +1,5 @@
 #include "engine/client/client.h"
-#include "server/r2server.h"
+#include "engine/server/server.h"
 
 CClientDisconnectFn CClient__Disconnect;
 CClientSendDataBlockFn CClient__SendDataBlock;

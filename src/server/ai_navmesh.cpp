@@ -4,6 +4,7 @@
 #include "core/tier0.h"
 #include "engine/hoststate.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "modsystem/modmanager.h"
 #include "navmesh/navmesh_bsp.h"
 #include "navmesh/navmesh_builder.h"
@@ -20,7 +21,7 @@ static dtNavMesh** s_ppNavMeshes = nullptr;
 //-----------------------------------------------------------------------------
 const dtNavMesh* GetNavMeshForHull(int nHull)
 {
-    if (!s_ppNavMeshes || nHull < 1 || nHull > 4 || !g_pServerState || (*g_pServerState != ss_active && *g_pServerState != ss_paused) ||
+    if (!s_ppNavMeshes || nHull < 1 || nHull > 4 || !g_pServer || !g_pServer->IsActive() ||
         !g_pHostState || g_pHostState->m_iCurrentState != HostState_t::HS_RUN || g_pHostState->m_iNextState != HostState_t::HS_RUN)
         return nullptr;
 
@@ -39,7 +40,7 @@ static void NavMesh_Generate_f(const CCommand& args)
         spdlog::info("Usage: navmesh_generate [small|med_short|medium|large|all]");
         return;
     }
-    if (!ThreadInMainThread() || !g_pFilesystem || !g_pServerState || (*g_pServerState != ss_active && *g_pServerState != ss_paused) ||
+    if (!ThreadInMainThread() || !g_pFilesystem || !g_pServer || !g_pServer->IsActive() ||
         !g_pHostState || g_pHostState->m_iCurrentState != HostState_t::HS_RUN || g_pHostState->m_iNextState != HostState_t::HS_RUN || !g_pGlobals ||
         !g_pGlobals->m_pMapName || !*g_pGlobals->m_pMapName)
     {

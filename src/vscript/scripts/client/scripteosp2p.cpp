@@ -2,6 +2,7 @@
 #include "eos/eos_layer.h"
 #include "engine/client/clientstate.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "tier1/cvar.h"
 
 ADD_SQFUNC("string", NSGetLocalP2PEndpointAddress, "", "", ScriptContext::UI)
@@ -84,7 +85,7 @@ ADD_SQFUNC("bool", NSIsP2PConnection, "", "", ScriptContext::UI)
 		return SQRESULT_NOTNULL;
 	}
 
-	if(g_pServerState && *g_pServerState >= ss_active)
+	if (g_pServer && g_pServer->IsActive())
 	{
 		g_pSquirrel[context]->pushbool(sqvm, true);
 		return SQRESULT_NOTNULL;

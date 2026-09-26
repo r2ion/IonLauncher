@@ -1,7 +1,7 @@
 #include "serverchathooks.h"
 #include "engine/client/client.h"
 #include "engine/shared/exploit_fixes/ns_limits.h"
-#include "server/r2server.h"
+#include "server/player.h"
 #include "server/recipientfilter.h"
 #include "server/usermessages.h"
 #include "util/utils.h"

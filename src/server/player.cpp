@@ -5,7 +5,6 @@
 
 #include "engine/r2engine.h"
 #include "server/player.h"
-#include "server/r2server.h"
 #include "server/usercmd.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
@@ -13,6 +12,7 @@
 #include "vscript/languages/squirrel_re/squirrel.h"
 
 CPlayer*(__fastcall* UTIL_PlayerByIndex)(int playerIndex);
+static CBaseEntity* (*s_ServerGetEntityByIndex)(int index);
 
 DECLARE_MODULE(PlayerHooks)
 
@@ -322,7 +322,7 @@ DECLARE_HOOK(PostDeathPostThink, server.dll + 0x5D7880, [](auto& hook, CPlayer* 
 
     if (!previousAllowDeadOwner)
     {
-        CBaseEntity* retainedWeapon = Server_GetEntityByIndex(weaponHandle & 0xFFFF);
+        CBaseEntity* retainedWeapon = s_ServerGetEntityByIndex(weaponHandle & 0xFFFF);
         if (retainedWeapon && retainedWeapon->GetRefEHandle().ToInt() == weaponHandle)
             *reinterpret_cast<bool*>(reinterpret_cast<std::byte*>(retainedWeapon) + 0x1EC9) = false;
     }
@@ -342,6 +342,7 @@ ON_DLL_LOAD_RELIESON("server.dll", CPlayer, (ConVar, R2Engine), [](CModule modul
 
     s_ServerBase = module.GetModuleBase();
     UTIL_PlayerByIndex = module.Offset(0x26AA10).RCast<CPlayer*(__fastcall*)(int)>();
+    s_ServerGetEntityByIndex = module.Offset(0xFB820).RCast<decltype(s_ServerGetEntityByIndex)>();
 
     DISPATCH_MODULE(PlayerHooks);
 })

@@ -1,6 +1,7 @@
 #include "vscript/languages/squirrel_re/squirrel.h"
 #include "engine/client/clientstate.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "tier1/cvar.h"
 
 // asset function StringToAsset( string assetName )
@@ -58,7 +59,7 @@ ADD_SQFUNC(
 
 ADD_SQFUNC("bool", NSIsListenServer, "", "Returns true if the current context is a listen server.", ScriptContext::UI | ScriptContext::CLIENT)
 {
-	if(g_pServerState && *g_pServerState > ss_dead)
+	if (g_pServer && g_pServer->GetState() > ss_dead)
 	{
 		g_pSquirrel[context]->pushbool(sqvm, true);
 		return SQRESULT_NOTNULL;

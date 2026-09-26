@@ -4,7 +4,7 @@
 #include "engine/client/clientstate.h"
 #include "masterserver/masterserver.h"
 #include "server/auth/serverauthentication.h"
-#include "server/r2server.h"
+#include "server/player.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 #include <filesystem>
 

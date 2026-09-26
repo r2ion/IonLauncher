@@ -1,7 +1,8 @@
-#include "server/weapon_parse.h"
+#include <mutex>
 
 #include "rtech/rstdlib.h"
 #include "server/baseentity.h"
+#include "server/weapon_parse.h"
 #include "tier0/callbacks.h"
 
 static FileWeaponInfo_Server* (*s_GetFileWeaponInfoFromHandle)(WEAPON_FILE_INFO_HANDLE);
@@ -11,6 +12,9 @@ static int (*s_PrecacheImpactEffectTable)(const char*);
 static int (*s_PrecacheParticleSystemByName)(const char*);
 static int (*s_PrecacheModel)(const char*);
 static void (*s_PrecacheScriptSound)(CBaseEntity*, const char*);
+static std::uint8_t* s_AimAssistAdspullClassesInitialized;
+
+DECLARE_MODULE(ServerWeaponParseHooks)
 
 static RHashMapString* g_WeaponModParseEntriesByName;
 static const WeaponModParseTableEntry* g_WeaponModParseEntries;
@@ -60,6 +64,17 @@ void PrecacheWeaponModSound_Server(CBaseEntity* owner, const char* soundName)
     s_PrecacheScriptSound(owner, soundName);
 }
 
+DECLARE_HOOK(AimAssistAdspullClassInit, server.dll + 0x6CC300, [](auto& hook) -> std::int64_t
+{
+    static std::mutex s_Mutex;
+
+    const std::lock_guard lock(s_Mutex);
+    if (*s_AimAssistAdspullClassesInitialized)
+        return 0;
+
+    return hook.Original();
+})
+
 ON_DLL_LOAD("server.dll", ServerWeaponParseSdk, [](CModule module)
 {
     s_GetFileWeaponInfoFromHandle = module.Offset(0x6CA0A0).RCast<decltype(s_GetFileWeaponInfoFromHandle)>();
@@ -69,7 +84,10 @@ ON_DLL_LOAD("server.dll", ServerWeaponParseSdk, [](CModule module)
     s_PrecacheParticleSystemByName = module.Offset(0x159E20).RCast<decltype(s_PrecacheParticleSystemByName)>();
     s_PrecacheModel = module.Offset(0x429550).RCast<decltype(s_PrecacheModel)>();
     s_PrecacheScriptSound = module.Offset(0x6A8C70).RCast<decltype(s_PrecacheScriptSound)>();
+    s_AimAssistAdspullClassesInitialized = module.Offset(0x160B477).RCast<std::uint8_t*>();
 
     g_WeaponModParseEntriesByName = module.Offset(0x1615BD0).RCast<RHashMapString*>();
     g_WeaponModParseEntries = module.Offset(0x997DC0).RCast<const WeaponModParseTableEntry*>();
+
+    DISPATCH_MODULE(ServerWeaponParseHooks);
 });

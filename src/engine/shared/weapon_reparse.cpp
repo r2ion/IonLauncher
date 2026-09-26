@@ -1,4 +1,4 @@
-#include <engine/r2engine.h>
+#include "engine/server/server.h"
 
 #include <modsystem/modmanager.h>
 
@@ -11,7 +11,7 @@ DECLARE_MODULE(WeaponReparseHooks)
 DECLARE_HOOK(ConCommand_weapon_reparse, client.dll + 0x3D4930, [](auto& hook, const CCommand& arg) -> void
 {
     g_pModManager->InvalidateKeyValuesPatches("scripts/weapons/");
-    if (s_WeaponReparseServer && g_pServerState && *g_pServerState >= server_state_t::ss_active)
+    if (s_WeaponReparseServer && g_pServer && g_pServer->IsActive())
         s_WeaponReparseServer(arg);
     hook.Original(arg);
 });

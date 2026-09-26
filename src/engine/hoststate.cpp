@@ -2,6 +2,7 @@
 #include "core/tier0.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "engine/shared/exploit_fixes/ns_limits.h"
 #include "engine/shared/playlist.h"
 #include "eos/eos_layer.h"
@@ -171,7 +172,7 @@ DECLARE_HOOK(CHostState__FrameUpdate, engine.dll + 0x16DB00, [](auto& hook, CHos
     hook.Original(self, flCurrentTime, flFrameTime);
     RunFrameTasks();
 
-    if (*g_pServerState == server_state_t::ss_active)
+    if (g_pServer && g_pServer->GetState() == ss_active)
     {
         // update server presence
         g_pServerPresence->RunFrame(flCurrentTime);

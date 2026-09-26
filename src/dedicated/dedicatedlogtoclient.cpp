@@ -1,13 +1,14 @@
 #include "dedicatedlogtoclient.h"
 #include "engine/client/client.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "tier1/cvar.h"
 
 void (*CGameClient__ClientPrintf)(CClient* pClient, const char* fmt, ...);
 
 void DedicatedServerLogToClientSink::sink_it_(const spdlog::details::log_msg& msg)
 {
-	if (*g_pServerState == server_state_t::ss_dead)
+	if (!g_pServer || g_pServer->GetState() == ss_dead)
 		return;
 
 	enum class eSendPrintsToClient

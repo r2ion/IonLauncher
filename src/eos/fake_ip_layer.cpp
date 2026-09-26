@@ -10,6 +10,7 @@
 #include "tier1/cvar.h"
 #include "dedicated/dedicated.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "eos_threading.h"
 #include "eos_layer.h"
 
@@ -128,9 +129,9 @@ bool FakeIpLayer::EncodeProductId(const std::string& productId, FakeEndpoint& en
 
     uint16_t hostPort = static_cast<uint16_t>(g_pCVar->FindVar("clientport")->GetInt());
 
-	int ss_state = IsDedicatedServer() ? ss_active : (g_pServerState ? static_cast<int>(*g_pServerState) : ss_dead);
+    const server_state_t serverState = IsDedicatedServer() ? ss_active : (g_pServer ? g_pServer->GetState() : ss_dead);
 
-    if (!(ss_state > ss_dead))
+    if (serverState == ss_dead)
         hostPort = static_cast<uint16_t>(g_pCVar->FindVar("hostport")->GetInt());
 
     if (hostPort == 0)
@@ -485,7 +486,7 @@ bool IsServerNetContext()
     if (IsDedicatedServer())
         return true;
 
-    return g_pServerState && *g_pServerState > ss_dead;
+    return g_pServer && g_pServer->GetState() > ss_dead;
 }
 
 uint16_t GetPretendRemotePort()

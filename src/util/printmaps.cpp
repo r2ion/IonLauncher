@@ -5,6 +5,7 @@
 #include "modsystem/modmanager.h"
 #include "core/tier0.h"
 #include "engine/r2engine.h"
+#include "engine/server/server.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 #include "client/connect.h"
 #include "dedicated/dedicated.h"
@@ -205,7 +206,7 @@ DECLARE_HOOK(Host_Map_f, engine.dll + 0x15B340, [](auto& hook, const CCommand& a
 	NOTE_UNUSED(hook);
 	RefreshMapList();
 
-	server_state_t state = g_pServerState ? *g_pServerState : server_state_t::ss_dead;
+	server_state_t state = g_pServer ? g_pServer->GetState() : ss_dead;
 
 	if (args.ArgC() > 3)
 	{

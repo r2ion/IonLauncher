@@ -11,7 +11,7 @@
 #include "core/tier0.h"
 #include "engine/client/client.h"
 #include "engine/client/clientstate.h"
-#include "server/r2server.h"
+#include "engine/server/server.h"
 #include "engine/r2engine.h"
 
 #include <fstream>
@@ -222,7 +222,7 @@ ConVar* Cvar_ns_allowuserclantags;
 void ConCommand_ns_resetpersistence(const CCommand& args)
 {
 	NOTE_UNUSED(args);
-	if (*g_pServerState == server_state_t::ss_active)
+	if (g_pServer && g_pServer->GetState() == ss_active)
 	{
 		spdlog::error("ns_resetpersistence must be entered from the main menu");
 		return;

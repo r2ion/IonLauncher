@@ -1,14 +1,14 @@
-#include "vscript/languages/squirrel_re/squirrel.h"
 #include "engine/client/client.h"
-#include "server/r2server.h"
+#include "server/player.h"
+#include "vscript/languages/squirrel_re/squirrel.h"
 
 // clang-format off
 ADD_SQFUNC("string", GetUserInfoKVString_Internal, "entity player, string key, string defaultValue = \"\"",
 	"Gets the string value of a given player's userinfo convar by name", ScriptContext::SERVER)
 // clang-format on
 {
-	const CPlayer* pPlayer = g_pSquirrel[ScriptContext::SERVER]->template getentity<CPlayer>(sqvm, 1);
-	if (!pPlayer)
+    const CPlayer* pPlayer = g_pSquirrel[ScriptContext::SERVER]->template getentity<CPlayer>(sqvm, 1);
+    if (!pPlayer)
 	{
 		g_pSquirrel[ScriptContext::SERVER]->raiseerror(sqvm, "player is null");
 		return SQRESULT_ERROR;
