@@ -18,6 +18,7 @@ KeyInfo_t* v_KeyInfoArray = nullptr;
 DECLARE_MODULE(CKFHooks)
 ConVar* Cvar_ckf_enabled = nullptr;
 ConVar* Cvar_ckf_logging = nullptr;
+ConVar* Cvar_ckf_script = nullptr;
 void FindBinds()
 {
 	crouchCodes.clear();
@@ -136,6 +137,7 @@ bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 					if (Cvar_ckf_logging->GetBool())
 						spdlog::info("crouchkick: {}ms CROUCH IS EARLY", sinceCrouch / 1000.0f);
 						// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
+                    if (Cvar_ckf_script && Cvar_ckf_script->GetBool())
 						g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, false,true, sinceCrouch);
 					jumpSentTime = real;
 				}
@@ -156,7 +158,8 @@ bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1
 					if (Cvar_ckf_logging->GetBool())
 						spdlog::info("crouchkick: {}ms JUMP IS EARLY", sinceJump / 1000.0f);
 					// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
-					g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, true,sinceJump); 
+                    if (Cvar_ckf_script && Cvar_ckf_script->GetBool())
+						g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, true,sinceJump); 
 					jumpSentTime = real;
 				}
 				else
@@ -213,7 +216,10 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 				if (Cvar_ckf_logging->GetBool())
 					spdlog::info("not crouchkick: {}ms CROUCH IS EARLY", e / 1000.0f);
 				// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
-				g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, false,false, e);
+                if (Cvar_ckf_script && Cvar_ckf_script->GetBool())
+                {
+                    g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, false, e);
+                }
 			}
 
 			jumptime = jumpHolder.timestamp;
@@ -234,7 +240,10 @@ DECLARE_HOOK(EngineUpdate, engine.dll + 0x77f50, [](auto& hook)
 				if (Cvar_ckf_logging->GetBool())
 					spdlog::info("not crouchkick: {}ms JUMP IS EARLY", e / 1000.0f);
 				// args: input=0 for jump, 1 for crouch; isEarly=true when input is early; isCrouchKick; time=delta between inputs (microseconds)
-				g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 0, true, false, e);
+				if (Cvar_ckf_script && Cvar_ckf_script->GetBool())
+				{
+					g_pSquirrel[ScriptContext::CLIENT]->AsyncCall("CodeCallback_OnCrouchKick", 1, true, false, e);
+				}
 			}
 
 			crouchtime = crouchHolder.timestamp;
@@ -278,7 +287,8 @@ ON_DLL_LOAD_CLIENT("client.dll", CKFHooksClient, [](CModule module) {
 ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 {
 	v_KeyInfoArray = module.Offset(0x1396C5C0).RCast<KeyInfo_t*>();
-
+    Cvar_ckf_script = new ConVar("ckf_script_callback", "1", FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL,
+                                 "Enable crouch kick fix script callback. 1 = enabled, 0 = disabled.");
 	Cvar_ckf_enabled = new ConVar("ckf_enabled", "0", FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL, "Enable crouch kick fix. 1 = enabled, 0 = disabled.");
 	Cvar_ckf_logging = new ConVar(
 			"ckf_logging",
