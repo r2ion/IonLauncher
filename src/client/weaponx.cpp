@@ -3,51 +3,30 @@
 #include "engine/shared/weapon_mods.h"
 #include "vscript/ivscript.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
-#include "vscript/languages/squirrel_re/squirrel/sqstring.h"
 
-static bool ScriptObjectToWeaponRuntimeFieldValue(const SQObject& object, ScriptVariant_t& value)
+static int Script_SetWeaponInfoFileKeyField(HSQUIRRELVM sqvm)
 {
-    switch (object._Type)
-    {
-    case OT_INTEGER:
-        value = static_cast<int>(_integer(object));
-        return true;
-    case OT_FLOAT:
-        value = static_cast<float>(_float(object));
-        return true;
-    case OT_BOOL:
-        value = static_cast<bool>(_bool(object));
-        return true;
-    case OT_VECTOR:
-    {
-        const SQFloat* vector = _vector(object);
-        value = Vector3D{vector[0], vector[1], vector[2]};
-        return true;
-    }
-    default:
-        return false;
-    }
-}
+    constexpr ScriptContext context = ScriptContext::CLIENT;
+    C_WeaponX* pWeapon = nullptr;
+    if (!g_pSquirrel[context]->getthisentity(sqvm, &pWeapon))
+        return SQRESULT_ERROR;
 
-ADD_NAMED_SQFUNC_WITH_DEFAULTS("bool", "SetWeaponInfoFileKeyField", NSSetClientWeaponInfoFileKeyField, "entity weapon, string key, var value",
-                               "Sets a scalar or vector field on one client WeaponX instance at runtime.", 0, nullptr, ScriptContext::CLIENT)
-{
-    C_WeaponX* pWeapon = g_pSquirrel[context]->template getentity<C_WeaponX>(sqvm, 1);
-    const char* pFieldName = g_pSquirrel[context]->getstring(sqvm, 2);
+    const char* pFieldName = g_pSquirrel[context]->getstring(sqvm, 1);
     if (!pWeapon || !pFieldName || !*pFieldName)
     {
         g_pSquirrel[context]->raiseerror(sqvm, "SetWeaponInfoFileKeyField requires a valid weapon and non-empty key");
         return SQRESULT_ERROR;
     }
 
-    ScriptVariant_t value;
-    if (!ScriptObjectToWeaponRuntimeFieldValue(sqvm->_stackOfCurrentFunction[3], value))
+    bool valueSupported = false;
+    const bool updated =
+        g_ClientWeaponMods.SetField(&pWeapon->GetWpnData(), &pWeapon->m_modVars, pFieldName, sqvm->_stackOfCurrentFunction[2], valueSupported);
+    if (!valueSupported)
     {
         g_pSquirrel[context]->raiseerror(sqvm, "SetWeaponInfoFileKeyField only accepts int, float, bool, or vector values");
         return SQRESULT_ERROR;
     }
 
-    const bool updated = g_ClientWeaponMods.SetRuntimeField(pWeapon, &pWeapon->m_modVars, pFieldName, value);
     g_pSquirrel[context]->pushbool(sqvm, updated);
     return SQRESULT_NOTNULL;
 }
@@ -1035,62 +1014,8 @@ int C_WeaponX::Script_GetWeaponSettingAsset(SQVM* arg1)
     return s_Script_GetWeaponSettingAsset(this, arg1);
 }
 
-FileWeaponInfo_t* (*s_GetFileWeaponInfoFromHandle)(WEAPON_FILE_INFO_HANDLE);
-FileWeaponInfo_t* (*s_GetFileWeaponInfoFromName)(const char*);
-void (*s_ParseFileWeaponInfo)(FileWeaponInfo_t*, KeyValues*, const char*);
-bool (*s_ReadWeaponDataFromFileForSlot)(IFileSystem*, const char*, WEAPON_FILE_INFO_HANDLE*, const unsigned char*);
-KeyValues* (*s_ReadEncryptedKVFile)(IFileSystem*, const char*, const unsigned char*);
-WeaponString_t (*s_AllocWeaponString)(FileWeaponInfo_t*, const char*);
-bool (*s_GetIndexForModName)(const char*, const FileWeaponInfo_t*, unsigned int*);
-bool (*s_CalcWeaponMods)(unsigned int, const FileWeaponInfo_t*, WeaponModValues*, bool, unsigned int);
 datamap_t* s_WeaponPlayerDataPredMap;
 datamap_t* s_SmartAmmoPredMap;
-
-FileWeaponInfo_t* GetFileWeaponInfoFromHandle(WEAPON_FILE_INFO_HANDLE handle)
-{
-    return s_GetFileWeaponInfoFromHandle(handle);
-}
-
-FileWeaponInfo_t* GetFileWeaponInfoFromName(const char* name)
-{
-    return s_GetFileWeaponInfoFromName(name);
-}
-
-WEAPON_FILE_INFO_HANDLE LookupWeaponInfoSlot(const char* name)
-{
-    const FileWeaponInfo_t* info = GetFileWeaponInfoFromName(name);
-    return info ? info->infoHandle : GetInvalidWeaponInfoHandle();
-}
-
-void FileWeaponInfo_t::Parse(KeyValues* data, const char* weaponName)
-{
-    s_ParseFileWeaponInfo(this, data, weaponName);
-}
-
-bool ReadWeaponDataFromFileForSlot(IFileSystem* filesystem, const char* weaponName, WEAPON_FILE_INFO_HANDLE* handle, const unsigned char* iceKey)
-{
-    return s_ReadWeaponDataFromFileForSlot(filesystem, weaponName, handle, iceKey);
-}
-
-KeyValues* ReadEncryptedKVFile(IFileSystem* filesystem, const char* filenameWithoutExtension, const unsigned char* iceKey)
-{
-    return s_ReadEncryptedKVFile(filesystem, filenameWithoutExtension, iceKey);
-}
-
-WeaponString_t AllocWeaponString(FileWeaponInfo_t* info, const char* string)
-{
-    return s_AllocWeaponString(info, string);
-}
-
-bool GetIndexForModName(const char* modName, const FileWeaponInfo_t* info, unsigned int* index)
-{
-    return s_GetIndexForModName(modName, info, index);
-}
-
-bool CalcWeaponMods(unsigned int bitfield, const FileWeaponInfo_t* info, WeaponModValues* values, bool singlePlayer, unsigned int overrideMods)
-{
-    return s_CalcWeaponMods(bitfield, info, values, singlePlayer, overrideMods);
-}
 
 datamap_t* WeaponPlayerData_Client::GetPredDescMap()
 {
@@ -1220,6 +1145,12 @@ int C_BaseCombatWeapon::ScriptLookupViewModelAttachment(const char* attachmentNa
 
 ON_DLL_LOAD_CLIENT("client.dll", WeaponSdkMethods, [](CModule module)
 {
+    auto* pScriptDesc = module.Offset(0x2E34E50).RCast<ScriptClassDesc_t*>();
+    auto& binding = pScriptDesc->m_NativeFunctionBindings[pScriptDesc->m_NativeFunctionBindings.AddToTail()];
+    binding.Init("SetWeaponInfoFileKeyField", "Script_SetWeaponInfoFileKeyField",
+                 "Sets a scalar or vector field on this client WeaponX instance at runtime.", "bool", "string key, var value", false,
+                 &Script_SetWeaponInfoFileKeyField);
+
     s_EmitWeaponNpcSound = module.Offset(0x5A5300).RCast<decltype(s_EmitWeaponNpcSound)>();
     s_EmitWeaponNpcSound_DontUpdateLastFiredTime = module.Offset(0x5A5310).RCast<decltype(s_EmitWeaponNpcSound_DontUpdateLastFiredTime)>();
     s_ShowWeapon = module.Offset(0x5B8AB0).RCast<decltype(s_ShowWeapon)>();
@@ -1399,14 +1330,6 @@ ON_DLL_LOAD_CLIENT("client.dll", WeaponSdkMethods, [](CModule module)
     s_Script_GetWeaponSettingVector = module.Offset(0x5B76C0).RCast<decltype(s_Script_GetWeaponSettingVector)>();
     s_Script_GetWeaponSettingString = module.Offset(0x5B76A0).RCast<decltype(s_Script_GetWeaponSettingString)>();
     s_Script_GetWeaponSettingAsset = module.Offset(0x5B7620).RCast<decltype(s_Script_GetWeaponSettingAsset)>();
-    s_GetFileWeaponInfoFromHandle = module.Offset(0x3CB030).RCast<decltype(s_GetFileWeaponInfoFromHandle)>();
-    s_GetFileWeaponInfoFromName = module.Offset(0x3CB050).RCast<decltype(s_GetFileWeaponInfoFromName)>();
-    s_ParseFileWeaponInfo = module.Offset(0x3CFAC0).RCast<decltype(s_ParseFileWeaponInfo)>();
-    s_ReadWeaponDataFromFileForSlot = module.Offset(0x3D2950).RCast<decltype(s_ReadWeaponDataFromFileForSlot)>();
-    s_ReadEncryptedKVFile = module.Offset(0x3D2710).RCast<decltype(s_ReadEncryptedKVFile)>();
-    s_AllocWeaponString = module.Offset(0x3C9030).RCast<decltype(s_AllocWeaponString)>();
-    s_GetIndexForModName = module.Offset(0x3CB1C0).RCast<decltype(s_GetIndexForModName)>();
-    s_CalcWeaponMods = module.Offset(0x3CA0B0).RCast<decltype(s_CalcWeaponMods)>();
     s_WeaponPlayerDataPredMap = module.Offset(0xB4A660).RCast<datamap_t*>();
     s_SmartAmmoPredMap = module.Offset(0xB492A0).RCast<datamap_t*>();
 })

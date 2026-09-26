@@ -2,9 +2,9 @@
 
 #include "basecombatweapon_shared.h"
 #include "client/baseanimating.h"
+#include "client/weapon_parse.h"
 #include "engine/ehandle.h"
 #include "vscript/ivscript.h"
-#include "weapon_parse.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -22,9 +22,9 @@ class C_BaseCombatWeapon : public C_BaseAnimating
     {
         return m_weaponInfoFileHandle;
     }
-    const FileWeaponInfo_t& GetWpnData() const
+    const FileWeaponInfo_Client& GetWpnData() const
     {
-        return *GetFileWeaponInfoFromHandle(GetWeaponFileInfoHandle());
+        return *GetFileWeaponInfoFromHandle_Client(GetWeaponFileInfoHandle());
     }
     C_BaseCombatCharacter* GetWeaponOwner() const
     {

@@ -27,7 +27,7 @@ struct ScriptClassDesc_t;
 struct Quaternion;
 struct ClientInterpolationSnapshot;
 struct VisibleToLocalPlayerTrace;
-struct FileWeaponInfo_t;
+struct FileWeaponInfo_Client;
 class C_TakeDamageInfo;
 class CBulletsTraceFilter;
 
@@ -82,7 +82,7 @@ struct FireBulletsInfo_Client_t
     int m_fireBulletFlags = 0;
     C_BaseEntity* m_pAttacker = nullptr;
     C_WeaponX* m_weapon = nullptr;
-    const FileWeaponInfo_t* m_weaponInfo = nullptr;
+    const FileWeaponInfo_Client* m_weaponInfo = nullptr;
     C_BaseEntity* m_pAdditionalIgnoreEnt = nullptr;
     bool m_bPrimaryAttack = true;
     bool m_bNetOptimized = false;

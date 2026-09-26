@@ -2,96 +2,110 @@
 
 #include "client/weaponx.h"
 #include "engine/cdll_int.h"
+#include "server/weaponx.h"
 #include "tier0/frametask.h"
 #include "tier1/keyvalues.h"
+#include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <charconv>
-#include <cstdio>
 #include <cstring>
 #include <deque>
-#include <limits>
-#include <string>
-#include <system_error>
 #include <vector>
 DECLARE_MODULE(WeaponModHooks)
 
-constexpr std::uint32_t RetailCodeLimit = 200;
-constexpr std::uint32_t MaxModGroupCount = 31;
-constexpr std::size_t StoredModGroupCount = 32;
-constexpr std::size_t MaxEncodedEntryCount = static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) + 1;
-static_assert(offsetof(ClientWeaponInfo_t, m_CompiledData) == offsetof(FileWeaponInfo_t, modValueDefaults));
+CWeaponModHandler<FileWeaponInfo_Client> g_ClientWeaponMods;
+CWeaponModHandler<FileWeaponInfo_Server> g_ServerWeaponMods;
 
-CWeaponModHandler<ClientWeaponInfo_t> g_ClientWeaponMods;
-CWeaponModHandler<ServerWeaponInfo_t> g_ServerWeaponMods;
-
-template <typename WeaponInfo> bool CWeaponModHandler<WeaponInfo>::WeaponFieldValueToString(const ScriptVariant_t& value, std::string& output)
+const WeaponModParseTableEntry* FindWeaponModParseEntry(const FileWeaponInfo_Client*, const char* fieldName)
 {
-    char buffer[128];
-    char* pEnd = buffer;
-    std::errc error{};
-
-    switch (value.GetType())
-    {
-    case FIELD_INTEGER:
-    {
-        const auto result = std::to_chars(buffer, std::end(buffer), static_cast<int>(value));
-        pEnd = result.ptr;
-        error = result.ec;
-        break;
-    }
-    case FIELD_FLOAT:
-    {
-        const auto result =
-            std::to_chars(buffer, std::end(buffer), static_cast<float>(value), std::chars_format::general, std::numeric_limits<float>::max_digits10);
-        pEnd = result.ptr;
-        error = result.ec;
-        break;
-    }
-    case FIELD_BOOLEAN:
-        output = static_cast<bool>(value) ? "1" : "0";
-        return true;
-    case FIELD_VECTOR:
-    {
-        const Vector3D& vector = static_cast<const Vector3D&>(value);
-        const int length = std::snprintf(buffer, sizeof(buffer), "%.9g %.9g %.9g", vector.x, vector.y, vector.z);
-        if (length < 0 || static_cast<std::size_t>(length) >= sizeof(buffer))
-            return false;
-        output.assign(buffer, static_cast<std::size_t>(length));
-        return true;
-    }
-    default:
-        return false;
-    }
-
-    if (error != std::errc{})
-        return false;
-
-    output.assign(buffer, pEnd);
-    return true;
+    return FindWeaponModParseTableEntry_Client(fieldName);
 }
 
-static ScriptDataType_t WeaponDescriptorScriptType(const std::uint8_t descriptorType)
+const WeaponModParseTableEntry* FindWeaponModParseEntry(const FileWeaponInfo_Server*, const char* fieldName)
+{
+    return FindWeaponModParseTableEntry_Server(fieldName);
+}
+
+const WeaponModParseTableEntry* GetWeaponModParseEntry(const FileWeaponInfo_Client*, WeaponModEntryType entryType)
+{
+    return GetWeaponModParseTableEntry_Client(entryType);
+}
+
+const WeaponModParseTableEntry* GetWeaponModParseEntry(const FileWeaponInfo_Server*, WeaponModEntryType entryType)
+{
+    return GetWeaponModParseTableEntry_Server(entryType);
+}
+
+KeyValues* ParseWeaponMod(KeyValues* section, FileWeaponInfo_Client* info, const char* weaponName, WeaponMod* mod)
+{
+    return ParseWeaponMod_Client(section, info, weaponName, mod);
+}
+
+KeyValues* ParseWeaponMod(KeyValues* section, FileWeaponInfo_Server* info, const char* weaponName, WeaponMod* mod)
+{
+    return ParseWeaponMod_Server(section, info, weaponName, mod);
+}
+
+bool InsertWeaponModAssemblyItem(FileWeaponInfo_Client*, WeaponModEntry_t* entry, const WeaponModParseTableEntry* parseEntry,
+                                 WeaponModAssemblyItem_t* item)
+{
+    return InsertWeaponModAssemblyItem_Client(entry, parseEntry, item);
+}
+
+bool InsertWeaponModAssemblyItem(FileWeaponInfo_Server*, WeaponModEntry_t* entry, const WeaponModParseTableEntry* parseEntry,
+                                 WeaponModAssemblyItem_t* item)
+{
+    return InsertWeaponModAssemblyItem_Server(entry, parseEntry, item);
+}
+
+void PrecacheWeaponModAsset(FileWeaponInfo_Client*, const WeaponModParseTableEntry& parseEntry, const char* assetName)
+{
+    PrecacheWeaponModAsset_Client(parseEntry, assetName);
+}
+
+void PrecacheWeaponModAsset(FileWeaponInfo_Server*, const WeaponModParseTableEntry& parseEntry, const char* assetName)
+{
+    PrecacheWeaponModAsset_Server(parseEntry, assetName);
+}
+
+int PrecacheWeaponModModel(FileWeaponInfo_Client*, const char* modelName)
+{
+    return PrecacheWeaponModModel_Client(modelName);
+}
+
+int PrecacheWeaponModModel(FileWeaponInfo_Server*, const char* modelName)
+{
+    return PrecacheWeaponModModel_Server(modelName);
+}
+
+template <typename Value> Value ReadWeaponModValue(const WeaponModValues& values, std::uint16_t offset)
+{
+    Value result{};
+    std::memcpy(&result, reinterpret_cast<const std::byte*>(&values) + offset, sizeof(result));
+    return result;
+}
+
+ScriptDataType_t WeaponDescriptorScriptType(const WeaponModValueType descriptorType)
 {
     switch (descriptorType)
     {
-    case 1:
+    case WeaponModValueType::Integer:
         return FIELD_INTEGER;
-    case 2:
+    case WeaponModValueType::Float:
         return FIELD_FLOAT;
-    case 3:
+    case WeaponModValueType::Boolean:
         return FIELD_BOOLEAN;
-    case 6:
+    case WeaponModValueType::Vector:
         return FIELD_VECTOR;
     default:
         return FIELD_VOID;
     }
 }
 
-static bool IsWeaponRuntimeFieldValueCompatible(const ScriptDataType_t fieldType, const ScriptDataType_t valueType)
+bool IsWeaponFieldValueCompatible(const ScriptDataType_t fieldType, const ScriptDataType_t valueType)
 {
     switch (fieldType)
     {
@@ -110,10 +124,9 @@ static bool IsWeaponRuntimeFieldValueCompatible(const ScriptDataType_t fieldType
 
 template <typename WeaponInfo>
 bool CWeaponModHandler<WeaponInfo>::WeaponFieldValueToData(const ScriptVariant_t& value, const ScriptDataType_t fieldType,
-                                                           std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)>& output,
-                                                           std::size_t& outputSize)
+                                                           std::array<std::byte, sizeof(WeaponModEntry_t::value)>& output, std::size_t& outputSize)
 {
-    if (!IsWeaponRuntimeFieldValueCompatible(fieldType, value.GetType()))
+    if (!IsWeaponFieldValueCompatible(fieldType, value.GetType()))
         return false;
 
     switch (fieldType)
@@ -150,150 +163,42 @@ bool CWeaponModHandler<WeaponInfo>::WeaponFieldValueToData(const ScriptVariant_t
         return false;
     }
 }
-std::uint16_t WeaponModCodeEntry_t::GetStringOffset() const
+
+template <typename WeaponInfo> static thread_local WeaponInfo* s_ActiveAssemblyWeaponInfo = nullptr;
+template <typename WeaponInfo> static thread_local std::vector<WeaponModEntry_t>* s_ActiveAssemblyEntries = nullptr;
+template <typename WeaponInfo> static thread_local std::deque<WeaponModAssemblyItem_t>* s_ActiveAssemblyItems = nullptr;
+
+bool IsSupportedWeaponModField(const WeaponModEntryType entryType, const WeaponModValueType valueType)
 {
-    std::uint16_t offset;
-    std::memcpy(&offset, m_Value, sizeof(offset));
-    return offset;
+    if (valueType > WeaponModValueType::Invalid && valueType <= WeaponModValueType::WeaponString)
+        return true;
+
+    if (valueType != WeaponModValueType::Special)
+        return false;
+
+    switch (static_cast<std::uint16_t>(entryType))
+    {
+    case WEAPON_MOD_ENTRY_FIRE_MODE:
+    case WEAPON_MOD_ENTRY_AIMASSIST_ADSPULL_WEAPONCLASS:
+    case WEAPON_MOD_ENTRY_DAMAGE_FLAGS:
+    case WEAPON_MOD_ENTRY_EXPLOSION_DAMAGE_FLAGS:
+    case WEAPON_MOD_ENTRY_AMMO_SUCK_BEHAVIOR:
+    case WEAPON_MOD_ENTRY_DAMAGE_FALLOFF_TYPE:
+    case WEAPON_MOD_ENTRY_VIEWKICK_SPRING:
+    case WEAPON_MOD_ENTRY_SMART_AMMO_HUD_TYPE:
+    case WEAPON_MOD_ENTRY_SMART_AMMO_HUD_LOCK_STYLE:
+    case WEAPON_MOD_ENTRY_SMART_AMMO_WEAPON_TYPE:
+    case WEAPON_MOD_ENTRY_SMART_AMMO_LOCK_TYPE:
+        return true;
+    default:
+        return false;
+    }
 }
 
-class CScopedKeyValuesChunk
-{
-  public:
-    CScopedKeyValuesChunk(const char* pName, KeyValues* pFirst, KeyValues* pLast) : m_Chunk(pName), m_pLast(pLast), m_pNext(pLast->m_pPeer)
-    {
-        m_Chunk.m_pSub = pFirst;
-        m_pLast->m_pPeer = nullptr;
-    }
-
-    ~CScopedKeyValuesChunk()
-    {
-        m_pLast->m_pPeer = m_pNext;
-        m_Chunk.m_pSub = nullptr;
-    }
-
-    KeyValues* GetChunk()
-    {
-        return &m_Chunk;
-    }
-
-    KeyValues* GetNext() const
-    {
-        return m_pNext;
-    }
-
-  private:
-    KeyValues m_Chunk;
-    KeyValues* m_pLast;
-    KeyValues* m_pNext;
-};
-
-template <typename WeaponInfo> class CScopedWeaponModAssembly
-{
-  public:
-    CScopedWeaponModAssembly(CWeaponModHandler<WeaponInfo>& handler, WeaponInfo* pWeaponInfo, std::vector<WeaponModCodeEntry_t>& entries)
-        : m_Handler(handler), m_pWeaponInfo(pWeaponInfo), m_Entries(entries), m_pPrevious(s_pActive)
-    {
-        s_pActive = this;
-    }
-
-    ~CScopedWeaponModAssembly()
-    {
-        s_pActive = m_pPrevious;
-    }
-
-    static CScopedWeaponModAssembly* GetActive()
-    {
-        return s_pActive;
-    }
-
-    std::uintptr_t ApplyEntry(WeaponModCodeEntry_t* pEmbeddedEntry, std::uintptr_t setBaseValue, std::uintptr_t remove)
-    {
-        WeaponModCodeEntry_t* pEntry = ResolveEntry(pEmbeddedEntry);
-        if (!pEntry)
-            return 0;
-
-        auto& item = m_AssemblyItems.emplace_back();
-        item.m_SetBaseValue = static_cast<std::uint8_t>(setBaseValue);
-        item.m_Remove = static_cast<std::uint8_t>(remove);
-
-        const WeaponFieldDescriptor_t& descriptor = m_Handler.m_pFieldDescriptors[pEntry->m_FieldIndex];
-        if (!IsSupportedField(pEntry->m_FieldIndex, descriptor.m_Type))
-            return 0;
-
-        return m_Handler.m_pInsertAssemblyItem(pEntry, &descriptor, &item);
-    }
-
-  private:
-    static bool IsSupportedField(std::uint16_t fieldIndex, std::uint8_t fieldType)
-    {
-        if (fieldType > 0 && fieldType <= 7)
-            return true;
-
-        if (fieldType != 8)
-            return false;
-
-        constexpr std::uint64_t SupportedLowFields = 0x3000100000000010;
-        return fieldIndex == 102 || (fieldIndex <= 61 && (SupportedLowFields & (std::uint64_t{1} << fieldIndex))) || fieldIndex == 135 ||
-               fieldIndex == 268 || (fieldIndex >= 538 && fieldIndex <= 541);
-    }
-
-    WeaponModCodeEntry_t* ResolveEntry(WeaponModCodeEntry_t* pEmbeddedEntry)
-    {
-        const std::uintptr_t storageAddress = reinterpret_cast<std::uintptr_t>(m_pWeaponInfo->m_WeaponMods.m_CodeEntries);
-        const std::uintptr_t entryAddress = reinterpret_cast<std::uintptr_t>(pEmbeddedEntry);
-        if (entryAddress < storageAddress)
-            return pEmbeddedEntry;
-
-        const std::uintptr_t offset = entryAddress - storageAddress;
-        if (offset >= MaxEncodedEntryCount * sizeof(WeaponModCodeEntry_t) || offset % sizeof(WeaponModCodeEntry_t) != 0)
-            return pEmbeddedEntry;
-
-        const std::size_t index = offset / sizeof(WeaponModCodeEntry_t);
-        if (index >= m_Entries.size())
-            return nullptr;
-
-        return &m_Entries[index];
-    }
-
-    static thread_local CScopedWeaponModAssembly* s_pActive;
-    CWeaponModHandler<WeaponInfo>& m_Handler;
-    WeaponInfo* m_pWeaponInfo;
-    std::vector<WeaponModCodeEntry_t>& m_Entries;
-    std::deque<WeaponModAssemblyItem_t> m_AssemblyItems;
-    CScopedWeaponModAssembly* m_pPrevious;
-};
-
-template <typename WeaponInfo> thread_local CScopedWeaponModAssembly<WeaponInfo>* CScopedWeaponModAssembly<WeaponInfo>::s_pActive = nullptr;
-
-template <> void CWeaponModHandler<ClientWeaponInfo_t>::Initialize(const CModule& module)
+template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::Reset()
 {
     m_EntriesByWeapon.clear();
-    m_pParseGroup = module.Offset(0x3D15D0).RCast<ParseWeaponModGroupFn<ClientWeaponInfo_t>>();
-    m_pParseGroupHookName = "ParseWeaponModGroup_Client";
-    m_pFieldDescriptors = module.Offset(0x942CA0).RCast<const WeaponFieldDescriptor_t*>();
-    m_pPrecacheFlag4Asset = nullptr;
-    m_pPrecacheClientFlag4Asset = module.Offset(0x195CD0).RCast<PrecacheClientWeaponModFlag4AssetFn>();
-    m_pPrecacheFlag8Asset = module.Offset(0x195F20).RCast<PrecacheWeaponModAssetFn>();
-    m_pPrecacheString = module.Offset(0x3EDEB0).RCast<PrecacheWeaponModStringFn>();
-    m_pGetWeaponInfo = module.Offset(0xBB4B0).RCast<GetWeaponModInfoFn<ClientWeaponInfo_t>>();
-    m_pNotifyStringField = module.Offset(0x5B9A60).RCast<NotifyWeaponModStringFieldFn>();
-    m_pInsertAssemblyItem = module.Offset(0x3C8F60).RCast<InsertWeaponModAssemblyItemFn>();
-}
-
-template <> void CWeaponModHandler<ServerWeaponInfo_t>::Initialize(const CModule& module)
-{
-    m_EntriesByWeapon.clear();
-    m_pParseGroup = module.Offset(0x6CFDE0).RCast<ParseWeaponModGroupFn<ServerWeaponInfo_t>>();
-    m_pParseGroupHookName = "ParseWeaponModGroup_Server";
-    m_pFieldDescriptors = module.Offset(0x997DC0).RCast<const WeaponFieldDescriptor_t*>();
-    m_pPrecacheFlag4Asset = module.Offset(0x159C00).RCast<PrecacheWeaponModAssetFn>();
-    m_pPrecacheClientFlag4Asset = nullptr;
-    m_pPrecacheFlag8Asset = module.Offset(0x159E20).RCast<PrecacheWeaponModAssetFn>();
-    m_pPrecacheString = module.Offset(0x429550).RCast<PrecacheWeaponModStringFn>();
-    m_pGetWeaponInfo = module.Offset(0xF0CD0).RCast<GetWeaponModInfoFn<ServerWeaponInfo_t>>();
-    m_pNotifyStringField = module.Offset(0x6A8C70).RCast<NotifyWeaponModStringFieldFn>();
-    m_pInsertAssemblyItem = module.Offset(0x6C7690).RCast<InsertWeaponModAssemblyItemFn>();
+    m_FieldOverridesByValues.clear();
 }
 
 template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::InitializeWeaponInfo(WeaponInfo* pWeaponInfo)
@@ -301,68 +206,89 @@ template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::InitializeWea
     m_EntriesByWeapon.erase(pWeaponInfo);
 }
 
-template <typename WeaponInfo> const char* CWeaponModHandler<WeaponInfo>::GetWeaponName(const WeaponInfo* pWeaponInfo) const
+template <typename WeaponInfo> const char* CWeaponModHandler<WeaponInfo>::GetWeaponName(const WeaponInfo* weaponInfo) const
 {
-    constexpr std::size_t WeaponNameOffset = offsetof(FileWeaponInfo_t, szClassName);
-    constexpr std::size_t WeaponNameCapacity = sizeof(FileWeaponInfo_t::szClassName);
-    const char* pWeaponName = reinterpret_cast<const char*>(pWeaponInfo) + WeaponNameOffset;
-    return std::memchr(pWeaponName, '\0', WeaponNameCapacity) ? pWeaponName : nullptr;
+    return std::memchr(weaponInfo->szClassName, '\0', sizeof(weaponInfo->szClassName)) ? weaponInfo->szClassName : nullptr;
 }
 
 template <typename WeaponInfo>
-bool CWeaponModHandler<WeaponInfo>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName, const ScriptVariant_t& value)
+bool CWeaponModHandler<WeaponInfo>::SetField(const WeaponInfo* weaponInfo, WeaponModValues* values, const char* fieldName, const SQObject& object,
+                                             bool& valueSupported)
 {
-    assert(pWeapon && pRuntimeValues && pFieldName && *pFieldName);
-    assert(m_pGetWeaponInfo && m_pFieldDescriptors && m_pParseGroupHookName);
+    assert(weaponInfo && values && fieldName && *fieldName);
 
-    std::string stringValue;
-    if (!WeaponFieldValueToString(value, stringValue))
+    valueSupported = false;
+    ScriptVariant_t value;
+    switch (object._Type)
+    {
+    case OT_INTEGER:
+        value = static_cast<int>(_integer(object));
+        break;
+    case OT_FLOAT:
+        value = static_cast<float>(_float(object));
+        break;
+    case OT_BOOL:
+        value = static_cast<bool>(_bool(object));
+        break;
+    case OT_VECTOR:
+    {
+        const SQFloat* vector = _vector(object);
+        value = Vector3D{vector[0], vector[1], vector[2]};
+        break;
+    }
+    default:
+        return false;
+    }
+    valueSupported = true;
+
+    const char* weaponName = GetWeaponName(weaponInfo);
+    if (!weaponName || !*weaponName)
         return false;
 
-    WeaponInfo* pWeaponInfo = m_pGetWeaponInfo(pWeapon);
-    if (!pWeaponInfo)
+    const WeaponModParseTableEntry* descriptor = FindWeaponModParseEntry(weaponInfo, fieldName);
+    if (!descriptor)
         return false;
 
-    const char* pWeaponName = GetWeaponName(pWeaponInfo);
-    if (!pWeaponName || !*pWeaponName)
-        return false;
-
-    const auto parseHook = HookSys::FindHook(m_pParseGroupHookName);
-    assert(parseHook);
-
-    KeyValues section("__SCRIPT_OVERRIDE__");
-    section.SetString(pFieldName, stringValue.c_str());
-
-    WeaponInfo scratchWeaponInfo = *pWeaponInfo;
-    SetCodeCount(&scratchWeaponInfo, 0);
-
-    const auto parseGroup = HookSys::GetOriginalFunction<ParseWeaponModGroupFn<WeaponInfo>>(parseHook);
-    WeaponModGroup_t parsedGroup{};
-    parseGroup(&section, &scratchWeaponInfo, pWeaponName, &parsedGroup);
-    if (GetCodeCount(&scratchWeaponInfo) != 1 || parsedGroup.m_EntryCount != 1)
-        return false;
-
-    const WeaponModCodeEntry_t& entry = scratchWeaponInfo.m_WeaponMods.m_CodeEntries[0];
-    const WeaponFieldDescriptor_t& descriptor = m_pFieldDescriptors[entry.m_FieldIndex];
-    const ScriptDataType_t fieldType = WeaponDescriptorScriptType(descriptor.m_Type);
-    std::array<std::byte, sizeof(WeaponModCodeEntry_t::m_Value)> valueData{};
+    const ScriptDataType_t fieldType = WeaponDescriptorScriptType(descriptor->parseType);
+    std::array<std::byte, sizeof(WeaponModEntry_t::value)> valueData{};
     std::size_t valueSize = 0;
     if (!WeaponFieldValueToData(value, fieldType, valueData, valueSize))
         return false;
-    if (descriptor.m_CompiledOffset > sizeof(scratchWeaponInfo.m_CompiledData.m_Data) ||
-        valueSize > sizeof(scratchWeaponInfo.m_CompiledData.m_Data) - descriptor.m_CompiledOffset)
-    {
+    if (descriptor->structOffset > sizeof(WeaponModValues) || valueSize > sizeof(WeaponModValues) - descriptor->structOffset)
         return false;
-    }
 
-    std::memcpy(static_cast<std::byte*>(pRuntimeValues) + descriptor.m_CompiledOffset, valueData.data(), valueSize);
+    auto& overrides = m_FieldOverridesByValues[values];
+    const FieldOverride fieldOverride{descriptor->structOffset, static_cast<std::uint16_t>(valueSize), valueData};
+    const auto existing =
+        std::find_if(overrides.begin(), overrides.end(), [&](const FieldOverride& field) { return field.offset == fieldOverride.offset; });
+    if (existing == overrides.end())
+        overrides.push_back(fieldOverride);
+    else
+        *existing = fieldOverride;
+
+    std::memcpy(reinterpret_cast<std::byte*>(values) + descriptor->structOffset, valueData.data(), valueSize);
     return true;
 }
 
-template bool CWeaponModHandler<ClientWeaponInfo_t>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName,
-                                                                     const ScriptVariant_t& value);
-template bool CWeaponModHandler<ServerWeaponInfo_t>::SetRuntimeField(void* pWeapon, void* pRuntimeValues, const char* pFieldName,
-                                                                     const ScriptVariant_t& value);
+template bool CWeaponModHandler<FileWeaponInfo_Client>::SetField(const FileWeaponInfo_Client* weaponInfo, WeaponModValues* values,
+                                                                 const char* fieldName, const SQObject& object, bool& valueSupported);
+template bool CWeaponModHandler<FileWeaponInfo_Server>::SetField(const FileWeaponInfo_Server* weaponInfo, WeaponModValues* values,
+                                                                 const char* fieldName, const SQObject& object, bool& valueSupported);
+
+template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::ApplyFieldOverrides(WeaponModValues* values) const
+{
+    const auto overrides = m_FieldOverridesByValues.find(values);
+    if (overrides == m_FieldOverridesByValues.end())
+        return;
+
+    for (const FieldOverride& field : overrides->second)
+        std::memcpy(reinterpret_cast<std::byte*>(values) + field.offset, field.value.data(), field.size);
+}
+
+template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::ClearFieldOverrides(WeaponModValues* values)
+{
+    m_FieldOverridesByValues.erase(values);
+}
 
 template <typename WeaponInfo> std::size_t CWeaponModHandler<WeaponInfo>::CountChildren(KeyValues* pSection)
 {
@@ -379,7 +305,7 @@ template <typename WeaponInfo> std::size_t CWeaponModHandler<WeaponInfo>::CountE
 
     KeyValues* pMods = pRoot->FindKey("Mods", false);
     std::uint32_t groupCount = 0;
-    for (KeyValues* pGroup = pMods ? pMods->GetFirstTrueSubKey() : nullptr; pGroup && groupCount < MaxModGroupCount;
+    for (KeyValues* pGroup = pMods ? pMods->GetFirstTrueSubKey() : nullptr; pGroup && groupCount < MAX_WEAPON_MOD_GROUPS;
          pGroup = pGroup->GetNextTrueSubKey(), ++groupCount)
     {
         count += CountChildren(pGroup);
@@ -389,29 +315,29 @@ template <typename WeaponInfo> std::size_t CWeaponModHandler<WeaponInfo>::CountE
 }
 
 template <typename WeaponInfo>
-bool CWeaponModHandler<WeaponInfo>::CanAppendEntries(const std::vector<WeaponModCodeEntry_t>& entries, std::size_t groupEntryCount)
+bool CWeaponModHandler<WeaponInfo>::CanAppendEntries(const std::vector<WeaponModEntry_t>& entries, std::size_t groupEntryCount)
 {
-    return groupEntryCount <= std::numeric_limits<std::uint16_t>::max() && groupEntryCount <= MaxEncodedEntryCount - entries.size();
+    return groupEntryCount < MAX_ENCODED_WEAPON_MOD_ENTRIES && groupEntryCount <= MAX_ENCODED_WEAPON_MOD_ENTRIES - entries.size();
 }
 
-template <typename WeaponInfo> std::uint32_t CWeaponModHandler<WeaponInfo>::GetCodeCount(const WeaponInfo* pWeaponInfo) const
+template <typename WeaponInfo> std::uint32_t CWeaponModHandler<WeaponInfo>::GetCodeCount(const WeaponInfo* weaponInfo) const
 {
-    return pWeaponInfo->m_WeaponMods.m_CodeEntryCount;
+    return weaponInfo->modEntryCount;
 }
 
-template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::SetCodeCount(WeaponInfo* pWeaponInfo, std::uint32_t count) const
+template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::SetCodeCount(WeaponInfo* weaponInfo, std::uint32_t count) const
 {
-    pWeaponInfo->m_WeaponMods.m_CodeEntryCount = count;
+    weaponInfo->modEntryCount = count;
 }
 
-template <typename WeaponInfo> std::uint32_t CWeaponModHandler<WeaponInfo>::GetModGroupCount(const WeaponInfo* pWeaponInfo) const
+template <typename WeaponInfo> std::uint32_t CWeaponModHandler<WeaponInfo>::GetModGroupCount(const WeaponInfo* weaponInfo) const
 {
-    return pWeaponInfo->m_WeaponMods.m_GroupCount;
+    return weaponInfo->modsCount;
 }
 
-template <typename WeaponInfo> const WeaponModGroup_t* CWeaponModHandler<WeaponInfo>::GetModGroups(const WeaponInfo* pWeaponInfo) const
+template <typename WeaponInfo> const WeaponMod* CWeaponModHandler<WeaponInfo>::GetModGroups(const WeaponInfo* weaponInfo) const
 {
-    return pWeaponInfo->m_WeaponMods.m_Groups;
+    return weaponInfo->mods;
 }
 
 template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::PrepareWeaponParse(WeaponInfo* pWeaponInfo, KeyValues* pRoot)
@@ -419,7 +345,7 @@ template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::PrepareWeapon
     auto& entries = m_EntriesByWeapon[pWeaponInfo];
     entries.clear();
 
-    const std::size_t expectedCount = (std::min)(CountExpectedEntries(pRoot), MaxEncodedEntryCount);
+    const std::size_t expectedCount = (std::min)(CountExpectedEntries(pRoot), MAX_ENCODED_WEAPON_MOD_ENTRIES);
     if (entries.capacity() < expectedCount)
         entries.reserve(expectedCount);
 
@@ -433,18 +359,18 @@ template <typename WeaponInfo> void CWeaponModHandler<WeaponInfo>::FinishWeaponP
     SetCodeCount(pWeaponInfo, static_cast<std::uint32_t>(iterator->second.size()));
 }
 
-template <typename WeaponInfo> std::vector<WeaponModCodeEntry_t>* CWeaponModHandler<WeaponInfo>::FindEntries(WeaponInfo* pWeaponInfo)
+template <typename WeaponInfo> std::vector<WeaponModEntry_t>* CWeaponModHandler<WeaponInfo>::FindEntries(WeaponInfo* pWeaponInfo)
 {
     const auto iterator = m_EntriesByWeapon.find(pWeaponInfo);
     return iterator != m_EntriesByWeapon.end() ? &iterator->second : nullptr;
 }
 
 template <typename WeaponInfo>
-bool CWeaponModHandler<WeaponInfo>::GetGroupRange(const std::vector<WeaponModCodeEntry_t>& entries, const WeaponModGroup_t& group,
-                                                  std::size_t& firstEntry, std::size_t& entryCount) const
+bool CWeaponModHandler<WeaponInfo>::GetGroupRange(const std::vector<WeaponModEntry_t>& entries, const WeaponMod& group, std::size_t& firstEntry,
+                                                  std::size_t& entryCount) const
 {
-    firstEntry = group.m_FirstEntry;
-    entryCount = group.m_EntryCount;
+    firstEntry = group.firstEntry;
+    entryCount = group.entryCount;
     return firstEntry <= entries.size() && entryCount <= entries.size() - firstEntry;
 }
 
@@ -461,19 +387,19 @@ std::uint32_t* CWeaponModHandler<WeaponInfo>::ParseWeaponInfo(WeaponInfo* pWeapo
 template <typename WeaponInfo>
 template <typename OriginalFn>
 std::uint32_t* CWeaponModHandler<WeaponInfo>::ParseGroups(WeaponInfo* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName,
-                                                          WeaponModGroup_t* pOutputGroups, std::uint32_t* pOutputGroupCount, OriginalFn&& original)
+                                                          WeaponMod* pOutputGroups, std::uint32_t* pOutputGroupCount, OriginalFn&& original)
 {
     if (!FindEntries(pWeaponInfo))
         return original();
 
-    std::memset(pOutputGroups, 0, sizeof(WeaponModGroup_t) * StoredModGroupCount);
+    std::memset(pOutputGroups, 0, sizeof(WeaponMod) * MAX_WEAPON_MODS);
     *pOutputGroupCount = 0;
 
     KeyValues* pMods = pRoot->FindKey("Mods", false);
-    for (KeyValues* pGroup = pMods ? pMods->GetFirstTrueSubKey() : nullptr; pGroup && *pOutputGroupCount < MaxModGroupCount;
+    for (KeyValues* pGroup = pMods ? pMods->GetFirstTrueSubKey() : nullptr; pGroup && *pOutputGroupCount < MAX_WEAPON_MOD_GROUPS;
          pGroup = pGroup->GetNextTrueSubKey())
     {
-        m_pParseGroup(pGroup, pWeaponInfo, pWeaponName, &pOutputGroups[*pOutputGroupCount]);
+        ParseWeaponMod(pGroup, pWeaponInfo, pWeaponName, &pOutputGroups[*pOutputGroupCount]);
         ++*pOutputGroupCount;
     }
 
@@ -482,8 +408,7 @@ std::uint32_t* CWeaponModHandler<WeaponInfo>::ParseGroups(WeaponInfo* pWeaponInf
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::ParseGroup(KeyValues* pSection, WeaponInfo* pWeaponInfo, WeaponModGroup_t* pOutputGroup,
-                                                         OriginalFn&& original)
+KeyValues* CWeaponModHandler<WeaponInfo>::ParseGroup(KeyValues* pSection, WeaponInfo* pWeaponInfo, WeaponMod* pOutputGroup, OriginalFn&& original)
 {
     auto* pEntries = FindEntries(pWeaponInfo);
     if (!pEntries)
@@ -491,7 +416,7 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::ParseGroup(KeyValues* pSection, We
 
     const std::size_t childCount = CountChildren(pSection);
     if (!CanAppendEntries(*pEntries, childCount))
-        return 0;
+        return nullptr;
 
     if (pEntries->capacity() < pEntries->size() + childCount)
         pEntries->reserve(pEntries->size() + childCount);
@@ -501,13 +426,13 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::ParseGroup(KeyValues* pSection, We
     if (!pFirst)
     {
         SetCodeCount(pWeaponInfo, 0);
-        const std::uintptr_t result = original(pSection, pOutputGroup);
-        pOutputGroup->m_FirstEntry = firstEntryIndex < MaxEncodedEntryCount ? static_cast<std::uint16_t>(firstEntryIndex) : 0;
+        KeyValues* result = original(pSection, pOutputGroup);
+        pOutputGroup->firstEntry = firstEntryIndex < MAX_ENCODED_WEAPON_MOD_ENTRIES ? static_cast<std::uint16_t>(firstEntryIndex) : 0;
         SetCodeCount(pWeaponInfo, static_cast<std::uint32_t>(pEntries->size()));
         return result;
     }
 
-    std::uint16_t groupName = 0;
+    WeaponString_t groupName = WEAPSTR_EMPTY;
     std::size_t parsedGroupEntryCount = 0;
     bool parsedFirstChunk = false;
 
@@ -515,42 +440,47 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::ParseGroup(KeyValues* pSection, We
     {
         KeyValues* pLast = pFirst;
         std::uint32_t chunkNodeCount = 1;
-        while (chunkNodeCount < RetailCodeLimit && pLast->GetNextKey())
+        while (chunkNodeCount < MAX_WEAPON_MOD_ENTRIES && pLast->GetNextKey())
         {
             pLast = pLast->GetNextKey();
             ++chunkNodeCount;
         }
 
-        WeaponModGroup_t scratchGroup{};
-        KeyValues* pNext;
+        WeaponMod scratchGroup{};
         SetCodeCount(pWeaponInfo, 0);
+        KeyValues* const pNext = pLast->m_pPeer;
         {
-            CScopedKeyValuesChunk chunk(pSection->GetName(), pFirst, pLast);
-            original(chunk.GetChunk(), &scratchGroup);
-            pNext = chunk.GetNext();
+            KeyValues chunk(pSection->GetName());
+            chunk.m_pSub = pFirst;
+            pLast->m_pPeer = nullptr;
+            const ScopeGuard restoreChunk([&]
+            {
+                pLast->m_pPeer = pNext;
+                chunk.m_pSub = nullptr;
+            });
+            original(&chunk, &scratchGroup);
         }
 
         const std::uint32_t parsedChunkEntryCount = GetCodeCount(pWeaponInfo);
-        if (parsedChunkEntryCount > RetailCodeLimit || scratchGroup.m_EntryCount != parsedChunkEntryCount)
-            return 0;
+        if (parsedChunkEntryCount > MAX_WEAPON_MOD_ENTRIES || scratchGroup.entryCount != parsedChunkEntryCount)
+            return nullptr;
 
         if (!parsedFirstChunk)
         {
-            groupName = scratchGroup.m_Name;
+            groupName = scratchGroup.modName;
             parsedFirstChunk = true;
         }
 
-        const auto* pScratchEntries = pWeaponInfo->m_WeaponMods.m_CodeEntries;
-        pEntries->insert(pEntries->end(), pScratchEntries, pScratchEntries + parsedChunkEntryCount);
+        pEntries->insert(pEntries->end(), pWeaponInfo->modEntries, pWeaponInfo->modEntries + parsedChunkEntryCount);
         parsedGroupEntryCount += parsedChunkEntryCount;
         pFirst = pNext;
     }
 
-    pOutputGroup->m_Name = groupName;
-    pOutputGroup->m_FirstEntry = static_cast<std::uint16_t>(firstEntryIndex);
-    pOutputGroup->m_EntryCount = static_cast<std::uint16_t>(parsedGroupEntryCount);
+    pOutputGroup->modName = groupName;
+    pOutputGroup->firstEntry = static_cast<std::uint16_t>(firstEntryIndex);
+    pOutputGroup->entryCount = static_cast<std::uint16_t>(parsedGroupEntryCount);
     SetCodeCount(pWeaponInfo, static_cast<std::uint32_t>(pEntries->size()));
-    return 0;
+    return nullptr;
 }
 
 template <typename WeaponInfo>
@@ -561,26 +491,65 @@ std::uint8_t CWeaponModHandler<WeaponInfo>::Assemble(WeaponInfo* pWeaponInfo, Or
     if (!pEntries)
         return original();
 
-    CScopedWeaponModAssembly<WeaponInfo> activeAssembly(*this, pWeaponInfo, *pEntries);
+    std::deque<WeaponModAssemblyItem_t> assemblyItems;
+    WeaponInfo* const previousWeaponInfo = s_ActiveAssemblyWeaponInfo<WeaponInfo>;
+    auto* const previousEntries = s_ActiveAssemblyEntries<WeaponInfo>;
+    auto* const previousItems = s_ActiveAssemblyItems<WeaponInfo>;
+    s_ActiveAssemblyWeaponInfo<WeaponInfo> = pWeaponInfo;
+    s_ActiveAssemblyEntries<WeaponInfo> = pEntries;
+    s_ActiveAssemblyItems<WeaponInfo> = &assemblyItems;
+    const ScopeGuard restoreAssembly([previousWeaponInfo, previousEntries, previousItems]
+    {
+        s_ActiveAssemblyWeaponInfo<WeaponInfo> = previousWeaponInfo;
+        s_ActiveAssemblyEntries<WeaponInfo> = previousEntries;
+        s_ActiveAssemblyItems<WeaponInfo> = previousItems;
+    });
     return original();
 }
 
 template <typename WeaponInfo> bool CWeaponModHandler<WeaponInfo>::HasActiveAssembly()
 {
-    return CScopedWeaponModAssembly<WeaponInfo>::GetActive() != nullptr;
+    return s_ActiveAssemblyWeaponInfo<WeaponInfo> && s_ActiveAssemblyEntries<WeaponInfo> && s_ActiveAssemblyItems<WeaponInfo>;
 }
 
-template <typename WeaponInfo>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::ApplyActiveEntry(WeaponModCodeEntry_t* pEntry, std::uintptr_t setBaseValue, std::uintptr_t remove)
+template <typename WeaponInfo> bool CWeaponModHandler<WeaponInfo>::ApplyActiveEntry(WeaponModEntry_t* entry, bool setBaseValue, bool remove)
 {
-    CScopedWeaponModAssembly<WeaponInfo>* pAssembly = CScopedWeaponModAssembly<WeaponInfo>::GetActive();
-    assert(pAssembly);
-    return pAssembly->ApplyEntry(pEntry, setBaseValue, remove);
+    WeaponInfo* const weaponInfo = s_ActiveAssemblyWeaponInfo<WeaponInfo>;
+    auto* const entries = s_ActiveAssemblyEntries<WeaponInfo>;
+    auto* const assemblyItems = s_ActiveAssemblyItems<WeaponInfo>;
+    assert(weaponInfo && entries && assemblyItems);
+    if (!entry)
+        return false;
+
+    WeaponModEntry_t* resolvedEntry = entry;
+    const std::uintptr_t storageAddress = reinterpret_cast<std::uintptr_t>(weaponInfo->modEntries);
+    const std::uintptr_t entryAddress = reinterpret_cast<std::uintptr_t>(entry);
+    if (entryAddress >= storageAddress)
+    {
+        const std::uintptr_t offset = entryAddress - storageAddress;
+        if (offset < MAX_ENCODED_WEAPON_MOD_ENTRIES * sizeof(WeaponModEntry_t) && offset % sizeof(WeaponModEntry_t) == 0)
+        {
+            const std::size_t index = offset / sizeof(WeaponModEntry_t);
+            if (index >= entries->size())
+                return false;
+            resolvedEntry = &(*entries)[index];
+        }
+    }
+
+    auto& item = assemblyItems->emplace_back();
+    item.setBaseValue = setBaseValue;
+    item.remove = remove;
+
+    const WeaponModParseTableEntry* parseEntry = GetWeaponModParseEntry(weaponInfo, resolvedEntry->entryType);
+    if (!parseEntry || !IsSupportedWeaponModField(resolvedEntry->entryType, parseEntry->parseType))
+        return false;
+
+    return InsertWeaponModAssemblyItem(weaponInfo, resolvedEntry, parseEntry, &item);
 }
 
 template <typename WeaponInfo>
-void CWeaponModHandler<WeaponInfo>::PrecacheFlaggedAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group,
-                                                          const std::vector<WeaponModCodeEntry_t>& entries, float precacheValue)
+void CWeaponModHandler<WeaponInfo>::PrecacheFlaggedAssets(WeaponInfo* weaponInfo, const WeaponMod& group,
+                                                          const std::vector<WeaponModEntry_t>& entries)
 {
     std::size_t firstEntry;
     std::size_t entryCount;
@@ -589,36 +558,22 @@ void CWeaponModHandler<WeaponInfo>::PrecacheFlaggedAssets(WeaponInfo* pWeaponInf
 
     for (std::size_t index = firstEntry; index < firstEntry + entryCount; ++index)
     {
-        const auto& entry = entries[index];
-        if (!entry.m_HasValue)
+        const WeaponModEntry_t& entry = entries[index];
+        if (!entry.HasValue())
             continue;
 
-        const auto& descriptor = m_pFieldDescriptors[entry.m_FieldIndex];
-        if (descriptor.m_Type != 5)
+        const WeaponModParseTableEntry* parseEntry = GetWeaponModParseEntry(weaponInfo, entry.entryType);
+        if (!parseEntry || parseEntry->parseType != WeaponModValueType::Asset)
             continue;
 
-        const char* pValue = pWeaponInfo->m_StringPool.GetString(entry.GetStringOffset());
-        if (!*pValue)
-            continue;
-
-        if (descriptor.m_Flags & 4)
-        {
-            if (m_pPrecacheClientFlag4Asset)
-            {
-                const std::uintptr_t descriptorOffset = static_cast<std::uintptr_t>(entry.m_FieldIndex) * sizeof(WeaponFieldDescriptor_t);
-                m_pPrecacheClientFlag4Asset(pValue, descriptorOffset, precacheValue);
-            }
-            else
-                m_pPrecacheFlag4Asset(pValue);
-        }
-        else if (descriptor.m_Flags & 8)
-            m_pPrecacheFlag8Asset(pValue);
+        const char* assetName = weaponInfo->GetString(entry.stringValue);
+        if (*assetName)
+            PrecacheWeaponModAsset(weaponInfo, *parseEntry, assetName);
     }
 }
 
 template <typename WeaponInfo>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheStringEntries(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group,
-                                                                    const std::vector<WeaponModCodeEntry_t>& entries)
+int CWeaponModHandler<WeaponInfo>::PrecacheStringEntries(WeaponInfo* weaponInfo, const WeaponMod& group, const std::vector<WeaponModEntry_t>& entries)
 {
     std::size_t firstEntry;
     std::size_t entryCount;
@@ -627,134 +582,140 @@ std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheStringEntries(WeaponInfo* 
 
     for (std::size_t index = firstEntry; index < firstEntry + entryCount; ++index)
     {
-        const auto& entry = entries[index];
-        if (!entry.m_HasValue || m_pFieldDescriptors[entry.m_FieldIndex].m_Type != 7)
+        const WeaponModEntry_t& entry = entries[index];
+        const WeaponModParseTableEntry* parseEntry = GetWeaponModParseEntry(weaponInfo, entry.entryType);
+        if (!entry.HasValue() || !parseEntry || parseEntry->parseType != WeaponModValueType::WeaponString)
             continue;
 
-        const std::uint16_t stringOffset = entry.GetStringOffset();
-        if (stringOffset)
-            m_pPrecacheString(pWeaponInfo->m_StringPool.GetString(stringOffset));
+        if (entry.stringValue != WEAPSTR_EMPTY)
+            PrecacheWeaponModModel(weaponInfo, weaponInfo->GetString(entry.stringValue));
     }
 
-    return entryCount;
+    return static_cast<int>(entryCount);
 }
 
 template <typename WeaponInfo>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheAllClientStrings(WeaponInfo* pWeaponInfo, const std::vector<WeaponModCodeEntry_t>& entries)
+int CWeaponModHandler<WeaponInfo>::PrecacheAllClientStrings(WeaponInfo* weaponInfo, const std::vector<WeaponModEntry_t>& entries)
 {
-    std::uintptr_t result = 0;
+    int result = 0;
     for (std::uint16_t fieldIndex = 687; fieldIndex <= 689; ++fieldIndex)
     {
-        const std::uint16_t stringOffset =
-            pWeaponInfo->m_CompiledData.template GetValue<std::uint16_t>(m_pFieldDescriptors[fieldIndex].m_CompiledOffset);
-        if (stringOffset)
-            result = m_pPrecacheString(pWeaponInfo->m_StringPool.GetString(stringOffset));
+        const WeaponModParseTableEntry* parseEntry = GetWeaponModParseEntry(weaponInfo, static_cast<WeaponModEntryType>(fieldIndex));
+        if (!parseEntry)
+            continue;
+
+        const WeaponString_t stringOffset = ReadWeaponModValue<WeaponString_t>(weaponInfo->modValueDefaults, parseEntry->structOffset);
+        if (stringOffset != WEAPSTR_EMPTY)
+            result = PrecacheWeaponModModel(weaponInfo, weaponInfo->GetString(stringOffset));
     }
 
-    if (pWeaponInfo->m_WeaponMods.m_HasSinglePlayerBase)
-        result = PrecacheStringEntries(pWeaponInfo, pWeaponInfo->m_WeaponMods.m_SinglePlayerBase, entries);
+    if (weaponInfo->spBaseModDefined)
+        result = PrecacheStringEntries(weaponInfo, weaponInfo->spBaseMod, entries);
 
-    if (pWeaponInfo->m_WeaponMods.m_HasMultiplayerBase)
-        result = PrecacheStringEntries(pWeaponInfo, pWeaponInfo->m_WeaponMods.m_MultiplayerBase, entries);
+    if (weaponInfo->mpBaseModDefined)
+        result = PrecacheStringEntries(weaponInfo, weaponInfo->mpBaseMod, entries);
 
-    const WeaponModGroup_t* pGroups = GetModGroups(pWeaponInfo);
-    const std::uint32_t groupCount = GetModGroupCount(pWeaponInfo);
+    const WeaponMod* groups = GetModGroups(weaponInfo);
+    const std::uint32_t groupCount = GetModGroupCount(weaponInfo);
     for (std::uint32_t groupIndex = 0; groupIndex < groupCount; ++groupIndex)
-        result = PrecacheStringEntries(pWeaponInfo, pGroups[groupIndex], entries);
+        result = PrecacheStringEntries(weaponInfo, groups[groupIndex], entries);
 
     return result;
 }
 
 template <typename WeaponInfo>
-void CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(void* pOwner, std::uint16_t fieldIndex, WeaponInfo* pWeaponInfo,
-                                                                 const std::vector<WeaponModCodeEntry_t>& entries)
+template <typename NotifyFn>
+void CWeaponModHandler<WeaponInfo>::NotifyStringFieldFromEntries(WeaponModEntryType entryType, WeaponInfo* weaponInfo,
+                                                                 const std::vector<WeaponModEntry_t>& entries, NotifyFn&& notify)
 {
-    const auto& descriptor = m_pFieldDescriptors[fieldIndex];
-    const char* pDefaultValue = pWeaponInfo->m_CompiledData.template GetValue<const char*>(descriptor.m_CompiledOffset);
-    if (pDefaultValue && *pDefaultValue)
-        m_pNotifyStringField(pOwner, pDefaultValue);
+    const WeaponModParseTableEntry* parseEntry = GetWeaponModParseEntry(weaponInfo, entryType);
+    if (!parseEntry)
+        return;
 
-    const WeaponModGroup_t* pGroups = GetModGroups(pWeaponInfo);
-    const std::uint32_t groupCount = GetModGroupCount(pWeaponInfo);
+    const char* defaultValue = ReadWeaponModValue<const char*>(weaponInfo->modValueDefaults, parseEntry->structOffset);
+    if (defaultValue && *defaultValue)
+        notify(defaultValue);
+
+    const WeaponMod* groups = GetModGroups(weaponInfo);
+    const std::uint32_t groupCount = GetModGroupCount(weaponInfo);
     for (std::uint32_t groupIndex = 0; groupIndex < groupCount; ++groupIndex)
     {
         std::size_t firstEntry;
         std::size_t entryCount;
-        if (!GetGroupRange(entries, pGroups[groupIndex], firstEntry, entryCount))
+        if (!GetGroupRange(entries, groups[groupIndex], firstEntry, entryCount))
             continue;
 
         for (std::size_t index = firstEntry; index < firstEntry + entryCount; ++index)
         {
-            const auto& entry = entries[index];
-            if (entry.m_FieldIndex != fieldIndex)
+            const WeaponModEntry_t& entry = entries[index];
+            if (entry.entryType != entryType)
                 continue;
 
-            const char* pValue = pWeaponInfo->m_StringPool.GetString(entry.GetStringOffset());
-            if (*pValue)
-                m_pNotifyStringField(pOwner, pValue);
+            const char* value = weaponInfo->GetString(entry.stringValue);
+            if (*value)
+                notify(value);
         }
     }
 }
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, float precacheValue, OriginalFn&& original)
+void CWeaponModHandler<WeaponInfo>::PrecacheAssets(WeaponInfo* weaponInfo, const WeaponMod& group, OriginalFn&& original)
 {
-    auto* pEntries = FindEntries(pWeaponInfo);
-    if (!pEntries)
+    auto* entries = FindEntries(weaponInfo);
+    if (!entries)
     {
         original();
         return;
     }
 
-    PrecacheFlaggedAssets(pWeaponInfo, group, *pEntries, precacheValue);
+    PrecacheFlaggedAssets(weaponInfo, group, *entries);
 }
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheStrings(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, OriginalFn&& original)
+int CWeaponModHandler<WeaponInfo>::PrecacheStrings(WeaponInfo* weaponInfo, const WeaponMod& group, OriginalFn&& original)
 {
-    auto* pEntries = FindEntries(pWeaponInfo);
-    return pEntries ? PrecacheStringEntries(pWeaponInfo, group, *pEntries) : original();
+    auto* entries = FindEntries(weaponInfo);
+    return entries ? PrecacheStringEntries(weaponInfo, group, *entries) : original();
 }
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-void CWeaponModHandler<WeaponInfo>::PrecacheStringsNoResult(WeaponInfo* pWeaponInfo, const WeaponModGroup_t& group, OriginalFn&& original)
+void CWeaponModHandler<WeaponInfo>::PrecacheStringsNoResult(WeaponInfo* weaponInfo, const WeaponMod& group, OriginalFn&& original)
 {
-    auto* pEntries = FindEntries(pWeaponInfo);
-    if (!pEntries)
+    auto* entries = FindEntries(weaponInfo);
+    if (!entries)
     {
         original();
         return;
     }
 
-    PrecacheStringEntries(pWeaponInfo, group, *pEntries);
+    PrecacheStringEntries(weaponInfo, group, *entries);
 }
 
 template <typename WeaponInfo>
 template <typename OriginalFn>
-std::uintptr_t CWeaponModHandler<WeaponInfo>::PrecacheAllStrings(WeaponInfo* pWeaponInfo, OriginalFn&& original)
+int CWeaponModHandler<WeaponInfo>::PrecacheAllStrings(WeaponInfo* weaponInfo, OriginalFn&& original)
 {
-    auto* pEntries = FindEntries(pWeaponInfo);
-    return pEntries ? PrecacheAllClientStrings(pWeaponInfo, *pEntries) : original();
+    auto* entries = FindEntries(weaponInfo);
+    return entries ? PrecacheAllClientStrings(weaponInfo, *entries) : original();
 }
 
 template <typename WeaponInfo>
-template <typename OriginalFn>
-void CWeaponModHandler<WeaponInfo>::NotifyStringField(void* pOwner, std::uint16_t fieldIndex, OriginalFn&& original)
+template <typename NotifyFn, typename OriginalFn>
+void CWeaponModHandler<WeaponInfo>::NotifyStringField(WeaponInfo* weaponInfo, WeaponModEntryType entryType, NotifyFn&& notify, OriginalFn&& original)
 {
-    WeaponInfo* pWeaponInfo = m_pGetWeaponInfo(pOwner);
-    auto* pEntries = FindEntries(pWeaponInfo);
-    if (pEntries)
-        NotifyStringFieldFromEntries(pOwner, fieldIndex, pWeaponInfo, *pEntries);
+    auto* entries = FindEntries(weaponInfo);
+    if (entries)
+        NotifyStringFieldFromEntries(entryType, weaponInfo, *entries, notify);
     else
         original();
 }
 
 DECLARE_HOOK(C_WeaponX_GetMods, client.dll + 0x5A7FA0, [](auto& hook, C_WeaponX* pWeapon, HSQUIRRELVM sqvm) -> SQRESULT
 {
-    if (pWeapon->GetWeaponFileInfoHandle() != GetInvalidWeaponInfoHandle())
+    if (pWeapon->GetWeaponFileInfoHandle() != INVALID_WEAPON_INFO_HANDLE)
         return hook.Original(pWeapon, sqvm);
 
     g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "GetMods: invalid weapon-info handle (0xFFFF)");
@@ -765,28 +726,40 @@ DECLARE_HOOK(C_WeaponX_GetMods, client.dll + 0x5A7FA0, [](auto& hook, C_WeaponX*
     return SQRESULT_ERROR;
 });
 
-DECLARE_HOOK(InitializeWeaponInfo_Client, client.dll + 0x3CC990, [](auto& hook, ClientWeaponInfo_t* pWeaponInfo) -> std::uintptr_t
+DECLARE_HOOK(C_WeaponX_Destructor, client.dll + 0x59B760, [](auto& hook, C_WeaponX* pWeapon) -> std::uintptr_t
+{
+    g_ClientWeaponMods.ClearFieldOverrides(&pWeapon->m_modVars);
+    return hook.Original(pWeapon);
+});
+
+DECLARE_HOOK(CWeaponX_Destructor, server.dll + 0x6813E0, [](auto& hook, CWeaponX* pWeapon) -> std::uintptr_t
+{
+    g_ServerWeaponMods.ClearFieldOverrides(&pWeapon->m_modVars);
+    return hook.Original(pWeapon);
+});
+
+DECLARE_HOOK(InitializeWeaponInfo_Client, client.dll + 0x3CC990, [](auto& hook, FileWeaponInfo_Client* pWeaponInfo) -> std::uintptr_t
 {
     g_ClientWeaponMods.InitializeWeaponInfo(pWeaponInfo);
     return hook.Original(pWeaponInfo);
 });
 
-DECLARE_HOOK(InitializeWeaponInfo_Server, server.dll + 0x6CB600, [](auto& hook, ServerWeaponInfo_t* pWeaponInfo) -> std::uintptr_t
+DECLARE_HOOK(InitializeWeaponInfo_Server, server.dll + 0x6CB600, [](auto& hook, FileWeaponInfo_Server* pWeaponInfo) -> std::uintptr_t
 {
     g_ServerWeaponMods.InitializeWeaponInfo(pWeaponInfo);
     return hook.Original(pWeaponInfo);
 });
 
 DECLARE_HOOK(ParseWeaponInfoFile_Client, client.dll + 0x3CFAC0,
-             [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName) -> std::uint32_t*
+             [](auto& hook, FileWeaponInfo_Client* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName) -> std::uint32_t*
 { return g_ClientWeaponMods.ParseWeaponInfo(pWeaponInfo, pRoot, [&]() { return hook.Original(pWeaponInfo, pRoot, pWeaponName); }); });
 
 DECLARE_HOOK(ParseWeaponInfoFile_Server, server.dll + 0x6CE3F0,
-             [](auto& hook, ServerWeaponInfo_t* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName) -> std::uint32_t*
+             [](auto& hook, FileWeaponInfo_Server* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName) -> std::uint32_t*
 { return g_ServerWeaponMods.ParseWeaponInfo(pWeaponInfo, pRoot, [&]() { return hook.Original(pWeaponInfo, pRoot, pWeaponName); }); });
 
 DECLARE_HOOK(ParseWeaponModGroups_Client, client.dll + 0x3D1020,
-             [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName, WeaponModGroup_t* pOutputGroups,
+             [](auto& hook, FileWeaponInfo_Client* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName, WeaponMod* pOutputGroups,
                 std::uint32_t* pOutputGroupCount) -> std::uint32_t*
 {
     return g_ClientWeaponMods.ParseGroups(pWeaponInfo, pRoot, pWeaponName, pOutputGroups, pOutputGroupCount,
@@ -794,7 +767,7 @@ DECLARE_HOOK(ParseWeaponModGroups_Client, client.dll + 0x3D1020,
 });
 
 DECLARE_HOOK(ParseWeaponModGroups_Server, server.dll + 0x6CFA10,
-             [](auto& hook, ServerWeaponInfo_t* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName, WeaponModGroup_t* pOutputGroups,
+             [](auto& hook, FileWeaponInfo_Server* pWeaponInfo, KeyValues* pRoot, const char* pWeaponName, WeaponMod* pOutputGroups,
                 std::uint32_t* pOutputGroupCount) -> std::uint32_t*
 {
     return g_ServerWeaponMods.ParseGroups(pWeaponInfo, pRoot, pWeaponName, pOutputGroups, pOutputGroupCount,
@@ -802,82 +775,93 @@ DECLARE_HOOK(ParseWeaponModGroups_Server, server.dll + 0x6CFA10,
 });
 
 DECLARE_HOOK(ParseWeaponModGroup_Client, client.dll + 0x3D15D0,
-             [](auto& hook, KeyValues* pSection, ClientWeaponInfo_t* pWeaponInfo, const char* pWeaponName,
-                WeaponModGroup_t* pOutputGroup) -> std::uintptr_t
+             [](auto& hook, KeyValues* section, FileWeaponInfo_Client* weaponInfo, const char* weaponName, WeaponMod* outputGroup) -> KeyValues*
 {
-    return g_ClientWeaponMods.ParseGroup(pSection, pWeaponInfo, pOutputGroup, [&](KeyValues* pValues, WeaponModGroup_t* pGroup)
-    { return hook.Original(pValues, pWeaponInfo, pWeaponName, pGroup); });
+    return g_ClientWeaponMods.ParseGroup(section, weaponInfo, outputGroup,
+                                         [&](KeyValues* values, WeaponMod* group) { return hook.Original(values, weaponInfo, weaponName, group); });
 });
 
 DECLARE_HOOK(ParseWeaponModGroup_Server, server.dll + 0x6CFDE0,
-             [](auto& hook, KeyValues* pSection, ServerWeaponInfo_t* pWeaponInfo, const char* pWeaponName,
-                WeaponModGroup_t* pOutputGroup) -> std::uintptr_t
+             [](auto& hook, KeyValues* section, FileWeaponInfo_Server* weaponInfo, const char* weaponName, WeaponMod* outputGroup) -> KeyValues*
 {
-    return g_ServerWeaponMods.ParseGroup(pSection, pWeaponInfo, pOutputGroup, [&](KeyValues* pValues, WeaponModGroup_t* pGroup)
-    { return hook.Original(pValues, pWeaponInfo, pWeaponName, pGroup); });
+    return g_ServerWeaponMods.ParseGroup(section, weaponInfo, outputGroup,
+                                         [&](KeyValues* values, WeaponMod* group) { return hook.Original(values, weaponInfo, weaponName, group); });
 });
 
 DECLARE_HOOK(AssembleWeaponMods_Client, client.dll + 0x3CA0B0,
-             [](auto& hook, int enabledMods, ClientWeaponInfo_t* pWeaponInfo, void* pOutput, std::uint8_t singlePlayer,
+             [](auto& hook, int enabledMods, FileWeaponInfo_Client* weaponInfo, WeaponModValues* output, bool singlePlayer,
                 int removedMods) -> std::uint8_t
-{ return g_ClientWeaponMods.Assemble(pWeaponInfo, [&]() { return hook.Original(enabledMods, pWeaponInfo, pOutput, singlePlayer, removedMods); }); });
-
-DECLARE_HOOK(AssembleWeaponMods_Server, server.dll + 0x6C8B80,
-             [](auto& hook, int enabledMods, ServerWeaponInfo_t* pWeaponInfo, void* pOutput, std::uint8_t singlePlayer,
-                int removedMods) -> std::uint8_t
-{ return g_ServerWeaponMods.Assemble(pWeaponInfo, [&]() { return hook.Original(enabledMods, pWeaponInfo, pOutput, singlePlayer, removedMods); }); });
-
-DECLARE_HOOK(ApplyWeaponModEntry_Client, client.dll + 0x3C8EA0,
-             [](auto& hook, WeaponModCodeEntry_t* pEntry, std::uintptr_t setBaseValue, std::uintptr_t remove) -> std::uintptr_t
 {
-    if (!CWeaponModHandler<ClientWeaponInfo_t>::HasActiveAssembly())
-        return hook.Original(pEntry, setBaseValue, remove);
-
-    return CWeaponModHandler<ClientWeaponInfo_t>::ApplyActiveEntry(pEntry, setBaseValue, remove);
+    const auto result =
+        g_ClientWeaponMods.Assemble(weaponInfo, [&]() { return hook.Original(enabledMods, weaponInfo, output, singlePlayer, removedMods); });
+    g_ClientWeaponMods.ApplyFieldOverrides(output);
+    return result;
 });
 
-DECLARE_HOOK(ApplyWeaponModEntry_Server, server.dll + 0x6C75D0,
-             [](auto& hook, WeaponModCodeEntry_t* pEntry, std::uintptr_t setBaseValue, std::uintptr_t remove) -> std::uintptr_t
+DECLARE_HOOK(AssembleWeaponMods_Server, server.dll + 0x6C8B80,
+             [](auto& hook, int enabledMods, FileWeaponInfo_Server* weaponInfo, WeaponModValues* output, bool singlePlayer,
+                int removedMods) -> std::uint8_t
 {
-    if (!CWeaponModHandler<ServerWeaponInfo_t>::HasActiveAssembly())
-        return hook.Original(pEntry, setBaseValue, remove);
+    const auto result =
+        g_ServerWeaponMods.Assemble(weaponInfo, [&]() { return hook.Original(enabledMods, weaponInfo, output, singlePlayer, removedMods); });
+    g_ServerWeaponMods.ApplyFieldOverrides(output);
+    return result;
+});
 
-    return CWeaponModHandler<ServerWeaponInfo_t>::ApplyActiveEntry(pEntry, setBaseValue, remove);
+DECLARE_HOOK(ApplyWeaponModEntry_Client, client.dll + 0x3C8EA0, [](auto& hook, WeaponModEntry_t* entry, bool setBaseValue, bool remove) -> bool
+{
+    if (!CWeaponModHandler<FileWeaponInfo_Client>::HasActiveAssembly())
+        return hook.Original(entry, setBaseValue, remove);
+
+    return CWeaponModHandler<FileWeaponInfo_Client>::ApplyActiveEntry(entry, setBaseValue, remove);
+});
+
+DECLARE_HOOK(ApplyWeaponModEntry_Server, server.dll + 0x6C75D0, [](auto& hook, WeaponModEntry_t* entry, bool setBaseValue, bool remove) -> bool
+{
+    if (!CWeaponModHandler<FileWeaponInfo_Server>::HasActiveAssembly())
+        return hook.Original(entry, setBaseValue, remove);
+
+    return CWeaponModHandler<FileWeaponInfo_Server>::ApplyActiveEntry(entry, setBaseValue, remove);
 });
 
 DECLARE_HOOK(PrecacheWeaponModAssets_Client, client.dll + 0x3D1ED0,
-             [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup, float precacheValue) -> void
-{ g_ClientWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, precacheValue, [&]() { hook.Original(pWeaponInfo, pGroup, precacheValue); }); });
+             [](auto& hook, FileWeaponInfo_Client* weaponInfo, const WeaponMod* group, float precacheValue) -> void
+{ g_ClientWeaponMods.PrecacheAssets(weaponInfo, *group, [&]() { hook.Original(weaponInfo, group, precacheValue); }); });
 
-DECLARE_HOOK(PrecacheWeaponModAssets_Server, server.dll + 0x6D0190,
-             [](auto& hook, ServerWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> void
-{ g_ServerWeaponMods.PrecacheAssets(pWeaponInfo, *pGroup, 0.0f, [&]() { hook.Original(pWeaponInfo, pGroup); }); });
+DECLARE_HOOK(PrecacheWeaponModAssets_Server, server.dll + 0x6D0190, [](auto& hook, FileWeaponInfo_Server* weaponInfo, const WeaponMod* group) -> void
+{ g_ServerWeaponMods.PrecacheAssets(weaponInfo, *group, [&]() { hook.Original(weaponInfo, group); }); });
 
-DECLARE_HOOK(PrecacheWeaponModStrings_Client, client.dll + 0x3D23E0,
-             [](auto& hook, ClientWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> std::uintptr_t
-{ return g_ClientWeaponMods.PrecacheStrings(pWeaponInfo, *pGroup, [&]() { return hook.Original(pWeaponInfo, pGroup); }); });
+DECLARE_HOOK(PrecacheWeaponModStrings_Client, client.dll + 0x3D23E0, [](auto& hook, FileWeaponInfo_Client* weaponInfo, const WeaponMod* group) -> int
+{ return g_ClientWeaponMods.PrecacheStrings(weaponInfo, *group, [&]() { return hook.Original(weaponInfo, group); }); });
 
-DECLARE_HOOK(PrecacheWeaponModStrings_Server, server.dll + 0x6D0680,
-             [](auto& hook, ServerWeaponInfo_t* pWeaponInfo, const WeaponModGroup_t* pGroup) -> void
-{ g_ServerWeaponMods.PrecacheStringsNoResult(pWeaponInfo, *pGroup, [&]() { hook.Original(pWeaponInfo, pGroup); }); });
+DECLARE_HOOK(PrecacheWeaponModStrings_Server, server.dll + 0x6D0680, [](auto& hook, FileWeaponInfo_Server* weaponInfo, const WeaponMod* group) -> void
+{ g_ServerWeaponMods.PrecacheStringsNoResult(weaponInfo, *group, [&]() { hook.Original(weaponInfo, group); }); });
 
-DECLARE_HOOK(PrecacheAllWeaponModStrings_Client, client.dll + 0x3D2480, [](auto& hook, ClientWeaponInfo_t* pWeaponInfo) -> std::uintptr_t
-{ return g_ClientWeaponMods.PrecacheAllStrings(pWeaponInfo, [&]() { return hook.Original(pWeaponInfo); }); });
+DECLARE_HOOK(PrecacheAllWeaponModStrings_Client, client.dll + 0x3D2480, [](auto& hook, FileWeaponInfo_Client* weaponInfo) -> int
+{ return g_ClientWeaponMods.PrecacheAllStrings(weaponInfo, [&]() { return hook.Original(weaponInfo); }); });
 
-DECLARE_HOOK(NotifyWeaponModStringField_Client, client.dll + 0x3D41E0, [](auto& hook, void* pOwner, std::uint16_t fieldIndex) -> void
-{ g_ClientWeaponMods.NotifyStringField(pOwner, fieldIndex, [&]() { hook.Original(pOwner, fieldIndex); }); });
-
-DECLARE_HOOK(NotifyWeaponModStringField_Server, server.dll + 0x6D1970, [](auto& hook, void* pOwner, std::uint16_t fieldIndex) -> void
-{ g_ServerWeaponMods.NotifyStringField(pOwner, fieldIndex, [&]() { hook.Original(pOwner, fieldIndex); }); });
-
-ON_DLL_LOAD("server.dll", WeaponMods_Server, [](CModule module)
+DECLARE_HOOK(NotifyWeaponModStringField_Client, client.dll + 0x3D41E0, [](auto& hook, C_WeaponX* weapon, std::uint16_t fieldIndex) -> void
 {
-    g_ServerWeaponMods.Initialize(module);
+    auto* weaponInfo = const_cast<FileWeaponInfo_Client*>(&weapon->GetWpnData());
+    g_ClientWeaponMods.NotifyStringField(weaponInfo, static_cast<WeaponModEntryType>(fieldIndex), [&](const char* soundName)
+    { PrecacheWeaponModSound_Client(weapon, soundName); }, [&]() { hook.Original(weapon, fieldIndex); });
+});
+
+DECLARE_HOOK(NotifyWeaponModStringField_Server, server.dll + 0x6D1970, [](auto& hook, CWeaponX* weapon, std::uint16_t fieldIndex) -> void
+{
+    auto* weaponInfo = const_cast<FileWeaponInfo_Server*>(&weapon->GetWpnData());
+    g_ServerWeaponMods.NotifyStringField(weaponInfo, static_cast<WeaponModEntryType>(fieldIndex), [&](const char* soundName)
+    { PrecacheWeaponModSound_Server(weapon, soundName); }, [&]() { hook.Original(weapon, fieldIndex); });
+});
+
+ON_DLL_LOAD("server.dll", WeaponMods_Server, [](CModule)
+{
+    g_ServerWeaponMods.Reset();
     DISPATCH_MODULE(WeaponModHooks)
 });
 
-ON_DLL_LOAD("client.dll", WeaponMods_Client, [](CModule module)
+ON_DLL_LOAD("client.dll", WeaponMods_Client, [](CModule)
 {
-    g_ClientWeaponMods.Initialize(module);
+    g_ClientWeaponMods.Reset();
     DISPATCH_MODULE(WeaponModHooks)
 });

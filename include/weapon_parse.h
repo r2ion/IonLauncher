@@ -6,19 +6,30 @@
 #include <cstddef>
 #include <cstdint>
 
-class IFileSystem;
-class KeyValues;
-class CHudTexture;
-struct HSCRIPT__;
-struct UiAsset;
-
 typedef unsigned short WEAPON_FILE_INFO_HANDLE;
-constexpr WEAPON_FILE_INFO_HANDLE GetInvalidWeaponInfoHandle() { return 0xFFFF; }
+#define INVALID_WEAPON_INFO_HANDLE 0xFFFF
 
-constexpr unsigned int MAX_WEAPON_STRING = 80;
-constexpr unsigned int MAX_WEAPON_MODS = 32;
-constexpr unsigned int MAX_WEAPON_MOD_ENTRIES = 200;
-constexpr unsigned int MAX_WEAPON_STRING_POOL = 3072;
+#define MAX_WEAPON_STRING 80
+#define MAX_WEAPON_MODS 32
+#define MAX_WEAPON_MOD_GROUPS (MAX_WEAPON_MODS - 1)
+#define MAX_WEAPON_MOD_ENTRIES 200
+#define MAX_ENCODED_WEAPON_MOD_ENTRIES (static_cast<std::size_t>(UINT16_MAX) + 1)
+
+#define WEAPON_MOD_ENTRY_FIRE_MODE 4
+#define WEAPON_MOD_ENTRY_AIMASSIST_ADSPULL_WEAPONCLASS 44
+#define WEAPON_MOD_ENTRY_DAMAGE_FLAGS 60
+#define WEAPON_MOD_ENTRY_EXPLOSION_DAMAGE_FLAGS 61
+#define WEAPON_MOD_ENTRY_AMMO_SUCK_BEHAVIOR 102
+#define WEAPON_MOD_ENTRY_DAMAGE_FALLOFF_TYPE 135
+#define WEAPON_MOD_ENTRY_VIEWKICK_SPRING 268
+#define WEAPON_MOD_ENTRY_SMART_AMMO_HUD_TYPE 538
+#define WEAPON_MOD_ENTRY_SMART_AMMO_HUD_LOCK_STYLE 539
+#define WEAPON_MOD_ENTRY_SMART_AMMO_WEAPON_TYPE 540
+#define WEAPON_MOD_ENTRY_SMART_AMMO_LOCK_TYPE 541
+
+#define MAX_WEAPON_STRING_POOL 3072
+#define MAX_WEAPON_MOD_PARSE_ENTRIES 0x2D6
+
 
 enum class eWeaponFireMode : int
 {
@@ -876,14 +887,39 @@ struct WeaponSway_Spec
 struct WeaponMod
 {
     WeaponString_t modName;
-    unsigned short firstEntry;
-    unsigned short entryCount;
+    std::uint16_t firstEntry;
+    std::uint16_t entryCount;
 };
 
-struct WeaponModEntry
+enum class WeaponModValueType : std::uint8_t
 {
-    unsigned short type;
-    unsigned short operation;
+    Invalid = 0,
+    Integer = 1,
+    Float = 2,
+    Boolean = 3,
+    String = 4,
+    Asset = 5,
+    Vector = 6,
+    WeaponString = 7,
+    Special = 8,
+};
+
+enum WeaponModParseFlags : std::uint8_t
+{
+    WMPF_NONE = 0,
+    WMPF_IMPACT_EFFECT_TABLE = 1 << 2,
+    WMPF_PARTICLE_SYSTEM = 1 << 3,
+};
+
+enum WeaponModEntryType : std::uint16_t
+{
+    WMET_INVALID = 0,
+};
+
+struct WeaponModEntry_t
+{
+    WeaponModEntryType entryType;
+    std::uint16_t entryOperator;
     union
     {
         int intValue;
@@ -891,147 +927,45 @@ struct WeaponModEntry
         bool boolValue;
         WeaponString_t stringValue;
         float vectorValue[3];
+        std::byte value[12];
     };
+
+    bool HasValue() const
+    {
+        return entryOperator != 0;
+    }
 };
 
-struct WeaponUi_s
+struct WeaponModParseTableEntry
 {
-    WeaponString_t attachJoint;
-    WeaponString_t attachMesh;
-    unsigned int attachMeshHash;
-    unsigned short firstArg;
-    unsigned short argCount;
-    const UiAsset* ui;
+    const char* parseName;
+    const char* defaultString;
+    union
+    {
+        int defaultInt;
+        float defaultFloat;
+    };
+    std::uint32_t reserved0;
+    bool defaultBool;
+    WeaponModValueType parseType;
+    std::uint8_t parseFlags;
+    std::byte reserved1;
+    WeaponModEntryType sanityCheckType;
+    std::uint16_t structOffset;
 };
 
-struct WeaponUiArg_s
+struct WeaponModAssemblyItem_t
 {
-    unsigned short source;
-    WeaponString_t uiArgName;
-    unsigned short modEntryType;
+    WeaponModEntry_t* entry = nullptr;
+    WeaponModAssemblyItem_t* next = nullptr;
+    std::byte reserved0[8]{};
+    bool setBaseValue = false;
+    bool remove = false;
+    std::byte reserved1[6]{};
 };
 
-struct CrosshairUiArgData_s
-{
-    unsigned short firstArg;
-    unsigned short argCount;
-};
-
-struct FileWeaponInfo_t
-{
-    void Parse(KeyValues* data, const char* weaponName);
-    const char* GetString(WeaponString_t string) const { return stringPool + string; }
-
-    WEAPON_FILE_INFO_HANDLE infoHandle; // 0x0000
-    bool bParsedScript;
-    bool bLoadedHudElements;
-    bool bPrecached;
-    bool bCallbacksInitialized;
-    char szClassName[MAX_WEAPON_STRING];
-    WeaponString_t projectileModel;
-    WeaponString_t droppedModel;
-    WeaponString_t scriptCBNames[37];
-    HSCRIPT__* scriptCB[37];
-    WeaponString_t projectileScriptCBNames[5];
-    HSCRIPT__* projectileScriptCB[5];
-    WeaponString_t projectileTrailAttachment;
-    WeaponString_t weaponClass;
-    int iRumbleEffect;
-    float fireAnimRate;
-    int weaponType;
-    bool alwaysShow;
-    bool statsRecord;
-    float addOwnerVelocityFrac;
-    bool playOffhandChargingAnim;
-    bool playOffhandStartEndAnim;
-    bool playOffhandFireAnim;
-    bool isTossWeapon;
-    bool allowEmptyClick;
-    bool emptyReloadOnly;
-    bool noAmmoUsedOnPrimaryAttack;
-    bool projectileAdjustToGunBarrel;
-    bool projectileAdjustToHand;
-    bool entityColorFromCharge;
-    bool m_bBuiltRightHanded;
-    bool m_bAllowFlipping;
-    int ownerMuzzleIndex;
-    int iFlags;
-    WeaponString_t aiAddon;
-    WeaponString_t pickupHoldPrompt;
-    WeaponString_t pickupPressPrompt;
-    int weaponDamageType;
-    float entityColorFromADSFactor;
-    float smart_ammo_screen_min_x;
-    float smart_ammo_screen_max_x;
-    float smart_ammo_screen_min_y;
-    float smart_ammo_screen_max_y;
-    bool smart_ammo_search_projectiles;
-    bool smart_ammo_titans_block_los;
-    float smart_ammo_own_projectile_lock_grace;
-    const char* smart_ammo_titan_lock_point[14];
-    unsigned int smart_ammo_titan_lock_point_num;
-    bool smartAmmoNPCUse;
-    bool zoomEffects;
-    bool netOptimize;
-    WeaponSway_Spec sway;
-    float impactSoundRadius;
-    float scriptedProjectileMaxTimeStep;
-    WeaponString_t soundTriggerPull;
-    WeaponString_t soundTriggerRelease;
-    WeaponString_t soundZoomIn;
-    WeaponString_t soundZoomOut;
-    float viewmodelShake_forward;
-    float viewmodelShake_up;
-    float viewmodelShake_right;
-    float viewPunchMultiplier;
-    bool disableTempViewmodelHack;
-    bool offHandKeepPrimaryInHand;
-    bool offHandHolsterPrimary;
-    bool special3pAttackAnim;
-    bool special3pAttackAnimAfterCharge;
-    bool gestureAttackAnim;
-    bool showGrenadeIndicator;
-    bool grenadeShowIndicatorToOwner;
-    bool hudGrappleIndicator;
-    WeaponString_t bodygroupNames[10];
-    WeaponString_t adsScopeBodygroupName;
-    WeaponString_t clipBodygroupName;
-    int clipBodygroupIndexShown;
-    int clipBodygroupIndexHidden;
-    bool clipBodygroupShowForMilestone[4];
-    char stringPool[MAX_WEAPON_STRING_POOL]; // 0x066C
-    unsigned int stringPoolUsed;
-    WeaponModValues modValueDefaults; // 0x1270
-    WeaponMod mods[MAX_WEAPON_MODS]; // 0x1F10
-    WeaponModEntry modEntries[MAX_WEAPON_MOD_ENTRIES]; // 0x1FD0
-    unsigned int modsCount; // 0x2C50
-    unsigned int modEntryCount;
-    WeaponMod spBaseMod;
-    bool spBaseModDefined;
-    WeaponMod mpBaseMod;
-    bool mpBaseModDefined;
-    KeyValues* m_pKV; // 0x2C68
-    int iSpriteCount;
-    CHudTexture* iconInactive;
-    CHudTexture* iconCrosshair;
-    CHudTexture* iconZoomedCrosshair;
-    unsigned int uiArgCount;
-    WeaponUi_s uis[8]; // 0x2C98
-    WeaponUiArg_s uiArgs[32]; // 0x2D58
-    CrosshairUiArgData_s defaultCrosshairArgs;
-    CrosshairUiArgData_s extraCrosshairArgs[4];
-    const UiAsset* crosshairUi[4]; // 0x2E30
-    float crosshairSpread[4];
-};
-
-FileWeaponInfo_t* GetFileWeaponInfoFromHandle(WEAPON_FILE_INFO_HANDLE handle);
-FileWeaponInfo_t* GetFileWeaponInfoFromName(const char* name);
-WEAPON_FILE_INFO_HANDLE LookupWeaponInfoSlot(const char* name);
-bool ReadWeaponDataFromFileForSlot(IFileSystem* filesystem, const char* weaponName,
-    WEAPON_FILE_INFO_HANDLE* handle, const unsigned char* iceKey = nullptr);
-KeyValues* ReadEncryptedKVFile(IFileSystem* filesystem, const char* filenameWithoutExtension,
-    const unsigned char* iceKey);
-WeaponString_t AllocWeaponString(FileWeaponInfo_t* info, const char* string);
-bool GetIndexForModName(const char* modName, const FileWeaponInfo_t* info, unsigned int* index);
-bool CalcWeaponMods(unsigned int bitfield, const FileWeaponInfo_t* info, WeaponModValues* values,
-    bool singlePlayer, unsigned int overrideMods = 0);
+static_assert(sizeof(WeaponModValues) == 0xCA0);
+static_assert(sizeof(WeaponMod) == 0x6);
+static_assert(sizeof(WeaponModEntry_t) == 0x10);
+static_assert(sizeof(WeaponModParseTableEntry) == 0x20);
+static_assert(sizeof(WeaponModAssemblyItem_t) == 0x20);
