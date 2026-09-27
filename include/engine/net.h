@@ -101,4 +101,6 @@ static_assert(offsetof(netpacket_t, wireSize) == 0x74);
 static_assert(offsetof(netpacket_t, stream) == 0x78);
 static_assert(offsetof(netpacket_t, next) == 0x80);
 
+extern double* g_pNetTime;
+
 extern int (*NET_SendPacket)(CNetChan* pChan, int iSocket, const netadr_t* toAdr, const uint8_t* pData, unsigned int nLen, void* pVoicePayload, bool bCompress, int unMillisecondsDelay, bool bEncrypt);

@@ -1,14 +1,15 @@
 #include "cdll_int.h"
+#include "client/input.h"
 #include "common/netmessages.h"
 #include "core/tier0.h"
-#include "core/tier1.h"
-#include "engine/cdll_int.h"
 #include "engine/client/clientstate.h"
 #include "engine/demo.h"
 #include "engine/isplitscreen.h"
+#include "engine/net.h"
 #include "engine/r2engine.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
+#include "tier1/cvar.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -21,25 +22,15 @@ using CLSendMoveFn = void (*)();
 
 CLSendMoveFn CL_SendMove;
 
-IBaseClientDLL** s_ppClientDLL;
-CDemoPlayer** s_ppDemoPlayer;
-ConVar** s_ppHostTimescale;
-ConVar** s_ppCmdRate;
-ISplitScreen** s_ppSplitScreenManager;
-IDemoRecorder** s_ppDemoRecorder;
-double* s_pNetTime;
+ConVar* host_timescale;
+ConVar* cl_cmdrate;
 float* s_pIntervalPerTick;
 float* s_pClientFrameTime;
 float* s_pClientFrameTimeStdDeviation;
 float* s_pServerCPUPercent;
 double s_lastMovementCall;
-float s_lastFrameTime;
-
-IVEngineClient* g_pEngineClient;
-char* g_pLocalPlayerUserID;
-char* g_pLocalPlayerOriginToken;
-GetBaseLocalClientType GetBaseLocalClient;
-GetLocalPlayerIndexType GetLocalPlayerIndex;
+float s_LastFrameTime;
+bool s_bWasFullyConnected;
 
 
 void SendClientTick(CClientState* client, CNetChan* channel)
@@ -57,13 +48,20 @@ void SendClientTick(CClientState* client, CNetChan* channel)
 DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 {
 	CClientState* const client = GetBaseLocalClient();
-	if (static_cast<int>(client->m_nSignonState) < static_cast<int>(eSignonState::CONNECTED))
+	const bool isActive = client->m_nSignonState == eSignonState::FULL;
+	if (isActive != s_bWasFullyConnected)
 	{
-		s_lastFrameTime = 0.0f;
-		return;
+		s_LastFrameTime = 0.0f;
+		s_lastMovementCall = isActive ? g_PlatFloatTime() : 0.0;
+		s_bWasFullyConnected = isActive;
+		if (g_pInput)
+			g_pInput->ResetExtraMouseSamples();
 	}
 
-	if (!Host_ShouldRun() || (*s_ppDemoPlayer)->IsPlayingBack())
+	if (static_cast<int>(client->m_nSignonState) < static_cast<int>(eSignonState::CONNECTED))
+		return;
+
+	if (!Host_ShouldRun() || g_pDemoPlayer->IsPlayingBack())
 		return;
 
 	const int commandTick =
@@ -82,9 +80,9 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 	constexpr float maxFrameTime = 0.1f;
 
 	CNetChan* const channel = client->m_NetChannel;
-	const float hostTimeScale = (*s_ppHostTimescale)->GetFloat();
+	const float hostTimeScale = host_timescale->GetFloat();
 	const bool isTimeScaleDefault = hostTimeScale == 1.0f;
-	const float netTime = static_cast<float>(*s_pNetTime);
+	const float netTime = static_cast<float>(*g_pNetTime);
 
 	bool sendPacket = true;
 	const bool packetIsDue = client->m_flNextCmdTime <= netTime;
@@ -93,7 +91,6 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 	else if (pendingCommandCount < maxNewCommands || isTimeScaleDefault)
 		sendPacket = false;
 
-	const bool isActive = client->m_nSignonState == eSignonState::FULL;
 	if (isActive)
 	{
 		const double movementCallTime = g_PlatFloatTime();
@@ -102,9 +99,8 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 		const bool isPaused = client->IsPaused();
 		const int nextCommandNumber = isPaused ? outgoingCommandNumber : outgoingCommandNumber + 1;
 
-		if (!(*s_ppSplitScreenManager)->IsDisconnecting(0))
+		if (!g_pSplitScreenMgr->IsDisconnecting(0))
 		{
-			IBaseClientDLL* const clientDLL = *s_ppClientDLL;
 			float timeScale;
 			float frameTime;
 			float deltaTime;
@@ -118,7 +114,7 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 			else
 			{
 				timeScale = hostTimeScale;
-				frameTime = client->GetFrameTime() + s_lastFrameTime;
+				frameTime = client->GetFrameTime() + s_LastFrameTime;
 				deltaTime = frameTime / timeScale;
 			}
 
@@ -127,16 +123,17 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 
 			if (isTimeScaleDefault && deltaTime < minimumCommandFrameTime)
 			{
-				s_lastFrameTime = frameTime;
+				if (!isPaused && frameTime > s_LastFrameTime)
+					g_ClientDLL->ExtraMouseSample(frameTime - s_LastFrameTime);
+				s_LastFrameTime = frameTime;
 				return;
 			}
 
-			s_lastFrameTime = 0.0f;
-			clientDLL->SetInputSampleTime(frameTime);
-			clientDLL->CreateMove(nextCommandNumber, frameTime, !isPaused);
+			s_LastFrameTime = 0.0f;
+			g_ClientDLL->CreateMove(nextCommandNumber, frameTime, !isPaused);
 			client->m_nOutgoingCommandNumber = nextCommandNumber;
-			if ((*s_ppDemoRecorder)->IsRecording())
-				(*s_ppDemoRecorder)->RecordUserInput(nextCommandNumber);
+			if (g_pDemoRecorder->IsRecording())
+				g_pDemoRecorder->RecordUserInput(nextCommandNumber);
 		}
 
 		if (sendPacket)
@@ -156,7 +153,7 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 
 		channel->SendDatagram(nullptr);
 
-		const float commandPacketInterval = 1.0f / (*s_ppCmdRate)->GetFloat();
+		const float commandPacketInterval = 1.0f / cl_cmdrate->GetFloat();
 		const float maxPacketTimeAdjustment = std::max(*s_pIntervalPerTick, commandPacketInterval);
 		const float delta = netTime - static_cast<float>(client->m_flNextCmdTime);
 		const float packetTimeAdjustment = std::clamp(delta, 0.0f, maxPacketTimeAdjustment);
@@ -166,22 +163,11 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 })
 
 
-ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", R2EngineClient, ConCommand, [](CModule module)
+ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", R2EngineClient, (ConVar, ConCommand), [](CModule module)
 {
-    g_pEngineClient = Sys_GetFactoryPtr("engine.dll", VENGINE_CLIENT_INTERFACE_VERSION).RCast<IVEngineClient*>();
-    g_pLocalPlayerUserID = module.Offset(0x13F8E688).RCast<char*>();
-	g_pLocalPlayerOriginToken = module.Offset(0x13979C80).RCast<char*>();
-	GetBaseLocalClient = module.Offset(0x78200).RCast<GetBaseLocalClientType>();
-	GetLocalPlayerIndex = module.Offset(0x52260).RCast<GetLocalPlayerIndexType>();
 	CL_SendMove = module.Offset(0x74F10).RCast<CLSendMoveFn>();
-
-	s_ppClientDLL = module.Offset(0xF849AA8).RCast<IBaseClientDLL**>();
-	s_ppDemoPlayer = module.Offset(0xFD15608).RCast<CDemoPlayer**>();
-	s_ppHostTimescale = module.Offset(0x1315A2A8).RCast<ConVar**>();
-	s_ppCmdRate = module.Offset(0xFDA5AC8).RCast<ConVar**>();
-	s_ppSplitScreenManager = module.Offset(0x7A6490).RCast<ISplitScreen**>();
-	s_ppDemoRecorder = module.Offset(0xFD14FB8).RCast<IDemoRecorder**>();
-	s_pNetTime = module.Offset(0x13FA2DE0).RCast<double*>();
+	host_timescale = g_pCVar->FindVar("host_timescale");
+	cl_cmdrate = g_pCVar->FindVar("cl_cmdrate");
 	s_pIntervalPerTick = module.Offset(0x7CB418).RCast<float*>();
 	s_pClientFrameTime = module.Offset(0x13158BA4).RCast<float*>();
 	s_pClientFrameTimeStdDeviation = module.Offset(0x13158BAC).RCast<float*>();

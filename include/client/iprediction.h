@@ -56,3 +56,5 @@ public:
 };
 
 static_assert(sizeof(IPrediction) == sizeof(void*));
+
+extern IPrediction* g_pClientSidePrediction;

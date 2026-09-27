@@ -23,3 +23,5 @@ public:
 	virtual bool SetLocalPlayerIsResolvable(const char* context, int line, bool resolvable) = 0;
 	virtual bool IsLocalPlayerResolvable() = 0;
 };
+
+extern ISplitScreen* g_pSplitScreenMgr;

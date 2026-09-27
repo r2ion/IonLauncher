@@ -60,4 +60,5 @@ public:
 	virtual void ResetDemoInterpolation() = 0;
 };
 
-extern CDemoPlayer* s_ClientDemoPlayer;
+extern CDemoPlayer* g_pDemoPlayer;
+extern IDemoRecorder* g_pDemoRecorder;

@@ -220,3 +220,5 @@ public:
 };
 
 static_assert(sizeof(IBaseClientDLL) == sizeof(void*));
+
+extern IBaseClientDLL* g_ClientDLL;

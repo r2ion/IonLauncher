@@ -2,19 +2,19 @@
 #include "vscript/languages/squirrel_re/squirrel.h"
 ADD_SQFUNC("bool", Demo_IsPlayingBack, "", "", ScriptContext::UI)
 {
-	g_pSquirrel[context]->pushbool(sqvm, s_ClientDemoPlayer->IsPlayingBack());
+	g_pSquirrel[context]->pushbool(sqvm, g_pDemoPlayer->IsPlayingBack());
 	return SQRESULT_NOTNULL;
 }
 
 ADD_SQFUNC("void", Demo_TogglePause, "", "", ScriptContext::UI)
 {
-	if (s_ClientDemoPlayer->IsPlaybackPaused())
+	if (g_pDemoPlayer->IsPlaybackPaused())
 	{
-		s_ClientDemoPlayer->ResumePlayback();
+		g_pDemoPlayer->ResumePlayback();
 	}
 	else
 	{
-		s_ClientDemoPlayer->PausePlayback(0);
+		g_pDemoPlayer->PausePlayback(0);
 	}
 
 	return SQRESULT_NULL;
@@ -22,14 +22,14 @@ ADD_SQFUNC("void", Demo_TogglePause, "", "", ScriptContext::UI)
 
 ADD_SQFUNC("int", Demo_GetPlaybackTick, "", "", ScriptContext::UI)
 {
-	g_pSquirrel[context]->pushinteger(sqvm, s_ClientDemoPlayer->GetPlaybackTick());
+	g_pSquirrel[context]->pushinteger(sqvm, g_pDemoPlayer->GetPlaybackTick());
 
 	return SQRESULT_NOTNULL;
 }
 
 ADD_SQFUNC("int", Demo_GetTotalTicks, "", "", ScriptContext::UI)
 {
-	g_pSquirrel[context]->pushinteger(sqvm, s_ClientDemoPlayer->GetTotalTicks());
+	g_pSquirrel[context]->pushinteger(sqvm, g_pDemoPlayer->GetTotalTicks());
 
 	return SQRESULT_NOTNULL;
 }

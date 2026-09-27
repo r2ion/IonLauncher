@@ -216,7 +216,7 @@ public:
 	double m_flNextCmdTime; // 0x00A0
 	int32_t m_nServerCount; // 0x00A8
 	int32_t m_nInSequenceNr; // 0x00AC
-	float m_flClockDriftFrameTime; // 0x00B0
+	float m_clientTime; // 0x00B0
 	CClockDriftMgr m_ClockDriftMgr; // 0x00B4
 	bool m_bCanProcessLocalClientInput; // 0x0148
 	bool m_bPendingPredictionUpdate; // 0x0149
@@ -288,9 +288,9 @@ public:
 	bool m_bResetFrameSnapshots; // 0x10152
 	std::uint8_t m_Padding10153; // 0x10153
 	std::int32_t m_nPendingServerTick; // 0x10154
-	int32_t m_nClientTick; // 0x10158
-	float m_flFrameTime; // 0x1015C
-	float m_flPreviousFrameTime; // 0x10160
+	int32_t m_oldClientTickCount; // 0x10158
+	float m_tickRemainder; // 0x1015C
+	float m_frameTime; // 0x10160
 	int32_t m_nOutgoingCommandNumber; // 0x10164
 	int32_t m_nCurrentMovementSequence; // 0x10168
 	int32_t m_nCommandAck; // 0x1016C
