@@ -64,6 +64,12 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 	if (!Host_ShouldRun() || g_pDemoPlayer->IsPlayingBack())
 		return;
 
+    if (!cl_cmdrate)
+        cl_cmdrate = g_pCVar->FindVar("cl_cmdrate");
+
+    if (!host_timescale)
+        host_timescale = g_pCVar->FindVar("host_timescale");
+
 	const int commandTick =
 		client->m_pCurrentFrameSnapshot ? client->m_pCurrentFrameSnapshot->m_nCommandTick : -1;
 	const int pendingCommandCount = client->m_nOutgoingCommandNumber - commandTick + 1;
