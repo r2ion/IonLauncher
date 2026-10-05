@@ -10,14 +10,14 @@
 
 DECLARE_MODULE(RuiTopologyHooks)
 
-using GetTopologyArgumentFn = RuiTopology* (*)(HSQUIRRELVM sqvm, int argumentIndex);
+using RuiTopology_GetArgument_t = RuiTopology* (*)(HSQUIRRELVM sqvm, int argumentIndex);
 
-static GetTopologyArgumentFn RuiTopology_GetArgument;
-static std::atomic<uint64_t> g_HiddenTopologyMask = 0;
-static std::array<std::atomic<RuiTopologyHandle>, RUI_TOPOLOGY_CAPACITY> g_HiddenTopologyHandles{};
-static std::array<std::atomic<const RuiTopology*>, RUI_TOPOLOGY_CAPACITY> g_HiddenTopologies{};
+RuiTopology_GetArgument_t RuiTopology_GetArgument;
+std::atomic<uint64_t> g_HiddenTopologyMask = 0;
+std::array<std::atomic<RuiTopologyHandle>, RUI_TOPOLOGY_CAPACITY> g_HiddenTopologyHandles{};
+std::array<std::atomic<const RuiTopology*>, RUI_TOPOLOGY_CAPACITY> g_HiddenTopologies{};
 
-static void RuiTopology_SetHidden(const RuiTopology* topology, bool hidden)
+void RuiTopology_SetHidden(const RuiTopology* topology, bool hidden)
 {
     const RuiTopologyHandle topologyHandle = topology->handle;
     const size_t topologyIndex = topologyHandle & RUI_TOPOLOGY_INDEX_MASK;
@@ -34,17 +34,11 @@ static void RuiTopology_SetHidden(const RuiTopology* topology, bool hidden)
         g_HiddenTopologyMask.fetch_and(~topologyBit, std::memory_order_release);
 }
 
-static RuiTopology* RuiTopology_GetFromScript(HSQUIRRELVM sqvm)
+RuiTopology* RuiTopology_GetFromScript(HSQUIRRELVM sqvm)
 {
-    if (!RuiTopology_GetArgument)
-    {
-        g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "RUI topology API is unavailable");
-        return nullptr;
-    }
-
     SQObject topologyObject{};
     g_pSquirrel[ScriptContext::CLIENT]->__sq_getobject(sqvm, 1, &topologyObject);
-    if (topologyObject._Type != _RT_USERPOINTER)
+    if (topologyObject._Type != OT_USERPOINTER)
     {
         g_pSquirrel[ScriptContext::CLIENT]->raiseerror(sqvm, "Argument 1 is not a RUI topology");
         return nullptr;
@@ -73,7 +67,7 @@ ADD_SQFUNC("void", RuiTopology_Show, "var topology", "Allows RUI instances using
     return SQRESULT_NULL;
 }
 
-static bool RuiTopology_IsHidden(const RuiInstance* rui) noexcept
+bool RuiTopology_IsHidden(const RuiInstance* rui) noexcept
 {
     if (!rui || !rui->drawInfo)
         return false;
@@ -112,5 +106,5 @@ ON_DLL_LOAD_CLIENT("engine.dll", RuiTopologyRender, [](CModule module)
 ON_DLL_LOAD_CLIENT("client.dll", RuiTopology, [](CModule module)
 {
     g_HiddenTopologyMask.store(0, std::memory_order_release);
-    RuiTopology_GetArgument = module.Offset(0x308A30).RCast<GetTopologyArgumentFn>();
+    RuiTopology_GetArgument = module.Offset(0x308A30).RCast<RuiTopology_GetArgument_t>();
 })
