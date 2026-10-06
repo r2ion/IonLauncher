@@ -5,6 +5,7 @@
 
 #include <cstdint>
 
+class CGlobalVars;
 class CMoveData;
 class CUserCmd;
 class Vector3D;
@@ -41,7 +42,7 @@ static_assert(sizeof(IClientDLLSharedAppSystems) == sizeof(void*));
 class IBaseClientDLL
 {
 public:
-	virtual int Init(CreateInterfaceFn appSystemFactory, void* pGlobals) = 0; // 0
+	virtual bool Init(CreateInterfaceFn appSystemFactory, CGlobalVars* pGlobals) = 0; // 0
 	virtual void Disconnect() = 0; // 1
 	virtual bool ConnectEngineInterfaces(CreateInterfaceFn engineFactory) = 0; // 2
 	virtual bool InitSubsystems() = 0; // 3

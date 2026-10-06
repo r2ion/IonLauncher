@@ -240,7 +240,7 @@ class IVEngineClient
     virtual bool IsMatchmakingDevModeEnabled() = 0;                             // 203
     virtual void GetPreferredDatacenterServerValues(const char* pServerName, int* pGlobalValue,
                                                     int* pDatacenterValue) = 0;        // 204
-    virtual void* FindButtonForBinding(const char* pBinding) = 0;                      // 205
+    virtual void* Key_LookupBinding(const char* pBinding) = 0;                         // 205
     virtual const char* GetBindingForButtonCode(std::uint32_t buttonCode) = 0;         // 206
     virtual void StartKeyTrapMode() = 0;                                               // 207
     virtual bool CheckDoneKeyTrapping(std::uint32_t* pButtonCode) = 0;                 // 208
@@ -353,7 +353,7 @@ class IVEngineClient
     virtual void SetTimescale(float timescale) = 0;                                                                            // 310
     virtual void SetGamestatsData(void* pGamestatsData) = 0;                                                                   // 311
     virtual void* GetGamestatsData() = 0;                                                                                      // 312
-    virtual void* FindButtonForBinding(const char* pBinding, std::uint32_t userId, std::uint32_t flags, int fallbackCode) = 0; // 313
+    virtual void* Key_LookupBindingEx(const char* pBinding, std::uint32_t userId, std::uint32_t flags, int fallbackCode) = 0;  // 313
     virtual int KeyCodeForBinding(const char* pBinding, std::uint32_t userId, std::uint32_t flags, int fallbackCode) = 0;      // 314
     virtual void InvalidateInputBindingCache() = 0;                                                                            // 315
     virtual void UpdateDynamicLights() = 0;                                                                                    // 316

@@ -118,6 +118,7 @@ class CInput : public IInput
 
     void SetInputSampleTime(float frameTime);
     void ResetExtraMouseSamples();
+    float GetExtraMouseSampleTime() const;
 
     bool m_fMouseInitialized;
     bool m_fMouseActive;

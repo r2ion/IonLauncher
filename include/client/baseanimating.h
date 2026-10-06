@@ -107,6 +107,7 @@ class C_BaseAnimating : public C_BaseEntity
     CStudioHdr* GetModelPtr() const;
     int GetSequence() const { return m_currentFrameBaseAnimating.animSequence; }
     float GetCycle() const { return m_currentFrame.animCycle; }
+    void SetCycle(float cycle);
     float GetPlaybackRate() const { return m_currentFrameBaseAnimating.animPlaybackRate; }
     int GetHitboxSet() const { return m_nHitboxSet; }
     bool IsSequenceFinished() const { return m_bSequenceFinished; }

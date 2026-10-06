@@ -25,7 +25,8 @@ class C_TitanSoul;
 class CParticleEffect;
 struct ScriptClassDesc_t;
 struct Quaternion;
-struct ClientInterpolationSnapshot;
+struct SingleSnapshotValues;
+struct AnimatingData;
 struct VisibleToLocalPlayerTrace;
 struct FileWeaponInfo_Client;
 class C_TakeDamageInfo;
@@ -46,7 +47,6 @@ class C_BaseEntity;
 class CScriptNetDataList;
 class C_StatusEffectPlugin;
 struct EntityFXData;
-struct SingleSnapshotValues;
 struct PredictedEntityStates;
 
 enum BurstFireType : int
@@ -110,6 +110,72 @@ struct CurrentFrameData
     float animCycle;
     CHandle<C_WeaponX> weaponGettingSwitchedOut;
     bool showActiveWeapon3p;
+};
+
+struct PlayerData
+{
+    float timeBase;
+    Vector3D playerDataAbsOrigin;
+    bool isLocalOriginLocal;
+    float m_flHullHeight;
+    QAngle m_angEyeAngles;
+    float m_traversalAnimProgress;
+    float m_sprintTiltFrac;
+};
+
+struct LocalPlayerData
+{
+    QAngle m_viewConeAngleMin;
+    QAngle m_viewConeAngleMax;
+    Vector3D m_stepSmoothingOffset;
+    QAngle m_vecPunchBase_Angle;
+    QAngle m_vecPunchBase_AngleVel;
+    QAngle m_vecPunchWeapon_Angle;
+    QAngle m_vecPunchWeapon_AngleVel;
+};
+
+struct AnimationOverlayData
+{
+    unsigned int nextHandle;
+    unsigned int thisHandle;
+    bool animOverlayIsActive[8];
+    float animOverlayStartTime[8];
+    float animOverlayStartCycle[8];
+    float animOverlayPlaybackRate[8];
+    int animOverlayModelIndex[8];
+    int animOverlaySequence[8];
+    float animOverlayWeight[8];
+    int animOverlayOrder[8];
+    float animOverlayAnimTime[8];
+    float animOverlayFadeInDuration[8];
+    float animOverlayFadeOutDuration[8];
+    float animOverlayCycle[8];
+};
+
+struct WeaponData
+{
+    unsigned int nextHandle;
+    unsigned int thisHandle;
+    float smartAmmoFractions[8];
+};
+
+struct SingleSnapshotValues
+{
+    std::uint32_t reserved00;
+    Vector3D origin;
+    QAngle angles;
+    CHandle<C_BaseEntity> moveParent;
+    std::byte reserved20[4];
+    Vector3D viewOffset;
+    std::byte reserved30[0x1C];
+    int modelIndex;
+    std::byte reserved50[8];
+    const PlayerData* playerData;
+    const LocalPlayerData* localPlayerData;
+    const AnimatingData* animatingData;
+    const AnimationOverlayData* animationOverlayData;
+    std::byte reserved78[8];
+    const WeaponData* weaponData;
 };
 
 struct LerpData
@@ -263,7 +329,7 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     virtual void OnNewParticleEffect(const char* name, CParticleEffect* effect) = 0;                                                           // 107
     virtual void OnParticleEffectDeleted(CParticleEffect* effect) = 0;                                                                         // 108
     virtual void ResetIK() = 0;                                                                                                                // 109
-    virtual int InterpolateFieldsInternal(float currentTime, const ClientInterpolationSnapshot* secondSnapshot, float secondSnapshotTime) = 0; // 110
+    virtual int InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) = 0;        // 110
     virtual void PredictionFrame_PreAnim() = 0;                                                                                                // 111
     virtual bool DidEntityTeleport() = 0;                                                                                                      // 112
     virtual bool IsSubModel() = 0;                                                                                                             // 113
