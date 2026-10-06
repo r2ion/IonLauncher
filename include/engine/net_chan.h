@@ -142,6 +142,9 @@ public:
 	bool SendNetMsg(INetMessage& message, bool forceReliable, bool voice);
 	std::int32_t SendDatagram(bf_write* datagram);
 	void SetChoked();
+	bool ProcessMessages(bf_read* message);
+	bool ReadSubChannelData(bf_read& buffer);
+	void FreeReceiveList();
 
 	bool m_bProcessingMessages; // 0x0000
 	bool m_bShouldDelete; // 0x0001

@@ -6,6 +6,9 @@
 #include "tier1/bitbuf.h"
 
 #define CONNECTIONLESS_HEADER 0xFFFFFFFF
+#define FRAGMENT_SIZE 0x230
+#define NET_MAX_PAYLOAD 0x40000
+
 
 typedef const char*(__fastcall* netadr_s__GetEncryptionKey_t)(void* thisptr);
 extern netadr_s__GetEncryptionKey_t netadr_s__GetEncryptionKey;
@@ -21,18 +24,18 @@ enum netadrtype_t : int
 
 enum netsocket_e : int
 {
+	NS_INVALID = 0xFFFFFFFF,
 	NS_CLIENT = 0,	// client socket
 	NS_SERVER,		// server socket
 
-	// unknown as this seems unused in R5, but if the socket equals to this in
-	// CServer::ConnectionlessPacketHandler() in case C2S_Challenge, the packet
-	// sent back won't be encrypted
-	NS_UNK0,
+	// pretty sure but haven't checked, self explanatory
+	NS_CLIENT_DATACENTERPING,
 
 	// used for chat room, communities, discord presence, EA/Origin, etc
 	NS_PRESENCE,
 
-	MAX_SOCKETS // 4 in R5
+	MAX_SOCKETS,
+	FIRST_SOCKET = 0
 };
 
 class CNetAdr
@@ -90,17 +93,9 @@ struct netpacket_t
 };
 
 static_assert(sizeof(netpacket_t) == 0x88);
-static_assert(alignof(netpacket_t) == 0x8);
-static_assert(offsetof(netpacket_t, from) == 0x00);
-static_assert(offsetof(netpacket_t, source) == 0x18);
-static_assert(offsetof(netpacket_t, received) == 0x20);
-static_assert(offsetof(netpacket_t, data) == 0x28);
-static_assert(offsetof(netpacket_t, message) == 0x30);
-static_assert(offsetof(netpacket_t, size) == 0x70);
-static_assert(offsetof(netpacket_t, wireSize) == 0x74);
-static_assert(offsetof(netpacket_t, stream) == 0x78);
-static_assert(offsetof(netpacket_t, next) == 0x80);
 
 extern double* g_pNetTime;
+bool NET_BufferToBufferDecompress(void* output, std::size_t* outputSize, const void* input, std::size_t inputSize);
+
 
 extern int (*NET_SendPacket)(CNetChan* pChan, int iSocket, const netadr_t* toAdr, const uint8_t* pData, unsigned int nLen, void* pVoicePayload, bool bCompress, int unMillisecondsDelay, bool bEncrypt);

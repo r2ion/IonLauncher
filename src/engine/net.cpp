@@ -15,6 +15,14 @@ char* (*GetIpStringFromClient)(int64_t a1);
 int (*NET_SendPacket)(CNetChan* pChan, int iSocket, const netadr_t* toAdr, const uint8_t* pData, unsigned int nLen, void* pVoicePayload, bool bCompress, int unMillisecondsDelay, bool bEncrypt);
 netadr_s__GetEncryptionKey_t netadr_s__GetEncryptionKey = nullptr;
 
+using NETBufferToBufferDecompress_t = decltype(&NET_BufferToBufferDecompress);
+NETBufferToBufferDecompress_t s_NET_BufferToBufferDecompress;
+
+bool NET_BufferToBufferDecompress(void* output, std::size_t* outputSize, const void* input, const std::size_t inputSize)
+{
+	return s_NET_BufferToBufferDecompress(output, outputSize, input, inputSize);
+}
+
 //////////////////////////////////////////////////////////////////////
 // Clears IP.
 //////////////////////////////////////////////////////////////////////
@@ -357,4 +365,5 @@ ON_DLL_LOAD("engine.dll", Net, [](CModule module)
 	NET_SendPacket = module.Offset(0x21C240).RCast<decltype(NET_SendPacket)>();
 	netadr_s__GetEncryptionKey = module.Offset(0x2154C0).RCast<netadr_s__GetEncryptionKey_t>();
 	g_pNetTime = module.Offset(0x13FA2DE0).RCast<double*>();
+	s_NET_BufferToBufferDecompress = module.Offset(0x219060).RCast<NETBufferToBufferDecompress_t>();
 })
