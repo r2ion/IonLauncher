@@ -433,6 +433,9 @@ bool VcsSet_t::Load(const uint8_t* data, const std::size_t size)
 
 static std::string ReadWaterVcsFile(const char* path)
 {
+	if (std::string contents = ReadVPKFile(path, FileSourceType_Original); !contents.empty())
+		return contents;
+
 	if (std::string contents = ReadGameFile(path, nullptr); !contents.empty())
 		return contents;
 
