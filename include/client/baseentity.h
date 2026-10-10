@@ -13,6 +13,7 @@
 #include "mathlib/color.h"
 #include "predictableid.h"
 #include "vscript/script_scope.h"
+#include "tier1/utlsortvector.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,7 @@ class CParticleEffect;
 struct ScriptClassDesc_t;
 struct Quaternion;
 struct SingleSnapshotValues;
+struct PredictedRenderSample_t;
 struct AnimatingData;
 struct VisibleToLocalPlayerTrace;
 struct FileWeaponInfo_Client;
@@ -44,6 +46,35 @@ class C_Beam;
 class C_DynamicProp;
 
 class C_BaseEntity;
+
+class C_BaseEntityIterator
+{
+  public:
+    C_BaseEntityIterator();
+    C_BaseEntity* Next();
+
+  private:
+    unsigned short m_CurBaseEntity;
+};
+
+static_assert(sizeof(C_BaseEntityIterator) == sizeof(unsigned short));
+
+class CEntIndexLessFunc;
+
+class CPredictableList
+{
+  public:
+    C_BaseEntity* GetPredictable(int index) const { return m_Predictables[index]; }
+    int GetPredictableCount() const { return m_Predictables.Count(); }
+
+    bool m_iteratingPredictables;
+    CUtlSortVector<C_BaseEntity*, CEntIndexLessFunc> m_Predictables;
+};
+
+static_assert(offsetof(CPredictableList, m_Predictables) == 0x08);
+static_assert(sizeof(CPredictableList) == 0x38);
+
+CPredictableList* GetPredictables(int splitScreenSlot);
 class CScriptNetDataList;
 class C_StatusEffectPlugin;
 struct EntityFXData;
@@ -204,6 +235,16 @@ struct thinkfunc_client_t
     int m_nNextThinkTick;
     int m_nLastThinkTick;
 };
+
+struct PredictedEntityState
+{
+    bool active;
+    int commandNum;
+    unsigned char* serializedData;
+};
+
+static_assert(sizeof(PredictedEntityState) == 0x10);
+static_assert(offsetof(PredictedEntityState, serializedData) == 0x8);
 
 struct PredictedEntityData
 {
@@ -531,6 +572,18 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     {
         return m_bPredictionEligible;
     }
+    const PredictedEntityState* GetPredictedFrame(int commandNumber) const;
+    void CapturePredictedRenderSample(PredictedRenderSample_t& sample);
+    void RehydrateMovementNormals(int commandNumber);
+    bool ValidateScriptScope();
+    static bool IsInterpolationEnabled();
+    float GetInterpolationFraction(float currentTime, float secondSnapshotTime, const SingleSnapshotValues* secondSnapshot) const;
+    static void InterpolateServerEntities();
+    void InvalidatePhysicsRecursive(unsigned int changeFlags);
+    static void ProcessInterpolatedList();
+    int SetupForInterpolation();
+    void FinishInterpolation();
+    void CheckInterpolatedTransformChanges(const Vector3D& previousOrigin, const QAngle& previousAngles, unsigned int changeFlags);
     float GetAnimTime() const
     {
         return m_flAnimTime;
@@ -806,3 +859,14 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     CHandle<C_BaseEntity> m_entitiesLinkedFromMe[64]; // 0x938
     CHandle<C_BaseEntity> m_entitiesLinkedToMe[64];   // 0xA38
 };
+
+using C_BaseEntity_ValidateScriptScope_t = bool (*)(C_BaseEntity*);
+using C_BaseEntity_InvalidatePhysicsRecursive_t = void (*)(C_BaseEntity*, unsigned int);
+using C_BaseEntity_ProcessInterpolatedList_t = void (*)();
+using C_BaseEntity_SetupForInterpolation_t = int (*)(C_BaseEntity*);
+using C_BaseEntity_FinishInterpolation_t = void (*)(C_BaseEntity*);
+using C_BaseEntity_CheckInterpolatedTransformChanges_t = void (*)(C_BaseEntity*, const Vector3D*, const QAngle*, unsigned int);
+using C_BaseEntity_GetPredictedFrame_t = const PredictedEntityState* (*)(const C_BaseEntity*, int);
+using C_BaseEntityIterator_Constructor_t = void (*)(C_BaseEntityIterator*);
+using C_BaseEntityIterator_Next_t = C_BaseEntity* (*)(C_BaseEntityIterator*);
+using GetPredictables_t = CPredictableList* (*)(int);

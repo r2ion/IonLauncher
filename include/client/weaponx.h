@@ -26,6 +26,7 @@ enum ChargeEffectState_e : int
 class C_WeaponX : public C_BaseCombatWeapon
 {
   public:
+    int InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) override;
     Vector3D GetAttackPosition_Script();
     Vector3D GetAttackDirection_Script();
     void AllowUse(bool arg1);

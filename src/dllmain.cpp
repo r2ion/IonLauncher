@@ -2,6 +2,7 @@
 #include "common/netmessages.h"
 #include "logging/crashhandler.h"
 #include "logging/logging.h"
+#include "mathlib/mathlib.h"
 #include "plugins/pluginmanager.h"
 #include "plugins/plugins.h"
 #include "server/serverpresence.h"
@@ -49,6 +50,7 @@ bool InitialiseNorthstar()
 		return false;
 
 	bInitialised = true;
+	MathLib_Init();
 
 	InitialiseNorthstarPrefix();
 	if (curl_global_init_mem(CURL_GLOBAL_DEFAULT, _malloc_base, _free_base, _realloc_base, _strdup_base, _calloc_base) != CURLE_OK)

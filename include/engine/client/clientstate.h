@@ -5,6 +5,7 @@
 #include "irecipientfilter.h"
 
 #include "client_class.h"
+#include "client/renderstate.h"
 #include "engine/client/community_party.h"
 #include "engine/client/datablock_receiver.h"
 #include "engine/clockdriftmgr.h"
@@ -353,7 +354,8 @@ public:
 	int DecodeSnapshotEntities(CFrameSnapshot* fromSnapshot, CFrameSnapshot* toSnapshot);
 	bool IsPaused() const;
 	float GetFrameTime() const;
-	bool ProcessSignonStateInternal(eSignonState state, int serverCount, NET_SignonState* message);
+    double GetPreciseClientTime() const;
+    bool ProcessSignonStateInternal(eSignonState state, int serverCount, NET_SignonState* message);
 
 
 	void SendStringCmd(const char* command);
@@ -418,6 +420,10 @@ public:
 };
 #pragma pack(pop)
 
+using CClientStateIsPaused_t = bool (*)(const CClientState*);
+using CClientStateGetFrameTime_t = float (*)(const CClientState*);
+using CClientStateSendStringCmd_t = void (*)(CClientState*, const char*);
+
 class CClientStateExtended
 {
   public:
@@ -429,4 +435,20 @@ class CClientStateExtended
 
     PlaylistVarOverrides m_PlaylistVarOverrides;
     bool m_bHasPlaylistVarOverrides = false;
+
+    ClientRenderState_t m_RenderState;
+    PreciseClientTimeState_t m_PreciseClientTime;
+
+    double m_flLastMovementCall = 0.0;
+    float m_flAccumulatedCommandFrameTime = 0.0f;
+    float m_flAccumulatedHostFrameTime = 0.0f;
+    bool m_bWasFullyConnected = false;
+
+    float m_flExtraMouseSampleTime = 0.0f;
+    float m_flExtraForwardMove = 0.0f;
+    float m_flExtraSideMove = 0.0f;
+    float m_flCommandFrameTime = 0.0f;
+    bool m_bInExtraMouseSample = false;
+    bool m_bInCreateMove = false;
+    bool m_bRestoreCommandFrameTime = false;
 };

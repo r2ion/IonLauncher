@@ -2,6 +2,7 @@
 
 #include "edict.h"
 #include "interface.h"
+#include "globalvars_base.h"
 
 #include <cstdarg>
 #include <cstddef>
@@ -19,18 +20,30 @@ class bf_write;
 struct client_textmessage_t;
 struct con_nprint_s;
 struct player_info_t;
-struct CGlobalVars;
 struct CSaveRestoreData;
 struct CStandardSendProxies;
 struct ServerClass;
 struct ServerDataMap;
 struct ServerTypeDescription;
 
-inline constexpr char SERVER_GAME_DLL_INTERFACE_VERSION[] = "ServerGameDLL005";
-inline constexpr char SERVER_GAME_ENTS_INTERFACE_VERSION[] = "ServerGameEnts002";
-inline constexpr char SERVER_GAME_CLIENTS_INTERFACE_VERSION[] = "ServerGameClients004";
-inline constexpr char SERVER_DLL_SHARED_APP_SYSTEMS_INTERFACE_VERSION[] = "VServerDllSharedAppSystems001";
-inline constexpr char VENGINE_SERVER_INTERFACE_VERSION[] = "VEngineServer022";
+class CGlobalVars : public CGlobalVarsBase
+{
+public:
+	const char* mapname;                     // 0x60
+	int mapversion;                         // 0x68
+	std::uint8_t m_Padding006C[4];           // 0x6C
+};
+
+static_assert(sizeof(CGlobalVars) == 0x70);
+static_assert(alignof(CGlobalVars) == 0x8);
+static_assert(offsetof(CGlobalVars, mapname) == 0x60);
+static_assert(offsetof(CGlobalVars, mapversion) == 0x68);
+
+#define SERVER_GAME_DLL_INTERFACE_VERSION "ServerGameDLL005"
+#define SERVER_GAME_ENTS_INTERFACE_VERSION "ServerGameEnts002"
+#define SERVER_GAME_CLIENTS_INTERFACE_VERSION "ServerGameClients004"
+#define SERVER_DLL_SHARED_APP_SYSTEMS_INTERFACE_VERSION "VServerDllSharedAppSystems001"
+#define VENGINE_SERVER_INTERFACE_VERSION "VEngineServer022"
 
 class IServerDLLSharedAppSystems
 {

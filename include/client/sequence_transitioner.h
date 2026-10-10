@@ -1,8 +1,8 @@
 #pragma once
 
-#include <cstddef>
-#include "mathlib/vector.h"
 #include "mathlib/mathlib.h"
+#include "mathlib/vector.h"
+#include <cstddef>
 
 class C_BaseAnimating;
 struct datamap_t;
@@ -81,3 +81,11 @@ class C_SequenceTransitioner
     float m_prevUpdateTime;
     int m_animViewEntityThirdPersonParity;
 };
+
+static_assert(sizeof(C_SequenceTransitionerLayer) == 0x38);
+static_assert(offsetof(C_SequenceTransitionerLayer, m_sequenceTransitionerLayerStartTime) == 0x30);
+static_assert(offsetof(C_SequenceTransitioner, m_current) == 0x18);
+static_assert(offsetof(C_SequenceTransitioner, m_sequenceTransitionerLayers) == 0x50);
+static_assert(offsetof(C_SequenceTransitioner, m_sequenceTransitionerLayerCount) == 0x1A0);
+static_assert(offsetof(C_SequenceTransitioner, m_prevUpdateTime) == 0x1B0);
+static_assert(sizeof(C_SequenceTransitioner) == 0x1B8);

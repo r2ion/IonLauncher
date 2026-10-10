@@ -22,3 +22,15 @@ class CClockDriftMgr
 };
 
 static_assert(sizeof(CClockDriftMgr) == 0x94);
+
+class CNetChan;
+
+struct ClockDriftSamples
+{
+    const CClockDriftMgr* owner;
+    const CNetChan* channel;
+    int serverCount;
+    float snapshotInterval;
+    float jitter;
+    float extraDelay;
+};

@@ -194,7 +194,7 @@ CAI_NetworkManager** g_ppAINetworkManager = nullptr;
 void DumpAINInfo(CAI_Network* aiNetwork)
 {
 	fs::path writePath(fmt::format("{}/maps/graphs", g_pModName));
-	writePath /= g_pGlobals->m_pMapName;
+	writePath /= g_pGlobals->mapname;
 	writePath += ".ain";
 
 	// dump from memory
@@ -209,7 +209,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	spdlog::info("writing ainet version: {}", AINET_VERSION_NUMBER);
 	writeStream.write((char*)&AINET_VERSION_NUMBER, sizeof(int));
 
-	int mapVersion = g_pGlobals->m_nMapVersion;
+	int mapVersion = g_pGlobals->mapversion;
 	spdlog::info("writing map version: {}", mapVersion);
 	writeStream.write((char*)&mapVersion, sizeof(int));
 	spdlog::info("writing placeholder crc: {}", PLACEHOLDER_CRC);

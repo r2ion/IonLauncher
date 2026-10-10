@@ -25,7 +25,7 @@ void DedicatedServerLogToClientSink::sink_it_(const spdlog::details::log_msg& ms
 
 	std::string payload(msg.payload.data(), msg.payload.size());
 	std::string sLogMessage = fmt::format("[DEDICATED SERVER] [{}] {}", level_names[msg.level], payload);
-	for (int i = 0; i < g_pGlobals->m_nMaxClients; i++)
+	for (int i = 0; i < g_pGlobals->maxClients; i++)
 	{
 		CClient* pClient = &g_pClientArray[i];
 

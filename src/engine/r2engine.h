@@ -1,4 +1,5 @@
 #pragma once
+#include "eiface.h"
 #include "tier1/keyvalues.h"
 #include "tier1/bitbuf.h"
 #include "engine/net.h"
@@ -104,56 +105,6 @@ public:
 };
 
 extern CEngine* g_pEngine;
+extern CGlobalVars* g_pGlobals;
 
 extern char* g_pModName;
-
-enum class GameMode_t : int
-{
-	NO_MODE = 0,
-	MP_MODE,
-	SP_MODE,
-};
-
-class CGlobalVars
-{
-public:
-	double m_flRealTime;                    // 0x00
-	int m_nFrameCount;                      // 0x08
-	float m_flAbsoluteFrameTime;            // 0x0C
-	float m_flCurTime;                      // 0x10
-	float m_flCurTimeUnknown0;              // 0x14
-	float m_flCurTimeUnknown1;              // 0x18
-	float m_flCurTimeUnknown2;              // 0x1C
-	float m_flLastFrameTimeSincePause;      // 0x20
-	float m_flCurTimeUnknown3;              // 0x24
-	float m_flExactCurTime;                 // 0x28
-	float m_flCurTimeUnknown4;              // 0x2C
-	float m_flFrameTime;                    // 0x30
-	int m_nMaxClients;                      // 0x34
-	GameMode_t m_nGameMode;                 // 0x38
-	std::uint32_t m_nTickCount;             // 0x3C
-	float m_flTickInterval;                 // 0x40
-	std::byte m_Reserved0044[0x1C];          // 0x44
-	const char* m_pMapName;                  // 0x60
-	int m_nMapVersion;                       // 0x68
-	std::byte m_Padding006C[4];              // 0x6C
-};
-
-static_assert(sizeof(CGlobalVars) == 0x70);
-static_assert(alignof(CGlobalVars) == 0x8);
-static_assert(offsetof(CGlobalVars, m_flRealTime) == 0x00);
-static_assert(offsetof(CGlobalVars, m_nFrameCount) == 0x08);
-static_assert(offsetof(CGlobalVars, m_flAbsoluteFrameTime) == 0x0C);
-static_assert(offsetof(CGlobalVars, m_flCurTime) == 0x10);
-static_assert(offsetof(CGlobalVars, m_flLastFrameTimeSincePause) == 0x20);
-static_assert(offsetof(CGlobalVars, m_flExactCurTime) == 0x28);
-static_assert(offsetof(CGlobalVars, m_flFrameTime) == 0x30);
-static_assert(offsetof(CGlobalVars, m_nMaxClients) == 0x34);
-static_assert(offsetof(CGlobalVars, m_nGameMode) == 0x38);
-static_assert(offsetof(CGlobalVars, m_nTickCount) == 0x3C);
-static_assert(offsetof(CGlobalVars, m_flTickInterval) == 0x40);
-static_assert(offsetof(CGlobalVars, m_Reserved0044) == 0x44);
-static_assert(offsetof(CGlobalVars, m_pMapName) == 0x60);
-static_assert(offsetof(CGlobalVars, m_nMapVersion) == 0x68);
-
-extern CGlobalVars* g_pGlobals;

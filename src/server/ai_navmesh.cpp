@@ -42,7 +42,7 @@ static void NavMesh_Generate_f(const CCommand& args)
     }
     if (!ThreadInMainThread() || !g_pFilesystem || !g_pServer || !g_pServer->IsActive() ||
         !g_pHostState || g_pHostState->m_iCurrentState != HostState_t::HS_RUN || g_pHostState->m_iNextState != HostState_t::HS_RUN || !g_pGlobals ||
-        !g_pGlobals->m_pMapName || !*g_pGlobals->m_pMapName)
+        !g_pGlobals->mapname || !*g_pGlobals->mapname)
     {
         spdlog::warn("[navmesh] Load a local listen-server or dedicated-server map before generating navmeshes.");
         return;
@@ -50,7 +50,7 @@ static void NavMesh_Generate_f(const CCommand& args)
 
     try
     {
-        const std::string MapName = g_pGlobals->m_pMapName;
+        const std::string MapName = g_pGlobals->mapname;
         for (const char Character : MapName)
         {
             if (!((Character >= 'a' && Character <= 'z') || (Character >= 'A' && Character <= 'Z') || (Character >= '0' && Character <= '9') ||

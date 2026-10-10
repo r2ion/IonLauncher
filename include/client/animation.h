@@ -71,6 +71,43 @@ void GetAttachmentLocalSpace(CStudioHdr* studioHdr, int attachment, matrix3x4_t&
 int FindHitboxSetByName(CStudioHdr* studioHdr, const char* name);
 const char* GetHitboxSetName(CStudioHdr* studioHdr, int set);
 int GetHitboxSetCount(CStudioHdr* studioHdr);
+void InterpolatePoseParameters(float fraction, int count, const float* first, const float* second, const bool* looping, float* result);
+float CalculateCycleForAnimationStateAtTime(C_BaseAnimating* entity, float time, float startCycle, float startTime, float playbackRate,
+                                           unsigned int sequence, bool frozen, int* result);
+
+using InterpolatePoseParameters_t = decltype(&InterpolatePoseParameters);
+using CalculateCycleForAnimationStateAtTime_t = decltype(&CalculateCycleForAnimationStateAtTime);
+using Animation_ExtractBbox_t = decltype(&ExtractBbox);
+using Animation_IndexModelSequences_t = decltype(&IndexModelSequences);
+using Animation_ResetActivityIndexes_t = decltype(&ResetActivityIndexes);
+using Animation_VerifySequenceIndex_t = decltype(&VerifySequenceIndex);
+using Animation_SelectWeightedSequence_t = int (*)(CStudioHdr*, int, bool, const CUtlSymbol*, int, int);
+using Animation_SelectHeaviestSequence_t = decltype(&SelectHeaviestSequence);
+using Animation_SetEventIndexForSequence_t = decltype(&SetEventIndexForSequence);
+using Animation_BuildAllAnimationEventIndexes_t = decltype(&BuildAllAnimationEventIndexes);
+using Animation_ResetEventIndexes_t = decltype(&ResetEventIndexes);
+using Animation_GetEyePosition_t = decltype(&GetEyePosition);
+using Animation_LookupActivity_t = decltype(&LookupActivity);
+using Animation_LookupSequence_t = decltype(&LookupSequence);
+using Animation_GetSequenceLinearMotion_t = decltype(&GetSequenceLinearMotion);
+using Animation_GetSequenceName_t = decltype(&GetSequenceName);
+using Animation_GetSequenceActivityName_t = decltype(&GetSequenceActivityName);
+using Animation_GetSequenceFlags_t = decltype(&GetSequenceFlags);
+using Animation_GetAnimationEvent_t = decltype(&GetAnimationEvent);
+using Animation_HasAnimationEventOfType_t = decltype(&HasAnimationEventOfType);
+using Animation_FindTransitionSequence_t = decltype(&FindTransitionSequence);
+using Animation_GotoSequence_t = decltype(&GotoSequence);
+using Animation_SetBodygroup_t = decltype(&SetBodygroup);
+using Animation_GetBodygroup_t = decltype(&GetBodygroup);
+using Animation_GetBodygroupName_t = decltype(&GetBodygroupName);
+using Animation_GetBodygroupPartName_t = decltype(&GetBodygroupPartName);
+using Animation_FindBodygroupByName_t = decltype(&FindBodygroupByName);
+using Animation_GetBodygroupCount_t = decltype(&GetBodygroupCount);
+using Animation_GetSequenceActivity_t = decltype(&GetSequenceActivity);
+using Animation_GetAttachmentLocalSpace_t = decltype(&GetAttachmentLocalSpace);
+using Animation_FindHitboxSetByName_t = decltype(&FindHitboxSetByName);
+using Animation_GetHitboxSetName_t = decltype(&GetHitboxSetName);
+using Animation_GetHitboxSetCount_t = decltype(&GetHitboxSetCount);
 
 struct AnimRelativeData_Client
 {

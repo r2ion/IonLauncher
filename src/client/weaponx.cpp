@@ -3,6 +3,39 @@
 #include "engine/shared/weapon_mods.h"
 #include "vscript/ivscript.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
+#include "client/player.h"
+#include "tier0/hooks.h"
+#include "util/utils.h"
+
+DECLARE_MODULE(ClientWeaponInterpolation)
+
+int C_WeaponX::InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime)
+{
+    const int status = C_BaseAnimating::InterpolateFieldsInternal(currentTime, secondSnapshot, secondSnapshotTime);
+    if (status)
+    {
+        const float fraction = GetInterpolationFraction(currentTime, secondSnapshotTime, secondSnapshot);
+        const auto& first = m_lerpData.currentSnap->weaponData->smartAmmoFractions;
+        const auto& second = m_lerpData.futureSnap->weaponData->smartAmmoFractions;
+        auto& fractions = m_smartAmmo.currentFrameSmartAmmoFractions;
+        const auto lerp = [fraction](float a, float b) { return (b - a) * fraction + a; };
+        for (int i = 0; i < 8; ++i)
+            fractions[i] = lerp(first[i], second[i]);
+    }
+    return status;
+}
+
+DECLARE_HOOK(C_WeaponX_InterpolateFieldsInternal, client.dll + 0x5B02E0,
+             [](auto&, C_WeaponX* self, float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) -> int
+{ return self->C_WeaponX::InterpolateFieldsInternal(currentTime, secondSnapshot, secondSnapshotTime); })
+DECLARE_HOOK(UpdateWeaponUiValue, client.dll + 0x3D3710,
+             [](auto& hook, float* output, const WeaponUiArg_s* source, C_WeaponX* weapon, C_Player* player, float spread)
+{
+    C_Player* const previousPlayer =
+        C_Player::SetCrosshairQueryPlayer(source->source == 0x17 || source->source == 0x18 ? player : nullptr);
+    const ScopeGuard restorePlayer([previousPlayer] { C_Player::SetCrosshairQueryPlayer(previousPlayer); });
+    hook.Original(output, source, weapon, player, spread);
+})
 
 static int Script_SetWeaponInfoFileKeyField(HSQUIRRELVM sqvm)
 {
@@ -1145,6 +1178,7 @@ int C_BaseCombatWeapon::ScriptLookupViewModelAttachment(const char* attachmentNa
 
 ON_DLL_LOAD_CLIENT("client.dll", WeaponSdkMethods, [](CModule module)
 {
+    DISPATCH_MODULE(ClientWeaponInterpolation)
     auto* pScriptDesc = module.Offset(0x2E34E50).RCast<ScriptClassDesc_t*>();
     auto& binding = pScriptDesc->m_NativeFunctionBindings[pScriptDesc->m_NativeFunctionBindings.AddToTail()];
     binding.Init("SetWeaponInfoFileKeyField", "Script_SetWeaponInfoFileKeyField",

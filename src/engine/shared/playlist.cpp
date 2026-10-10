@@ -129,7 +129,7 @@ DECLARE_HOOK(clc_SetPlaylistVarOverride::Process, engine.dll + 0x222180,
 {
     // the private_match playlist on mp_lobby is the only situation where there should be any legitimate sending of this netmessage
     if (!Cvar_ns_use_clc_SetPlaylistVarOverride->GetBool() || strcmp(R2::GetCurrentPlaylistName(), "private_match") ||
-        strcmp(g_pGlobals->m_pMapName, "mp_lobby"))
+        strcmp(g_pGlobals->mapname, "mp_lobby"))
         return 1;
 
     return hook.Original(a1, a2);
@@ -262,9 +262,10 @@ void ConCommand_setplaylistvaroverride(const CCommand& args)
         return;
 
     auto* client = Playlist_GetRemoteClientState();
+    const bool bUseLocalOverrides = client && !g_pVanillaCompatibility->GetVanillaCompatibility();
     for (int i = 1; i + 1 < args.ArgC(); i += 2)
     {
-        if (client)
+        if (bUseLocalOverrides)
         {
             if (client->m_PlaylistVarOverrides.Set(args.Arg(i), args.Arg(i + 1)))
                 client->m_bHasPlaylistVarOverrides = true;

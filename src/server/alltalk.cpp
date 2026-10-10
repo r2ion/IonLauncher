@@ -13,7 +13,7 @@ size_t __fastcall ShouldAllowAlltalk()
         return 0;
 
 	// lobby should default to alltalk, otherwise don't allow it
-	return strcmp(g_pGlobals->m_pMapName, "mp_lobby");
+	return strcmp(g_pGlobals->mapname, "mp_lobby");
 }
 
 CClient* AdjustShiftedThisPointer(CClient* shiftedPointer)

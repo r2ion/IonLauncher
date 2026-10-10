@@ -292,8 +292,8 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll", LowLatencyEngine, ConVar, [](CModule m
 
     Cvar_fps_max = g_pCVar->FindVar("fps_max");
     Cvar_fps_max_low_latency = new ConVar("fps_max_low_latency", "0", FCVAR_RELEASE,
-                                          "Frame rate limiter using Low Latency SDK. -1 indicates the use of desktop refresh. 0 is disabled.", true,
-                                          -1.0f, true, 295.0f, GFX_NVN_Changed_f);
+                                          "SDK frame rate limit, up to 1000 FPS. 0 disables it; -1 uses desktop refresh when fps_max is 0.", true,
+                                          -1.0f, true, 1000.0f, GFX_NVN_Changed_f);
     Cvar_gfx_nvnUseLowLatency = new ConVar("gfx_nvnUseLowLatency", "1", FCVAR_RELEASE | FCVAR_ARCHIVE, "Enables NVIDIA Reflex Low Latency SDK.",
                                            false, 0.0f, false, 0.0f, GFX_NVN_Changed_f);
     Cvar_gfx_nvnUseLowLatencyBoost = new ConVar("gfx_nvnUseLowLatencyBoost", "0", FCVAR_RELEASE | FCVAR_ARCHIVE,

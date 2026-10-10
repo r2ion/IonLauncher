@@ -24,6 +24,7 @@ DECLARE_MODULE(AudioHooks)
 
 static thread_local const char* pszAudioEventName;
 static thread_local bool s_loadingCustomMilesSample;
+void* g_pClientAudioQueueWaitReturnAddress;
 
 static constexpr int MILES_SOURCE_FLAC = 3;
 static constexpr int MILES_SOURCE_AUTO = 64;
@@ -1745,6 +1746,23 @@ DECLARE_HOOK(MilesQueueActiveEventRateFactor, mileswin64.dll + 0x342B0,
     return result;
 })
 
+DECLARE_HOOK(MilesQueueGetIsRetired, mileswin64.dll + 0x33690,
+             [](auto& hook, void* queue, unsigned int submissionId) -> unsigned int
+{
+    unsigned int retired = hook.Original(queue, submissionId);
+    if (!retired && hook.ReturnAddress() == g_pClientAudioQueueWaitReturnAddress)
+    {
+        // OnRenderStart polls this eight-slot fence with Sleep(10). Keep the
+        // retirement barrier without adding a full 10 ms sleep to the frame.
+        do
+        {
+            Sleep(0);
+            retired = hook.Original(queue, submissionId);
+        } while (!retired);
+    }
+    return retired;
+})
+
 DECLARE_HOOK(MilesIntServiceProjectEventSystem, mileswin64.dll + 0x1B2D0, [](auto& hook, void* eventSystem) -> int
 {
     const int result = hook.Original(eventSystem);
@@ -1926,6 +1944,7 @@ ON_DLL_LOAD_RELIESON("engine.dll", MilesLogFuncHooks, ConVar, [](CModule module)
 
 ON_DLL_LOAD_CLIENT_RELIESON("client.dll", AudioHooks, ConVar, [](CModule module)
 {
+    g_pClientAudioQueueWaitReturnAddress = module.Offset(0x57F4CA).RCast<void*>();
     AudioHooks.DispatchForModule("client.dll");
 
     Cvar_ns_print_played_sounds = new ConVar("ns_print_played_sounds", "0", FCVAR_NONE, "");

@@ -2,10 +2,10 @@
 
 #include "client_class.h"
 #include "engine/createinterface.h"
+#include "globalvars_base.h"
 
 #include <cstdint>
 
-class CGlobalVars;
 class CMoveData;
 class CUserCmd;
 class Vector3D;
@@ -26,8 +26,8 @@ enum ClientFrameStage_t : int
 	FRAME_RENDER_END,
 };
 
-inline constexpr char CLIENT_DLL_INTERFACE_VERSION[] = "VClient018";
-inline constexpr char CLIENT_DLL_SHARED_APPSYSTEMS[] = "VClientDllSharedAppSystems001";
+#define CLIENT_DLL_INTERFACE_VERSION "VClient018"
+#define CLIENT_DLL_SHARED_APPSYSTEMS "VClientDllSharedAppSystems001"
 
 class IClientDLLSharedAppSystems
 {
@@ -42,7 +42,7 @@ static_assert(sizeof(IClientDLLSharedAppSystems) == sizeof(void*));
 class IBaseClientDLL
 {
 public:
-	virtual bool Init(CreateInterfaceFn appSystemFactory, CGlobalVars* pGlobals) = 0; // 0
+	virtual bool Init(CreateInterfaceFn appSystemFactory, CGlobalVarsBase* pGlobals) = 0; // 0
 	virtual void Disconnect() = 0; // 1
 	virtual bool ConnectEngineInterfaces(CreateInterfaceFn engineFactory) = 0; // 2
 	virtual bool InitSubsystems() = 0; // 3

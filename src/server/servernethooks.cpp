@@ -232,7 +232,7 @@ static bool ProcessCustomServerInfoRequest(netpacket_t* packet, bf_read& msg)
 
 	response.WriteString(serverName);
 	response.WriteString(serverDesc);
-	response.WriteString(g_pGlobals->m_pMapName);
+	response.WriteString(g_pGlobals->mapname);
 	response.WriteString(R2::GetCurrentPlaylistName());
 	response.WriteByte(0); // reserved mp/sp/lobby byte
 	response.WriteLong(g_pServerPresence->GetPlayerCount());

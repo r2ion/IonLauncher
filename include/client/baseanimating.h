@@ -104,10 +104,19 @@ class C_BaseAnimating : public C_BaseEntity
     virtual float LastBoneChangedTime() = 0; // 237
     virtual bool UpdateBlending(int flags, const RenderableInstance_t& instance) = 0; // 238
 
+    int InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) override; // 110
+    float InterpolateCycle(float startCycle, float endCycle, float fraction, float startTime, float endTime, int sequence) const;
+    static void UpdateRemoteSequencePresentation();
+    void RestoreRemoteSequencePresentation();
+
     CStudioHdr* GetModelPtr() const;
     int GetSequence() const { return m_currentFrameBaseAnimating.animSequence; }
     float GetCycle() const { return m_currentFrame.animCycle; }
     void SetCycle(float cycle);
+    float GetLastVisibleCycle(const CStudioHdr* hdr, int sequence) const;
+    float GetSequenceGroundSpeed(const CStudioHdr* hdr, int sequence);
+    void ClearRagdoll();
+    void UpdateAnimationCycle(float currentTime);
     float GetPlaybackRate() const { return m_currentFrameBaseAnimating.animPlaybackRate; }
     int GetHitboxSet() const { return m_nHitboxSet; }
     bool IsSequenceFinished() const { return m_bSequenceFinished; }
@@ -117,7 +126,7 @@ class C_BaseAnimating : public C_BaseEntity
     float GetSequenceCycleRateForModel(const CStudioHdr* hdr, int sequence) const;
     bool IsValidSequence(int sequence) const;
     bool IsSequenceLooping(const CStudioHdr* hdr, int sequence) const;
-    static float ClampCycle(float cycle, bool isLooping);
+    float ClampCycle(float cycle, bool isLooping);
     float SequenceDuration(int sequence);
     float SequenceDuration() { return SequenceDuration(GetSequence()); }
     bool IsModelScaled() const { return m_flModelScale != 1.0f; }
@@ -260,3 +269,17 @@ class C_BaseAnimating : public C_BaseEntity
     int m_fireAttachmentChestFocusIndex;
     int m_fireAttachmentModelIndex;
 };
+
+using C_BaseAnimating_GetModelPtr_t = CStudioHdr* (*)(const C_BaseAnimating*);
+using C_BaseAnimating_GetSequenceCycleRate_t = float (*)(C_BaseAnimating*, int);
+using C_BaseAnimating_GetSequenceCycleRateForModel_t = float (*)(const C_BaseAnimating*, const CStudioHdr*, int);
+using C_BaseAnimating_IsValidSequence_t = bool (*)(const C_BaseAnimating*, int);
+using C_BaseAnimating_IsSequenceLooping_t = bool (*)(const C_BaseAnimating*, const CStudioHdr*, int);
+using C_BaseAnimating_ClampCycle_t = float (*)(float, bool);
+using C_BaseAnimating_SequenceDuration_t = float (*)(C_BaseAnimating*, int);
+using C_BaseAnimating_GetLastVisibleCycle_t = float (*)(const C_BaseAnimating*, const CStudioHdr*, int);
+using C_BaseAnimating_SetCycle_t = void (*)(C_BaseAnimating*, float);
+using C_BaseAnimating_GetSequenceGroundSpeed_t = float (*)(C_BaseAnimating*, const CStudioHdr*, int);
+using C_BaseAnimating_ClearRagdoll_t = void (*)(C_BaseAnimating*);
+using C_BaseAnimating_UpdateAnimationCycle_t = void (*)(C_BaseAnimating*, float);
+

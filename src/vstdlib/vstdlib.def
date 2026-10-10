@@ -1,0 +1,10 @@
+LIBRARY vstdlib.dll
+EXPORTS
+    GetCurrentRandomSeed
+    InstallUniformRandomStream
+    RandomFloat
+    RandomFloatExp
+    RandomGaussianFloat
+    RandomInt
+    RandomIntZeroMax
+    RandomSeed

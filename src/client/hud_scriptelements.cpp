@@ -1,5 +1,6 @@
 #include "client/hud_scriptelements.h"
 
+#include "client/cdll_client_int.h"
 #include "client/player.h"
 #include "engine/cdll_int.h"
 #include "engine/r2engine.h"
@@ -532,12 +533,12 @@ void CHudScriptElements::ExecuteNamedRemoteFunctionCalls(const std::int32_t tick
     C_Player* localViewPlayer = C_Player::GetLocalViewPlayer();
     C_Player* localPlayer = C_Player::GetLocalPlayer();
     SquirrelManager* clientSquirrel = g_pSquirrel[ScriptContext::CLIENT];
-    if (!localViewPlayer || !localPlayer || !g_pGlobals || !clientSquirrel || !clientSquirrel->m_pSQVM)
+    if (!localViewPlayer || !localPlayer || !g_pClientGlobals || !clientSquirrel || !clientSquirrel->m_pSQVM)
         return;
 
     const HSCRIPT localViewPlayerScope = localViewPlayer->GetScriptInstance();
     const HSCRIPT localPlayerScope = localPlayer->GetScriptInstance();
-    clientSquirrel->m_pSQVM->SetTime(g_pGlobals->m_flCurTime);
+    clientSquirrel->m_pSQVM->SetTime(g_pClientGlobals->curtime);
 
     while (true)
     {

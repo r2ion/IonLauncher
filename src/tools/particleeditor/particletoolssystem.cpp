@@ -368,8 +368,8 @@ static void ComputePreviewCameraBasis(const QAngle& angles, Vector3D& forward, V
 
 static void StabilizePreviewProjection(CViewRenderView& renderView)
 {
-    renderView.m_ProjectionMatrix.m_Elements[0][2] = 0.0f;
-    renderView.m_ProjectionMatrix.m_Elements[1][2] = 0.0f;
+    renderView.m_ProjectionMatrix[0][2] = 0.0f;
+    renderView.m_ProjectionMatrix[1][2] = 0.0f;
 
     MatrixMultiply(renderView.m_ProjectionMatrix, renderView.m_ViewMatrix, renderView.m_ViewProjectionMatrix);
 }

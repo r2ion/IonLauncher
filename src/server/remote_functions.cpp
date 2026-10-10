@@ -66,7 +66,7 @@ void CServerScriptRemoteFunctions::SendNamedRemoteFunctionCall(const CPlayer* pl
     UserMessageBegin(filter, "RemoteFunctionCall", replay ? IN_REPLAY : NOT_IN_REPLAY);
     MessageWriteString(functionName.data());
     MessageWriteBool(callFromUI);
-    MessageWriteLong(g_pGlobals->m_nTickCount);
+    MessageWriteLong(g_pGlobals->tickcount);
     MessageWriteUBitLong(static_cast<std::uint32_t>(parameters.size()), 4);
 
     for (const ScriptVariant_t& parameter : parameters)

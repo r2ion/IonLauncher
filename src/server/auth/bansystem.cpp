@@ -195,7 +195,7 @@ void ConCommand_ban(const CCommand& args)
 	if (args.ArgC() < 2)
 		return;
 
-	for (int i = 0; i < g_pGlobals->m_nMaxClients; i++)
+	for (int i = 0; i < g_pGlobals->maxClients; i++)
 	{
 		CClient* player = &g_pClientArray[i];
 

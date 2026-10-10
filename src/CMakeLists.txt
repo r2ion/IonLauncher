@@ -5,6 +5,35 @@ set(EOS_SDK_PATH "${CMAKE_SOURCE_DIR}/src/thirdparty/eossdk")
 set(EOS_DLL "${EOS_SDK_PATH}/Bin/EOSSDK-Win64-Shipping.dll")
 set(EOS_LIB "${EOS_SDK_PATH}/Lib/EOSSDK-Win64-Shipping.lib")
 
+set(NS_MATHLIB_SOURCES
+    "mathlib/almostequal.cpp"
+    "mathlib/color_conversion.cpp"
+    "mathlib/halton.cpp"
+    "mathlib/mathlib_base.cpp"
+    "mathlib/powsse.cpp"
+    "mathlib/randsse.cpp"
+    "mathlib/sseconst.cpp"
+    "mathlib/ssenoise.cpp"
+    "mathlib/transform.cpp"
+    "mathlib/vmatrix.cpp"
+    )
+
+set_source_files_properties(
+    ${NS_MATHLIB_SOURCES}
+    PROPERTIES COMPILE_DEFINITIONS "BUILDING_MATHLIB;ALLOW_SIMD_QUATERNION_MATH"
+    )
+
+set(NS_VSTDLIB_IMPORT_LIB "${CMAKE_CURRENT_BINARY_DIR}/vstdlib.lib")
+add_custom_command(
+    OUTPUT "${NS_VSTDLIB_IMPORT_LIB}"
+    COMMAND "${CMAKE_AR}" /nologo /machine:x64
+            "/def:${CMAKE_CURRENT_SOURCE_DIR}/vstdlib/vstdlib.def"
+            "/out:${NS_VSTDLIB_IMPORT_LIB}"
+    DEPENDS "vstdlib/vstdlib.def"
+    VERBATIM
+    )
+add_custom_target(NorthstarVStdLibImport DEPENDS "${NS_VSTDLIB_IMPORT_LIB}")
+
 set(NS_NAV_RECAST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/navmesh/recast")
 set(NS_RECAST_SOURCES
     "${NS_NAV_RECAST_ROOT}/Shared/Source/SharedAlloc.cpp"
@@ -64,10 +93,13 @@ add_library(
     "miles/audio.h"
     "client/animation.cpp"
     "client/baseanimating.cpp"
+    "client/baseanimatingoverlay.cpp"
     "client/baseentity.cpp"
+    "client/baseviewmodel.cpp"
+    "client/cdll_client_int.cpp"
     "client/hud_scriptelements.cpp"
     "client/input.cpp"
-    "client/iprediction.cpp"
+    "client/prediction.cpp"
     "client/bone_accessor.cpp"
     "client/collisionproperty.cpp"
     "client/deferredtrace.cpp"
@@ -141,6 +173,8 @@ add_library(
     "engine/client.cpp"
     "engine/clientstate.cpp"
     "engine/cl_main.cpp"
+    "engine/cl_main.h"
+    "engine/clockdriftmgr.cpp"
     "engine/datamap.cpp"
     "engine/gl_matsysiface.cpp"
     "engine/demo.h"
@@ -159,6 +193,7 @@ add_library(
     "engine/netmessages.cpp"
     "engine/networkstringtables.cpp"
     "engine/localize.h"
+    "game/shared/predictioncopy.cpp"
     "engine/localize.cpp"
     "engine/net_chan.cpp"
     "engine/net.cpp"
@@ -187,6 +222,7 @@ add_library(
     "masterserver/masterserver.cpp"
     "masterserver/masterserver.h"
     "mathlib/crc32.cpp"
+    ${NS_MATHLIB_SOURCES}
     "mathlib/sha1.cpp"
     "modsystem/moddownloader.h"
     "modsystem/moddownloader.cpp"
@@ -397,6 +433,8 @@ add_library(
     "Northstar.def"
     )
 
+add_dependencies(NorthstarDLL NorthstarVStdLibImport)
+
 target_include_directories(
     NorthstarDLL
     PRIVATE "${EOS_SDK_PATH}/Include"
@@ -410,6 +448,7 @@ target_include_directories(
 target_link_libraries(
     NorthstarDLL
     PRIVATE NorthstarIncludes
+            "${NS_VSTDLIB_IMPORT_LIB}"
             minhook
             minizip
             libzstd_static

@@ -239,7 +239,7 @@ DECLARE_HOOK(PostDeathEventKilled, server.dll + 0x58AFC0, [](auto& hook, CPlayer
         weapon = player->GetActiveWeapon();
 
     const std::uint32_t weaponHandle = weapon ? weapon->GetRefEHandle().ToInt() : 0;
-    const std::uint32_t deathTick = g_pGlobals ? g_pGlobals->m_nTickCount : 0;
+    const std::uint32_t deathTick = g_pGlobals ? g_pGlobals->tickcount : 0;
     const Vector3D viewOffset = weapon ? *reinterpret_cast<const Vector3D*>(reinterpret_cast<const std::byte*>(player) + 0x5BC) : Vector3D{};
     CPlayer* previousProtectedPlayer = s_PostDeathProtectedPlayer;
     s_PostDeathProtectedPlayer = weapon ? player : nullptr;
@@ -287,7 +287,7 @@ DECLARE_HOOK(PostDeathPostThink, server.dll + 0x5D7880, [](auto& hook, CPlayer* 
 
     const float maxUnlag = s_PostDeathMaxUnlag->GetFloat();
     if (!Cvar_ns_allow_post_death_shots->GetBool() || !g_pGlobals || !std::isfinite(maxUnlag) || maxUnlag <= 0 ||
-        g_pGlobals->m_nTickCount < state->deathTick || (g_pGlobals->m_nTickCount - state->deathTick) * g_pGlobals->m_flTickInterval > maxUnlag)
+        g_pGlobals->tickcount < state->deathTick || (g_pGlobals->tickcount - state->deathTick) * g_pGlobals->interval_per_tick > maxUnlag)
     {
         FinishPostDeathWeapon(player, *state);
         return;

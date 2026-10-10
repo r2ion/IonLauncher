@@ -80,7 +80,7 @@ void CDedicatedExports::RunServer()
         g_pEngine->Frame();
 
         std::this_thread::sleep_for(
-            std::chrono::duration<double, std::ratio<1>>(g_pGlobals->m_flTickInterval - fmin(g_PlatFloatTime() - frameStart, 0.25)));
+            std::chrono::duration<double, std::ratio<1>>(g_pGlobals->interval_per_tick - fmin(g_PlatFloatTime() - frameStart, 0.25)));
     }
 }
 

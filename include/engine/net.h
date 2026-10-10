@@ -24,7 +24,7 @@ enum netadrtype_t : int
 
 enum netsocket_e : int
 {
-	NS_INVALID = 0xFFFFFFFF,
+	NS_INVALID = -1,
 	NS_CLIENT = 0,	// client socket
 	NS_SERVER,		// server socket
 

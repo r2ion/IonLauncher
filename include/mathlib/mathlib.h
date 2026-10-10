@@ -2346,6 +2346,7 @@ float ApproachAngle(float target, float value, float speed);
 float AngleDiff(float destAngle, float srcAngle);
 float AngleDistance(float next, float cur);
 float AngleNormalize(float angle);
+float LerpAngle(float fraction, float first, float second);
 
 // ensure that 0 <= angle <= 360
 float AngleNormalizePositive(float angle);

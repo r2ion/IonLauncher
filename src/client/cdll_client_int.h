@@ -1,9 +1,8 @@
 #pragma once
 
 #include "toolframework/itoolentity.h"
+#include "globalvars_base.h"
 
-class CGlobalVars;
-
-extern CGlobalVars* g_pClientGlobals;
+extern CGlobalVarsBase* g_pClientGlobals;
 
 inline IClientTools* g_pClientTools = nullptr;

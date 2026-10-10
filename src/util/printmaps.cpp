@@ -46,10 +46,10 @@ void RefreshMapList()
 	// Only update the maps list every 10 seconds max to we avoid constantly reading fs
 	static double fLastRefresh = -999;
 
-	if (fLastRefresh + 10.0 > g_pGlobals->m_flRealTime)
+	if (fLastRefresh + 10.0 > g_pGlobals->realtime)
 		return;
 
-	fLastRefresh = g_pGlobals->m_flRealTime;
+	fLastRefresh = g_pGlobals->realtime;
 
 	// Rebuild map list
 	vMapList.clear();

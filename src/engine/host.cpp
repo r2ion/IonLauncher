@@ -3,6 +3,7 @@
 #include "modsystem/modmanager.h"
 #include "r2engine.h"
 #include "engine/shared/misccommands.h"
+#include "engine/cl_main.h"
 #include "util/printcommands.h"
 #include "util/printmaps.h"
 #include "client/ckf.h"
@@ -33,6 +34,7 @@ DECLARE_HOOK(Host_Init, engine.dll + 0x155EA0, [](auto& hook, bool bDedicated)
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_dedicatedserver", cmd_source_t::kCommandSrcCode);
 	else
 	{
+		InitialiseClientMovementConVars();
 		EOS_Init();
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_client", cmd_source_t::kCommandSrcCode);
 		Cbuf_AddText(Cbuf_GetCurrentPlayer(), "exec autoexec_ns_listenserver", cmd_source_t::kCommandSrcCode);

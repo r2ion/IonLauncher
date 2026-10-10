@@ -2,6 +2,7 @@
 #include "tier0/hooks.h"
 
 #include <algorithm>
+#include <cmath>
 
 DECLARE_MODULE(EngineClientState)
 
@@ -17,37 +18,60 @@ CClientStateExtended* CClientState::GetClientStateExtended() const
     return &sm_ClientStateExtended;
 }
 
-using CClientStateIsPausedFn = bool (*)(const CClientState*);
-using CClientStateGetFrameTimeFn = float (*)(const CClientState*);
-using CClientStateSendStringCmdFn = void (*)(CClientState*, const char*);
 
-CClientStateIsPausedFn CClientState__IsPaused;
-CClientStateGetFrameTimeFn CClientState__GetFrameTime;
-CClientStateSendStringCmdFn CClientState__SendStringCmd;
+CClientStateIsPaused_t CClientState__IsPaused;
+CClientStateGetFrameTime_t CClientState__GetFrameTime;
+CClientStateSendStringCmd_t CClientState__SendStringCmd;
 
 void* pAccumulateClientTimeReturnAddress;
-double flClientTimeRemainder;
-float flLastClientTime;
+
+double CClientState::GetPreciseClientTime() const
+{
+    auto& clock = GetClientStateExtended()->m_PreciseClientTime;
+    if (this != clock.owner)
+        return static_cast<double>(m_clientTime);
+
+    if (m_clientTime != clock.clientTime || m_NetChannel != clock.channel || m_nServerCount != clock.serverCount ||
+        m_nSignonState != clock.signonState)
+    {
+        clock.owner = nullptr;
+        clock.remainder = 0.0;
+        return static_cast<double>(m_clientTime);
+    }
+
+    return static_cast<double>(m_clientTime) + clock.remainder;
+}
+
+DECLARE_HOOK(CClientState__Clear, engine.dll + 0x8C580, [](auto& hook, CClientState* self)
+{
+    auto& clock = self->GetClientStateExtended()->m_PreciseClientTime;
+    if (self == clock.owner)
+    {
+        clock.owner = nullptr;
+        clock.remainder = 0.0;
+    }
+    hook.Original(self);
+})
 
 DECLARE_HOOK(CClientState__SetClientTime, engine.dll + 0x91AD0, [](auto& hook, CClientState* self, float clientTime)
 {
-    if (self->m_clientTime != flLastClientTime)
-        flClientTimeRemainder = 0.0;
+    auto& clock = self->GetClientStateExtended()->m_PreciseClientTime;
+    double remainder = 0.0;
 
     if (hook.ReturnAddress() == pAccumulateClientTimeReturnAddress)
     {
-        const double time = std::min(static_cast<double>(self->m_clientTime) + flClientTimeRemainder + self->m_frameTime,
-                                     static_cast<double>(self->m_flServerUptime));
+        const double time = std::min(self->GetPreciseClientTime() + self->m_frameTime, static_cast<double>(self->m_flServerUptime));
         clientTime = static_cast<float>(time);
-        flClientTimeRemainder = time - static_cast<double>(clientTime);
+        if (std::isfinite(time))
+            remainder = time - static_cast<double>(clientTime);
     }
-    else
-    {
-        flClientTimeRemainder = 0.0;
-    }
-
-    flLastClientTime = clientTime;
     hook.Original(self, clientTime);
+    clock.owner = self;
+    clock.channel = self->m_NetChannel;
+    clock.serverCount = self->m_nServerCount;
+    clock.signonState = self->m_nSignonState;
+    clock.clientTime = clientTime;
+    clock.remainder = remainder;
 })
 
 bool CClientState::IsPaused() const
@@ -72,9 +96,9 @@ ON_DLL_LOAD_CLIENT("engine.dll", ClientStateMethods, [](CModule module)
     GetBaseLocalClient = module.Offset(0x78200).RCast<GetBaseLocalClientType>();
     GetLocalPlayerIndex = module.Offset(0x52260).RCast<GetLocalPlayerIndexType>();
 
-    CClientState__IsPaused = module.Offset(0x8F520).RCast<CClientStateIsPausedFn>();
-    CClientState__GetFrameTime = module.Offset(0x8E400).RCast<CClientStateGetFrameTimeFn>();
-    CClientState__SendStringCmd = module.Offset(0x91A10).RCast<CClientStateSendStringCmdFn>();
+    CClientState__IsPaused = module.Offset(0x8F520).RCast<CClientStateIsPaused_t>();
+    CClientState__GetFrameTime = module.Offset(0x8E400).RCast<CClientStateGetFrameTime_t>();
+    CClientState__SendStringCmd = module.Offset(0x91A10).RCast<CClientStateSendStringCmd_t>();
     pAccumulateClientTimeReturnAddress = module.Offset(0x15952B).RCast<void*>();
     DISPATCH_MODULE(EngineClientState)
 })
