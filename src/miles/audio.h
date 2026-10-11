@@ -1,130 +1,64 @@
 #pragma once
 
-#include "audio_runtime.h"
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <mutex>
+#include <regex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include <shared_mutex>
+namespace fs = std::filesystem;
+
+enum class AudioSelectionStrategy
+{
+    SEQUENTIAL,
+    RANDOM
+};
+
+class CModAudioOverride
+{
+  public:
+    CModAudioOverride(const std::string& data, const fs::path& path, const std::vector<std::string>& registeredEvents);
+
+    bool LoadedSuccessfully = false;
+    std::vector<std::string> EventIds;
+    std::vector<std::pair<std::string, std::regex>> EventIdsRegex;
+    std::vector<std::pair<unsigned int, std::unique_ptr<uint8_t[]>>> Samples;
+    AudioSelectionStrategy Strategy = AudioSelectionStrategy::SEQUENTIAL;
+    size_t CurrentIndex = 0;
+    std::mutex SampleSelectionMutex;
+};
 
 class CModAudioManager
 {
   public:
-    class CActiveClientSoundDispatch
-    {
-      public:
-        explicit CActiveClientSoundDispatch(CModAudioManager& manager) : m_manager(manager)
-        {
-            m_manager.BeginClientSoundDispatch();
-        }
-        ~CActiveClientSoundDispatch()
-        {
-            m_manager.EndClientSoundDispatch();
-        }
-
-        CActiveClientSoundDispatch(const CActiveClientSoundDispatch&) = delete;
-        CActiveClientSoundDispatch& operator=(const CActiveClientSoundDispatch&) = delete;
-
-      private:
-        CModAudioManager& m_manager;
-    };
-
-    using PlayResult = AudioPlayResult;
-
-    CModAudioManager();
-    ~CModAudioManager() = default;
-    CModAudioManager(const CModAudioManager&) = delete;
-    CModAudioManager& operator=(const CModAudioManager&) = delete;
-
-    bool TryLoadDefinition(const fs::path&, const std::string& modName);
+    bool TryLoadDefinition(const fs::path& path, const std::string& modName);
     void Clear();
-    std::shared_ptr<ModAudioEventDefinition> FindReplacementDefinition(const char* eventId);
-
-    ClientSoundEventDefinition* ActivateClientSoundEvent(const char* eventId);
-    ClientSoundEventDefinition* ActivateClientSoundEvent(uint64_t eventHash);
-    ClientSoundEventDefinition* GetActiveClientSoundEvent();
-    std::shared_ptr<ClientSoundEventDefinition> TakeActiveClientSoundEvent();
-    bool HasActiveClientSoundDispatch() const;
-
-    ServerSoundAliasDefinition* ActivateServerSoundAlias(const char* eventId);
-    void ClearActiveServerSoundAlias();
-    bool HasServerSoundAlias(const char* eventId)
-    {
-        return FindServerSoundAliasDefinition(eventId) != nullptr;
-    }
-    bool TryGetServerSoundTags(const char* eventId, uint32_t& soundTags);
-    bool TryGetReplacementSample(const char* eventName, void*& data, unsigned int& dataLength, int& decoderType)
-    {
-        return m_runtime.TryGetReplacementSample(eventName, data, dataLength, decoderType);
-    }
-    bool IsCustomEventControl(const char* eventName) const
-    {
-        return m_runtime.IsControlName(eventName);
-    }
-
-    PlayResult TryPlayCustomEvent(void* eventSystem, const char* eventName, uint64_t eventId, const void* eventContext)
-    {
-        return m_runtime.TryPlayEvent(eventSystem, eventName, eventId, eventContext);
-    }
-    void ApplyCustomEventControl(const char* controlName, const void* eventContext)
-    {
-        m_runtime.ApplyEventControl(controlName, eventContext);
-    }
-    void UpdateCustomEventPosition(uint64_t eventId, float x, float y, float z)
-    {
-        m_runtime.UpdateEventPosition(eventId, x, y, z);
-    }
-    void UpdateCustomEventOrientation(uint64_t eventId, float facingX, float facingY, float facingZ, float upX, float upY, float upZ)
-    {
-        m_runtime.UpdateEventOrientation(eventId, facingX, facingY, facingZ, upX, upY, upZ);
-    }
-    void UpdateCustomEventController(uint64_t eventId, const char* controllerName, float value)
-    {
-        m_runtime.UpdateEventController(eventId, controllerName, value);
-    }
-    void UpdateCustomEventRate(uint64_t eventId, float rateFactor)
-    {
-        m_runtime.UpdateEventRate(eventId, rateFactor);
-    }
-    void ServiceActiveEvents()
-    {
-        m_runtime.Service();
-    }
-    void RecordSpatialization(void* sample, void* route, const void* listener, const float* outputLevels, uint64_t outputChannelCount,
-                              uint64_t inputChannelCount)
-    {
-        m_runtime.RecordSpatialization(sample, route, listener, outputLevels, outputChannelCount, inputChannelCount);
-    }
+    std::shared_ptr<CModAudioOverride> FindReplacementDefinition(const char* eventId);
 
   private:
-    friend class CModAudioRuntime;
+    struct EventNameHash_t
+    {
+        using is_transparent = void;
+        size_t operator()(std::string_view name) const
+        {
+            return std::hash<std::string_view>{}(name);
+        }
+    };
 
-    struct RegexEventDefinition
+    struct RegexOverride_t
     {
         std::regex Pattern;
-        std::shared_ptr<ModAudioEventDefinition> Definition;
+        std::shared_ptr<CModAudioOverride> Definition;
     };
 
-    struct ActiveThreadState
-    {
-        std::shared_ptr<ClientSoundEventDefinition> ActiveClientSoundEvent;
-        unsigned int ActiveClientDispatchDepth = 0;
-        std::shared_ptr<ServerSoundAliasDefinition> ActiveServerSoundAlias;
-    };
-
-    static ActiveThreadState& GetActiveThreadState();
-    void BeginClientSoundDispatch();
-    void EndClientSoundDispatch();
-
-    std::shared_ptr<ModAudioEventDefinition> FindExactDefinition(const char* eventId);
-    std::shared_ptr<ClientSoundEventDefinition> FindClientSoundEventDefinition(const char* eventId);
-    std::shared_ptr<ClientSoundEventDefinition> FindClientSoundEventDefinition(uint64_t eventHash);
-    std::shared_ptr<ServerSoundAliasDefinition> FindServerSoundAliasDefinition(const char* eventId);
-
-    std::shared_mutex m_registryMutex;
-    std::unordered_map<std::string, std::shared_ptr<ModAudioEventDefinition>> m_eventDefinitions;
-    std::unordered_map<std::string, RegexEventDefinition> m_regexEventDefinitions;
-    std::unordered_map<std::string, std::shared_ptr<ClientSoundEventDefinition>> m_clientEventDefinitions;
-    std::unordered_map<uint64_t, std::shared_ptr<ClientSoundEventDefinition>> m_clientEventDefinitionsByHash;
-    std::unordered_map<std::string, std::shared_ptr<ServerSoundAliasDefinition>> m_serverAliasDefinitions;
-    CModAudioRuntime m_runtime;
+    std::mutex m_registryMutex;
+    std::unordered_map<std::string, std::shared_ptr<CModAudioOverride>, EventNameHash_t, std::equal_to<>> m_eventDefinitions;
+    std::unordered_map<std::string, RegexOverride_t> m_regexEventDefinitions;
 };
 
 extern CModAudioManager g_ModAudioManager;
