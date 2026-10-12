@@ -2,11 +2,11 @@
 
 DECLARE_MODULE(PlayerInfoHooks)
 
-DECLARE_HOOK("GetPlayerInfo", engine.dll + 0x52660, [](auto& hook, int clientIndex, player_info_t* pInfo) -> bool
+DECLARE_HOOK(GetPlayerInfo, engine.dll + 0x52660, [](auto& hook, void* self, int clientIndex, player_info_t* pInfo) -> bool
 {
     if (!pInfo)
         return false;
-    const bool result = hook.Original(clientIndex, pInfo);
+    const bool result = hook.Original(self, clientIndex, pInfo);
     if (pInfo)
     {
         for (char* p = pInfo->m_ClanTag; *p; ++p)
