@@ -1,6 +1,7 @@
 #include "common/netmessages.h"
 #include "tier0/callbacks.h"
 #include "engine/client/clientstate.h"
+#include "engine/net_chan.h"
 #include "engine/server/server_limits.h"
 #include "tier0/threadtools.h"
 #include "tier0/vanilla.h"
@@ -10,6 +11,7 @@
 DECLARE_MODULE(NetMessagesHooks)
 
 #include <cstdio>
+#include <memory>
 
 NET_SignonState::NET_SignonState()
 	: m_nSignonState(eSignonState::NONE),
@@ -44,10 +46,19 @@ bool NET_SignonState::ReadFromBuffer(bf_read* buffer)
 	m_nSpawnCount = buffer->ReadLong();
 	buffer->ReadString(m_szMapName, sizeof(m_szMapName));
 	buffer->ReadString(m_szGameMode, sizeof(m_szGameMode));
-	m_bSendPlaylists = buffer->ReadByte() != 0;
+	const unsigned int flags = buffer->ReadByte();
+	m_bSendPlaylists = (flags & 1) != 0;
 	m_nPlaylistVersion = buffer->ReadLong();
 	buffer->ReadString(m_szPlaylistName, sizeof(m_szPlaylistName));
-	return !buffer->IsOverflowed();
+	if (buffer->IsOverflowed())
+		return false;
+
+	if (m_NetChannel && m_NetChannel->m_Socket == NS_CLIENT && GetBaseLocalClient)
+	{
+		if (CClientState* const client = GetBaseLocalClient())
+			client->GetClientStateExtended()->SetIsExtendedServer((flags & 0x80) != 0);
+	}
+	return true;
 }
 
 bool NET_SignonState::WriteToBuffer(bf_write* buffer)
@@ -56,7 +67,7 @@ bool NET_SignonState::WriteToBuffer(bf_write* buffer)
 	buffer->WriteLong(m_nSpawnCount);
 	buffer->WriteString(m_szMapName);
 	buffer->WriteString(m_szGameMode);
-	buffer->WriteByte(m_bSendPlaylists);
+	buffer->WriteByte(m_bSendPlaylists | (g_bSendingServerSignonCapability ? 0x80 : 0));
 	buffer->WriteLong(m_nPlaylistVersion);
 	buffer->WriteString(m_szPlaylistName);
 	return !buffer->IsOverflowed();
@@ -243,98 +254,46 @@ DECLARE_HOOK(NET_SetConVar::Process, engine.dll + 0x75CF0,
 
 	return hook.Original(msg);
 }))
-static bool(__fastcall* s_NET_BufferToBufferCompress)(void* pDest, __int64* pDestLen, const void* pSrc, int srcLen) = nullptr;
 
-struct VSVC_PlaylistsLayout
+using NET_BufferToBufferCompress_t = bool(__fastcall*)(void* destination, std::size_t* destinationSize, const void* source, std::size_t sourceSize);
+static NET_BufferToBufferCompress_t NET_BufferToBufferCompress = nullptr;
+
+DECLARE_HOOK(SVC_Playlists::WriteToBuffer, engine.dll + 0x22BBD0, [](auto& hook, SVC_Playlists* message, bf_write* buffer) -> bool
 {
-    char pad0[0x20];
-    bool hasCompressedData; // +0x20
-    char pad1[0x3];         // +0x21
-    int dataBytes;          // +0x24
-    void* dataPtr;          // +0x28
-    int uncompressedBytes;  // +0x30
-};
+    static std::unique_ptr<unsigned char[]> compressedBuffer;
+    static std::size_t compressedBufferCapacity = 0;
+    static ConVar* const svCompressPlaylists = g_pCVar->FindVar("sv_compressPlaylists");
 
-static_assert(offsetof(VSVC_PlaylistsLayout, hasCompressedData) == 0x20);
-static_assert(offsetof(VSVC_PlaylistsLayout, dataBytes) == 0x24);
-static_assert(offsetof(VSVC_PlaylistsLayout, dataPtr) == 0x28);
-static_assert(offsetof(VSVC_PlaylistsLayout, uncompressedBytes) == 0x30);
-
-DECLARE_HOOK(SVC_Playlists::WriteToBuffer, engine.dll + 0x22BBD0, [](auto& hook, __int64 msg, bf_write* buffer) -> bool
-{
-    static thread_local std::vector<unsigned char> s_PlaylistsCompressedTls;
-
-    void* msgPtr = reinterpret_cast<void*>(msg);
-    auto* msgLayout = reinterpret_cast<VSVC_PlaylistsLayout*>(msgPtr);
-    bool hasCompressedData = msgLayout->hasCompressedData;
-    int dataBytes = msgLayout->dataBytes;
-    void* dataPtr = msgLayout->dataPtr;
-    int uncompressedBytes = msgLayout->uncompressedBytes;
-	static ConVar* Cvar_sv_compress_playlists = g_pCVar->FindVar("sv_compressPlaylists");
-    const bool canTryCompress =
-        !hasCompressedData && dataPtr && dataBytes > 0 && s_NET_BufferToBufferCompress && Cvar_sv_compress_playlists->GetBool();
-
-    bool usedTempCompression = false;
-    unsigned char oldCompressedFlag = msgLayout->hasCompressedData ? 1 : 0;
-    int oldDataBytes = dataBytes;
-    void* oldDataPtr = dataPtr;
-    int oldUncompressedBytes = uncompressedBytes;
-
-    if (canTryCompress)
+    if (message->m_compressed || !message->m_buffer || message->m_bufferSize <= 0 || !NET_BufferToBufferCompress || !svCompressPlaylists ||
+        !svCompressPlaylists->GetBool())
     {
-        const size_t neededBytes = static_cast<size_t>(oldDataBytes) + 0x4000;
-        if (s_PlaylistsCompressedTls.size() < neededBytes)
-            s_PlaylistsCompressedTls.resize(neededBytes);
-
-        __int64 compressedBytes = static_cast<__int64>(s_PlaylistsCompressedTls.size());
-        if (s_NET_BufferToBufferCompress(s_PlaylistsCompressedTls.data(), &compressedBytes, oldDataPtr, oldDataBytes) && compressedBytes > 0 &&
-            compressedBytes < oldDataBytes)
-        {
-            msgLayout->hasCompressedData = true;
-            msgLayout->dataBytes = static_cast<int>(compressedBytes);
-            msgLayout->dataPtr = s_PlaylistsCompressedTls.data();
-            msgLayout->uncompressedBytes = oldDataBytes;
-            usedTempCompression = true;
-
-            hasCompressedData = true;
-            dataBytes = static_cast<int>(compressedBytes);
-            dataPtr = s_PlaylistsCompressedTls.data();
-            uncompressedBytes = oldDataBytes;
-        }
+        return hook.Original(message, buffer);
     }
 
-    int bitsBefore = buffer->GetNumBitsWritten();
-    int bitsLeftBefore = buffer->GetNumBitsLeft();
-    bool overflowBefore = buffer->IsOverflowed();
-
-    bool result = hook.Original(msg, buffer);
-
-    if (usedTempCompression)
+    const std::size_t sourceSize = static_cast<std::size_t>(message->m_bufferSize);
+    if (compressedBufferCapacity < sourceSize)
     {
-        msgLayout->hasCompressedData = (oldCompressedFlag != 0);
-        msgLayout->dataBytes = oldDataBytes;
-        msgLayout->dataPtr = oldDataPtr;
-        msgLayout->uncompressedBytes = oldUncompressedBytes;
+        compressedBuffer = std::make_unique_for_overwrite<unsigned char[]>(sourceSize);
+        compressedBufferCapacity = sourceSize;
     }
 
-    if (!result)
+    std::size_t compressedSize = sourceSize;
+    if (!NET_BufferToBufferCompress(compressedBuffer.get(), &compressedSize, message->m_buffer, sourceSize) || compressedSize == 0 ||
+        compressedSize >= sourceSize)
     {
-        int bitsAfter = buffer->GetNumBitsWritten();
-        bool overflowAfter = buffer->IsOverflowed();
-
-        spdlog::error("  !!! VSVC_Playlists::WriteToBuffer FAILED");
-        spdlog::error("      msg=0x{:X} vtbl=0x{:X} compressed={} dataBytes={} uncompressedBytes={} dataPtr=0x{:X}",
-                      reinterpret_cast<uintptr_t>(msgPtr), msgPtr ? reinterpret_cast<uintptr_t>(*reinterpret_cast<void**>(msgPtr)) : 0ull,
-                      hasCompressedData, dataBytes, uncompressedBytes, reinterpret_cast<uintptr_t>(dataPtr));
-        spdlog::error("      buffer: beforeBits={} bitsLeftBefore={} overflowBefore={}, afterBits={} overflowAfter={}", bitsBefore, bitsLeftBefore,
-                      overflowBefore, bitsAfter, overflowAfter);
-    }
-    else if (usedTempCompression)
-    {
-        spdlog::info("  SVC_Playlists compressed for send: {} -> {} bytes", oldDataBytes, dataBytes);
+        return hook.Original(message, buffer);
     }
 
-    return result;
+    const int compressedBufferSize = static_cast<int>(compressedSize);
+    buffer->WriteOneBit(true);
+    buffer->WriteLong(compressedBufferSize);
+    buffer->WriteLong(message->m_bufferSize);
+    buffer->WriteBytes(compressedBuffer.get(), compressedBufferSize);
+    if (buffer->IsOverflowed())
+        return false;
+
+    spdlog::info("  SVC_Playlists compressed for send: {} -> {} bytes", message->m_bufferSize, compressedBufferSize);
+    return true;
 })
 
 ON_DLL_LOAD("engine.dll", NetMessages, [](CModule)
@@ -353,6 +312,6 @@ ON_DLL_LOAD_RELIESON("engine.dll", NetworkMessageSecurity, ServerLimits, [](CMod
 
 ON_DLL_LOAD_RELIESON("engine.dll", PlaylistMessageCompression, ConCommand, [](CModule module)
 {
-    s_NET_BufferToBufferCompress = module.Offset(0x218F50).RCast<decltype(s_NET_BufferToBufferCompress)>();
+    NET_BufferToBufferCompress = module.Offset(0x218F50).RCast<decltype(NET_BufferToBufferCompress)>();
     DISPATCH_HOOK(NetMessagesHooks, SVC_Playlists::WriteToBuffer)
 })

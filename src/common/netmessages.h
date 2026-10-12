@@ -10,7 +10,6 @@
 #include "inetmessage.h"
 #include "tier1/utlvector.h"
 
-// custom connectionless packet types
 #define A2S_SIGREQ1 'T'
 
 #define MODDOWNLOADINFO_MIN_VERSION 1
@@ -32,7 +31,8 @@ extern bool g_bNextServerAuthUs;
 extern bool g_bNextServerAllowingAuthUs;
 extern std::atomic_bool g_bReceivedAuthNotify;
 extern std::atomic_bool g_bReceivedServerInfo;
-extern bool g_bSendingClientSignonCapability;
+extern thread_local bool g_bSendingClientSignonCapability;
+extern thread_local bool g_bSendingServerSignonCapability;
 
 enum class NetMessageType : int
 {
@@ -89,7 +89,8 @@ enum class NetMessageType : int
     svc_PlaylistPlayerCounts = 32,
     svc_NetProfileFrame = 42,
     svc_NetProfileTotals = 43,
-    __NEXT_INDEX__ = 63,
+	// custom
+    svc_WeaponPredictionState = 63,
 };
 
 
@@ -185,6 +186,21 @@ class CLC_Move : public CNetMessage
     bf_read m_DataIn;
     bf_write m_DataOut;
 };
+
+class SVC_Playlists : public CNetMessage
+{
+  public:
+    bool m_compressed;
+    int m_bufferSize;
+    char* m_buffer;
+    int m_uncompressedSize;
+};
+
+static_assert(sizeof(SVC_Playlists) == 0x38);
+static_assert(offsetof(SVC_Playlists, m_compressed) == 0x20);
+static_assert(offsetof(SVC_Playlists, m_bufferSize) == 0x24);
+static_assert(offsetof(SVC_Playlists, m_buffer) == 0x28);
+static_assert(offsetof(SVC_Playlists, m_uncompressedSize) == 0x30);
 
 class SVC_PlaylistOverrides : public CNetMessage
 {
