@@ -102,6 +102,8 @@ void FixupCvarFlags()
 
 		// fcvars that should be replicated
 		{"sv_alltalk", FCVAR_REPLICATED},
+		// need this for script prediction
+		{"script_server_fps", FCVAR_REPLICATED},
 
 		// fcvars that should be saved
 		{"cl_ragdoll_force_fade_time", FCVAR_ARCHIVE_PLAYERPROFILE},
