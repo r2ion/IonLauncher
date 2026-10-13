@@ -5,6 +5,8 @@
 #include "datamap.h"
 #include "tier1/utlvector.h"
 
+#define MULTIPLAYER_BACKUP 300
+
 extern thread_local int g_nPredictionErrorCommand;
 
 struct datacopy_t

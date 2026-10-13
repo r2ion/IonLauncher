@@ -95,6 +95,7 @@ struct netpacket_t
 static_assert(sizeof(netpacket_t) == 0x88);
 
 extern double* g_pNetTime;
+extern void (*NET_SetTime)(double realtime);
 bool NET_BufferToBufferDecompress(void* output, std::size_t* outputSize, const void* input, std::size_t inputSize);
 
 

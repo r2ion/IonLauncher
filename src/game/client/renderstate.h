@@ -19,10 +19,13 @@ struct RenderInterpolationClock_t
     bool active = false;
 };
 
-struct MovementNormalFieldOffsets_t
+struct MovementNormalField_t
 {
     int normal = -1;
     int packed = -1;
+    Vector3D wireValue{};
+    Vector3D restoredValue{};
+    bool rehydrated = false;
 };
 
 struct PredictedRenderSample_t
@@ -107,7 +110,10 @@ struct ClientRenderState_t
 {
     RenderInterpolationClock_t interpolationClock;
     const optimized_datamap_t* movementNormalPredictionMap = nullptr;
-    MovementNormalFieldOffsets_t movementNormalFieldOffsets[3];
+    CBaseHandle movementNormalEntity;
+    int movementNormalServerCount = 0;
+    int movementNormalCommand = -1;
+    MovementNormalField_t movementNormalFieldOffsets[3];
     std::vector<PredictedRenderEntity_t> predictedEntities;
     CHandle<C_Player> predictedPlayer;
     int predictedServerCount = 0;

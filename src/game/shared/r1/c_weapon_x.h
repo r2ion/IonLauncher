@@ -1,12 +1,13 @@
 #pragma once
 
-#include "game/client/c_basecombatweapon.h"
 #include "engine/deferredtrace.h"
-#include "game/shared/smartammo.h"
-#include "tier1/utlobjectreference.h"
-#include "game/shared/weapon_parse.h"
+#include "game/client/c_basecombatweapon.h"
 #include "game/shared/r1/weapon_playerdata.h"
 #include "game/shared/r1/weapon_x_shared.h"
+#include "game/shared/smartammo.h"
+#include "game/shared/weapon_parse.h"
+#include "game/shared/weapon_prediction.h"
+#include "tier1/utlobjectreference.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +15,7 @@
 class CParticleEffect;
 struct ParticleHandleListItem;
 struct SQVM;
+class C_WeaponXExtended;
 
 enum ChargeEffectState_e : int
 {
@@ -27,6 +29,10 @@ class C_WeaponX : public C_BaseCombatWeapon
 {
   public:
     int InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) override;
+    C_WeaponXExtended* GetWeaponExtended();
+    static C_WeaponXExtended* FindWeaponExtended(std::uint32_t handle);
+    static C_WeaponXExtended sm_WeaponsExtended[NUM_ENT_ENTRIES];
+
     Vector3D GetAttackPosition_Script();
     Vector3D GetAttackDirection_Script();
     void AllowUse(bool arg1);
@@ -40,8 +46,10 @@ class C_WeaponX : public C_BaseCombatWeapon
     void SetWeaponSkin(int arg1);
     void SetWeaponCamo(unsigned int arg1);
     void FireWeaponBullet_Script(Vector3D const & arg1, Vector3D const & arg2, int arg3, int arg4);
-    void FireWeaponBullet_Internal(const Vector3D& arg1, const Vector3D& arg2, int arg3, int arg4, bool arg5, bool arg6, bool arg7, bool arg8, bool arg9, bool arg10, bool arg11);
-    C_BaseEntity* FireWeaponGrenade_Script(const Vector3D& arg1, const Vector3D& arg2, const Vector3D& arg3, float arg4, int arg5, int arg6, bool arg7, bool arg8, bool arg9);
+    void FireWeaponBullet_Internal(const Vector3D& arg1, const Vector3D& arg2, int arg3, int arg4, bool arg5, bool arg6, bool arg7, bool arg8,
+                                   bool arg9, bool arg10, bool arg11);
+    C_BaseEntity* FireWeaponGrenade_Script(const Vector3D& arg1, const Vector3D& arg2, const Vector3D& arg3, float arg4, int arg5, int arg6,
+                                           bool arg7, bool arg8, bool arg9);
     C_BaseEntity* FireWeaponMissile_Script(const Vector3D& arg1, const Vector3D& arg2, float arg3, int arg4, int arg5, bool arg6, bool arg7);
     int GetProjectilesPerShot_Script() const;
     int GetAmmoPerShot_Script() const;
@@ -202,7 +210,10 @@ class C_WeaponX : public C_BaseCombatWeapon
     bool RaiseInternal(bool fromSprint, bool arg2);
     bool SustainedDischargeBegin();
 
-    WeaponState_e GetWeaponState() const { return m_weapState; }
+    WeaponState_e GetWeaponState() const
+    {
+        return m_weapState;
+    }
     void SetWeaponState(WeaponState_e state)
     {
         m_weapState = state;
@@ -259,7 +270,7 @@ class C_WeaponX : public C_BaseCombatWeapon
     int m_weaponNameIndex;
     int m_animModelIndexPredictingClientOnly;
     int m_animSequencePredictingClientOnly; // 0x15D0
-    HSCRIPT__* m_callbacks[37];             // 0x15D8
+    HSCRIPT__* m_callbacks[WEAPONX_SCRIPTCB_COUNT]; // 0x15D8
     WeaponModValues m_modVars;              // 0x1700
     int m_tracerAttachment[2];              // 0x23A0
     int m_damageSourceIdentifier;
@@ -339,4 +350,19 @@ class C_WeaponX : public C_BaseCombatWeapon
     const char* m_activeSmartAmmoLockEffect2Name3P; // 0x2F20
     int m_weaponReadySoundPlayedCount;
     AltFireIndex m_localAltFireIndex;
+};
+
+class C_WeaponXExtended
+{
+    friend class C_WeaponX;
+
+  public:
+    C_WeaponXExtended();
+
+    void Forget();
+    CWeaponXPredictionState m_WeaponPrediction;
+
+    static void ParseWeaponInfo(FileWeaponInfo_Client* weaponInfo, KeyValues* root, const char* weaponName);
+    static void ResetWeaponInfo(FileWeaponInfo_Client* weaponInfo);
+    static void OnVMShutdown();
 };

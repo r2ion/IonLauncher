@@ -3,10 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "game/shared/basecombatweapon_shared.h"
-#include "game/shared/ehandle.h"
 #include "game/server/baseanimating.h"
 #include "game/server/entityoutput.h"
+#include "game/shared/basecombatweapon_shared.h"
+#include "game/shared/ehandle.h"
 #include "game/shared/weapon_parse.h"
 
 class CBaseCombatCharacter;
@@ -45,7 +45,7 @@ class CBaseCombatWeapon : public CBaseAnimating
     }
     const FileWeaponInfo_Server& GetWpnData() const
     {
-        return *GetFileWeaponInfoFromHandle_Server(GetWeaponFileInfoHandle());
+        return *WeaponParse<FileWeaponInfo_Server>::GetFileWeaponInfoFromHandle(GetWeaponFileInfoHandle());
     }
     CBaseCombatCharacter* GetWeaponOwner() const
     {

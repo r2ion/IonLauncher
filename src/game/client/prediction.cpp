@@ -179,7 +179,15 @@ DECLARE_HOOK(CPrediction_SelectFirstCommand, client.dll + 0x2D61A0,
                 int incomingAcknowledged) -> int
 {
     self->RestoreRenderState();
-    const int firstCommand = hook.Original(self, splitScreenSlot, player, receivedNewWorldUpdate, incomingAcknowledged);
+    C_PlayerExtended* const prediction = player ? player->GetPlayerExtended() : nullptr;
+    const bool scriptMismatch =
+        splitScreenSlot == 0 && prediction && prediction->SelectBaseline(player, receivedNewWorldUpdate, incomingAcknowledged);
+    if (scriptMismatch)
+        self->MarkScriptPredictionError();
+    const bool restoreBaseline = receivedNewWorldUpdate || scriptMismatch;
+    const int firstCommand = hook.Original(self, splitScreenSlot, player, restoreBaseline, incomingAcknowledged);
+    if (restoreBaseline && splitScreenSlot == 0 && prediction)
+        prediction->RestoreBaseline(firstCommand - 1);
     if (receivedNewWorldUpdate && splitScreenSlot == 0 && self->CanInterpolateRenderState())
     {
         const int outgoing = GetBaseLocalClient()->m_nOutgoingCommandNumber;
@@ -321,6 +329,9 @@ DECLARE_HOOK(CPrediction_StorePredictionResults, client.dll + 0x2D9830,
 {
     self->RestoreRenderState();
     const std::intptr_t result = hook.Original(self, splitScreenSlot, commandNumber, predictedFrame);
+    if (splitScreenSlot == 0 && predictedFrame != -1)
+        if (C_Player* const player = C_Player::GetLocalPlayer())
+            player->GetPlayerExtended()->StoreResults(commandNumber);
     if (splitScreenSlot == 0 && predictedFrame != -1 && self->CanInterpolateRenderState())
     {
         const int outgoing = GetBaseLocalClient()->m_nOutgoingCommandNumber;

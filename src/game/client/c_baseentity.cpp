@@ -1,13 +1,13 @@
 #include "game/client/c_baseentity.h"
-#include "game/client/c_baseanimating.h"
-#include "game/client/c_baseanimatingoverlay.h"
-#include "game/client/cdll_client_int.h"
-#include "game/client/c_player.h"
-#include "game/client/prediction.h"
-#include "game/shared/r1/c_weapon_x.h"
 #include "engine/client/cdll_engine_int.h"
 #include "engine/client/clientstate.h"
+#include "game/client/c_baseanimating.h"
+#include "game/client/c_baseanimatingoverlay.h"
+#include "game/client/c_player.h"
+#include "game/client/cdll_client_int.h"
+#include "game/client/prediction.h"
 #include "game/shared/predictioncopy.h"
+#include "game/shared/r1/c_weapon_x.h"
 #include "tier0/callbacks.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
@@ -20,6 +20,9 @@
 
 DECLARE_MODULE(ClientBaseEntity)
 
+C_BaseEntity_GetAbsVelocity_t C_BaseEntity__GetAbsVelocity;
+C_BaseEntity_SetAbsVelocity_t C_BaseEntity__SetAbsVelocity;
+C_BaseEntity_PrecacheScriptSound_t C_BaseEntity__PrecacheScriptSound;
 C_BaseEntity_ValidateScriptScope_t C_BaseEntity__ValidateScriptScope;
 C_BaseEntity_InvalidatePhysicsRecursive_t C_BaseEntity__InvalidatePhysicsRecursive;
 C_BaseEntity_ProcessInterpolatedList_t C_BaseEntity__ProcessInterpolatedList;
@@ -96,6 +99,21 @@ CPredictableList* GetPredictables(int splitScreenSlot)
     return g_pfnGetPredictables(splitScreenSlot);
 }
 
+const Vector3D& C_BaseEntity::GetAbsVelocity() const
+{
+    return C_BaseEntity__GetAbsVelocity(this);
+}
+
+void C_BaseEntity::SetAbsVelocity(const Vector3D& velocity)
+{
+    C_BaseEntity__SetAbsVelocity(this, velocity);
+}
+
+void C_BaseEntity::PrecacheScriptSound(const char* soundName)
+{
+    C_BaseEntity__PrecacheScriptSound(this, soundName);
+}
+
 bool C_BaseEntity::ValidateScriptScope()
 {
     return C_BaseEntity__ValidateScriptScope(this);
@@ -147,7 +165,7 @@ void C_BaseEntity::InterpolateServerEntities()
     auto& clock = render.interpolationClock;
     clock.active = false;
 
-	if (client && globals->curtime == client->m_clientTime && !client->m_bClockCorrectionEnabled && !g_pEngineClient->IsPlayingDemo() &&
+    if (client && globals->curtime == client->m_clientTime && !client->m_bClockCorrectionEnabled && !g_pEngineClient->IsPlayingDemo() &&
         std::isfinite(globals->curtime) && std::isfinite(globals->currentSnapTime) && std::isfinite(globals->futureSnapTime) &&
         globals->futureSnapTime > globals->currentSnapTime)
     {
@@ -221,9 +239,12 @@ void C_BaseEntity::RehydrateMovementNormals(int commandNumber)
     if (!map->optimizedMap)
         return;
 
-    auto& render = GetBaseLocalClient()->GetClientStateExtended()->m_RenderState;
+    auto* const client = GetBaseLocalClient();
+    auto& render = client->GetClientStateExtended()->m_RenderState;
     auto& offsets = render.movementNormalFieldOffsets;
-    if (render.movementNormalPredictionMap != map->optimizedMap)
+    const auto& handle = GetRefEHandle();
+    if (render.movementNormalPredictionMap != map->optimizedMap || render.movementNormalEntity.ToInt() != handle.ToInt() ||
+        render.movementNormalServerCount != client->m_nServerCount || commandNumber < render.movementNormalCommand)
     {
         for (auto& fieldOffsets : offsets)
             fieldOffsets = {};
@@ -234,28 +255,38 @@ void C_BaseEntity::RehydrateMovementNormals(int commandNumber)
             if (field.fieldType != FIELD_VECTOR || field.fieldSize != 1)
                 continue;
             const std::string_view name(field.fieldName);
-            const int index = name == "m_upDir" ? 0 :
-                (name == "m_upDirPredicted" ? 1 : (name == "m_traversalForwardDir" ? 2 : -1));
+            const int index = name == "m_upDir" ? 0 : (name == "m_upDirPredicted" ? 1 : (name == "m_traversalForwardDir" ? 2 : -1));
             if (index >= 0)
                 offsets[index] = {field.flatOffset[TD_OFFSET_NORMAL], field.flatOffset[TD_OFFSET_PACKED]};
         }
         render.movementNormalPredictionMap = map->optimizedMap;
+        render.movementNormalEntity = handle;
+        render.movementNormalServerCount = client->m_nServerCount;
     }
+    render.movementNormalCommand = commandNumber;
 
-    for (const auto& fieldOffsets : offsets)
+    for (auto& fieldOffsets : offsets)
     {
         if (fieldOffsets.normal < 0 || fieldOffsets.packed < 0)
             continue;
         auto& received = *reinterpret_cast<Vector3D*>(reinterpret_cast<std::byte*>(this) + fieldOffsets.normal);
         const auto& predicted = *reinterpret_cast<const Vector3D*>(frame->serializedData + fieldOffsets.packed);
-        if (std::memcmp(&predicted, &received, sizeof(received)) == 0 || !predicted.IsValid())
+        if (fieldOffsets.rehydrated && std::memcmp(&received, &fieldOffsets.restoredValue, sizeof(received)) != 0)
+            fieldOffsets.rehydrated = false;
+        if (std::memcmp(&predicted, &received, sizeof(received)) == 0)
             continue;
+        if (!predicted.IsValid())
+        {
+            fieldOffsets.rehydrated = false;
+            continue;
+        }
 
         const float x = std::abs(predicted.x);
         const float y = std::abs(predicted.y);
         const float z = std::abs(predicted.z);
         const int axis = x > y && x > z ? 0 : (y > z ? 1 : 2);
         float component[2];
+        int wireAlignedComponents = 0;
         int next = 0;
         for (int i = 0; i < 3; ++i)
         {
@@ -264,7 +295,8 @@ void C_BaseEntity::RehydrateMovementNormals(int commandNumber)
 
             const float scaled = static_cast<float>((static_cast<double>(predicted[i]) + 0.7071068) * 722.6631138400651);
             const int value = std::clamp(static_cast<int>(std::floor(scaled + 0.5f)), 0, 1023);
-            component[next++] = static_cast<float>((value - 511) * 0.00138377063934384);
+            component[next] = static_cast<float>((value - 511) * 0.00138377063934384);
+            wireAlignedComponents += predicted[i] == component[next++];
         }
         Vector3D encoded;
         encoded[axis] = std::sqrt(1.0f - (component[0] * component[0] + component[1] * component[1]));
@@ -274,8 +306,23 @@ void C_BaseEntity::RehydrateMovementNormals(int commandNumber)
         for (int i = 0; i < 3; ++i)
             if (i != axis)
                 encoded[i] = component[next++];
-        if (std::memcmp(&encoded, &received, sizeof(received)) == 0)
+        if (wireAlignedComponents == 1 && std::abs(predicted[axis]) <= 512 * 0.00138377063934384)
+        {
+            const float scaled = static_cast<float>((static_cast<double>(predicted[axis]) + 0.7071068) * 722.6631138400651);
+            const int value = std::clamp(static_cast<int>(std::floor(scaled + 0.5f)), 0, 1023);
+            wireAlignedComponents += predicted[axis] == static_cast<float>((value - 511) * 0.00138377063934384);
+        }
+
+        const Vector3D& wireValue = fieldOffsets.rehydrated ? fieldOffsets.wireValue : received;
+        if (std::memcmp(&encoded, &wireValue, sizeof(encoded)) == 0)
+        {
+            fieldOffsets.wireValue = encoded;
+            fieldOffsets.restoredValue = predicted;
+            fieldOffsets.rehydrated = wireAlignedComponents < 2;
             received = predicted;
+        }
+        else
+            fieldOffsets.rehydrated = false;
     }
 }
 
@@ -307,6 +354,9 @@ DECLARE_HOOK(C_BaseEntity_ReleaseRenderState, client.dll + 0x3EE960, [](auto& ho
 
 ON_DLL_LOAD_CLIENT("client.dll", ClientBaseEntityMethods, [](CModule module)
 {
+    C_BaseEntity__GetAbsVelocity = module.Offset(0xAABE0).RCast<C_BaseEntity_GetAbsVelocity_t>();
+    C_BaseEntity__SetAbsVelocity = module.Offset(0x3F0560).RCast<C_BaseEntity_SetAbsVelocity_t>();
+    C_BaseEntity__PrecacheScriptSound = module.Offset(0x5B9A60).RCast<C_BaseEntity_PrecacheScriptSound_t>();
     C_BaseEntity__ValidateScriptScope = module.Offset(0xC2FB0).RCast<C_BaseEntity_ValidateScriptScope_t>();
     C_BaseEntity__InvalidatePhysicsRecursive = module.Offset(0xC3150).RCast<C_BaseEntity_InvalidatePhysicsRecursive_t>();
     C_BaseEntity__ProcessInterpolatedList = module.Offset(0x3EE0A0).RCast<C_BaseEntity_ProcessInterpolatedList_t>();

@@ -1,11 +1,38 @@
 #include "game/shared/r1/c_weapon_x.h"
+#include "engine/client/cdll_engine_int.h"
 #include "game/shared/weapon_mod_data.h"
+#include "tier0/frametask.h"
+#include "tier0/hooks.h"
 #include "vscript/ivscript.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
-#include "tier0/hooks.h"
-#include "engine/client/cdll_engine_int.h"
-#include "tier0/frametask.h"
 
+C_WeaponXExtended C_WeaponX::sm_WeaponsExtended[NUM_ENT_ENTRIES];
+
+C_WeaponXExtended::C_WeaponXExtended()
+{
+    m_WeaponPrediction.Clear();
+}
+
+C_WeaponXExtended* C_WeaponX::GetWeaponExtended()
+{
+    const CBaseHandle handle = GetRefEHandle();
+    const int index = handle.GetEntryIndex();
+    if (index < 0 || index >= NUM_ENT_ENTRIES)
+        return nullptr;
+    C_WeaponXExtended& extended = sm_WeaponsExtended[index];
+    if (extended.m_WeaponPrediction.weaponHandle != 0xFFFFFFFFu && extended.m_WeaponPrediction.weaponHandle != handle.ToInt())
+        extended.Forget();
+    return &extended;
+}
+
+C_WeaponXExtended* C_WeaponX::FindWeaponExtended(const std::uint32_t handle)
+{
+    const unsigned int index = handle & 0xFFFFu;
+    if (index >= NUM_ENT_ENTRIES)
+        return nullptr;
+    C_WeaponXExtended& extended = sm_WeaponsExtended[index];
+    return extended.m_WeaponPrediction.weaponHandle == handle ? &extended : nullptr;
+}
 DECLARE_MODULE(ClientWeaponInterpolation)
 DECLARE_HOOK(C_WeaponX_GetMods, client.dll + 0x5A7FA0, [](auto& hook, C_WeaponX* pWeapon, HSQUIRRELVM sqvm) -> SQRESULT
 {
@@ -22,6 +49,8 @@ DECLARE_HOOK(C_WeaponX_GetMods, client.dll + 0x5A7FA0, [](auto& hook, C_WeaponX*
 
 DECLARE_HOOK(C_WeaponX_Destructor, client.dll + 0x59B760, [](auto& hook, C_WeaponX* pWeapon) -> std::uintptr_t
 {
+    if (C_WeaponXExtended* const extended = pWeapon->GetWeaponExtended())
+        extended->Forget();
     g_ClientWeaponMods.ClearFieldOverrides(&pWeapon->m_modVars);
     return hook.Original(pWeapon);
 });
@@ -1157,7 +1186,6 @@ bool C_WeaponX::SustainedDischargeBegin()
     return s_SustainedDischargeBegin(this);
 }
 
-
 ON_DLL_LOAD_CLIENT("client.dll", WeaponSdkMethods, [](CModule module)
 {
     DISPATCH_HOOK(ClientWeaponInterpolation, C_WeaponX_InterpolateFieldsInternal)
@@ -1166,6 +1194,7 @@ ON_DLL_LOAD_CLIENT("client.dll", WeaponSdkMethods, [](CModule module)
     binding.Init("SetWeaponInfoFileKeyField", "Script_SetWeaponInfoFileKeyField",
                  "Sets a scalar or vector field on this client WeaponX instance at runtime.", "bool", "string key, var value", false,
                  &Script_SetWeaponInfoFileKeyField);
+    RegisterWeaponPredictionScriptMethods(ScriptContext::CLIENT, pScriptDesc);
 
     s_EmitWeaponNpcSound = module.Offset(0x5A5300).RCast<decltype(s_EmitWeaponNpcSound)>();
     s_EmitWeaponNpcSound_DontUpdateLastFiredTime = module.Offset(0x5A5310).RCast<decltype(s_EmitWeaponNpcSound_DontUpdateLastFiredTime)>();

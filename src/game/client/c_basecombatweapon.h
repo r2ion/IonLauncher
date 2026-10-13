@@ -1,9 +1,9 @@
 #pragma once
 
-#include "game/shared/basecombatweapon_shared.h"
 #include "game/client/c_baseanimating.h"
-#include "game/shared/weapon_parse.h"
+#include "game/shared/basecombatweapon_shared.h"
 #include "game/shared/ehandle.h"
+#include "game/shared/weapon_parse.h"
 #include "vscript/ivscript.h"
 
 #include <cstddef>
@@ -24,7 +24,7 @@ class C_BaseCombatWeapon : public C_BaseAnimating
     }
     const FileWeaponInfo_Client& GetWpnData() const
     {
-        return *GetFileWeaponInfoFromHandle_Client(GetWeaponFileInfoHandle());
+        return *WeaponParse<FileWeaponInfo_Client>::GetFileWeaponInfoFromHandle(GetWeaponFileInfoHandle());
     }
     C_BaseCombatCharacter* GetWeaponOwner() const
     {

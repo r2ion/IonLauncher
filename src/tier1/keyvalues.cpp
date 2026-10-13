@@ -1,9 +1,12 @@
 #include "tier1/keyvalues.h"
-#include "vstdlib/ikeyvaluessystem.h"
+#include "dedicated/dedicated.h"
+#include "engine/client/clientstate.h"
 #include "filesystem/basefilesystem.h"
 #include "modsystem/modmanager.h"
 #include "tier0/vanilla.h"
+#include "tier1/strtools.h"
 #include "util/utils.h"
+#include "vstdlib/ikeyvaluessystem.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -13,7 +16,6 @@
 #include <iomanip>
 #include <limits>
 #include <sstream>
-#include <string_view>
 #include <utility>
 #include <vector>
 #include <winnt.h>
@@ -21,21 +23,21 @@
 // implementation of the ConVar class
 // heavily based on https://github.com/Mauler125/r5sdk/blob/master/r5dev/vpc/keyvalues.cpp
 
-static int (*s_UTF8ToUnicode)(const char* pUTF8, wchar_t* pwchDest, int cubDestSizeInBytes);
-static int (*s_UnicodeToUTF8)(const wchar_t* pUnicode, char* pUTF8, int cubDestSizeInBytes);
 KeyValuesSystemFn KeyValuesSystem = nullptr;
 KeyValuesLoadFromTextBuffer_t KeyValuesLoadFromTextBuffer = nullptr;
 KeyValuesEvaluateSymbol_t DefaultKeyValuesSymbol = nullptr;
+
 thread_local KeyValuesEvaluateSymbol_t g_pKeyValuesSymbol = nullptr;
 thread_local std::vector<const char*> g_KeyValuesPatchingResources;
+thread_local ScriptContext g_KeyValuesScriptContext = ScriptContext::INVALID;
 
 // not the best solution but whatever
-#define DECLARE_KEYVALUES_LOADER(name, dll, address, textOffset)                                                                                     \
+#define DECLARE_KEYVALUES_LOADER(name, dll, address, textOffset, scriptContext)                                                                      \
     static KeyValuesLoadFromTextBuffer_t s_##name##LoadText = nullptr;                                                                               \
     DECLARE_HOOK(name, address,                                                                                                                      \
                  [](auto& hook, KeyValues* self, const char* resourceName, void* buffer, IBaseFileSystem* fileSystem, const char* pathID,            \
                     KeyValuesEvaluateSymbol_t evaluateSymbol, int flags) -> char                                                                     \
-    { return LoadKeyValuesBuffer(hook, s_##name##LoadText, self, resourceName, buffer, fileSystem, pathID, evaluateSymbol, flags); })                \
+    { return LoadKeyValuesBuffer(hook, s_##name##LoadText, self, resourceName, buffer, fileSystem, pathID, evaluateSymbol, flags, scriptContext); }) \
     ON_DLL_LOAD(dll, name, [](CModule module)                                                                                                        \
     {                                                                                                                                                \
         s_##name##LoadText = module.Offset(textOffset).RCast<KeyValuesLoadFromTextBuffer_t>();                                                       \
@@ -58,59 +60,66 @@ ON_DLL_LOAD_CLIENT("materialsystem_dx11.dll", KeyValuesDiskVMTLoading, [](CModul
 	module.Offset(0x1281B9).Patch("EB");
 })
 
-static void WriteKeyValuesIndent(std::ostream& output, const std::size_t depth)
+KeyValues::KeyValues()
 {
-	for (std::size_t index = 0; index < depth; ++index)
-		output << '\t';
+} // default constructor for copying and such
+
+void KeyValues::WriteIndents(std::ostream& output, const std::size_t depth) const
+{
+    for (std::size_t index = 0; index < depth; ++index)
+        output << '\t';
 }
 
-static void WriteKeyValuesString(
-	std::ostream& output, const std::string_view value, const bool useEscapeSequences)
+void KeyValues::WriteConvertedString(std::ostream& output, const std::string_view value) const
 {
-	for (const char character : value)
-	{
-		if (character == '"')
-			output << "\\\"";
-		else if (character == '\\' && useEscapeSequences)
-			output << "\\\\";
-		else if (character == '\r')
-			output << "\\r";
-		else if (character == '\n')
-			output << "\\n";
-		else if (character == '\t')
-			output << "\\t";
-		else
-			output << character;
-	}
+    for (const char character : value)
+    {
+        if (character == '"')
+            output << "\\\"";
+        else if (character == '\\' && m_bHasEscapeSequences)
+            output << "\\\\";
+        else if (character == '\r')
+            output << "\\r";
+        else if (character == '\n')
+            output << "\\n";
+        else if (character == '\t')
+            output << "\\t";
+        else
+            output << character;
+    }
 }
 
-static void WriteKeyValuesNode(std::ostream& output, const KeyValues& keyValues, const std::size_t depth)
+void KeyValues::SaveKeyToFile(std::ostream& output, const std::size_t depth) const
 {
-	WriteKeyValuesIndent(output, depth);
-	output << '"';
-	WriteKeyValuesString(output, keyValues.GetName() ? keyValues.GetName() : "", keyValues.m_bHasEscapeSequences);
-	output << '"';
+    if (m_pSub || GetDataType() == TYPE_NONE)
+    {
+        RecursiveSaveToFile(output, depth);
+        return;
+    }
 
-	if (keyValues.m_pSub || keyValues.GetDataType() == TYPE_NONE)
-	{
-		output << "\n";
-		WriteKeyValuesIndent(output, depth);
-		output << "{\n";
-
-		for (const KeyValues* child = keyValues.m_pSub; child; child = child->m_pPeer)
-			WriteKeyValuesNode(output, *child, depth + 1);
-
-		WriteKeyValuesIndent(output, depth);
-		output << "}\n";
-		return;
-	}
-
-	output << "\t\t\"";
-	WriteKeyValuesString(output, keyValues.GetStringValue(), keyValues.m_bHasEscapeSequences);
-	output << "\"\n";
+    WriteIndents(output, depth);
+    output << '"';
+    WriteConvertedString(output, GetName() ? GetName() : "");
+    output << "\"\t\t\"";
+    WriteConvertedString(output, GetStringValue());
+    output << "\"\n";
 }
 
-KeyValues::KeyValues() {} // default constructor for copying and such
+void KeyValues::RecursiveSaveToFile(std::ostream& output, const std::size_t depth) const
+{
+    WriteIndents(output, depth);
+    output << '"';
+    WriteConvertedString(output, GetName() ? GetName() : "");
+    output << "\"\n";
+    WriteIndents(output, depth);
+    output << "{\n";
+
+    for (const KeyValues* child = m_pSub; child; child = child->m_pPeer)
+        child->SaveKeyToFile(output, depth + 1);
+
+    WriteIndents(output, depth);
+    output << "}\n";
+}
 
 //-----------------------------------------------------------------------------
 // Purpose: Constructor
@@ -169,8 +178,7 @@ KeyValues::KeyValues(const char* pszSetName, const char* pszFirstKey, int iFirst
 //			*pszSecondKey -
 //			*pszSecondValue -
 //-----------------------------------------------------------------------------
-KeyValues::KeyValues(
-	const char* pszSetName, const char* pszFirstKey, const char* pszFirstValue, const char* pszSecondKey, const char* pszSecondValue)
+KeyValues::KeyValues(const char* pszSetName, const char* pszFirstKey, const char* pszFirstValue, const char* pszSecondKey, const char* pszSecondValue)
 {
 	Init();
 	SetName(pszSetName);
@@ -664,8 +672,7 @@ KeyValues* KeyValues::GetNextKey() const
 //-----------------------------------------------------------------------------
 const char* KeyValues::GetName(void) const
 {
-	return KeyValuesSystem()->GetStringForSymbol(
-		MAKE_3_BYTES_FROM_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2));
+    return KeyValuesSystem()->GetStringForSymbol(MAKE_3_BYTES_FROM_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2));
 }
 
 //-----------------------------------------------------------------------------
@@ -843,7 +850,7 @@ const char* KeyValues::GetString(const char* pszKeyName, const char* pszDefaultV
 		{
 			// convert the string to char *, set it for future use, and return it
 			char wideBuf[512];
-			int result = s_UnicodeToUTF8(pKey->m_wsValue, wideBuf, 512);
+			int result = V_UnicodeToUTF8(pKey->m_wsValue, wideBuf, 512);
 			if (result)
 			{
 				// note: this will copy wideBuf
@@ -910,7 +917,7 @@ const wchar_t* KeyValues::GetWString(const char* pszKeyName, const wchar_t* pwsz
 		{
 			size_t bufSize = strlen(pKey->m_sValue) + 1;
 			wchar_t* pWBuf = new wchar_t[bufSize];
-			int result = s_UTF8ToUnicode(pKey->m_sValue, pWBuf, static_cast<int>(bufSize * sizeof(wchar_t)));
+			int result = V_UTF8ToUnicode(pKey->m_sValue, pWBuf, static_cast<int>(bufSize * sizeof(wchar_t)));
 			if (result >= 0) // may be a zero length string
 			{
 				SetWString(pszKeyName, pWBuf);
@@ -952,13 +959,7 @@ std::string KeyValues::GetStringValue(void) const
 		value << std::setprecision(std::numeric_limits<float>::max_digits10) << m_flValue;
 		std::string result = value.str();
 
-		// The default stream formatting renders integral floats such as 8.0f as
-		// "8", which changes the value's type to int when the compiled .set
-		// loader and script bridge consume it. Keep a float representation by
-		// preserving the decimal point unless the value is already scientific
-		// notation or a non-finite placeholder.
-		if (result.find_first_of(".eE") == std::string::npos && result.find("nan") == std::string::npos &&
-		    result.find("inf") == std::string::npos)
+		if (result.find_first_of(".eE") == std::string::npos && result.find("nan") == std::string::npos && result.find("inf") == std::string::npos)
 			result += ".0";
 
 		return result;
@@ -971,7 +972,7 @@ std::string KeyValues::GetStringValue(void) const
 			return {};
 
 		std::string value((wcslen(m_wsValue) * 4) + 1, '\0');
-		const int length = s_UnicodeToUTF8(m_wsValue, value.data(), static_cast<int>(value.size()));
+		const int length = V_UnicodeToUTF8(m_wsValue, value.data(), static_cast<int>(value.size()));
 		if (length <= 0)
 			return {};
 
@@ -979,8 +980,7 @@ std::string KeyValues::GetStringValue(void) const
 		return value;
 	}
 	case TYPE_COLOR:
-		return std::to_string(m_Color[0]) + " " + std::to_string(m_Color[1]) + " " + std::to_string(m_Color[2]) + " " +
-			   std::to_string(m_Color[3]);
+        return std::to_string(m_Color[0]) + " " + std::to_string(m_Color[1]) + " " + std::to_string(m_Color[2]) + " " + std::to_string(m_Color[3]);
 	case TYPE_UINT64:
 		return m_sValue ? std::to_string(*reinterpret_cast<const uint64_t*>(m_sValue)) : "";
 	default:
@@ -1109,8 +1109,7 @@ void KeyValues::SetName(const char* pszSetName)
 {
 	HKeySymbol hCaseSensitiveKeyName = INVALID_KEY_SYMBOL;
 	HKeySymbol hCaseInsensitiveKeyName = INVALID_KEY_SYMBOL;
-	hCaseSensitiveKeyName =
-		KeyValuesSystem()->GetSymbolForStringCaseSensitive(hCaseInsensitiveKeyName, pszSetName, true);
+    hCaseSensitiveKeyName = KeyValuesSystem()->GetSymbolForStringCaseSensitive(hCaseInsensitiveKeyName, pszSetName, true);
 
 	m_iKeyName = hCaseInsensitiveKeyName;
 	SPLIT_3_BYTES_INTO_1_AND_2(m_iKeyNameCaseSensitive1, m_iKeyNameCaseSensitive2, hCaseSensitiveKeyName);
@@ -1433,17 +1432,15 @@ bool KeyValues::SaveToFile(const char* fileName) const
 	if (!output)
 		return false;
 
-	for (const KeyValues* root = this; root; root = root->m_pPeer)
-		WriteKeyValuesNode(output, *root, 0);
+    for (const KeyValues* root = this; root; root = root->m_pPeer)
+        root->SaveKeyToFile(output, 0);
 
-	output.close();
-	return !output.fail();
+    output.close();
+    return !output.fail();
 }
 
 ON_DLL_LOAD("vstdlib.dll", KeyValues, [](CModule module)
 {
-	s_UTF8ToUnicode = module.GetExportedFunction("V_UTF8ToUnicode").RCast<int (*)(const char*, wchar_t*, int)>();
-	s_UnicodeToUTF8 = module.GetExportedFunction("V_UnicodeToUTF8").RCast<int (*)(const wchar_t*, char*, int)>();
 	KeyValuesSystem = module.GetExportedFunction("KeyValuesSystem").RCast<KeyValuesSystemFn>();
 })
 
@@ -1455,17 +1452,32 @@ bool EvaluateKeyValuesSymbol(const char* symbol)
         return !vanilla;
     if (!_stricmp(name, "VANILLA"))
         return vanilla;
+    if (!_stricmp(name, "EXTENDED"))
+    {
+        const bool server = g_KeyValuesScriptContext == ScriptContext::SERVER ||
+                            (g_KeyValuesScriptContext == ScriptContext::INVALID && IsDedicatedServer());
+        const CClientState* client = nullptr;
+        if (!server && (g_KeyValuesScriptContext == ScriptContext::CLIENT || g_KeyValuesScriptContext == ScriptContext::INVALID) &&
+            GetBaseLocalClient)
+            client = GetBaseLocalClient();
+        return server || (client && client->IsConnectedToExtendedServer());
+    }
 
     return (g_pKeyValuesSymbol ? g_pKeyValuesSymbol : DefaultKeyValuesSymbol)(symbol);
 }
 
 template <typename Hook>
 char LoadKeyValuesBuffer(Hook& hook, KeyValuesLoadFromTextBuffer_t loadText, KeyValues* self, const char* resourceName, void* buffer,
-                                IBaseFileSystem* fileSystem, const char* pathID, KeyValuesEvaluateSymbol_t evaluateSymbol, int flags)
+                         IBaseFileSystem* fileSystem, const char* pathID, KeyValuesEvaluateSymbol_t evaluateSymbol, int flags,
+                         const ScriptContext scriptContext)
 {
     if (!DefaultKeyValuesSymbol)
         return hook.Original(self, resourceName, buffer, fileSystem, pathID, evaluateSymbol, flags);
 
+    const ScriptContext previousContext = g_KeyValuesScriptContext;
+    if (scriptContext != ScriptContext::INVALID)
+        g_KeyValuesScriptContext = scriptContext;
+    const ScopeGuard restoreContext([previousContext] { g_KeyValuesScriptContext = previousContext; });
     const KeyValuesEvaluateSymbol_t previousSymbol = g_pKeyValuesSymbol;
     if (evaluateSymbol != EvaluateKeyValuesSymbol)
         g_pKeyValuesSymbol = evaluateSymbol ? evaluateSymbol : DefaultKeyValuesSymbol;
@@ -1500,7 +1512,8 @@ DECLARE_HOOK(KeyValues__LoadFromBuffer, engine.dll + 0x426C30,
 {
     if (!pFileSystem && pResourceName && !strcmp(pResourceName, "playlists"))
         pFileSystem = static_cast<IBaseFileSystem*>(g_pFilesystem);
-    return LoadKeyValuesBuffer(hook, KeyValuesLoadFromTextBuffer, self, pResourceName, pBuffer, pFileSystem, pathID, evaluateSymbol, flags);
+    return LoadKeyValuesBuffer(hook, KeyValuesLoadFromTextBuffer, self, pResourceName, pBuffer, pFileSystem, pathID, evaluateSymbol, flags,
+                               ScriptContext::INVALID);
 })
 
 ON_DLL_LOAD_RELIESON("engine.dll", EngineKeyValues, (Filesystem), [](CModule module)
@@ -1510,11 +1523,11 @@ ON_DLL_LOAD_RELIESON("engine.dll", EngineKeyValues, (Filesystem), [](CModule mod
     DISPATCH_MODULE(KeyValuesHooks)
 })
 
-DECLARE_KEYVALUES_LOADER(ClientKeyValues, "client.dll", client.dll + 0x72C450, 0x72C2F0)
-DECLARE_KEYVALUES_LOADER(ServerKeyValues, "server.dll", server.dll + 0x71F130, 0x71EFD0)
-DECLARE_KEYVALUES_LOADER(MaterialKeyValues, "materialsystem_dx11.dll", materialsystem_dx11.dll + 0x127BF0, 0x127A90)
-DECLARE_KEYVALUES_LOADER(FilesystemKeyValues, "filesystem_stdio.dll", filesystem_stdio.dll + 0x50150, 0x4FFF0)
-DECLARE_KEYVALUES_LOADER(LocalizeKeyValues, "localize.dll", localize.dll + 0x22890, 0x22730)
-DECLARE_KEYVALUES_LOADER(VGuiKeyValues, "vgui2.dll", vgui2.dll + 0x3E440, 0x3E2E0)
-DECLARE_KEYVALUES_LOADER(VGuiSurfaceKeyValues, "vguimatsurface.dll", vguimatsurface.dll + 0x4C8C0, 0x4C760)
-DECLARE_KEYVALUES_LOADER(LauncherKeyValues, "launcher.dll", launcher.dll + 0x22F30, 0x22DD0)
+DECLARE_KEYVALUES_LOADER(ClientKeyValues, "client.dll", client.dll + 0x72C450, 0x72C2F0, ScriptContext::CLIENT)
+DECLARE_KEYVALUES_LOADER(ServerKeyValues, "server.dll", server.dll + 0x71F130, 0x71EFD0, ScriptContext::SERVER)
+DECLARE_KEYVALUES_LOADER(MaterialKeyValues, "materialsystem_dx11.dll", materialsystem_dx11.dll + 0x127BF0, 0x127A90, ScriptContext::INVALID)
+DECLARE_KEYVALUES_LOADER(FilesystemKeyValues, "filesystem_stdio.dll", filesystem_stdio.dll + 0x50150, 0x4FFF0, ScriptContext::INVALID)
+DECLARE_KEYVALUES_LOADER(LocalizeKeyValues, "localize.dll", localize.dll + 0x22890, 0x22730, ScriptContext::INVALID)
+DECLARE_KEYVALUES_LOADER(VGuiKeyValues, "vgui2.dll", vgui2.dll + 0x3E440, 0x3E2E0, ScriptContext::UI)
+DECLARE_KEYVALUES_LOADER(VGuiSurfaceKeyValues, "vguimatsurface.dll", vguimatsurface.dll + 0x4C8C0, 0x4C760, ScriptContext::UI)
+DECLARE_KEYVALUES_LOADER(LauncherKeyValues, "launcher.dll", launcher.dll + 0x22F30, 0x22DD0, ScriptContext::UI)

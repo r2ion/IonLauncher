@@ -4,16 +4,16 @@
 
 #include "iclientmodelrenderable.h"
 
-#include "game/shared/collisionproperty.h"
-#include "game/shared/particleproperty.h"
 #include "engine/ICollideable.h"
 #include "engine/deferredtrace.h"
+#include "game/shared/collisionproperty.h"
 #include "game/shared/ehandle.h"
+#include "game/shared/particleproperty.h"
+#include "game/shared/predictableid.h"
 #include "gametrace.h"
 #include "mathlib/color.h"
-#include "game/shared/predictableid.h"
-#include "vscript/script_scope.h"
 #include "tier1/utlsortvector.h"
+#include "vscript/script_scope.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -64,8 +64,14 @@ class CEntIndexLessFunc;
 class CPredictableList
 {
   public:
-    C_BaseEntity* GetPredictable(int index) const { return m_Predictables[index]; }
-    int GetPredictableCount() const { return m_Predictables.Count(); }
+    C_BaseEntity* GetPredictable(int index) const
+    {
+        return m_Predictables[index];
+    }
+    int GetPredictableCount() const
+    {
+        return m_Predictables.Count();
+    }
 
     bool m_iteratingPredictables;
     CUtlSortVector<C_BaseEntity*, CEntIndexLessFunc> m_Predictables;
@@ -313,87 +319,87 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     virtual C_BaseEntity* GetOwnerEntity() const = 0;                                                                        // 51; BD940
     virtual C_BaseEntity* GetOwnerEntity() = 0;                                                                              // 52; BD980
   public:
-    virtual C_BaseEntity* GetViewModelOwner() = 0;                                                                                             // 53
-    virtual float GetAttackDamageScale() const = 0;                                                                                            // 54
-    virtual void MoveFieldsIntoLerpingStruct(float time) = 0;                                                                                  // 55
-    virtual void PostDataUpdateThreaded(DataUpdateType_t updateType) = 0;                                                                      // 56
-    virtual void SetDormant(bool dormant) = 0;                                                                                                 // 57
-    virtual bool ShouldSavePhysics() = 0;                                                                                                      // 58
-    virtual void OnSave() = 0;                                                                                                                 // 59
-    virtual void OnRestore() = 0;                                                                                                              // 60
-    virtual int ObjectCaps() = 0;                                                                                                              // 61
-    virtual int Save(ISave& save) = 0;                                                                                                         // 62
-    virtual int Restore(IRestore& restore) = 0;                                                                                                // 63
-    virtual bool CreateVPhysics() = 0;                                                                                                         // 64
-    virtual void VPhysicsDestroyObject() = 0;                                                                                                  // 65
-    virtual void VPhysicsUpdate(IPhysicsObject* physicsObject) = 0;                                                                            // 66
-    virtual void VPhysicsShadowUpdate(IPhysicsObject* physicsObject) = 0;                                                                      // 67
-    virtual int VPhysicsGetObjectList(IPhysicsObject** list, int maxCount) = 0;                                                                // 68
-    virtual bool SetupBones_MayUseFootIk() = 0;                                                                                                // 69
-    virtual float GetSoundCodeControllerValue() = 0;                                                                                           // 70
-    virtual const Vector3D& GetPrevAbsOrigin() const = 0;                                                                                      // 71
-    virtual void Teleport(const Vector3D* position, const QAngle* angles, const Vector3D* velocity) = 0;                                       // 72
-    virtual void PreNewModel() = 0;                                                                                                            // 73
-    virtual void PostNewModel() = 0;                                                                                                           // 74
-    virtual const Vector3D& GetBoundingMins() const = 0;                                                                                       // 75
-    virtual const Vector3D& GetBoundingMaxs() const = 0;                                                                                       // 76
-    virtual Vector3D Script_GetBoundingMins() const = 0;                                                                                       // 77
-    virtual Vector3D Script_GetBoundingMaxs() const = 0;                                                                                       // 78
-    virtual const Vector3D& WorldSpaceCenter() const = 0;                                                                                      // 79
-    virtual void ComputeWorldSpaceSurroundingBox(Vector3D* mins, Vector3D* maxs) = 0;                                                          // 80
-    virtual void GetVectors(Vector3D* forward, Vector3D* right, Vector3D* up) const = 0;                                                       // 81
-    virtual SolidType_t GetSolid() const = 0;                                                                                                  // 82
-    virtual int GetSolidFlags() const = 0;                                                                                                     // 83
-    virtual bool GetAttachmentOrigin(int attachment, Vector3D& origin) = 0;                                                                    // 84
-    virtual bool GetAttachmentVelocity(int attachment, Vector3D& originVelocity, Quaternion& angleVelocity) = 0;                               // 85
-    virtual bool GetHitboxAttachmentVelocity(int hitbox, Vector3D& originVelocity, Quaternion& angleVelocity) = 0;                             // 86
-    virtual bool GetHitboxAttachment(int hitbox, Vector3D& origin, QAngle& angles) = 0;                                                        // 87
-    virtual void InvalidateAttachments() = 0;                                                                                                  // 88
-    virtual int GetTeamNumber() const = 0;                                                                                                     // 89
-    virtual void ChangeTeam(int teamNumber) = 0;                                                                                               // 90
-    virtual bool InLocalTeam() = 0;                                                                                                            // 91
-    virtual void ModifyFireBulletsTraceFilter(CBulletsTraceFilter* filter) = 0;                                                                // 92
-    virtual bool CastsShadows() = 0;                                                                                                           // 93
-    virtual void UpdatePartitionListEntry() = 0;                                                                                               // 94
-    virtual bool InitializeAsClientEntity(const char* modelName, bool renderWithViewModels) = 0;                                               // 95
-    virtual bool Simulate() = 0;                                                                                                               // 96
-    virtual bool CanStandOn(C_BaseEntity* surface) const = 0;                                                                                  // 97
-    virtual void GetAimEntOrigin(IClientEntity* entity, Vector3D* origin, QAngle* angles) = 0;                                                 // 98
-    virtual bool ShouldRenderAlways() const = 0;                                                                                               // 99
-    virtual int ComputeTranslucencyType() = 0;                                                                                                 // 100
-    virtual bool ComputeSortPriority() = 0;                                                                                                    // 101
-    virtual int GetCollideType() = 0;                                                                                                          // 102
-    virtual void UpdateVisibility() = 0;                                                                                                       // 103
-    virtual bool ShouldSuppressForSplitScreenPlayer(int splitScreenSlot) = 0;                                                                  // 104
-    virtual bool IsImmuneToPhaseShiftInvisibility(C_Player* viewPlayer) const = 0;                                                             // 105
-    virtual bool IsSelfAnimating() = 0;                                                                                                        // 106
-    virtual void OnNewParticleEffect(const char* name, CParticleEffect* effect) = 0;                                                           // 107
-    virtual void OnParticleEffectDeleted(CParticleEffect* effect) = 0;                                                                         // 108
-    virtual void ResetIK() = 0;                                                                                                                // 109
-    virtual int InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) = 0;        // 110
-    virtual void PredictionFrame_PreAnim() = 0;                                                                                                // 111
-    virtual bool DidEntityTeleport() = 0;                                                                                                      // 112
-    virtual bool IsSubModel() = 0;                                                                                                             // 113
-    virtual int DrawBrushModel(const CViewSetup* view, int flags) = 0;                                                                         // 114
-    virtual float GetTextureAnimationStartTime() = 0;                                                                                          // 115
-    virtual void TextureAnimationWrapped() = 0;                                                                                                // 116
-    virtual void SetNextClientThink(float nextThinkTime) = 0;                                                                                  // 117
-    virtual void SetHealth(int health) = 0;                                                                                                    // 118
-    virtual C_TitanSoul* GetTitanSoul() const = 0;                                                                                             // 119
-    virtual C_BaseCombatCharacter* TitanSoul_GetTitan() = 0;                                                                                   // 120
-    virtual bool IsPredictedProjectile() const = 0;                                                                                            // 121
-    virtual void UpdateOnRemove() = 0;                                                                                                         // 122
-    virtual void SUB_Remove() = 0;                                                                                                             // 123
-    virtual CBaseHandle GetEntForDecal() = 0;                                                                                                  // 124
-    virtual C_Player* GetPredictionOwner() = 0;                                                                                                // 125
-    virtual void InitPredictable(C_Player* owner, const char* context) = 0;                                                                    // 126
-    virtual void SetPredictable(bool predictable) = 0;                                                                                         // 127
-    virtual bool PredictionErrorShouldResetLatchedForAllPredictables() = 0;                                                                    // 128
-    virtual bool PredictionIsPhysicallySimulated() = 0;                                                                                        // 129
-    virtual void FindNonWorldTimeEntities() = 0;                                                                                               // 130
-    virtual void OnPostRestoreData() = 0;                                                                                                      // 131
-    virtual bool IsMechanical() const = 0;                                                                                                     // 132
-    virtual bool HasGibModel() const = 0;                                                                                                      // 133
+    virtual C_BaseEntity* GetViewModelOwner() = 0;                                                                                      // 53
+    virtual float GetAttackDamageScale() const = 0;                                                                                     // 54
+    virtual void MoveFieldsIntoLerpingStruct(float time) = 0;                                                                           // 55
+    virtual void PostDataUpdateThreaded(DataUpdateType_t updateType) = 0;                                                               // 56
+    virtual void SetDormant(bool dormant) = 0;                                                                                          // 57
+    virtual bool ShouldSavePhysics() = 0;                                                                                               // 58
+    virtual void OnSave() = 0;                                                                                                          // 59
+    virtual void OnRestore() = 0;                                                                                                       // 60
+    virtual int ObjectCaps() = 0;                                                                                                       // 61
+    virtual int Save(ISave& save) = 0;                                                                                                  // 62
+    virtual int Restore(IRestore& restore) = 0;                                                                                         // 63
+    virtual bool CreateVPhysics() = 0;                                                                                                  // 64
+    virtual void VPhysicsDestroyObject() = 0;                                                                                           // 65
+    virtual void VPhysicsUpdate(IPhysicsObject* physicsObject) = 0;                                                                     // 66
+    virtual void VPhysicsShadowUpdate(IPhysicsObject* physicsObject) = 0;                                                               // 67
+    virtual int VPhysicsGetObjectList(IPhysicsObject** list, int maxCount) = 0;                                                         // 68
+    virtual bool SetupBones_MayUseFootIk() = 0;                                                                                         // 69
+    virtual float GetSoundCodeControllerValue() = 0;                                                                                    // 70
+    virtual const Vector3D& GetPrevAbsOrigin() const = 0;                                                                               // 71
+    virtual void Teleport(const Vector3D* position, const QAngle* angles, const Vector3D* velocity) = 0;                                // 72
+    virtual void PreNewModel() = 0;                                                                                                     // 73
+    virtual void PostNewModel() = 0;                                                                                                    // 74
+    virtual const Vector3D& GetBoundingMins() const = 0;                                                                                // 75
+    virtual const Vector3D& GetBoundingMaxs() const = 0;                                                                                // 76
+    virtual Vector3D Script_GetBoundingMins() const = 0;                                                                                // 77
+    virtual Vector3D Script_GetBoundingMaxs() const = 0;                                                                                // 78
+    virtual const Vector3D& WorldSpaceCenter() const = 0;                                                                               // 79
+    virtual void ComputeWorldSpaceSurroundingBox(Vector3D* mins, Vector3D* maxs) = 0;                                                   // 80
+    virtual void GetVectors(Vector3D* forward, Vector3D* right, Vector3D* up) const = 0;                                                // 81
+    virtual SolidType_t GetSolid() const = 0;                                                                                           // 82
+    virtual int GetSolidFlags() const = 0;                                                                                              // 83
+    virtual bool GetAttachmentOrigin(int attachment, Vector3D& origin) = 0;                                                             // 84
+    virtual bool GetAttachmentVelocity(int attachment, Vector3D& originVelocity, Quaternion& angleVelocity) = 0;                        // 85
+    virtual bool GetHitboxAttachmentVelocity(int hitbox, Vector3D& originVelocity, Quaternion& angleVelocity) = 0;                      // 86
+    virtual bool GetHitboxAttachment(int hitbox, Vector3D& origin, QAngle& angles) = 0;                                                 // 87
+    virtual void InvalidateAttachments() = 0;                                                                                           // 88
+    virtual int GetTeamNumber() const = 0;                                                                                              // 89
+    virtual void ChangeTeam(int teamNumber) = 0;                                                                                        // 90
+    virtual bool InLocalTeam() = 0;                                                                                                     // 91
+    virtual void ModifyFireBulletsTraceFilter(CBulletsTraceFilter* filter) = 0;                                                         // 92
+    virtual bool CastsShadows() = 0;                                                                                                    // 93
+    virtual void UpdatePartitionListEntry() = 0;                                                                                        // 94
+    virtual bool InitializeAsClientEntity(const char* modelName, bool renderWithViewModels) = 0;                                        // 95
+    virtual bool Simulate() = 0;                                                                                                        // 96
+    virtual bool CanStandOn(C_BaseEntity* surface) const = 0;                                                                           // 97
+    virtual void GetAimEntOrigin(IClientEntity* entity, Vector3D* origin, QAngle* angles) = 0;                                          // 98
+    virtual bool ShouldRenderAlways() const = 0;                                                                                        // 99
+    virtual int ComputeTranslucencyType() = 0;                                                                                          // 100
+    virtual bool ComputeSortPriority() = 0;                                                                                             // 101
+    virtual int GetCollideType() = 0;                                                                                                   // 102
+    virtual void UpdateVisibility() = 0;                                                                                                // 103
+    virtual bool ShouldSuppressForSplitScreenPlayer(int splitScreenSlot) = 0;                                                           // 104
+    virtual bool IsImmuneToPhaseShiftInvisibility(C_Player* viewPlayer) const = 0;                                                      // 105
+    virtual bool IsSelfAnimating() = 0;                                                                                                 // 106
+    virtual void OnNewParticleEffect(const char* name, CParticleEffect* effect) = 0;                                                    // 107
+    virtual void OnParticleEffectDeleted(CParticleEffect* effect) = 0;                                                                  // 108
+    virtual void ResetIK() = 0;                                                                                                         // 109
+    virtual int InterpolateFieldsInternal(float currentTime, const SingleSnapshotValues* secondSnapshot, float secondSnapshotTime) = 0; // 110
+    virtual void PredictionFrame_PreAnim() = 0;                                                                                         // 111
+    virtual bool DidEntityTeleport() = 0;                                                                                               // 112
+    virtual bool IsSubModel() = 0;                                                                                                      // 113
+    virtual int DrawBrushModel(const CViewSetup* view, int flags) = 0;                                                                  // 114
+    virtual float GetTextureAnimationStartTime() = 0;                                                                                   // 115
+    virtual void TextureAnimationWrapped() = 0;                                                                                         // 116
+    virtual void SetNextClientThink(float nextThinkTime) = 0;                                                                           // 117
+    virtual void SetHealth(int health) = 0;                                                                                             // 118
+    virtual C_TitanSoul* GetTitanSoul() const = 0;                                                                                      // 119
+    virtual C_BaseCombatCharacter* TitanSoul_GetTitan() = 0;                                                                            // 120
+    virtual bool IsPredictedProjectile() const = 0;                                                                                     // 121
+    virtual void UpdateOnRemove() = 0;                                                                                                  // 122
+    virtual void SUB_Remove() = 0;                                                                                                      // 123
+    virtual CBaseHandle GetEntForDecal() = 0;                                                                                           // 124
+    virtual C_Player* GetPredictionOwner() = 0;                                                                                         // 125
+    virtual void InitPredictable(C_Player* owner, const char* context) = 0;                                                             // 126
+    virtual void SetPredictable(bool predictable) = 0;                                                                                  // 127
+    virtual bool PredictionErrorShouldResetLatchedForAllPredictables() = 0;                                                             // 128
+    virtual bool PredictionIsPhysicallySimulated() = 0;                                                                                 // 129
+    virtual void FindNonWorldTimeEntities() = 0;                                                                                        // 130
+    virtual void OnPostRestoreData() = 0;                                                                                               // 131
+    virtual bool IsMechanical() const = 0;                                                                                              // 132
+    virtual bool HasGibModel() const = 0;                                                                                               // 133
     virtual void DispatchImpactEffects(C_BaseEntity* hitEntity, const Vector3D& start, const Vector3D& end, const Vector3D& normal, short surfaceProp,
                                        int staticPropId, int damageType, int impactEffectTable, C_BaseEntity* otherEntity,
                                        unsigned int impactEffectFlags) = 0;                                                 // 134
@@ -512,6 +518,9 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     {
         return m_vecVelocity;
     }
+    const Vector3D& GetAbsVelocity() const;
+    void SetAbsVelocity(const Vector3D& velocity);
+    void PrecacheScriptSound(const char* soundName);
     const QAngle& GetLocalAngularVelocity() const
     {
         return m_vecAngVelocity;
@@ -860,6 +869,9 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     CHandle<C_BaseEntity> m_entitiesLinkedToMe[64];   // 0xA38
 };
 
+using C_BaseEntity_GetAbsVelocity_t = const Vector3D& (*)(const C_BaseEntity*);
+using C_BaseEntity_SetAbsVelocity_t = void (*)(C_BaseEntity*, const Vector3D&);
+using C_BaseEntity_PrecacheScriptSound_t = void (*)(C_BaseEntity*, const char*);
 using C_BaseEntity_ValidateScriptScope_t = bool (*)(C_BaseEntity*);
 using C_BaseEntity_InvalidatePhysicsRecursive_t = void (*)(C_BaseEntity*, unsigned int);
 using C_BaseEntity_ProcessInterpolatedList_t = void (*)();

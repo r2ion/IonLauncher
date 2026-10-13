@@ -288,6 +288,11 @@ class SquirrelManager
         return __sq_createclienthudelementinstance(pParent, pHudElement);
     }
 
+    inline HSCRIPT createscriptinstance(void* entity)
+    {
+        return entity ? reinterpret_cast<HSCRIPT>(__sq_createscriptinstance(entity)) : nullptr;
+    }
+
     inline const SQChar* getstring(HSQUIRRELVM sqvm, const SQInteger stackpos)
     {
         return __sq_getstring(sqvm, stackpos);

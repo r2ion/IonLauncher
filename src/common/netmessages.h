@@ -3,9 +3,11 @@
 #include <atomic>
 #include <cstddef>
 #include <type_traits>
+#include <vector>
 
 #include "common/qlimits.h"
 #include "engine/signonstate.h"
+#include "game/shared/weapon_prediction.h"
 #include "inetchannel.h"
 #include "inetmessage.h"
 #include "tier1/utlvector.h"
@@ -29,10 +31,12 @@ extern bool g_bListeningforCustomServerInfoPacket;
 extern char g_szLastServerInfoName[256];
 extern bool g_bNextServerAuthUs;
 extern bool g_bNextServerAllowingAuthUs;
+
 extern std::atomic_bool g_bReceivedAuthNotify;
 extern std::atomic_bool g_bReceivedServerInfo;
-extern thread_local bool g_bSendingClientSignonCapability;
-extern thread_local bool g_bSendingServerSignonCapability;
+
+extern bool g_bSendingClientSignonCapability;
+extern bool g_bSendingServerSignonCapability;
 
 enum class NetMessageType : int
 {
@@ -93,6 +97,7 @@ enum class NetMessageType : int
     svc_WeaponPredictionState = 63,
 };
 
+class IServerMessageHandler;
 
 class CNetMessage : public INetMessage
 {
@@ -126,6 +131,71 @@ class CNetMessage : public INetMessage
     bool m_bReliable;
     CNetChan* m_NetChannel;
     INetMessageHandler* m_pMessageHandler;
+};
+
+class CNetMessageHandler
+{
+  public:
+    template <typename Message> void AddMessageNET()
+    {
+        m_NETMessageFactories.push_back(&CreateMessage<Message>);
+    }
+
+    template <typename Message> void AddMessageCLC()
+    {
+        m_CLCMessageFactories.push_back(&CreateMessage<Message>);
+    }
+
+    template <typename Message> void AddMessageSVC()
+    {
+        m_SVCMessageFactories.push_back(&CreateMessage<Message>);
+    }
+
+    bool RegisterMessagesCLC(CNetChan* channel, IClientMessageHandler* handler) const;
+    bool RegisterMessagesSVC(CNetChan* channel, IServerMessageHandler* handler) const;
+
+  private:
+    using NetMessageFactory_t = CNetMessage* (*)(INetMessageHandler*);
+
+    template <typename Message> static CNetMessage* CreateMessage(INetMessageHandler* handler)
+    {
+        static_assert(std::is_base_of_v<CNetMessage, Message>);
+        static_assert(std::is_default_constructible_v<Message>);
+
+        auto* message = new Message();
+        message->m_pMessageHandler = handler;
+        return message;
+    }
+
+    bool RegisterMessages(CNetChan* channel, INetMessageHandler* handler, const std::vector<NetMessageFactory_t>& factories) const;
+
+    std::vector<NetMessageFactory_t> m_NETMessageFactories;
+    std::vector<NetMessageFactory_t> m_CLCMessageFactories;
+    std::vector<NetMessageFactory_t> m_SVCMessageFactories;
+};
+
+extern CNetMessageHandler* g_NetMessageHandler;
+
+class SVC_WeaponPredictionState final : public CNetMessage
+{
+  public:
+    SVC_WeaponPredictionState();
+
+    int GetType() const override;
+    const char* GetName() const override;
+    const char* ToString() const override;
+    std::size_t GetSize() const override;
+    bool ReadFromBuffer(bf_read* buffer) override;
+    bool WriteToBuffer(bf_write* buffer) override;
+    bool Process() override;
+
+    PredictedWeaponSnapshot_t& GetSnapshot();
+
+  private:
+    static bool ReadWeaponState(bf_read* buffer, PredictedWeaponWireState_t& state);
+    static void WriteWeaponState(bf_write* buffer, const PredictedWeaponWireState_t& state);
+
+    PredictedWeaponSnapshot_t m_Snapshot;
 };
 
 class NET_SignonState : public CNetMessage

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 
 #include "game/shared/ehandle.h"
 #include "mathlib/mathlib.h"
@@ -9,6 +10,54 @@
 
 class CPlayer;
 struct surfacedata_t;
+
+enum PlayerFlags_e : std::uint32_t
+{
+    PF_SCRIPT_FROZEN_CONTROLS = 1u << 0,
+    PF_CONNECTION_INACTIVE = 1u << 1,
+    PF_SCRIPT_LOCK_WEAPON_CHANGE = 1u << 2,
+    PF_OFFHAND_DISABLED = 1u << 3,
+    PF_DODGE_DISABLED = 1u << 4,
+    PF_AIMASSIST_FORCE_MP = 1u << 5,
+    PF_PREVENT_DESTROY_WEAPON_NO_AMMO = 1u << 6,
+    PF_ID_LIGHTS_ALL_FRIENDLY = 1u << 7,
+    PF_COUNT = 8,
+};
+
+enum class PredictedMovementScale : int
+{
+    Gravity,
+    AirSpeed,
+    AirAcceleration,
+    GroundFriction,
+    WallrunFriction,
+    PowerRegenRate,
+    Count,
+};
+
+enum class PredictedMovementFlag : int
+{
+    DodgeDisabled,
+    TitanDisembarkEnabled,
+    Count,
+};
+
+#define PREDICTED_MOVEMENT_SCALE_COUNT static_cast<int>(PredictedMovementScale::Count)
+#define PREDICTED_MOVEMENT_FLAG_COUNT static_cast<int>(PredictedMovementFlag::Count)
+
+struct PredictedMovementState
+{
+    bool operator==(const PredictedMovementState&) const = default;
+
+    std::array<float, PREDICTED_MOVEMENT_SCALE_COUNT> scales{};
+    std::array<bool, PREDICTED_MOVEMENT_FLAG_COUNT> flags{};
+};
+
+struct PredictedMovementFrame_t
+{
+    int command = -1;
+    PredictedMovementState movement;
+};
 
 struct PushingEntState
 {

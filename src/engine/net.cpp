@@ -11,6 +11,7 @@ DECLARE_MODULE(NetHooks)
 //===========================================================================//
 
 double* g_pNetTime;
+void (*NET_SetTime)(double realtime);
 int* net_error;
 static ConVar* Cvar_ns_recvfrom_per_frame_limit;
 
@@ -369,6 +370,7 @@ ON_DLL_LOAD("engine.dll", Net, [](CModule module)
 	NET_SendPacket = module.Offset(0x21C240).RCast<decltype(NET_SendPacket)>();
 	netadr_s__GetEncryptionKey = module.Offset(0x2154C0).RCast<netadr_s__GetEncryptionKey_t>();
 	g_pNetTime = module.Offset(0x13FA2DE0).RCast<double*>();
+	NET_SetTime = module.Offset(0x21CBF0).RCast<decltype(NET_SetTime)>();
 	s_NET_BufferToBufferDecompress = module.Offset(0x219060).RCast<NETBufferToBufferDecompress_t>();
 	net_error = module.Offset(0x13FA2DD0).RCast<int*>();
 })

@@ -296,7 +296,7 @@ public:
 	float m_tickRemainder; // 0x1015C
 	float m_frameTime; // 0x10160
 	int32_t m_nOutgoingCommandNumber; // 0x10164
-	int32_t m_nCurrentMovementSequence; // 0x10168
+	int32_t m_nLastSerializedCommandNumber; // 0x10168
 	int32_t m_nCommandAck; // 0x1016C
 	int32_t m_nLastCommandAck; // 0x10170
 	int32_t m_nServerCommandAck; // 0x10174
@@ -348,6 +348,7 @@ public:
 
     static CClientStateExtended sm_ClientStateExtended;
     CClientStateExtended* GetClientStateExtended() const;
+    bool IsConnectedToExtendedServer() const;
 
     CClientState();
 	bool ConnectInternal(const char* publicAddress, bool reservedConnectFlag, bool challengeRequest,
@@ -450,7 +451,11 @@ class CClientStateExtended
     {
         m_PlaylistVarOverrides.count = 0;
         m_bHasPlaylistVarOverrides = false;
+        m_bIsExtendedServer = false;
     }
+
+    void SetIsExtendedServer(bool isExtendedServer) { m_bIsExtendedServer = isExtendedServer; }
+    bool IsExtendedServer() const { return m_bIsExtendedServer; }
 
     PlaylistVarOverrides m_PlaylistVarOverrides;
     bool m_bHasPlaylistVarOverrides = false;
@@ -471,4 +476,7 @@ class CClientStateExtended
     bool m_bInExtraMouseSample = false;
     bool m_bInCreateMove = false;
     bool m_bRestoreCommandFrameTime = false;
+
+  private:
+    bool m_bIsExtendedServer = false;
 };

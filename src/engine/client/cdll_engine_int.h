@@ -301,7 +301,7 @@ class IVEngineClient
     virtual float GetTimescale() = 0;                                                                                // 260
     virtual bool IsTakingScreenshot() = 0;                                                                           // 261
     virtual bool IsReplayActive() = 0;                                                                               // 262
-    virtual bool GetLocalClientFlag263() = 0;                                                                        // 263
+    virtual bool IsWatchingReplay() = 0;                                                                             // 263
     virtual bool GetLocalClientFlag264() = 0;                                                                        // 264
     virtual bool GetLocalClientFlag265() = 0;                                                                        // 265
     virtual bool CanProcessLocalClientInput() = 0;                                                                   // 266

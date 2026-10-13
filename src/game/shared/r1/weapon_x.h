@@ -4,14 +4,21 @@
 #include <cstdint>
 
 #include "game/server/basecombatweapon.h"
-#include "game/shared/smartammo.h"
-#include "game/shared/weapon_parse.h"
 #include "game/shared/r1/weapon_playerdata.h"
 #include "game/shared/r1/weapon_x_shared.h"
+#include "game/shared/smartammo.h"
+#include "game/shared/weapon_parse.h"
+#include "game/shared/weapon_prediction.h"
+class CWeaponXExtended;
 
 class CWeaponX : public CBaseCombatWeapon
 {
   public:
+    const char* GetWeaponName() const;
+    CWeaponXExtended* GetWeaponExtended();
+    static CWeaponXExtended* FindWeaponExtended(std::uint32_t handle);
+    static CWeaponXExtended sm_WeaponsExtended[NUM_ENT_ENTRIES];
+
     ServerClass* GetServerClass() override = 0; // 3
     int YouForgotToImplementOrDeclareServerClass() override = 0; // 4
     ServerDataMap* GetDataDescMap() override = 0;    // 5
@@ -102,7 +109,7 @@ class CWeaponX : public CBaseCombatWeapon
     int m_animModelIndexPredictingClientOnly;          // 0x12DC
     int m_animSequencePredictingClientOnly;            // 0x12E0
     std::byte _pad12E4[0x4];                           // 0x12E4
-    HSCRIPT__* m_weaponScriptCB_[37];                  // 0x12E8
+    HSCRIPT__* m_weaponScriptCB_[WEAPONX_SCRIPTCB_COUNT]; // 0x12E8
     WeaponModValues m_modVars;                         // 0x1410
     int m_tracerAttachment[2];                         // 0x20B0
     int m_damageSourceIdentifier;                      // 0x20B8
@@ -141,7 +148,25 @@ class CWeaponX : public CBaseCombatWeapon
     std::byte _pad213C[0x4];                           // 0x213C
 };
 
+class CWeaponXExtended
+{
+    friend class CWeaponX;
+
+  public:
+    CWeaponXExtended();
+
+    void Forget();
+    CWeaponXPredictionState m_WeaponPrediction;
+
+    static void ParseWeaponInfo(FileWeaponInfo_Server* weaponInfo, KeyValues* root, const char* weaponName);
+    static void ResetWeaponInfo(FileWeaponInfo_Server* weaponInfo);
+    static void OnVMShutdown();
+};
+
 static_assert(sizeof(WeaponModValues) == 0xCA0);
 static_assert(sizeof(WeaponPlayerData) == 0xA8);
 static_assert(sizeof(SmartAmmo_WeaponData) == 0x1F0);
 static_assert(sizeof(CWeaponX) == 0x2140);
+static_assert(offsetof(CWeaponX, m_weaponNameIndex) == 0x12D8);
+static_assert(offsetof(CWeaponX, m_modVars) == 0x1410);
+static_assert(offsetof(CWeaponX, m_modVars) + offsetof(WeaponModValues, canAttackWhenDead) == 0x1EC9);

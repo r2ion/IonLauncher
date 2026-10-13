@@ -3,12 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "game/shared/ehandle.h"
 #include "game/server/basecombatcharacter.h"
+#include "game/shared/ehandle.h"
 #include "game/shared/playerdata.h"
 #include "game/shared/playerlocaldata.h"
-#include "playerstate.h"
 #include "game/shared/usercmd.h"
+#include "game/shared/weapon_prediction.h"
+#include "playerstate.h"
 #include "tier1/utlvector.h"
 
 class CAI_Squad;
@@ -17,6 +18,7 @@ class IPhysicsObject;
 class IPhysicsPlayerController;
 struct AnimRecordingAssetHeader_s;
 
+class CPlayerExtended;
 using AttachmentId_t = std::uint8_t;
 
 enum PlayerConnectedState : std::int32_t
@@ -108,6 +110,24 @@ class CPlayer : public CBaseCombatCharacter
     bool PlayerMelee_ExecutionEndTarget() override = 0;                                     // 339
     void Event_LeechEnd() override = 0;                                                     // 342
     void ItemPostFrame();
+    void SetGroundFrictionScale(float scale);
+    void SetWallrunFrictionScale(float scale);
+    void Script_TurnDodgeDisabledOn();
+    void Script_TurnDodgeDisabledOff();
+    void SetTitanDisembarkEnabled(bool enabled);
+    void SetPowerRegenRateScale(float scale);
+    CPlayerExtended* GetPlayerExtended();
+    bool UsesWeaponPrediction() const;
+
+    PredictedMovementState GetPredictedMovementState();
+    float GetPredictedMovementScale(PredictedMovementScale setting);
+    void SetPredictedMovementScale(PredictedMovementScale setting, float value);
+    bool GetPredictedMovementFlag(PredictedMovementFlag setting) const;
+    void SetPredictedMovementFlag(PredictedMovementFlag setting, bool value);
+    Vector3D GetPredictedMovementVelocity();
+    void SetPredictedMovementVelocity(const Vector3D& velocity);
+
+    static CPlayerExtended sm_PlayersExtended[MAX_PLAYERS];
 
     const char* GetNetName() const
     {
@@ -183,7 +203,7 @@ class CPlayer : public CBaseCombatCharacter
     EHANDLE m_skyCamera;                                          // 0x1E7C
     EHANDLE m_titanSoulBeingRodeoed;                              // 0x1E80
     EHANDLE m_entitySyncingWithMe;                                // 0x1E84
-    std::int32_t m_playerFlags;                                   // 0x1E88
+    std::uint32_t m_playerFlags;                                  // 0x1E88
     bool m_hasMic;                                                // 0x1E8C
     bool m_inPartyChat;                                           // 0x1E8D
     std::byte _pad1E8E[0x2];                                      // 0x1E8E
@@ -559,6 +579,45 @@ class CPlayer : public CBaseCombatCharacter
     std::byte _pad3464[0x4];                                      // 0x3464
 };
 
+class CPlayerExtended
+{
+    friend class CPlayer;
+
+  public:
+    struct PostDeathWeaponState
+    {
+        std::uint32_t playerHandle = 0;
+        std::uint32_t weaponHandle = 0;
+        std::uint32_t deathTick = 0;
+        float deathTime = 0.0f;
+        Vector3D viewOffset{};
+        bool spawnParity = false;
+        bool active = false;
+    };
+
+    struct PostDeathReplayState
+    {
+        CPlayer* player = nullptr;
+        int observerMode = 0;
+        Vector3D viewOffset{};
+        bool spawnParity = false;
+        float deathTime = 0.0f;
+        bool observerChanged = false;
+    };
+
+    CPlayerExtended();
+
+    void Clear();
+    void Reset();
+
+    CPlayerPredictionState m_WeaponPrediction;
+
+    PostDeathWeaponState m_PostDeathWeapon;
+    PostDeathReplayState m_PostDeathReplay;
+    bool m_bProtectPostDeathWeapon = false;
+    bool m_bCyclingObserverTarget = false;
+};
+
 static_assert(sizeof(CPlayer) == 0x3468);
 
-extern CPlayer*(__fastcall* UTIL_PlayerByIndex)(int playerIndex);
+CPlayer* UTIL_PlayerByIndex(int playerIndex);

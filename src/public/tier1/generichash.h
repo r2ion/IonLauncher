@@ -12,6 +12,27 @@
 #pragma once
 #endif
 
+#include <cstdint>
+
+class CMurmurHash3
+{
+  public:
+    void ProcessBuffer(const void* data, unsigned int numBytes);
+    void ProcessString(const char* text);
+    [[nodiscard]] std::uint32_t Finalize() const;
+
+  private:
+    void ProcessBlock(std::uint32_t block);
+    void ProcessByte(std::uint8_t value);
+
+    std::uint32_t m_hash = 0;
+    std::uint32_t m_tail = 0;
+    std::uint32_t m_numBytes = 0;
+    std::uint8_t m_tailBytes = 0;
+};
+
+unsigned int FASTCALL HashData(const void* data, unsigned int numBytes);
+
 //-----------------------------------------------------------------------------
 
 unsigned FASTCALL HashString(const char* pszKey);

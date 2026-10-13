@@ -3,8 +3,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iosfwd>
 
 #include <string>
+#include <string_view>
 
 class IFileSystem;
 class IBaseFileSystem;
@@ -63,6 +65,10 @@ class KeyValues
 {
 private:
 	KeyValues(); // for internal use only
+	void WriteIndents(std::ostream& output, std::size_t depth) const;
+	void WriteConvertedString(std::ostream& output, std::string_view value) const;
+	void SaveKeyToFile(std::ostream& output, std::size_t depth) const;
+	void RecursiveSaveToFile(std::ostream& output, std::size_t depth) const;
 
 public:
 	// Constructors/destructors

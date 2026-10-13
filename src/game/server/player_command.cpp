@@ -1,14 +1,16 @@
+#include "eiface.h"
+#include "engine/server/player_limits.h"
+#include "engine/server/server_limits.h"
 #include "game/server/player.h"
 #include "game/shared/usercmd.h"
-#include "engine/server/server_limits.h"
-#include "engine/server/player_limits.h"
-#include "eiface.h"
+#include "game/shared/weapon_prediction.h"
 #include "vstdlib/random.h"
 
 static IVEngineServer** g_pRunUserCmdsEngineServer;
 static ConVar** g_pSvUsercmdMaxQueued;
 
 DECLARE_MODULE(PlayerCommandHooks)
+
 // clang-format off
 DECLARE_HOOK(CPlayerMove::RunCommand, server.dll + 0x5B8100,
 ([](auto& hook, void* self, CPlayer* player, SV_CUserCmd* pUserCmd, uint64_t a4)
@@ -32,14 +34,24 @@ DECLARE_HOOK(CPlayerMove::RunCommand, server.dll + 0x5B8100,
 		}
 	}
 
-	hook.Original(self, player, pUserCmd, a4);
+    CPlayerExtended* const prediction = player ? player->GetPlayerExtended() : nullptr;
+    if (!prediction)
+    {
+        hook.Original(self, player, pUserCmd, a4);
+        return;
+    }
+    WeaponPredictionCommand_t command;
+    InitializeWeaponPredictionCommand(command, player, pUserCmd);
+    RunWeaponPredictionCommand(command, [&]
+    {
+        hook.Original(self, player, pUserCmd, a4);
+        SendWeaponPredictionSnapshot(command);
+    });
 }))
 
-DECLARE_HOOK(CPlayer::RunQueuedUserCommands, server.dll + 0x5A6E50,
-[](auto& hook, CPlayer* player, int maximum, bool firstIteration) -> bool
+DECLARE_HOOK(CPlayer::RunQueuedUserCommands, server.dll + 0x5A6E50, [](auto& hook, CPlayer* player, int maximum, bool firstIteration) -> bool
 {
-    if (firstIteration && maximum > 0 && player->m_CommandContext.Count() > 0 &&
-        (*g_pRunUserCmdsEngineServer)->ShouldMoveOneCommandPerClientFrame())
+    if (firstIteration && maximum > 0 && player->m_CommandContext.Count() > 0 && (*g_pRunUserCmdsEngineServer)->ShouldMoveOneCommandPerClientFrame())
     {
         const int queuedLimit = (*g_pSvUsercmdMaxQueued)->GetInt();
         if (queuedLimit >= 0)
@@ -123,9 +135,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 	auto sub_1805A6C20 = (void(__fastcall*)(__int64))(base + 0x5A6C20);
 
 	v3 = *(unsigned char*)(g_pGlobals + 73);
-	if (*(DWORD*)(qword_1814D9648 + 92) &&
-		(g_pEngineServer->IsDedicatedServer() || !*(DWORD*)(qword_1814DA408 + 92)) &&
-		v3)
+    if (*(DWORD*)(qword_1814D9648 + 92) && (g_pEngineServer->IsDedicatedServer() || !*(DWORD*)(qword_1814DA408 + 92)) && v3)
 	{
 		globals = g_pGlobals;
 		v5 = 1;
@@ -225,7 +235,7 @@ ON_DLL_LOAD("server.dll", MaxPlayersUserCommands, [](CModule module)
         return;
 
     g_RunUserCmdsServerModule = (HMODULE)module.GetModuleBase();
-    g_pRunUserCmdsRandomIntZeroMax = reinterpret_cast<decltype(g_pRunUserCmdsRandomIntZeroMax)>(
-        GetProcAddress(GetModuleHandleA("vstdlib.dll"), "RandomIntZeroMax"));
+    g_pRunUserCmdsRandomIntZeroMax =
+        reinterpret_cast<decltype(g_pRunUserCmdsRandomIntZeroMax)>(GetProcAddress(GetModuleHandleA("vstdlib.dll"), "RandomIntZeroMax"));
     DISPATCH_HOOK(PlayerCommandHooks, RunUserCmds)
 })

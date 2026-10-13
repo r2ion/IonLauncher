@@ -1,14 +1,13 @@
 #pragma once
 
 #include "game/shared/weapon_parse.h"
-#include "game/shared/weapon_parse.h"
 #include "vscript/ivscript.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <unordered_map>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 class KeyValues;
@@ -44,8 +43,7 @@ template <typename WeaponInfo> class CWeaponModHandler
     std::uint32_t* ParseGroups(WeaponInfo* weaponInfo, KeyValues* root, const char* weaponName, WeaponMod* outputGroups,
                                std::uint32_t* outputGroupCount, ParseGroups_t original);
     KeyValues* ParseGroup(KeyValues* section, WeaponInfo* weaponInfo, const char* weaponName, WeaponMod* outputGroup, ParseGroup_t original);
-    std::uint8_t Assemble(int enabledMods, WeaponInfo* weaponInfo, WeaponModValues* output, bool singlePlayer, int removedMods,
-                          Assemble_t original);
+    std::uint8_t Assemble(int enabledMods, WeaponInfo* weaponInfo, WeaponModValues* output, bool singlePlayer, int removedMods, Assemble_t original);
 
     static bool HasActiveAssembly();
     static bool ApplyActiveEntry(WeaponModEntry_t* entry, bool setBaseValue, bool remove);

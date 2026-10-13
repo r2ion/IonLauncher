@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mathlib/vector.h"
-#include <cstddef>
+
 #include <cstdint>
 
 enum WeaponState_e : int

@@ -70,6 +70,7 @@ private:
 	{
 		fs::path m_Path;
 		std::string m_Contents;
+		std::string m_OwningMod;
 	};
 	struct KeyValuesPatchSet_t
 	{

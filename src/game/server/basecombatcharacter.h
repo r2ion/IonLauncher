@@ -87,9 +87,9 @@ class CBaseCombatCharacter : public CBaseAnimatingOverlay
     virtual bool PlayerMelee_ExecutionEndTarget() = 0; // 339
     virtual void OnMeleeKilled() = 0; // 340
     virtual void Event_LeechStart() = 0; // 341
-    virtual void Event_LeechEnd() = 0; // 342
+    virtual void Event_LeechEnd() = 0;   // 342
 
-    CBaseEntity* GetActiveWeapon();
+    CWeaponX* GetActiveWeapon();
     bool IsWeaponHolstered();
     void HolsterWeapon();
 

@@ -1,4 +1,5 @@
 #include "engine/client/cl_main.h"
+#include "engine/client/connection_manager.h"
 #include "cdll_int.h"
 #include "game/client/input.h"
 #include "common/netmessages.h"
@@ -7,7 +8,9 @@
 #include "engine/client/clientstate.h"
 #include "engine/demo.h"
 #include "engine/client/cl_splitscreen.h"
+#include "engine/cmd.h"
 #include "engine/net.h"
+#include "engine/server/server.h"
 #include "engine/host.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
@@ -15,10 +18,13 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
+#include <string_view>
 
 DECLARE_MODULE(EngineClient)
 
+bool g_bLocalhostRetryPending;
 
 using CL_SendMove_t = void (*)();
 
@@ -76,11 +82,17 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
     CNetChan* const channel = client->m_NetChannel;
 	const float hostTimeScale = host_timescale->GetFloat();
 	const bool isTimeScaleDefault = hostTimeScale == 1.0f;
-	const float netTime = static_cast<float>(*g_pNetTime);
+	const bool perFramePackets = isActive && g_pServer->GetState() == ss_dead &&
+		g_pEngineClient->IsMoveOneCmdPerClientFrameEnabled();
+
+	if (perFramePackets)
+		NET_SetTime(g_PlatFloatTime());
+
+	const double netTime = *g_pNetTime;
 
 	bool sendPacket = true;
 	const bool packetIsDue = client->m_flNextCmdTime <= netTime;
-	if (packetIsDue && (finalTick || pendingCommandCount >= maxNewCommands))
+	if (packetIsDue && (finalTick || perFramePackets || pendingCommandCount >= maxNewCommands))
 		sendPacket = channel->CanPacket();
 	else if (pendingCommandCount < maxNewCommands || isTimeScaleDefault)
 		sendPacket = false;
@@ -92,6 +104,7 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 		const int outgoingCommandNumber = client->m_nOutgoingCommandNumber;
 		const bool isPaused = client->IsPaused();
 		const int nextCommandNumber = isPaused ? outgoingCommandNumber : outgoingCommandNumber + 1;
+		bool commandDeferred = false;
 
 		if (!g_pSplitScreenMgr->IsDisconnecting(0))
 		{
@@ -127,15 +140,19 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 					g_ClientDLL->ExtraMouseSample(frameTime - timing.m_flAccumulatedCommandFrameTime);
 				timing.m_flAccumulatedCommandFrameTime = frameTime;
 				timing.m_flAccumulatedHostFrameTime = hostFrameTime;
-				return;
+				if (!sendPacket || outgoingCommandNumber <= client->m_nLastSerializedCommandNumber)
+					return;
+				commandDeferred = true;
 			}
-
-			timing.m_flAccumulatedCommandFrameTime = 0.0f;
-			timing.m_flAccumulatedHostFrameTime = 0.0f;
-			g_ClientDLL->CreateMove(nextCommandNumber, frameTime, !isPaused);
-			client->m_nOutgoingCommandNumber = nextCommandNumber;
-			if (g_pDemoRecorder->IsRecording())
-				g_pDemoRecorder->RecordUserInput(nextCommandNumber);
+			else
+			{
+				timing.m_flAccumulatedCommandFrameTime = 0.0f;
+				timing.m_flAccumulatedHostFrameTime = 0.0f;
+				g_ClientDLL->CreateMove(nextCommandNumber, frameTime, !isPaused);
+				client->m_nOutgoingCommandNumber = nextCommandNumber;
+				if (g_pDemoRecorder->IsRecording())
+					g_pDemoRecorder->RecordUserInput(nextCommandNumber);
+			}
 		}
 
 		if (sendPacket)
@@ -143,7 +160,8 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 		else
 			channel->SetChoked();
 
-		timing.m_flLastMovementCall = movementCallTime;
+		if (!commandDeferred)
+			timing.m_flLastMovementCall = movementCallTime;
 
 
 	}
@@ -164,12 +182,31 @@ DECLARE_HOOK(CL_Move, engine.dll + 0x734C0, [](auto&, float, bool finalTick)
 		channel->SendDatagram(nullptr);
 
 		const float commandPacketInterval = 1.0f / cl_cmdrate->GetFloat();
-		const float maxPacketTimeAdjustment = std::max(*interval_per_tick, commandPacketInterval);
-		const float delta = netTime - static_cast<float>(client->m_flNextCmdTime);
+		const float maxPacketTimeAdjustment = std::min(*interval_per_tick, commandPacketInterval);
+		const float delta = static_cast<float>(netTime - client->m_flNextCmdTime);
 		const float packetTimeAdjustment = std::clamp(delta, 0.0f, maxPacketTimeAdjustment);
 		client->m_flNextCmdTime =
-			static_cast<double>(commandPacketInterval + netTime - packetTimeAdjustment);
+			netTime + static_cast<double>(commandPacketInterval) - static_cast<double>(packetTimeAdjustment);
 	}
+})
+
+DECLARE_HOOK(CL_Retry, engine.dll + 0x73D10, [](auto& hook, const CCommand& args)
+{
+	CClientState* const pClient = GetBaseLocalClient();
+	const std::string_view svAddress(pClient->m_szServerAddress);
+	if (svAddress.starts_with("localhost"))
+	{
+		char szConnectCommand[sizeof(pClient->m_szServerAddress) + sizeof("connect \n")];
+		std::snprintf(szConnectCommand, sizeof(szConnectCommand), "connect %s\n", pClient->m_szServerAddress);
+
+		g_bLocalhostRetryPending = true;
+		Cbuf_AddText(Cbuf_GetCurrentPlayer(), szConnectCommand, cmd_source_t::kCommandSrcCode);
+		return;
+	}
+
+	g_bRetryingConnection = true;
+	g_pConnectionManager->Retrying(true);
+	hook.Original(args);
 })
 
 

@@ -2,17 +2,50 @@
 #include "game/shared/weapon_mod_data.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 
+const char* (*CWeaponX__GetWeaponNameSlow)(unsigned int);
+
+const char* CWeaponX::GetWeaponName() const
+{
+    return m_weaponNameIndex >= 0 ? CWeaponX__GetWeaponNameSlow(static_cast<unsigned int>(m_weaponNameIndex)) : nullptr;
+}
+
+CWeaponXExtended CWeaponX::sm_WeaponsExtended[NUM_ENT_ENTRIES];
+
+CWeaponXExtended::CWeaponXExtended()
+{
+    m_WeaponPrediction.Clear();
+}
+
+CWeaponXExtended* CWeaponX::GetWeaponExtended()
+{
+    const CBaseHandle handle = GetRefEHandle();
+    const int index = handle.GetEntryIndex();
+    if (index < 0 || index >= NUM_ENT_ENTRIES)
+        return nullptr;
+    CWeaponXExtended& extended = sm_WeaponsExtended[index];
+    if (extended.m_WeaponPrediction.weaponHandle != 0xFFFFFFFFu && extended.m_WeaponPrediction.weaponHandle != handle.ToInt())
+        extended.Forget();
+    return &extended;
+}
+
+CWeaponXExtended* CWeaponX::FindWeaponExtended(const std::uint32_t handle)
+{
+    const unsigned int index = handle & 0xFFFFu;
+    if (index >= NUM_ENT_ENTRIES)
+        return nullptr;
+    CWeaponXExtended& extended = sm_WeaponsExtended[index];
+    return extended.m_WeaponPrediction.weaponHandle == handle ? &extended : nullptr;
+}
 DECLARE_MODULE(ServerWeaponHooks)
 DECLARE_HOOK(CWeaponX_Destructor, server.dll + 0x6813E0, [](auto& hook, CWeaponX* pWeapon) -> std::uintptr_t
 {
+    if (CWeaponXExtended* const extended = pWeapon->GetWeaponExtended())
+        extended->Forget();
     g_ServerWeaponMods.ClearFieldOverrides(&pWeapon->m_modVars);
     return hook.Original(pWeapon);
 });
 
-ON_DLL_LOAD_RELIESON("server.dll", ServerWeaponModHooks, WeaponMods_Server, [](CModule)
-{
-    DISPATCH_MODULE(ServerWeaponHooks)
-});
+ON_DLL_LOAD_RELIESON("server.dll", ServerWeaponModHooks, WeaponMods_Server, [](CModule) { DISPATCH_MODULE(ServerWeaponHooks) });
 
 static int Script_SetWeaponInfoFileKeyField(HSQUIRRELVM sqvm)
 {
@@ -43,9 +76,11 @@ static int Script_SetWeaponInfoFileKeyField(HSQUIRRELVM sqvm)
 
 ON_DLL_LOAD("server.dll", WeaponScriptMethods, [](CModule module)
 {
+    CWeaponX__GetWeaponNameSlow = module.Offset(0x691300).RCast<decltype(CWeaponX__GetWeaponNameSlow)>();
     auto* pScriptDesc = module.Offset(0x16014E0).RCast<ScriptClassDesc_t*>();
     auto& binding = pScriptDesc->m_NativeFunctionBindings[pScriptDesc->m_NativeFunctionBindings.AddToTail()];
     binding.Init("SetWeaponInfoFileKeyField", "Script_SetWeaponInfoFileKeyField",
                  "Sets a scalar or vector field on this server WeaponX instance at runtime.", "bool", "string key, var value", false,
                  &Script_SetWeaponInfoFileKeyField);
+    RegisterWeaponPredictionScriptMethods(ScriptContext::SERVER, pScriptDesc);
 })

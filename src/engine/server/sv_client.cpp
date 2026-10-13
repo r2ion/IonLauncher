@@ -14,6 +14,7 @@
 #include "engine/server/serverpresence.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
+#include "util/utils.h"
 
 static ConVar* Cvar_ns_should_log_all_clientcommands;
 static ConVar* Cvar_sv_cheats;
@@ -21,6 +22,7 @@ static ConVar* Cvar_sv_cheats;
 CClient__Disconnect_t CClient__Disconnect;
 CClient__SendDataBlock_t CClient__SendDataBlock;
 CClient* g_pClientArray;
+bool g_bSendingServerSignonCapability = false;
 
 void CClient::Disconnect(const Reputation_t nRepLevel, const char* reason, ...)
 {
@@ -57,9 +59,18 @@ DECLARE_HOOK(CClient__Clear, engine.dll + 0x101480, [](auto& hook, CClient* this
 	hook.Original(thisptr);
 })
 
+DECLARE_HOOK(CClient::ConnectionStart, engine.dll + 0x1019C0, [](auto& hook, CClient* self, CNetChan* channel) -> bool
+{
+    if (!hook.Original(self, channel))
+        return false;
+
+    return g_NetMessageHandler->RegisterMessagesCLC(channel, static_cast<IClientMessageHandler*>(self));
+})
+
 ON_DLL_LOAD("engine.dll", CClient, [](CModule module)
 {
 	DISPATCH_HOOK(EngineClientHooks, CClient__Clear)
+	DISPATCH_HOOK(EngineClientHooks, CClient::ConnectionStart)
 
 	CClient__Disconnect = module.Offset(0x1012C0).RCast<CClient__Disconnect_t>();
 	CClient__SendDataBlock = module.Offset(0x104870).RCast<CClient__SendDataBlock_t>();
@@ -201,10 +212,21 @@ DECLARE_HOOK(CClient::ProcessSignonState, engine.dll + 0x104390,
 	return hook.Original(handler, message);
 })
 
+DECLARE_HOOK(CClient::SendSignonState, engine.dll + 0x1055B0, [](auto& hook, CClient* client) -> bool
+{
+    const bool previousFlag = g_bSendingServerSignonCapability;
+    g_bSendingServerSignonCapability =
+        !g_pVanillaCompatibility->GetVanillaCompatibility() && client->GetClientExtended()->IsExtendedClient();
+    const ScopeGuard restoreFlag([previousFlag] { g_bSendingServerSignonCapability = previousFlag; });
+    return hook.Original(client);
+})
+
 ON_DLL_LOAD("engine.dll", ServerSignonCapability, [](CModule)
 {
     DISPATCH_HOOK(EngineClientHooks, CClient::ProcessSignonState)
+    DISPATCH_HOOK(EngineClientHooks, CClient::SendSignonState)
 })
+
 void DispatchClientAuthenticationHooks()
 {
 	DISPATCH_HOOK(EngineClientHooks, CClient::Connect)

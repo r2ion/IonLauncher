@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 typedef unsigned short WEAPON_FILE_INFO_HANDLE;
 #define INVALID_WEAPON_INFO_HANDLE 0xFFFF
@@ -15,21 +16,61 @@ typedef unsigned short WEAPON_FILE_INFO_HANDLE;
 #define MAX_WEAPON_MOD_ENTRIES 200
 #define MAX_ENCODED_WEAPON_MOD_ENTRIES (static_cast<std::size_t>(UINT16_MAX) + 1)
 
-#define WEAPON_MOD_ENTRY_FIRE_MODE 4
-#define WEAPON_MOD_ENTRY_AIMASSIST_ADSPULL_WEAPONCLASS 44
-#define WEAPON_MOD_ENTRY_DAMAGE_FLAGS 60
-#define WEAPON_MOD_ENTRY_EXPLOSION_DAMAGE_FLAGS 61
-#define WEAPON_MOD_ENTRY_AMMO_SUCK_BEHAVIOR 102
-#define WEAPON_MOD_ENTRY_DAMAGE_FALLOFF_TYPE 135
-#define WEAPON_MOD_ENTRY_VIEWKICK_SPRING 268
-#define WEAPON_MOD_ENTRY_SMART_AMMO_HUD_TYPE 538
-#define WEAPON_MOD_ENTRY_SMART_AMMO_HUD_LOCK_STYLE 539
-#define WEAPON_MOD_ENTRY_SMART_AMMO_WEAPON_TYPE 540
-#define WEAPON_MOD_ENTRY_SMART_AMMO_LOCK_TYPE 541
-
 #define MAX_WEAPON_STRING_POOL 3072
 #define MAX_WEAPON_MOD_PARSE_ENTRIES 0x2D6
 
+enum WeaponScriptCB : std::uint8_t
+{
+    WEAPONX_SCRIPTCB_DESTROY = 0,
+    WEAPONX_SCRIPTCB_ACTIVATE,
+    WEAPONX_SCRIPTCB_DEACTIVATE,
+    WEAPONX_SCRIPTCB_OWNER_CHANGED,
+    WEAPONX_SCRIPTCB_PRIMARY_ATTACK,
+    WEAPONX_SCRIPTCB_PRIMARY_ATTACK_ANIM_EVENT,
+    WEAPONX_SCRIPTCB_NPC_PRIMARY_ATTACK,
+    WEAPONX_SCRIPTCB_NPC_PRE_ATTACK,
+    WEAPONX_SCRIPTCB_NPC_TOSS_GRENADE,
+    WEAPONX_SCRIPTCB_RELOAD,
+    WEAPONX_SCRIPTCB_BULLET_HIT,
+    WEAPONX_SCRIPTCB_CHARGE_BEGIN,
+    WEAPONX_SCRIPTCB_CHARGE_END,
+    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_BEGIN,
+    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_END,
+    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_PULSE,
+    WEAPONX_SCRIPTCB_READY_TO_FIRE,
+    WEAPONX_SCRIPTCB_CUSTOM_ACTIVITY_START,
+    WEAPONX_SCRIPTCB_CUSTOM_ACTIVITY_END,
+    WEAPONX_SCRIPTCB_RAISE,
+    WEAPONX_SCRIPTCB_LOWER,
+    WEAPONX_SCRIPTCB_ZOOM_START_IN,
+    WEAPONX_SCRIPTCB_ZOOM_START_OUT,
+    WEAPONX_SCRIPTCB_TOSS,
+    WEAPONX_SCRIPTCB_TOSS_PREP,
+    WEAPONX_SCRIPTCB_TOSS_RELEASE_ANIM_EVENT,
+    WEAPONX_SCRIPTCB_TOSS_CANCEL,
+    WEAPONX_SCRIPTCB_ATTEMPT_OFFHAND_SWITCH,
+    WEAPONX_SCRIPTCB_OFFHAND_PRESSED_NOT_READY,
+    WEAPONX_SCRIPTCB_PRIMARY_ATTACK_VM_ACTIVITY,
+    WEAPONX_SCRIPTCB_CHARGE_LEVEL_INCREASED,
+    WEAPONX_SCRIPTCB_VORTEX_HIT_BULLET,
+    WEAPONX_SCRIPTCB_VORTEX_HIT_PROJECTILE,
+    WEAPONX_SCRIPTCB_COOLDOWN,
+    WEAPONX_SCRIPTCB_CLIENT_ANIM_EVENT,
+    WEAPONX_SCRIPTCB_SMART_AMMO_TARGETS_CHANGED,
+    WEAPONX_SCRIPTCB_SMART_AMMO_TRACKERS_CHANGED,
+    WEAPONX_SCRIPTCB_COUNT,
+};
+
+struct WeaponCallbackInfo
+{
+    const char* name;
+    const char* type;
+    const char* description;
+};
+
+static_assert(sizeof(WeaponCallbackInfo) == 0x18);
+
+extern const WeaponCallbackInfo* g_scriptCBInfo;
 
 enum class eWeaponFireMode : int
 {
@@ -965,6 +1006,7 @@ struct WeaponModAssemblyItem_t
 };
 
 static_assert(sizeof(WeaponModValues) == 0xCA0);
+static_assert(offsetof(WeaponModValues, canAttackWhenDead) == 0xAB9);
 static_assert(sizeof(WeaponMod) == 0x6);
 static_assert(sizeof(WeaponModEntry_t) == 0x10);
 static_assert(sizeof(WeaponModParseTableEntry) == 0x20);
@@ -1002,7 +1044,6 @@ struct CrosshairUiArgData_s
 
 struct FileWeaponInfo_Client
 {
-    void Parse(KeyValues* data, const char* weaponName);
     const char* GetString(WeaponString_t string) const
     {
         return stringPool + string;
@@ -1016,8 +1057,8 @@ struct FileWeaponInfo_Client
     char szClassName[MAX_WEAPON_STRING];
     WeaponString_t projectileModel;
     WeaponString_t droppedModel;
-    WeaponString_t scriptCBNames[37];
-    HSCRIPT__* scriptCB[37];
+    WeaponString_t scriptCBNames[WEAPONX_SCRIPTCB_COUNT];
+    HSCRIPT__* scriptCB[WEAPONX_SCRIPTCB_COUNT];
     WeaponString_t projectileScriptCBNames[5];
     HSCRIPT__* projectileScriptCB[5];
     WeaponString_t projectileTrailAttachment;
@@ -1110,24 +1151,13 @@ struct FileWeaponInfo_Client
     float crosshairSpread[4];
 };
 
-FileWeaponInfo_Client* GetFileWeaponInfoFromHandle_Client(WEAPON_FILE_INFO_HANDLE handle);
-FileWeaponInfo_Client* GetFileWeaponInfoFromName_Client(const char* name);
-WEAPON_FILE_INFO_HANDLE LookupWeaponInfoSlot_Client(const char* name);
-bool ReadWeaponDataFromFileForSlot_Client(IFileSystem* filesystem, const char* weaponName, WEAPON_FILE_INFO_HANDLE* handle,
-                                          const unsigned char* iceKey = nullptr);
-KeyValues* ReadEncryptedKVFile_Client(IFileSystem* filesystem, const char* filenameWithoutExtension, const unsigned char* iceKey);
-WeaponString_t AllocWeaponString_Client(FileWeaponInfo_Client* info, const char* string);
-bool GetIndexForModName_Client(const char* modName, const FileWeaponInfo_Client* info, unsigned int* index);
-bool CalcWeaponMods_Client(unsigned int bitfield, const FileWeaponInfo_Client* info, WeaponModValues* values, bool singlePlayer,
-                           unsigned int overrideMods = 0);
-
-const WeaponModParseTableEntry* FindWeaponModParseTableEntry_Client(const char* fieldName);
-const WeaponModParseTableEntry* GetWeaponModParseTableEntry_Client(WeaponModEntryType entryType);
-KeyValues* ParseWeaponMod_Client(KeyValues* section, FileWeaponInfo_Client* info, const char* weaponName, WeaponMod* mod);
-bool InsertWeaponModAssemblyItem_Client(WeaponModEntry_t* entry, const WeaponModParseTableEntry* parseEntry, WeaponModAssemblyItem_t* item);
-void PrecacheWeaponModAsset_Client(const WeaponModParseTableEntry& parseEntry, const char* assetName);
-int PrecacheWeaponModModel_Client(const char* modelName);
-void PrecacheWeaponModSound_Client(C_BaseEntity* owner, const char* soundName);
+extern FileWeaponInfo_Client* (*GetFileWeaponInfoFromName_Client)(const char*);
+extern void (*ParseFileWeaponInfo)(FileWeaponInfo_Client*, KeyValues*, const char*);
+extern bool (*ReadWeaponDataFromFileForSlot_Client)(IFileSystem*, const char*, WEAPON_FILE_INFO_HANDLE*, const unsigned char*);
+extern KeyValues* (*ReadEncryptedKVFile)(IFileSystem*, const char*, const unsigned char*);
+extern WeaponString_t (*AllocWeaponString_Client)(FileWeaponInfo_Client*, const char*);
+extern bool (*GetIndexForModName_Client)(const char*, const FileWeaponInfo_Client*, unsigned int*);
+extern bool (*CalcWeaponModsForGameType)(unsigned int, const FileWeaponInfo_Client*, WeaponModValues*, bool, unsigned int);
 
 static_assert(sizeof(FileWeaponInfo_Client) == 0x2E60);
 
@@ -1165,14 +1195,22 @@ struct FileWeaponInfo_Server
     std::byte reserved4[0x28];
 };
 
-FileWeaponInfo_Server* GetFileWeaponInfoFromHandle_Server(WEAPON_FILE_INFO_HANDLE handle);
-
-const WeaponModParseTableEntry* FindWeaponModParseTableEntry_Server(const char* fieldName);
-const WeaponModParseTableEntry* GetWeaponModParseTableEntry_Server(WeaponModEntryType entryType);
-KeyValues* ParseWeaponMod_Server(KeyValues* section, FileWeaponInfo_Server* info, const char* weaponName, WeaponMod* mod);
-bool InsertWeaponModAssemblyItem_Server(WeaponModEntry_t* entry, const WeaponModParseTableEntry* parseEntry, WeaponModAssemblyItem_t* item);
-void PrecacheWeaponModAsset_Server(const WeaponModParseTableEntry& parseEntry, const char* assetName);
-int PrecacheWeaponModModel_Server(const char* modelName);
-void PrecacheWeaponModSound_Server(CBaseEntity* owner, const char* soundName);
-
 static_assert(sizeof(FileWeaponInfo_Server) == 0x2CA8);
+
+template <typename WeaponInfo> struct WeaponParse
+{
+    using BaseEntity = std::conditional_t<std::is_same_v<WeaponInfo, FileWeaponInfo_Client>, C_BaseEntity, CBaseEntity>;
+
+    static WeaponInfo* GetFileWeaponInfoFromHandle(WEAPON_FILE_INFO_HANDLE handle);
+    static const WeaponModParseTableEntry* FindModParseEntry(const char* fieldName);
+    static const WeaponModParseTableEntry* GetModParseEntry(WeaponModEntryType entryType);
+    static bool IsSupportedSpecialModEntry(WeaponModEntryType entryType);
+    static KeyValues* ParseSingleMod(KeyValues* section, WeaponInfo* info, const char* weaponName, WeaponMod* mod);
+    static bool AddEntryToAssemblyGeneralPriority(WeaponModEntry_t* entry, const WeaponModParseTableEntry* parseEntry, WeaponModAssemblyItem_t* item);
+    static void PrecacheModAsset(const WeaponModParseTableEntry& parseEntry, const char* assetName);
+    static int PrecacheModel(const char* modelName);
+    static void PrecacheScriptSound(BaseEntity* owner, const char* soundName);
+};
+
+extern template struct WeaponParse<FileWeaponInfo_Client>;
+extern template struct WeaponParse<FileWeaponInfo_Server>;

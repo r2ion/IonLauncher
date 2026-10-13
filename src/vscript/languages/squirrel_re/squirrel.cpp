@@ -1,9 +1,9 @@
 #include "squirrel.h"
-#include "tier1/convar.h"
-#include "tier0/commandline.h"
-#include "tier0/platform.h"
 #include "dedicated/dedicated.h"
 #include "engine/cmd.h"
+#include "engine/client/clientstate.h"
+#include "game/shared/r1/c_weapon_x.h"
+#include "game/shared/r1/weapon_x.h"
 #include "logging/logging.h"
 #include "modsystem/modmanager.h"
 #include "modsystem/modsavefiles.h"
@@ -12,7 +12,10 @@
 #include "rtech/rui/scriptatlas.h"
 #include "sqstdlib/sqstdaux.h"
 #include "squirreldocumentation.h"
+#include "tier0/commandline.h"
+#include "tier0/platform.h"
 #include "tier0/vanilla.h"
+#include "tier1/convar.h"
 #include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel/sqcompiler.h"
 
@@ -229,6 +232,10 @@ void SquirrelManager::VMCreated(CSquirrelVM* newSqvm)
 
     defconst(m_pSQVM, "VANILLA", g_pVanillaCompatibility->GetVanillaCompatibility());
     defconst(m_pSQVM, "ION", 1);
+    const CClientState* client = nullptr;
+    if (m_context == ScriptContext::CLIENT && GetBaseLocalClient)
+        client = GetBaseLocalClient();
+    defconst(m_pSQVM, "EXTENDED", m_context == ScriptContext::SERVER || (client && client->IsConnectedToExtendedServer()));
     {
         std::scoped_lock lock(m_vmLifecycleMutex);
         m_messageBuffer = new SquirrelMessageBuffer();
@@ -243,6 +250,10 @@ void SquirrelManager::VMDestroyed()
         std::scoped_lock lock(m_vmLifecycleMutex);
         m_bAcceptAsyncCalls = false;
     }
+    if (m_context == ScriptContext::CLIENT)
+        C_WeaponXExtended::OnVMShutdown();
+    else if (m_context == ScriptContext::SERVER)
+        CWeaponXExtended::OnVMShutdown();
 
     if (g_pModManager)
     {

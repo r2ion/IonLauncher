@@ -2,8 +2,10 @@
 #include "modsystem/modfilesystem.h"
 #include "modsystem/modmanager.h"
 #include "tier1/keyvalues.h"
+#include "game/shared/weapon_parse.h"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <utility>
 
@@ -73,7 +75,7 @@ void ModManager::BuildKeyValuesPatchIndex()
             auto& patches = m_KeyValuesPatches[NormaliseModFilePath(path)];
             if (!patches)
                 patches = std::make_shared<KeyValuesPatchSet_t>();
-            patches->m_Patches.push_back({mod->m_ModDirectory / "keyvalues" / fs::path(path), {}});
+            patches->m_Patches.push_back({mod->m_ModDirectory / "keyvalues" / fs::path(path), {}, mod->Name});
         }
     }
 }
@@ -92,7 +94,7 @@ void ModManager::InvalidateKeyValuesPatches(const char* pathPrefix)
             auto replacement = std::make_shared<KeyValuesPatchSet_t>();
             replacement->m_Patches.reserve(patches->m_Patches.size());
             for (const KeyValuesPatch_t& patch : patches->m_Patches)
-                replacement->m_Patches.push_back({patch.m_Path, {}});
+                replacement->m_Patches.push_back({patch.m_Path, {}, patch.m_OwningMod});
             patches = std::move(replacement);
         }
         patches->m_bLoaded = false;
@@ -143,6 +145,37 @@ bool ModManager::ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourc
     KeyValues merged(keyValues.GetName());
     merged.UsesEscapeSequences(keyValues.m_bHasEscapeSequences != 0);
     CKeyValuesPatchMerge merger;
+    const bool weaponData = NormaliseModFilePath(resourceName).starts_with("scripts\\weapons\\");
+    std::array<std::string, WEAPONX_SCRIPTCB_COUNT> callbackOwners;
+    std::array<bool, WEAPONX_SCRIPTCB_COUNT> callbackSeen{};
+    std::string predictionOwner;
+    bool predictionSeen = false;
+    const auto trackPrediction = [&](KeyValues& source, const std::string& owner)
+    {
+        if (!weaponData)
+            return;
+        for (int i = 0; i < WEAPONX_SCRIPTCB_COUNT; ++i)
+        {
+            if (!callbackSeen[i] && source.FindKey(g_scriptCBInfo[i].name))
+            {
+                callbackSeen[i] = true;
+                callbackOwners[i] = owner;
+            }
+        }
+        if (KeyValues* prediction = source.FindKey("PredictedCallbacks"); prediction && source.ContainsSubKey(prediction))
+        {
+            if (!predictionSeen)
+            {
+                predictionSeen = true;
+                predictionOwner = owner;
+            }
+            else if (owner != predictionOwner)
+            {
+                source.RemoveSubKey(prediction);
+                delete prediction;
+            }
+        }
+    };
 
     for (const KeyValuesPatch_t& patch : patches->m_Patches)
     {
@@ -154,10 +187,32 @@ bool ModManager::ApplyKeyValuesPatches(KeyValues& keyValues, const char* resourc
             return false;
         }
         for (KeyValues* root = &parsed; root; root = root->m_pPeer)
+        {
+            trackPrediction(*root, patch.m_OwningMod);
             merger.Merge(merged, *root);
+        }
     }
 
+    const auto baseFile = m_ModFiles.find(NormaliseModFilePath(resourceName));
+    const std::string baseOwner = baseFile != m_ModFiles.end() && baseFile->second.m_pOwningMod
+        ? baseFile->second.m_pOwningMod->Name : "";
+    trackPrediction(keyValues, baseOwner);
     merger.Merge(merged, keyValues);
+    if (weaponData)
+    {
+        if (KeyValues* prediction = merged.FindKey("PredictedCallbacks"))
+        {
+            bool compatible = true;
+            for (int i = 0; i < WEAPONX_SCRIPTCB_COUNT; ++i)
+            {
+                if (prediction->FindKey(g_scriptCBInfo[i].name) &&
+                    (!callbackSeen[i] || callbackOwners[i] != predictionOwner))
+                    compatible = false;
+            }
+            prediction->SetString("_SourceMod", predictionOwner.c_str());
+            prediction->SetInt("_CompatibleSource", compatible ? 1 : 0);
+        }
+    }
     delete keyValues.m_pSub;
     keyValues.m_pSub = std::exchange(merged.m_pSub, nullptr);
 

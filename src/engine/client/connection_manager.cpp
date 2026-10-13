@@ -1,4 +1,5 @@
 #include "engine/client/connection_manager.h"
+#include "engine/client/cl_main.h"
 #include "common/proto_oob.h"
 #include "tier1/convar.h"
 #include "tier0/commandline.h"
@@ -1060,18 +1061,16 @@ DECLARE_HOOK(CL_FullyConnected, engine.dll + 0x72D20, [](auto& hook) -> int
 })
 // clang-format on
 
-// clang-format off
-DECLARE_HOOK(retry, engine.dll + 0x73D10, [](auto& hook, __int64 a1) -> int*
-{
-	g_bRetryingConnection = true;
-	g_pConnectionManager->Retrying(true);
-	return hook.Original(a1);
-})
-// clang-format on
 
 // clang-format off
 DECLARE_HOOK(concommand_connect, engine.dll + 0x76720, [](auto& hook, const CCommand* args) -> __int64
 {
+	if (g_bLocalhostRetryPending)
+	{
+		g_bLocalhostRetryPending = false;
+		return hook.Original(args);
+	}
+
 	if (!g_pConnectionManager->IsConnecting())
 	{
 		std::string cmd = args->GetCommandString();

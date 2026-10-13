@@ -5,6 +5,7 @@
 #include "tier1/bitbuf.h"
 #include "engine/net.h"
 #include "modsystem/moddownloader.h"
+#include "game/client/c_player.h"
 #include "tier1/cvar.h"
 #include "engine/server/player_limits.h"
 #include "tier0/vanilla.h"
@@ -15,6 +16,15 @@
 
 DECLARE_MODULE(EngineClientState)
 
+bool g_bListeningforCustomServerInfoPacket = false;
+char g_szLastServerInfoName[256] = {0};
+bool g_bNextServerAuthUs = false;
+bool g_bNextServerAllowingAuthUs = false;
+bool g_bSendingClientSignonCapability = false;
+
+std::atomic_bool g_bReceivedAuthNotify = false;
+std::atomic_bool g_bReceivedServerInfo = false;
+
 char* g_pLocalPlayerUserID;
 char* g_pLocalPlayerOriginToken;
 GetBaseLocalClientType GetBaseLocalClient;
@@ -22,17 +32,37 @@ GetLocalPlayerIndexType GetLocalPlayerIndex;
 
 CClientStateExtended CClientState::sm_ClientStateExtended;
 
-CClientStateExtended* CClientState::GetClientStateExtended() const
-{
-    return &sm_ClientStateExtended;
-}
-
-
 CClientStateIsPaused_t CClientState__IsPaused;
 CClientStateGetFrameTime_t CClientState__GetFrameTime;
 CClientStateSendStringCmd_t CClientState__SendStringCmd;
 
 void* pAccumulateClientTimeReturnAddress;
+void* g_pAdjustedClientFrameTimeReturnAddress;
+
+bool CClientState::IsConnectedToExtendedServer() const
+{
+    return GetClientStateExtended()->IsExtendedServer();
+}
+
+CClientStateExtended* CClientState::GetClientStateExtended() const
+{
+    return &sm_ClientStateExtended;
+}
+
+bool CClientState::IsPaused() const
+{
+    return CClientState__IsPaused(this);
+}
+
+float CClientState::GetFrameTime() const
+{
+    return CClientState__GetFrameTime(this);
+}
+
+void CClientState::SendStringCmd(const char* command)
+{
+    CClientState__SendStringCmd(this, command);
+}
 
 double CClientState::GetPreciseClientTime() const
 {
@@ -51,8 +81,41 @@ double CClientState::GetPreciseClientTime() const
     return static_cast<double>(m_clientTime) + clock.remainder;
 }
 
+DECLARE_HOOK(CClockDriftMgr__AdjustFrameTime, engine.dll + 0x11F870,
+             [](auto& hook, CClockDriftMgr* self, float hostFrameTime) -> float
+{
+    const float frameTime = hook.Original(self, hostFrameTime);
+    if (hook.ReturnAddress() != g_pAdjustedClientFrameTimeReturnAddress)
+        return frameTime;
+
+    CClientState* const client = GetBaseLocalClient();
+    if (self != &client->m_ClockDriftMgr)
+        return frameTime;
+
+    const double preciseTime = client->GetPreciseClientTime();
+    const float duration = std::max(frameTime, 0.0f);
+    const float nativeTime = std::min(client->m_clientTime + duration, client->m_flServerUptime);
+    const float roundedTime = static_cast<float>(
+        std::min(preciseTime + duration, static_cast<double>(client->m_flServerUptime)));
+    const float correction = roundedTime - nativeTime;
+    if (correction == 0.0f || !std::isfinite(correction))
+        return frameTime;
+
+    client->m_clientTime += correction;
+    auto& clock = client->GetClientStateExtended()->m_PreciseClientTime;
+    clock.owner = client;
+    clock.channel = client->m_NetChannel;
+    clock.serverCount = client->m_nServerCount;
+    clock.signonState = client->m_nSignonState;
+    clock.clientTime = client->m_clientTime;
+    clock.remainder = preciseTime - static_cast<double>(client->m_clientTime);
+    return frameTime;
+})
+
 DECLARE_HOOK(CClientState__Clear, engine.dll + 0x8C580, [](auto& hook, CClientState* self)
 {
+    C_PlayerExtended::ClearClientState();
+    self->GetClientStateExtended()->SetIsExtendedServer(false);
     auto& clock = self->GetClientStateExtended()->m_PreciseClientTime;
     if (self == clock.owner)
     {
@@ -64,6 +127,13 @@ DECLARE_HOOK(CClientState__Clear, engine.dll + 0x8C580, [](auto& hook, CClientSt
         skinErrors = {};
     hook.Original(self);
 })
+DECLARE_HOOK(CClientState::ConnectionStart, engine.dll + 0x8CB40, [](auto& hook, CClientState* self, CNetChan* channel) -> bool
+{
+    if (!hook.Original(self, channel))
+        return false;
+
+    return g_NetMessageHandler->RegisterMessagesSVC(channel, static_cast<IServerMessageHandler*>(self));
+})
 
 DECLARE_HOOK(CClientState__SetClientTime, engine.dll + 0x91AD0, [](auto& hook, CClientState* self, float clientTime)
 {
@@ -73,7 +143,6 @@ DECLARE_HOOK(CClientState__SetClientTime, engine.dll + 0x91AD0, [](auto& hook, C
     if (hook.ReturnAddress() == pAccumulateClientTimeReturnAddress)
     {
         const double time = std::min(self->GetPreciseClientTime() + self->m_frameTime, static_cast<double>(self->m_flServerUptime));
-        clientTime = static_cast<float>(time);
         if (std::isfinite(time))
             remainder = time - static_cast<double>(clientTime);
     }
@@ -86,21 +155,6 @@ DECLARE_HOOK(CClientState__SetClientTime, engine.dll + 0x91AD0, [](auto& hook, C
     clock.remainder = remainder;
 })
 
-bool CClientState::IsPaused() const
-{
-    return CClientState__IsPaused(this);
-}
-
-float CClientState::GetFrameTime() const
-{
-    return CClientState__GetFrameTime(this);
-}
-
-void CClientState::SendStringCmd(const char* command)
-{
-    CClientState__SendStringCmd(this, command);
-}
-
 ON_DLL_LOAD_CLIENT("engine.dll", ClientStateMethods, [](CModule module)
 {
     g_pLocalPlayerUserID = module.Offset(0x13F8E688).RCast<char*>();
@@ -112,9 +166,13 @@ ON_DLL_LOAD_CLIENT("engine.dll", ClientStateMethods, [](CModule module)
     CClientState__GetFrameTime = module.Offset(0x8E400).RCast<CClientStateGetFrameTime_t>();
     CClientState__SendStringCmd = module.Offset(0x91A10).RCast<CClientStateSendStringCmd_t>();
     pAccumulateClientTimeReturnAddress = module.Offset(0x15952B).RCast<void*>();
+    g_pAdjustedClientFrameTimeReturnAddress = module.Offset(0x1594E5).RCast<void*>();
+    DISPATCH_HOOK(EngineClientState, CClientState::ConnectionStart)
     DISPATCH_HOOK(EngineClientState, CClientState__Clear)
     DISPATCH_HOOK(EngineClientState, CClientState__SetClientTime)
+    DISPATCH_HOOK(EngineClientState, CClockDriftMgr__AdjustFrameTime)
 })
+
 // Set execution markers properly if there's space
 // If not enough space, ignore command
 // clang-format off
@@ -131,14 +189,7 @@ ON_DLL_LOAD_RELIESON("engine.dll", ClientStringCmdSecurity, CmdBufferSecurity, [
 {
     DISPATCH_HOOK(EngineClientState, CClientState::ProcessStringCmd)
 })
-bool g_bListeningforCustomServerInfoPacket = false;
-char g_szLastServerInfoName[256] = {0};
-bool g_bNextServerAuthUs = false;
-bool g_bNextServerAllowingAuthUs = false;
-bool g_bSendingClientSignonCapability = false;
 
-std::atomic_bool g_bReceivedAuthNotify = false;
-std::atomic_bool g_bReceivedServerInfo = false;
 DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [](auto& hook, CClientState* self, netpacket_t* packet) -> bool
 {
 	bf_read msg(packet->data, packet->size);
@@ -226,6 +277,7 @@ DECLARE_HOOK(CClientState__ProcessConnectionlessPacket, engine.dll + 0x19F400, [
 
 	return hook.Original(self, packet);
 })
+
 DECLARE_HOOK(CClientState::ProcessSignonStateInternal, engine.dll + 0x91D20,
              [](auto& hook,
                 CClientState* clientState,

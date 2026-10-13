@@ -12,6 +12,8 @@ enum INVALID_EHANDLE_tag
     INVALID_EHANDLE
 };
 
+#define NUM_ENT_ENTRIES 0x4000
+
 class CBaseHandle
 {
     friend class CBaseEntityList;
@@ -83,7 +85,7 @@ constexpr CBaseHandle CBaseHandle::UnsafeFromIndex(int index)
 
 inline void CBaseHandle::Init(int iEntry, int iSerialNumber)
 {
-    Assert(iEntry >= 0 && iEntry < 0x4000);
+    Assert(iEntry >= 0 && iEntry < NUM_ENT_ENTRIES);
     Assert(iSerialNumber >= 0 && iSerialNumber <= 0xFFFF);
     m_Index = static_cast<std::uint32_t>(iEntry) | (static_cast<std::uint32_t>(iSerialNumber) << 16);
 }
@@ -100,7 +102,7 @@ constexpr bool CBaseHandle::IsValid() const
 
 constexpr int CBaseHandle::GetEntryIndex() const
 {
-    return IsValid() ? static_cast<int>(m_Index & 0xFFFFu) : 0x3FFF;
+    return IsValid() ? static_cast<int>(m_Index & 0xFFFFu) : NUM_ENT_ENTRIES - 1;
 }
 
 constexpr int CBaseHandle::GetSerialNumber() const

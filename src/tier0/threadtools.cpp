@@ -4,6 +4,21 @@
 #include <codecvt>
 #include <locale>
 
+CThreadMutex::CThreadMutex()
+{
+	InitializeCriticalSectionAndSpinCount(&m_CriticalSection, 4000);
+#ifdef THREAD_MUTEX_TRACING_SUPPORTED
+	m_currentOwnerID = 0;
+	m_lockCount = 0;
+	m_bTrace = false;
+#endif
+}
+
+CThreadMutex::~CThreadMutex()
+{
+	DeleteCriticalSection(&m_CriticalSection);
+}
+
 DECLARE_MODULE(ThreadToolsHooks)
 
 using ThreadCheck_t = bool (*)();
