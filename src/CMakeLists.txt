@@ -92,6 +92,7 @@ add_library(
     "game/client/c_baseentity.cpp"
     "game/client/c_baseviewmodel.cpp"
     "game/client/cdll_client_int.cpp"
+    "game/client/player_info.cpp"
     "game/client/r1/r1_hud_scriptelements.cpp"
     "game/client/input.cpp"
     "game/client/prediction.cpp"
