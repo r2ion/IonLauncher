@@ -16,6 +16,8 @@
 #include "game/shared/usercmd.h"
 #include "modsystem/modmanager.h"
 #include "tier0/hooks.h"
+#include "tier1/convar.h"
+#include "tier1/cvar.h"
 #include "tier1/generichash.h"
 #include "tier1/keyvalues.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
@@ -36,7 +38,31 @@ using WeaponPredictionDefinitionMap = std::unordered_map<const WeaponInfo*, std:
 WeaponPredictionDefinitionMap<FileWeaponInfo_Client> g_ClientWeaponPredictionDefinitions;
 WeaponPredictionDefinitionMap<FileWeaponInfo_Server> g_ServerWeaponPredictionDefinitions;
 
+ConVar* Cvar_ns_script_prediction;
 thread_local WeaponPredictionCommand_t* g_pWeaponPredictionCommand = nullptr;
+
+bool IsScriptWeaponPredictionEnabled()
+{
+    return !Cvar_ns_script_prediction || Cvar_ns_script_prediction->GetBool();
+}
+
+void ScriptWeaponPredictionChanged(IConVar* const conVar, const char*, float, ChangeUserData_t)
+{
+    const ConVar* const current = g_pCVar ? g_pCVar->FindVar(conVar->GetName()) : nullptr;
+    if (!current || current->GetBool())
+        return;
+
+    C_Player::sm_PlayerExtended.Reset();
+    for (CPlayerExtended& extension : CPlayer::sm_PlayersExtended)
+    {
+        CPlayerPredictionState& prediction = extension.m_WeaponPrediction;
+        if (prediction.retired)
+            continue;
+        if (prediction.player)
+            RetireWeaponPredictionOwner(prediction);
+        prediction.Clear();
+    }
+}
 
 void CPlayerPredictionState::Clear()
 {
@@ -991,6 +1017,8 @@ bool SVC_WeaponPredictionState::Process()
     CClientState* const client = GetBaseLocalClient ? GetBaseLocalClient() : nullptr;
     if (!client || m_NetChannel != client->m_NetChannel || !client->IsConnectedToExtendedServer())
         return false;
+    if (!IsScriptWeaponPredictionEnabled())
+        return true;
     if (m_Snapshot.serverCount != client->m_nServerCount)
         return true;
 
@@ -1011,6 +1039,14 @@ bool SVC_WeaponPredictionState::Process()
     }
     return true;
 }
+
+ON_DLL_LOAD_RELIESON("engine.dll", ScriptWeaponPredictionConVar, ConVar, [](CModule)
+{
+    Cvar_ns_script_prediction =
+        new ConVar("ns_script_prediction", "0", FCVAR_GAMEDLL | FCVAR_REPLICATED,
+                   "Enables experimental script prediction.", true, 0.0f, true,
+                   1.0f, ScriptWeaponPredictionChanged);
+})
 
 ON_DLL_LOAD("engine.dll", WeaponPredictionNetMessage, [](CModule) { g_NetMessageHandler->AddMessageSVC<SVC_WeaponPredictionState>(); })
 
@@ -1066,7 +1102,7 @@ void SendWeaponPredictionSnapshot(WeaponPredictionCommand_t& command)
         state.state = instance->state;
     }
 
-	if (client->m_NetChannel->SendNetMsg(message, true, false))
+    if (client->m_NetChannel->SendNetMsg(message, true, false))
     {
         owner.lastSent.CopyFrom(snapshot);
         owner.sent = true;

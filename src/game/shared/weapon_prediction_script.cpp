@@ -1,5 +1,5 @@
-#include "game/shared/weapon_prediction.h"
 #include "game/shared/util_shared.h"
+#include "game/shared/weapon_prediction.h"
 
 #include "game/client/c_player.h"
 #include "game/server/player.h"
@@ -60,6 +60,8 @@ template <ScriptContext context> static HSCRIPT SelectPredictedWeaponCallback(HS
 
 HSCRIPT SelectPredictedWeaponCallback(const ScriptContext context, HSCRIPT function, ScriptVariant_t* arguments, const int count)
 {
+    if (!IsScriptWeaponPredictionEnabled())
+        return function;
     if (context == ScriptContext::CLIENT)
         return SelectPredictedWeaponCallback<ScriptContext::CLIENT>(function, arguments, count);
     if (context == ScriptContext::SERVER)
@@ -187,8 +189,7 @@ ADD_SQFUNC("float", Prediction_RandomFloat, "int stream, float minimum, float ma
 
     const std::uint32_t stream = static_cast<std::uint32_t>(manager->getinteger(sqvm, 1));
     static thread_local CUniformRandomStream randomStream;
-    manager->pushfloat(
-        sqvm, SharedRandomFloat(randomStream, std::bit_cast<std::int32_t>(seed), stream, minimum, maximum));
+    manager->pushfloat(sqvm, SharedRandomFloat(randomStream, std::bit_cast<std::int32_t>(seed), stream, minimum, maximum));
     return SQRESULT_NOTNULL;
 }
 

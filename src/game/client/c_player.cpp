@@ -84,8 +84,8 @@ void C_PlayerExtended::StoreResults(const int commandNumber)
 bool C_Player::UsesWeaponPrediction() const
 {
     const CClientState* const client = GetBaseLocalClient ? GetBaseLocalClient() : nullptr;
-    return !g_pVanillaCompatibility->GetVanillaCompatibility() && client && client->IsConnectedToExtendedServer() &&
-           this == C_Player::GetLocalPlayer();
+    return IsScriptWeaponPredictionEnabled() && !g_pVanillaCompatibility->GetVanillaCompatibility() && client &&
+           client->IsConnectedToExtendedServer() && this == C_Player::GetLocalPlayer();
 }
 
 PredictedMovementState C_Player::GetPredictedMovementState()

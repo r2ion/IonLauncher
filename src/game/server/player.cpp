@@ -85,7 +85,7 @@ void CPlayerExtended::Reset()
 
 bool CPlayer::UsesWeaponPrediction() const
 {
-    if (g_pVanillaCompatibility->GetVanillaCompatibility() || !g_pServer || m_nPlayerIndex == 0 ||
+    if (!IsScriptWeaponPredictionEnabled() || g_pVanillaCompatibility->GetVanillaCompatibility() || !g_pServer || m_nPlayerIndex == 0 ||
         m_nPlayerIndex > static_cast<unsigned int>(g_pServer->GetMaxClients()))
         return false;
     return g_pClientArray[m_nPlayerIndex - 1].GetClientExtended()->IsExtendedClient();

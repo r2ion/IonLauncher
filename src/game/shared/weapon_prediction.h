@@ -148,6 +148,7 @@ struct WeaponPredictionCommand_t
 };
 
 extern thread_local WeaponPredictionCommand_t* g_pWeaponPredictionCommand;
+bool IsScriptWeaponPredictionEnabled();
 
 CWeaponXPredictionState* GetWeaponPredictionInstance(C_WeaponX* weapon, CPlayerPredictionState& owner, bool create);
 CWeaponXPredictionState* GetWeaponPredictionInstance(CWeaponX* weapon, CPlayerPredictionState& owner, bool create);
