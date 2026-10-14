@@ -1166,14 +1166,19 @@ void ModDownloader::ParseSchemaDocument()
 
 		modEntry.version = it->value["Version"].GetString();
 
-        if (it->value.HasMember("OptionalRequiredOnClient"))
+        if (it->value.HasMember("RequiredOnClient"))
         {
-            if (!it->value["OptionalRequiredOnClient"].IsBool())
+            const auto& requirement = it->value["RequiredOnClient"];
+            if (requirement.IsBool())
+                modEntry.clientRequirement = requirement.GetBool() ? ClientRequirement::Required : ClientRequirement::NotRequired;
+            else if (requirement.IsString() &&
+                     std::string_view(requirement.GetString(), requirement.GetStringLength()) == "optional")
+                modEntry.clientRequirement = ClientRequirement::Optional;
+            else
             {
-                spdlog::error("Mod entry {} does not have a valid OptionalRequiredOnClient field, skipping.", modEntry.name);
+                spdlog::error("Mod entry {} does not have a valid RequiredOnClient field (expected true, false, or \"optional\"), skipping.", modEntry.name);
                 continue;
             }
-            modEntry.optionalRequiredOnClient = it->value["OptionalRequiredOnClient"].GetBool();
         }
 
         ModSource platform = ModSource::Unknown;
@@ -1227,27 +1232,29 @@ void ModDownloader::ParseSchemaDocument()
 	}
 }
 
-bool ModDownloader::IsOptionalRequiredOnClient(const Mod& mod) const
+ModDownloader::ClientRequirement ModDownloader::GetClientRequirement(const Mod& mod) const
 {
     for (const modentry_s& schemaMod : m_ParsedSchemaMods)
     {
-        if (schemaMod.optionalRequiredOnClient && schemaMod.name == mod.Name && schemaMod.version == mod.Version)
-            return true;
+        if (schemaMod.name == mod.Name && schemaMod.version == mod.Version &&
+            schemaMod.clientRequirement != ClientRequirement::Unspecified)
+            return schemaMod.clientRequirement;
     }
-    return false;
+    return mod.RequiredOnClient ? ClientRequirement::Required : ClientRequirement::NotRequired;
 }
 
-bool ModDownloader::IsOptionalRequiredOnClient(const modentry_s& schemaMod) const
+ModDownloader::ClientRequirement ModDownloader::GetClientRequirement(const modentry_s& schemaMod) const
 {
-    if (!schemaMod.optionalRequiredOnClient)
-        return false;
-
     for (const Mod& loadedMod : g_pModManager->m_LoadedMods)
     {
         if (loadedMod.m_bEnabled && loadedMod.Name == schemaMod.name && loadedMod.Version == schemaMod.version)
-            return true;
+        {
+            if (schemaMod.clientRequirement != ClientRequirement::Unspecified)
+                return schemaMod.clientRequirement;
+            return loadedMod.RequiredOnClient ? ClientRequirement::Required : ClientRequirement::NotRequired;
+        }
     }
-    return false;
+    return ClientRequirement::NotRequired;
 }
 
 bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, const modentry_s& mod, int index, int totalMods, int protocolVersion)
@@ -1296,8 +1303,22 @@ bool ModDownloader::SendModInfoConnectionlessPacket(netadr_t& adr, const modentr
 		if(!msg.WriteString(mod.checksum.c_str()))
 			return false;
 
-    if (protocolVersion >= MODDOWNLOADINFO_OPTIONAL_REQUIRED_ON_CLIENT_VERSION)
-        msg.WriteByte(IsOptionalRequiredOnClient(mod));
+    if (protocolVersion >= MODDOWNLOADINFO_CLIENT_REQUIREMENT_VERSION)
+    {
+        const ClientRequirement requirement = GetClientRequirement(mod);
+        switch (requirement)
+        {
+        case ClientRequirement::NotRequired:
+        case ClientRequirement::Required:
+        case ClientRequirement::Optional:
+            msg.WriteByte(static_cast<uint8_t>(requirement));
+            break;
+        default:
+            return false;
+        }
+    }
+    else if (protocolVersion >= MODDOWNLOADINFO_OPTIONAL_VERSION)
+        msg.WriteByte(GetClientRequirement(mod) == ClientRequirement::Optional);
 
     if (msg.IsOverflowed())
         return false;
@@ -1441,9 +1462,27 @@ bool ModDownloader::RecvModInfoConnectionlessPacket(bf_read& msg)
 		modEntry.checksum = checksum;
 	}
 
-    if (protocolVersion >= MODDOWNLOADINFO_OPTIONAL_REQUIRED_ON_CLIENT_VERSION)
+    if (protocolVersion >= MODDOWNLOADINFO_CLIENT_REQUIREMENT_VERSION)
     {
-        modEntry.optionalRequiredOnClient = msg.ReadByte() != 0;
+        const int requirement = msg.ReadByte();
+        if (msg.IsOverflowed())
+            return false;
+        switch (requirement)
+        {
+        case static_cast<int>(ClientRequirement::NotRequired):
+        case static_cast<int>(ClientRequirement::Required):
+        case static_cast<int>(ClientRequirement::Optional):
+            modEntry.clientRequirement = static_cast<ClientRequirement>(requirement);
+            break;
+        default:
+            spdlog::warn("Received server mod info with invalid client requirement {}.", requirement);
+            return false;
+        }
+    }
+    else if (protocolVersion >= MODDOWNLOADINFO_OPTIONAL_VERSION)
+    {
+        // v2
+        modEntry.clientRequirement = msg.ReadByte() != 0 ? ClientRequirement::Optional : ClientRequirement::Unspecified;
         if (msg.IsOverflowed())
             return false;
     }

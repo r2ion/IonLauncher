@@ -40,7 +40,8 @@ public:
 	{
 		NOT_DECIDED = 0,
 		ACCEPTED = 1,
-		DENIED = 2
+		DENIED = 2,
+		SKIP_OPTIONAL = 3
 	};
 
 private:
@@ -84,7 +85,8 @@ private:
 	void ConnectToDirectServer(const std::string& address);
 	void SendInfoRequestPacket(const CNetAdr& addr, bool serverAuthUs, bool requestMods);
     void RequestServerModInfo(const CNetAdr& addr, bool serverAuthUs);
-    static std::vector<RemoteModInfo> MergeOptionalServerRequirements(std::vector<RemoteModInfo> requiredMods);
+    static void MergeServerRequirements(std::vector<RemoteModInfo>& requiredMods,
+                                        const std::vector<ModDownloader::modentry_s>& serverDownloads);
     void PrepareServerModsAndConnect(const CNetAdr& addr, bool serverAuthUs, std::vector<RemoteModInfo> requiredMods, bool disableUnrequiredMods,
                                      std::string address, std::string serverName = {});
     void SetPendingMap(std::string mapName);
@@ -110,7 +112,8 @@ private:
 	void FinaliseJoiningLocalServer();
 	void FinaliseJoiningServer(std::string& address);
 
-    void DownloadMods(const std::vector<RemoteModInfo>& requiredMods, const std::string& serverName);
+    void DownloadMods(std::vector<RemoteModInfo>& requiredMods, const std::vector<ModDownloader::modentry_s>& serverDownloads,
+                      const std::string& serverName);
     void ReloadModsAndConnect(std::vector<RemoteModInfo> requiredMods, std::string address, bool disableUnrequiredMods);
 
   public:

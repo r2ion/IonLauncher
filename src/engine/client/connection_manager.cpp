@@ -409,22 +409,25 @@ void ConnectionManager::RequestServerModInfo(const CNetAdr& addr, bool serverAut
     g_pModDownloader->StopServerModInfoRequest();
 }
 
-std::vector<RemoteModInfo> ConnectionManager::MergeOptionalServerRequirements(std::vector<RemoteModInfo> requiredMods)
+void ConnectionManager::MergeServerRequirements(std::vector<RemoteModInfo>& requiredMods,
+                                               const std::vector<ModDownloader::modentry_s>& serverDownloads)
 {
-    for (const ModDownloader::modentry_s& serverMod : g_pModDownloader->GetServerRequestedMods())
+    for (const ModDownloader::modentry_s& serverMod : serverDownloads)
     {
-        if (!serverMod.optionalRequiredOnClient)
+        if (serverMod.clientRequirement == ModDownloader::ClientRequirement::Unspecified)
             continue;
 
-        const auto existing = std::find_if(requiredMods.begin(), requiredMods.end(), [&serverMod](const RemoteModInfo& required)
-        { return required.Name == serverMod.name && required.Version == serverMod.version; });
-        if (existing == requiredMods.end())
-        {
-            spdlog::info("Treating server mod {} v{} as an optional client requirement", serverMod.name, serverMod.version);
+        const auto matches = [&serverMod](const RemoteModInfo& required)
+        { return required.Name == serverMod.name && required.Version == serverMod.version; };
+        const bool useMod = serverMod.clientRequirement == ModDownloader::ClientRequirement::Required ||
+            (serverMod.clientRequirement == ModDownloader::ClientRequirement::Optional &&
+             HasRequiredModVersion(serverMod.name, serverMod.version));
+
+        if (!useMod)
+            std::erase_if(requiredMods, matches);
+        else if (std::none_of(requiredMods.begin(), requiredMods.end(), matches))
             requiredMods.push_back({serverMod.name, serverMod.version});
-        }
     }
-    return requiredMods;
 }
 
 void ConnectionManager::PrepareServerModsAndConnect(const CNetAdr& addr, bool serverAuthUs, std::vector<RemoteModInfo> requiredMods,
@@ -444,7 +447,8 @@ void ConnectionManager::PrepareServerModsAndConnect(const CNetAdr& addr, bool se
     RequestServerModInfo(addr, serverAuthUs);
     RETURN_IF_CANCELLED()
 
-    requiredMods = MergeOptionalServerRequirements(std::move(requiredMods));
+    const std::vector<ModDownloader::modentry_s> serverDownloads = g_pModDownloader->GetServerRequestedMods();
+    MergeServerRequirements(requiredMods, serverDownloads);
     const bool needsDownload = std::any_of(requiredMods.begin(), requiredMods.end(),
                                            [](const RemoteModInfo& required) { return !HasRequiredModVersion(required.Name, required.Version); });
     if (needsDownload)
@@ -460,7 +464,7 @@ void ConnectionManager::PrepareServerModsAndConnect(const CNetAdr& addr, bool se
 
     if (serverName.empty())
         serverName = g_szLastServerInfoName;
-    DownloadMods(requiredMods, serverName);
+    DownloadMods(requiredMods, serverDownloads, serverName);
     RETURN_IF_CANCELLED()
 
     ReloadModsAndConnect(std::move(requiredMods), std::move(address), disableUnrequiredMods);
@@ -476,11 +480,12 @@ bool ConnectionManager::HasRequiredModVersion(std::string_view name, std::string
 	return false;
 }
 
-void ConnectionManager::DownloadMods(const std::vector<RemoteModInfo>& requiredMods, const std::string& serverName)
+void ConnectionManager::DownloadMods(std::vector<RemoteModInfo>& requiredMods,
+                                     const std::vector<ModDownloader::modentry_s>& serverDownloads, const std::string& serverName)
 {
-	const std::vector<ModDownloader::modentry_s> serverDownloads = g_pModDownloader->GetServerRequestedMods();
-	std::vector<ModDownloader::modentry_s> unverifiedModsToDownload;
-	bool needToDownloadMods = false;
+	std::vector<const ModDownloader::modentry_s*> unverifiedModsToDownload;
+	std::vector<const ModDownloader::modentry_s*> optionalModsToDownload;
+	int requiredDownloadCount = 0;
 
 	UpdateMessage("#CHECKING_REQUIRED_MODS");
 
@@ -489,7 +494,7 @@ void ConnectionManager::DownloadMods(const std::vector<RemoteModInfo>& requiredM
 		if (HasRequiredModVersion(mod.Name, mod.Version))
 			continue;
 
-		needToDownloadMods = true;
+		++requiredDownloadCount;
 
 		const auto advertisedDownload = std::find_if(
 			serverDownloads.begin(),
@@ -500,7 +505,7 @@ void ConnectionManager::DownloadMods(const std::vector<RemoteModInfo>& requiredM
 			});
 		if (advertisedDownload != serverDownloads.end())
 		{
-			unverifiedModsToDownload.push_back(*advertisedDownload);
+			unverifiedModsToDownload.push_back(&*advertisedDownload);
 			continue;
 		}
 
@@ -514,14 +519,21 @@ void ConnectionManager::DownloadMods(const std::vector<RemoteModInfo>& requiredM
 		}
 	}
 
-	if (!needToDownloadMods)
+	for (const ModDownloader::modentry_s& mod : serverDownloads)
+	{
+		if (mod.clientRequirement == ModDownloader::ClientRequirement::Optional && !HasRequiredModVersion(mod.name, mod.version))
+			optionalModsToDownload.push_back(&mod);
+	}
+
+	if (requiredDownloadCount == 0 && optionalModsToDownload.empty())
 		return;
 
-	if (!unverifiedModsToDownload.empty())
+	if (!unverifiedModsToDownload.empty() || !optionalModsToDownload.empty())
 	{
-        if (!g_pModDownloader->NotifyConfirmDownloadMods(static_cast<int>(unverifiedModsToDownload.size()), serverName.c_str()))
+        if (!g_pModDownloader->NotifyConfirmDownloadMods(requiredDownloadCount, static_cast<int>(optionalModsToDownload.size()), serverName))
         {
-			const ModDownloader::modentry_s& mod = unverifiedModsToDownload.front();
+			const ModDownloader::modentry_s& mod =
+				*(unverifiedModsToDownload.empty() ? optionalModsToDownload.front() : unverifiedModsToDownload.front());
 			Interrupt(fmt::format(
 				"{}\n{}",
 				Localize("#MISSING_MOD", mod.name.c_str(), mod.version.c_str(), static_cast<const char*>(nullptr)),
@@ -535,11 +547,21 @@ void ConnectionManager::DownloadMods(const std::vector<RemoteModInfo>& requiredM
 			Interrupt();
 
 		RETURN_IF_CANCELLED()
+
+		if (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::ACCEPTED)
+		{
+			for (const ModDownloader::modentry_s* mod : optionalModsToDownload)
+			{
+				requiredMods.push_back({mod->name, mod->version});
+				unverifiedModsToDownload.push_back(mod);
+			}
+		}
 	}
 
 	std::vector<WorkshopSelection> workshopSelections;
-	for (const ModDownloader::modentry_s& mod : unverifiedModsToDownload)
+	for (const ModDownloader::modentry_s* requested : unverifiedModsToDownload)
 	{
+		const ModDownloader::modentry_s& mod = *requested;
 		const std::optional<ModDownloader::ModWorkshopAlternative> alternative = g_pModDownloader->FindModWorkshopAlternative(mod);
 		if (!alternative)
 			continue;
@@ -1199,14 +1221,19 @@ void ConCommand_connectWithRemoteId(const CCommand& args)
 	g_pConnectionManager->Connect(remoteId, password, useSCRPlaque);
 }
 
-ADD_SQFUNC("void", NSDecideModDownload, "bool accept", "", ScriptContext::UI)
+ADD_SQFUNC("void", NSDecideModDownload, "int choice", "", ScriptContext::UI)
 {
-	bool accepted = g_pSquirrel[context]->getbool(sqvm, 1);
-
-	if (accepted)
-		g_pConnectionManager->SetModAcceptState(ConnectionManager::eModAcceptState::ACCEPTED);
-	else
+	const auto choice = static_cast<ConnectionManager::eModAcceptState>(g_pSquirrel[context]->getinteger(sqvm, 1));
+	switch (choice)
+	{
+	case ConnectionManager::eModAcceptState::ACCEPTED:
+	case ConnectionManager::eModAcceptState::SKIP_OPTIONAL:
+		g_pConnectionManager->SetModAcceptState(choice);
+		break;
+	default:
 		g_pConnectionManager->SetModAcceptState(ConnectionManager::eModAcceptState::DENIED);
+		break;
+	}
 
 	return SQRESULT_NULL;
 }

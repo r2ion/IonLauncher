@@ -1227,7 +1227,8 @@ void ModManager::BuildModInfo()
         if (!mod.m_bEnabled)
             continue;
 
-        if (g_pModDownloader->IsOptionalRequiredOnClient(mod))
+        const ModDownloader::ClientRequirement requirement = g_pModDownloader->GetClientRequirement(mod);
+        if (requirement == ModDownloader::ClientRequirement::Optional)
         {
             spdlog::info("Omitting optional client requirement {} v{} from master server mod info", mod.Name, mod.Version);
             continue;
@@ -1236,7 +1237,8 @@ void ModManager::BuildModInfo()
         modinfoDoc["Mods"].PushBack(rapidjson::kObjectType, modinfoDoc.GetAllocator());
         modinfoDoc["Mods"][currentModIndex].AddMember("Name", rapidjson::StringRef(&mod.Name[0]), modinfoDoc.GetAllocator());
         modinfoDoc["Mods"][currentModIndex].AddMember("Version", rapidjson::StringRef(&mod.Version[0]), modinfoDoc.GetAllocator());
-        modinfoDoc["Mods"][currentModIndex].AddMember("RequiredOnClient", mod.RequiredOnClient, modinfoDoc.GetAllocator());
+        modinfoDoc["Mods"][currentModIndex].AddMember(
+            "RequiredOnClient", requirement == ModDownloader::ClientRequirement::Required, modinfoDoc.GetAllocator());
         modinfoDoc["Mods"][currentModIndex].AddMember("Pdiff", rapidjson::StringRef(&mod.Pdiff[0]), modinfoDoc.GetAllocator());
 
         currentModIndex++;

@@ -5,6 +5,7 @@
 #include "vscript/languages/squirrel_re/squirrel.h"
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <unordered_set>
@@ -21,6 +22,14 @@ class ModDownloader
 {
 public:
 
+	enum class ClientRequirement : uint8_t
+	{
+		NotRequired = 0,
+		Required = 1,
+		Optional = 2,
+		Unspecified = 255,
+	};
+
 	struct modentry_s
 	{
 
@@ -32,7 +41,7 @@ public:
 		std::string url;
 
 		std::string checksum;
-        bool optionalRequiredOnClient = false;
+        ClientRequirement clientRequirement = ClientRequirement::Unspecified;
     };
 
 	struct ModWorkshopAlternative
@@ -154,11 +163,11 @@ public:
 
 	void NotifyDownloadStopped();
 
-	bool NotifyConfirmDownloadMods(int modCount, const std::string& serverName)
+	bool NotifyConfirmDownloadMods(int requiredCount, int optionalCount, const std::string& serverName)
 	{
 		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
 			return false;
-		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", modCount, serverName.c_str());
+		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", requiredCount, optionalCount, serverName.c_str());
 		return true;
 	}
 
@@ -241,8 +250,8 @@ public:
 	static int ServerModFetchingProgressCallback(
 		void* ptr, curl_off_t totalDownloadSize, curl_off_t finishedDownloadSize, curl_off_t totalToUpload, curl_off_t nowUploaded);
 	std::vector<modentry_s>& GetServerModsToInstall() { return m_ParsedSchemaMods; }
-    bool IsOptionalRequiredOnClient(const Mod& mod) const;
-    bool IsOptionalRequiredOnClient(const modentry_s& schemaMod) const;
+    ClientRequirement GetClientRequirement(const Mod& mod) const;
+    ClientRequirement GetClientRequirement(const modentry_s& schemaMod) const;
     std::vector<modentry_s> GetServerRequestedMods() const;
 	void BeginServerModInfoRequest();
 	void StopServerModInfoRequest();
