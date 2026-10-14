@@ -115,11 +115,19 @@ private:
 		std::string downloadLink;
 		ModSource platform;
 	};
+	struct CatalogStringHash
+	{
+		using is_transparent = void;
+		size_t operator()(std::string_view value) const noexcept
+		{
+			return std::hash<std::string_view>{}(value);
+		}
+	};
 	struct VerifiedModDetails
 	{
-		std::unordered_map<std::string, VerifiedModVersion> versions = {};
+		std::unordered_map<std::string, VerifiedModVersion, CatalogStringHash, std::equal_to<>> versions = {};
 	};
-	std::unordered_map<std::string, VerifiedModDetails> verifiedMods = {};
+	std::unordered_map<std::string, VerifiedModDetails, CatalogStringHash, std::equal_to<>> verifiedMods = {};
 
 	struct PendingModDownload
 	{
@@ -163,11 +171,12 @@ public:
 
 	void NotifyDownloadStopped();
 
-	bool NotifyConfirmDownloadMods(int requiredCount, int optionalCount, const std::string& serverName)
+	bool NotifyConfirmDownloadMods(int modCount, int unverifiedCount, int optionalCount, const std::string& serverName)
 	{
 		if (!g_pSquirrel[ScriptContext::UI] || !g_pSquirrel[ScriptContext::UI]->m_pSQVM)
 			return false;
-		g_pSquirrel[ScriptContext::UI]->AsyncCall("NSUICodeCallback_ConfirmDownloadMods", requiredCount, optionalCount, serverName.c_str());
+		g_pSquirrel[ScriptContext::UI]->AsyncCall(
+			"NSUICodeCallback_ConfirmDownloadMods", modCount, unverifiedCount, optionalCount, serverName.c_str());
 		return true;
 	}
 
@@ -196,6 +205,7 @@ public:
 	bool DownloadModWorkshop(const modentry_s& requested, const ModWorkshopAlternative& alternative);
 
 	void FetchModsListFromAPI();
+	bool IsModVerified(std::string_view modName, std::string_view modVersion) const;
 	bool IsModAuthorized(std::string_view modName, std::string_view modVersion);
 	bool DownloadMod(std::string modName, std::string modVersion);
 	bool DownloadServerMod(const modentry_s& mod);

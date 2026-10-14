@@ -332,7 +332,7 @@ void ModDownloader::FetchModsListFromAPI()
 				}
 
 				std::string name = i->name.GetString();
-				std::unordered_map<std::string, VerifiedModVersion> modVersions;
+				VerifiedModDetails modConfig;
 
 				rapidjson::Value& versions = i->value["Versions"];
 				assert(versions.IsArray());
@@ -352,11 +352,10 @@ void ModDownloader::FetchModsListFromAPI()
 					std::string downloadLink = attribute["DownloadLink"].GetString();
 					std::string platformValue = attribute["Platform"].GetString();
 					ModSource platform = ResolvePlatform(platformValue);
-					modVersions.insert({version, {.checksum = checksum, .downloadLink = downloadLink, .platform = platform}});
+					modConfig.versions.insert({version, {.checksum = checksum, .downloadLink = downloadLink, .platform = platform}});
 				}
 
-				VerifiedModDetails modConfig = {.versions = modVersions};
-				verifiedMods.insert({name, modConfig});
+				verifiedMods.emplace(name, std::move(modConfig));
 				spdlog::info("==> Loaded configuration for mod \"" + name + "\"");
 			}
 
@@ -619,6 +618,12 @@ bool ModDownloader::IsModLegit(fs::path modPath, std::string_view expectedChecks
     return std::string(expectedChecksum) == computedHash;
 }
 
+bool ModDownloader::IsModVerified(std::string_view modName, std::string_view modVersion) const
+{
+	const auto mod = verifiedMods.find(modName);
+	return mod != verifiedMods.end() && mod->second.versions.contains(modVersion);
+}
+
 bool ModDownloader::IsModAuthorized(std::string_view modName, std::string_view modVersion)
 {
 	if (strstr(GetCommandLineA(), VERIFICATION_FLAG))
@@ -627,13 +632,7 @@ bool ModDownloader::IsModAuthorized(std::string_view modName, std::string_view m
 		return true;
 	}
 
-	if (!verifiedMods.contains(modName.data()))
-	{
-		return false;
-	}
-
-	std::unordered_map<std::string, VerifiedModVersion> versions = verifiedMods[modName.data()].versions;
-	return versions.count(modVersion.data()) != 0;
+	return IsModVerified(modName, modVersion);
 }
 
 int GetModArchiveSize(unzFile file, unz_global_info64 info)
@@ -913,7 +912,7 @@ bool ModDownloader::StartModDownload(std::string modName, std::string modVersion
 
 bool ModDownloader::DownloadMod(std::string modName, std::string modVersion)
 {
-	if (!IsModAuthorized(modName, modVersion))
+	if (!IsModVerified(modName, modVersion))
 	{
 		spdlog::warn("Tried to download a mod that is not verified, aborting.");
 		modState.state = ABORTED;

@@ -450,7 +450,11 @@ void ConnectionManager::PrepareServerModsAndConnect(const CNetAdr& addr, bool se
     const std::vector<ModDownloader::modentry_s> serverDownloads = g_pModDownloader->GetServerRequestedMods();
     MergeServerRequirements(requiredMods, serverDownloads);
     const bool needsDownload = std::any_of(requiredMods.begin(), requiredMods.end(),
-                                           [](const RemoteModInfo& required) { return !HasRequiredModVersion(required.Name, required.Version); });
+                                           [](const RemoteModInfo& required) { return !HasRequiredModVersion(required.Name, required.Version); }) ||
+        std::any_of(serverDownloads.begin(), serverDownloads.end(), [](const ModDownloader::modentry_s& mod)
+        {
+            return mod.clientRequirement == ModDownloader::ClientRequirement::Optional && !HasRequiredModVersion(mod.name, mod.version);
+        });
     if (needsDownload)
     {
         UpdateMessage("#MANIFEST_FETCHING_TEXT");
@@ -496,6 +500,9 @@ void ConnectionManager::DownloadMods(std::vector<RemoteModInfo>& requiredMods,
 
 		++requiredDownloadCount;
 
+		if (g_pModDownloader->IsModVerified(mod.Name, mod.Version))
+			continue;
+
 		const auto advertisedDownload = std::find_if(
 			serverDownloads.begin(),
 			serverDownloads.end(),
@@ -509,14 +516,11 @@ void ConnectionManager::DownloadMods(std::vector<RemoteModInfo>& requiredMods,
 			continue;
 		}
 
-		if (!g_pModDownloader->IsModAuthorized(mod.Name, mod.Version))
-		{
-			Interrupt(fmt::format(
-				"{}\n{}",
-				Localize("#MISSING_MOD", mod.Name.c_str(), mod.Version.c_str(), static_cast<const char*>(nullptr)),
-				Localize("#MOD_NOT_VERIFIED", static_cast<const char*>(nullptr))));
-			return;
-		}
+		Interrupt(fmt::format(
+			"{}\n{}",
+			Localize("#MISSING_MOD", mod.Name.c_str(), mod.Version.c_str(), static_cast<const char*>(nullptr)),
+			Localize("#MOD_NOT_VERIFIED", static_cast<const char*>(nullptr))));
+		return;
 	}
 
 	for (const ModDownloader::modentry_s& mod : serverDownloads)
@@ -528,33 +532,34 @@ void ConnectionManager::DownloadMods(std::vector<RemoteModInfo>& requiredMods,
 	if (requiredDownloadCount == 0 && optionalModsToDownload.empty())
 		return;
 
-	if (!unverifiedModsToDownload.empty() || !optionalModsToDownload.empty())
+	const int optionalCount = static_cast<int>(optionalModsToDownload.size());
+	int unverifiedCount = static_cast<int>(unverifiedModsToDownload.size());
+	for (const ModDownloader::modentry_s* mod : optionalModsToDownload)
 	{
-        if (!g_pModDownloader->NotifyConfirmDownloadMods(requiredDownloadCount, static_cast<int>(optionalModsToDownload.size()), serverName))
-        {
-			const ModDownloader::modentry_s& mod =
-				*(unverifiedModsToDownload.empty() ? optionalModsToDownload.front() : unverifiedModsToDownload.front());
-			Interrupt(fmt::format(
-				"{}\n{}",
-				Localize("#MISSING_MOD", mod.name.c_str(), mod.version.c_str(), static_cast<const char*>(nullptr)),
-				Localize("#MOD_NOT_VERIFIED", static_cast<const char*>(nullptr))));
-			return;
-		}
-		while (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::NOT_DECIDED && !IsCancelled())
-			Sleep(100);
+		if (!g_pModDownloader->IsModVerified(mod->name, mod->version))
+			++unverifiedCount;
+	}
 
-		if (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::DENIED)
-			Interrupt();
+	if (!g_pModDownloader->NotifyConfirmDownloadMods(requiredDownloadCount + optionalCount, unverifiedCount, optionalCount, serverName))
+	{
+		Interrupt("Cannot confirm mod downloads because the download consent UI is unavailable.");
+		return;
+	}
+	while (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::NOT_DECIDED && !IsCancelled())
+		Sleep(100);
 
-		RETURN_IF_CANCELLED()
+	if (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::DENIED)
+		Interrupt();
 
-		if (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::ACCEPTED)
+	RETURN_IF_CANCELLED()
+
+	if (m_eModAcceptState.load(std::memory_order_acquire) == eModAcceptState::ACCEPTED)
+	{
+		for (const ModDownloader::modentry_s* mod : optionalModsToDownload)
 		{
-			for (const ModDownloader::modentry_s* mod : optionalModsToDownload)
-			{
-				requiredMods.push_back({mod->name, mod->version});
+			requiredMods.push_back({mod->name, mod->version});
+			if (!g_pModDownloader->IsModVerified(mod->name, mod->version))
 				unverifiedModsToDownload.push_back(mod);
-			}
 		}
 	}
 
@@ -615,9 +620,9 @@ void ConnectionManager::DownloadMods(std::vector<RemoteModInfo>& requiredMods,
 				});
 
 			spdlog::info("Auto-downloading mod {} version {}", mod.Name, mod.Version);
-			const bool started = advertisedDownload != serverDownloads.end()
-				? g_pModDownloader->DownloadServerMod(*advertisedDownload)
-				: g_pModDownloader->DownloadMod(mod.Name, mod.Version);
+			const bool started = g_pModDownloader->IsModVerified(mod.Name, mod.Version)
+				? g_pModDownloader->DownloadMod(mod.Name, mod.Version)
+				: advertisedDownload != serverDownloads.end() && g_pModDownloader->DownloadServerMod(*advertisedDownload);
 			if (!started)
 			{
 				Interrupt(fmt::format("Failed to start download for {} v{}", mod.Name, mod.Version));
