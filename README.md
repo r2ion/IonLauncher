@@ -1,6 +1,8 @@
 # NorthstarLauncher
 ![Build Status](https://github.com/R2Northstar/NorthstarLauncher/actions/workflows/ci.yml/badge.svg)
 
+lower effort r5sdk
+
 Launcher used to modify Titanfall 2 to allow Northstar mods and custom content to be loaded.
 
 ## Build
