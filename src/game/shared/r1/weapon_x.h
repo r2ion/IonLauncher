@@ -1,172 +1,110 @@
 #pragma once
 
-#include <cstddef>
+#include "mathlib/vector.h"
+
 #include <cstdint>
 
-#include "game/server/basecombatweapon.h"
-#include "game/shared/r1/weapon_playerdata.h"
-#include "game/shared/r1/weapon_x_shared.h"
-#include "game/shared/smartammo.h"
-#include "game/shared/weapon_parse.h"
-#include "game/shared/weapon_prediction.h"
-class CWeaponXExtended;
-
-class CWeaponX : public CBaseCombatWeapon
+enum WeaponScriptCB : std::uint8_t
 {
-  public:
-    const char* GetWeaponName() const;
-    CWeaponXExtended* GetWeaponExtended();
-    static CWeaponXExtended* FindWeaponExtended(std::uint32_t handle);
-    static CWeaponXExtended sm_WeaponsExtended[NUM_ENT_ENTRIES];
-
-    ServerClass* GetServerClass() override = 0; // 3
-    int YouForgotToImplementOrDeclareServerClass() override = 0; // 4
-    ServerDataMap* GetDataDescMap() override = 0;    // 5
-    ScriptClassDesc_t* GetScriptDesc() override = 0; // 6
-    void PostNewModel() override = 0;                // 8
-    int UpdateTransmitState() override = 0; // 20
-    const char* GetTracerType() override = 0;                   // 22
-    void Spawn() override = 0;                                  // 23
-    void Precache() override = 0;                               // 24
-    void OnRestore() override = 0;                              // 40
-    const CWeaponX* MyWeaponXPointerConst() const override = 0; // 70
-    CWeaponX* MyWeaponXPointer() override = 0;                  // 71
-    void UpdateOnRemove() override = 0;                         // 117
-    void MakeTracer(const Vector3D& start, const trace_t& trace, CBaseEntity* entity, unsigned int tracerType) override = 0; // 120
-    int GetTracerAttachment() override = 0; // 121
-    void HandleAnimEvent(animevent_t* event) override = 0;                    // 258
-    void ClearPredictedAnimEvents() override = 0;                             // 272
-    void ExecPredictedAnimEvent(int event, const char* options) override = 0; // 273
-    void OnPickedUp(CBaseCombatCharacter* newOwner) override = 0;             // 274
-
-    WeaponState_e GetWeaponState() const
-    {
-        return m_weapState;
-    }
-    void SetWeaponState(WeaponState_e state)
-    {
-        m_weapState = state;
-        m_bInReload = state == WEAP_STATE_RELOAD;
-    }
-    int GetWeaponChargeLevel() const
-    {
-        return m_lastChargeLevel;
-    }
-    float GetChargeFraction() const
-    {
-        return m_lastChargeFrac;
-    }
-    CBaseEntity* GetWeaponUtilityEntity() const
-    {
-        return m_utilityEnt.Get();
-    }
-
-    WeaponState_e m_weapState;                         // 0xFC0
-    bool m_allowedToUse;                               // 0xFC4
-    bool m_discarded;                                  // 0xFC5
-    std::byte _padFC6[0x2];                            // 0xFC6
-    int m_forcedADS;                                   // 0xFC8
-    int m_forceRelease;                                // 0xFCC
-    bool m_forceReleaseFromServer;                     // 0xFD0
-    std::byte _padFD1[0x3];                            // 0xFD1
-    int m_customActivity;                              // 0xFD4
-    int m_customActivitySequence;                      // 0xFD8
-    CHandle<CBaseEntity> m_customActivityOwner;        // 0xFDC
-    float m_customActivityEndTime;                     // 0xFE0
-    std::byte _padFE4[0x4];                            // 0xFE4
-    WeaponPlayerData m_playerData;                     // 0xFE8
-    bool m_smartAmmoEnable;                            // 0x1090
-    std::byte _pad1091[0x7];                           // 0x1091
-    SmartAmmo_WeaponData m_smartAmmo;                  // 0x1098
-    bool m_needsReloadCheck;                           // 0x1288
-    bool m_needsCooldown;                              // 0x1289
-    bool m_needsEmptyCycleCheck;                       // 0x128A
-    std::byte _pad128B[0x1];                           // 0x128B
-    int m_skinOverride;                                // 0x128C
-    bool m_skinOverrideIsValid;                        // 0x1290
-    std::byte _pad1291[0x3];                           // 0x1291
-    float m_chargeStartTime;                           // 0x1294
-    float m_chargeEndTime;                             // 0x1298
-    float m_lastChargeFrac;                            // 0x129C
-    float m_lastRegenTime;                             // 0x12A0
-    bool m_stockPileWasDraining;                       // 0x12A4
-    std::byte _pad12A5[0x3];                           // 0x12A5
-    int m_lastChargeLevel;                             // 0x12A8
-    int m_chargeEnergyDepleteStepCounter;              // 0x12AC
-    int m_burstFireCount;                              // 0x12B0
-    int m_burstFireIndex;                              // 0x12B4
-    int m_shotCount;                                   // 0x12B8
-    float m_sustainedDischargeEndTime;                 // 0x12BC
-    std::uint32_t m_modBitfieldFromPlayer;             // 0x12C0
-    std::uint32_t m_modBitfieldInternal;               // 0x12C4
-    std::uint32_t m_modBitfieldCurrent;                // 0x12C8
-    int m_curSharedEnergyCost;                         // 0x12CC
-    bool m_scriptActivated;                            // 0x12D0
-    bool m_isLoadoutPickup;                            // 0x12D1
-    std::byte _pad12D2[0x2];                           // 0x12D2
-    CHandle<CBaseEntity> m_utilityEnt;                 // 0x12D4
-    int m_weaponNameIndex;                             // 0x12D8
-    int m_animModelIndexPredictingClientOnly;          // 0x12DC
-    int m_animSequencePredictingClientOnly;            // 0x12E0
-    std::byte _pad12E4[0x4];                           // 0x12E4
-    HSCRIPT__* m_weaponScriptCB_[WEAPONX_SCRIPTCB_COUNT]; // 0x12E8
-    WeaponModValues m_modVars;                         // 0x1410
-    int m_tracerAttachment[2];                         // 0x20B0
-    int m_damageSourceIdentifier;                      // 0x20B8
-    bool m_activityModifierSymbolForNameIsSet;         // 0x20BC
-    std::byte _pad20BD[0x1];                           // 0x20BD
-    CUtlSymbol m_activityModifierSymbolForName;        // 0x20BE
-    bool m_hasAltAnim_adsIn[3];                        // 0x20C0
-    bool m_hasAltAnim_adsOut[3];                       // 0x20C3
-    bool m_hasAltAnim_idle[3];                         // 0x20C6
-    bool m_hasAltAnim_attack[3];                       // 0x20C9
-    bool m_hasAltAnim_oneHandedAdsIn[3];               // 0x20CC
-    bool m_hasAltAnim_oneHandedAdsOut[3];              // 0x20CF
-    bool m_hasAltAnim_oneHandedIdle[3];                // 0x20D2
-    bool m_hasAltAnim_oneHandedAttack[3];              // 0x20D5
-    bool m_cookWarningSoundActive;                     // 0x20D8
-    bool m_loopSoundActive_1p;                         // 0x20D9
-    bool m_loopSoundActive_3p;                         // 0x20DA
-    std::byte _pad20DB[0x1];                           // 0x20DB
-    float m_loopSoundLastAttackClockTime;              // 0x20DC
-    float m_loopSoundLastAttackClockTimeWithFireDelay; // 0x20E0
-    int m_loopSoundCurrentParity;                      // 0x20E4
-    int m_loopSoundActiveParity_1p;                    // 0x20E8
-    float m_attackKickScale;                           // 0x20EC
-    float m_attackKickRollScale;                       // 0x20F0
-    WeaponString_t m_prevViewModelWpnStr;              // 0x20F4
-    WeaponString_t m_prevWorldModelWpnStr;             // 0x20F6
-    WeaponString_t m_prevHolsterModelWpnStr;           // 0x20F8
-    std::byte _pad20FA[0x2];                           // 0x20FA
-    EHANDLE newProjectiles[8];                         // 0x20FC
-    int newProjectileCount;                            // 0x211C
-    CWeaponX* m_smartAmmoNextWeapon;                   // 0x2120
-    CWeaponX* m_smartAmmoPrevWeapon;                   // 0x2128
-    float m_npcUseCheckTime;                           // 0x2130
-    float m_npcUseCheckDist;                           // 0x2134
-    float m_sustainedDischargeNextPulseTime;           // 0x2138
-    std::byte _pad213C[0x4];                           // 0x213C
+    WEAPONX_SCRIPTCB_DESTROY = 0,
+    WEAPONX_SCRIPTCB_ACTIVATE,
+    WEAPONX_SCRIPTCB_DEACTIVATE,
+    WEAPONX_SCRIPTCB_OWNER_CHANGED,
+    WEAPONX_SCRIPTCB_PRIMARY_ATTACK,
+    WEAPONX_SCRIPTCB_PRIMARY_ATTACK_ANIM_EVENT,
+    WEAPONX_SCRIPTCB_NPC_PRIMARY_ATTACK,
+    WEAPONX_SCRIPTCB_NPC_PRE_ATTACK,
+    WEAPONX_SCRIPTCB_NPC_TOSS_GRENADE,
+    WEAPONX_SCRIPTCB_RELOAD,
+    WEAPONX_SCRIPTCB_BULLET_HIT,
+    WEAPONX_SCRIPTCB_CHARGE_BEGIN,
+    WEAPONX_SCRIPTCB_CHARGE_END,
+    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_BEGIN,
+    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_END,
+    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_PULSE,
+    WEAPONX_SCRIPTCB_READY_TO_FIRE,
+    WEAPONX_SCRIPTCB_CUSTOM_ACTIVITY_START,
+    WEAPONX_SCRIPTCB_CUSTOM_ACTIVITY_END,
+    WEAPONX_SCRIPTCB_RAISE,
+    WEAPONX_SCRIPTCB_LOWER,
+    WEAPONX_SCRIPTCB_ZOOM_START_IN,
+    WEAPONX_SCRIPTCB_ZOOM_START_OUT,
+    WEAPONX_SCRIPTCB_TOSS,
+    WEAPONX_SCRIPTCB_TOSS_PREP,
+    WEAPONX_SCRIPTCB_TOSS_RELEASE_ANIM_EVENT,
+    WEAPONX_SCRIPTCB_TOSS_CANCEL,
+    WEAPONX_SCRIPTCB_ATTEMPT_OFFHAND_SWITCH,
+    WEAPONX_SCRIPTCB_OFFHAND_PRESSED_NOT_READY,
+    WEAPONX_SCRIPTCB_PRIMARY_ATTACK_VM_ACTIVITY,
+    WEAPONX_SCRIPTCB_CHARGE_LEVEL_INCREASED,
+    WEAPONX_SCRIPTCB_VORTEX_HIT_BULLET,
+    WEAPONX_SCRIPTCB_VORTEX_HIT_PROJECTILE,
+    WEAPONX_SCRIPTCB_COOLDOWN,
+    WEAPONX_SCRIPTCB_CLIENT_ANIM_EVENT,
+    WEAPONX_SCRIPTCB_SMART_AMMO_TARGETS_CHANGED,
+    WEAPONX_SCRIPTCB_SMART_AMMO_TRACKERS_CHANGED,
+    WEAPONX_SCRIPTCB_COUNT,
 };
 
-class CWeaponXExtended
+struct WeaponCallbackInfo
 {
-    friend class CWeaponX;
-
-  public:
-    CWeaponXExtended();
-
-    void Forget();
-    CWeaponXPredictionState m_WeaponPrediction;
-
-    static void ParseWeaponInfo(FileWeaponInfo_Server* weaponInfo, KeyValues* root, const char* weaponName);
-    static void ResetWeaponInfo(FileWeaponInfo_Server* weaponInfo);
-    static void OnVMShutdown();
+    const char* name;
+    const char* type;
+    const char* desc;
 };
 
-static_assert(sizeof(WeaponModValues) == 0xCA0);
-static_assert(sizeof(WeaponPlayerData) == 0xA8);
-static_assert(sizeof(SmartAmmo_WeaponData) == 0x1F0);
-static_assert(sizeof(CWeaponX) == 0x2140);
-static_assert(offsetof(CWeaponX, m_weaponNameIndex) == 0x12D8);
-static_assert(offsetof(CWeaponX, m_modVars) == 0x1410);
-static_assert(offsetof(CWeaponX, m_modVars) + offsetof(WeaponModValues, canAttackWhenDead) == 0x1EC9);
+static_assert(sizeof(WeaponCallbackInfo) == 0x18);
+
+extern const WeaponCallbackInfo* g_scriptCBInfo;
+
+enum WeaponState_e : int
+{
+    WEAP_STATE_IDLE = 0,
+    WEAP_STATE_DEPLOY = 1,
+    WEAP_STATE_HOLSTER = 2,
+    WEAP_STATE_RAISE = 3,
+    WEAP_STATE_LOWER = 4,
+    WEAP_STATE_CHARGE = 5,
+    WEAP_STATE_CHARGE_RELEASE = 6,
+    WEAP_STATE_SUSTAINED_DISCHARGE = 7,
+    WEAP_STATE_SPRINT = 8,
+    WEAP_STATE_ATTACK = 9,
+    WEAP_STATE_RELOAD = 10,
+    WEAP_STATE_DISCARD = 11,
+    WEAP_STATE_CUSTOM_ACTIVITY = 12,
+    WEAP_STATE_RECHAMBER = 13,
+    WEAP_STATE_TOSS = 14,
+    WEAP_STATE_TOSS_PREP = 15,
+    WEAP_STATE_TOSS_PREP_PULLOUT = 16,
+    WEAP_STATE_TOSS_HOLD = 17,
+    WEAP_STATE_TOSS_HOLD_SPRINTING = 18,
+    WEAP_STATE_COOLDOWN = 19,
+    WEAP_STATE_COUNT = 20,
+};
+
+struct FiredBulletInfo
+{
+    Vector3D destination;            // 0x0
+    std::uint32_t passMods;          // 0xC
+    Vector3D source;                 // 0x10
+    std::uint32_t sourceEntity : 12; // 0x1C, bit 0
+    std::uint32_t burstFire : 2;
+    std::uint32_t fireDelay : 13;
+    std::uint32_t hasTrace : 1;
+    std::uint32_t reflected : 1;
+    std::uint32_t hasImpact : 1;
+    std::uint32_t impactSplash : 1;
+    std::uint32_t : 1;
+    std::uint32_t impactEntity : 12; // 0x20, bit 0
+    std::uint32_t impactEffectFlags : 10;
+    std::uint32_t impactSurface : 8;
+    std::uint32_t : 2;
+    Vector3D impactNormal; // 0x24
+};
+
+struct WeaponReloadInfo
+{
+    std::uint32_t sourceEntity : 12;
+    std::uint32_t reloadTime : 10;
+    std::uint32_t : 10;
+};

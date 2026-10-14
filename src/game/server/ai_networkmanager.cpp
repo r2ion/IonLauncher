@@ -4,6 +4,7 @@
 #include "engine/sys_dll.h"
 #include "tier1/bitvec.h"
 #include "game/server/ai_network.h"
+#include "game/server/ai_networkmanager.h"
 #include "tier1/utlvector.h"
 #include <cstddef>
 #include <filesystem>
@@ -27,46 +28,6 @@ struct CAI_NodeLinkDisk
 #pragma pack(pop)
 static_assert(sizeof(CAI_NodeLinkDisk) == 0xA);
 
-#pragma pack(push, 1)
-struct CAI_NodeOld
-{
-	int index; // not present on disk
-	float x;
-	float y;
-	float z;
-	float hulls[MAX_HULLS];
-	float yaw;
-
-	int unk0; // always 2 in buildainfile, maps directly to unk0 in disk struct
-	int unk1; // maps directly to unk1 in disk struct
-	int unk2[MAX_HULLS]; // maps directly to unk2 in disk struct, despite being ints rather than shorts
-
-	// view server.dll+393672 for context and death wish
-	char unk3[MAX_HULLS]; // hell on earth, should map to unk3 on disk
-	char pad[3]; // aligns next bytes
-	float unk4[MAX_HULLS]; // i have no fucking clue, calculated using some kind of demon hell function float magic
-
-	CAI_NodeLink** links;
-	char unk5[16];
-	int linkcount;
-	int unk11; // bad name lmao
-	int unk6; // should match up to unk4 on disk
-	char unk7[16]; // padding until next bit
-	int unk8; // should match up to unk5 on disk
-	char unk9[4]; // padding until next bit
-	char unk10[8]; // should match up to unk6 on disk
-};
-#pragma pack(pop)
-
-constexpr size_t kNodeUnk8Offset = offsetof(CAI_Node, unk8);
-constexpr size_t kNodeOldUnk8Offset = offsetof(CAI_NodeOld, unk8);
-constexpr size_t kNodeUnk9Offset = offsetof(CAI_Node, unk9);
-constexpr size_t kNodeOldUnk9Offset = offsetof(CAI_NodeOld, unk9);
-constexpr size_t kNodeUnk10Offset = offsetof(CAI_Node, unk10);
-constexpr size_t kNodeOldUnk10Offset = offsetof(CAI_NodeOld, unk10);
-static_assert(kNodeUnk8Offset == kNodeOldUnk8Offset);
-static_assert(kNodeUnk9Offset == kNodeOldUnk9Offset);
-static_assert(kNodeUnk10Offset == kNodeOldUnk10Offset);
 
 // the way CAI_Nodes are represented in on-disk ain files
 #pragma pack(push, 1)
@@ -156,37 +117,6 @@ int* pUnkLinkStruct1Count;
 UnkLinkStruct1*** pppUnkStruct1s;
 
 CUtlVector<CAI_TraverseNode>* g_pAITraverseNodes = nullptr;
-
-struct CAI_NetworkManager;
-
-class CAI_NetworkEditTools
-{
-public:
-	//-----------------
-	// WC Editing
-	//-----------------
-	int m_nNextWCIndex;
-	Vector3D* m_pWCPosition;
-
-	//-----------------
-	// Debugging Tools
-	//-----------------
-	int m_debugNetOverlays;
-	int* m_pNodeIndexTable;
-
-	//-----------------
-	// Network pointers
-	//-----------------
-	CAI_NetworkManager* m_pManager;
-	CAI_Network* m_pNetwork;
-};
-
-struct CAI_NetworkManager
-{
-	char unk0[2528];
-	CAI_NetworkEditTools* m_pEditOps;
-	CAI_Network* m_pNetwork;
-};
 
 ConVar* Cvar_ns_ai_dumpAINfileFromLoad;
 __int64 (*sub_387F80)(__int64 a1, CAI_Network* a2);
@@ -337,7 +267,7 @@ void DumpAINInfo(CAI_Network* aiNetwork)
 	{
 		const CAI_TraverseNode& traverseNode = (*g_pAITraverseNodes)[i];
 		writeStream.write((char*)(&traverseNode.m_Quat), sizeof(float) * 4);
-		writeStream.write((char*)(&traverseNode.m_Index_MAYBE), sizeof(int));
+		writeStream.write((char*)(&traverseNode.m_TraverseType), sizeof(int));
 	}
 
 	// hull data blocks

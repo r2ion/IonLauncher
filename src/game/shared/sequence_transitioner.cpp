@@ -38,7 +38,7 @@ datamap_t* C_SequenceTransitionerLayer::GetPredDescMap()
 {
     return g_SequenceTransitionerLayerPredMap;
 }
-const datamap_t* C_SequenceTransitionerLayer::GetPredDescMap() const
+const datamap_t* C_SequenceTransitionerLayer::GetPredDescMapConst() const
 {
     return g_SequenceTransitionerLayerPredMap;
 }
@@ -46,7 +46,7 @@ datamap_t* C_SequenceTransitioner::GetPredDescMap()
 {
     return g_SequenceTransitionerPredMap;
 }
-const datamap_t* C_SequenceTransitioner::GetPredDescMap() const
+const datamap_t* C_SequenceTransitioner::GetPredDescMapConst() const
 {
     return g_SequenceTransitionerPredMap;
 }

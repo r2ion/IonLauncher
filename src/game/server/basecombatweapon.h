@@ -5,7 +5,7 @@
 
 #include "game/server/baseanimating.h"
 #include "game/server/entityoutput.h"
-#include "game/shared/basecombatweapon_shared.h"
+#include "game/shared/shareddefs.h"
 #include "game/shared/ehandle.h"
 #include "game/shared/weapon_parse.h"
 

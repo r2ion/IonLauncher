@@ -1,7 +1,7 @@
 #include "game/client/crouchkick.h"
 #include "engine/client/clientstate.h"
 #include "game/client/cliententitylist.h"
-#include "vgui/IClientPanel.h"
+#include "game/client/r1/r1_hud_scriptelements.h"
 
 #include <cstddef>
 std::vector<int> crouchCodes;
@@ -60,32 +60,20 @@ static void CancelHeldInputs()
 	crouchHolder.waitingToSend = false;
 }
 
-class CClientHudElement;
 class CScriptEntityResolverContext;
 
-using GetClientHudElementType_t = const void* (*)();
-using ResolveClientHudElement_t = CClientHudElement* (*)(CScriptEntityResolverContext*, SQObject*, const void*);
+using GetClientScriptHudElementType_t = const void* (*)();
+using ResolveClientScriptHudElement_t = CClientScriptHudElement* (*)(CScriptEntityResolverContext*, SQObject*, const void*);
 
-GetClientHudElementType_t sq_GetEntityConstant_CClientHudElement = nullptr;
-ResolveClientHudElement_t sq_ResolveClientHudElement = nullptr;
+GetClientScriptHudElementType_t sq_GetEntityConstant_CClientScriptHudElement = nullptr;
+ResolveClientScriptHudElement_t sq_ResolveClientScriptHudElement = nullptr;
 CScriptEntityResolverContext* g_pScriptEntityResolverContext = nullptr;
-
-constexpr std::ptrdiff_t CLIENT_HUD_ELEMENT_PANEL_OFFSET = 0x28;
-
-static vgui::IClientPanel* GetClientHudElementPanel(CClientHudElement* hudElement)
-{
-	if (!hudElement)
-		return nullptr;
-
-	return *reinterpret_cast<vgui::IClientPanel**>(
-		reinterpret_cast<std::byte*>(hudElement) + CLIENT_HUD_ELEMENT_PANEL_OFFSET);
-}
 
 const char* GetHudName(SQObject* obj)
 {
-	CClientHudElement* hudElement = sq_ResolveClientHudElement(
-		g_pScriptEntityResolverContext, obj, sq_GetEntityConstant_CClientHudElement());
-	vgui::IClientPanel* panel = GetClientHudElementPanel(hudElement);
+	CClientScriptHudElement* hudElement = sq_ResolveClientScriptHudElement(
+		g_pScriptEntityResolverContext, obj, sq_GetEntityConstant_CClientScriptHudElement());
+	vgui::Panel* panel = hudElement ? hudElement->GetPanel() : nullptr;
 	return panel ? panel->GetName() : nullptr;
 }
 
@@ -114,12 +102,11 @@ DECLARE_HOOK(CloseMenu, client.dll + 0x3B3C30, ([](auto& hook, SQVM* sqvm)
 	}
 	hook.Original(sqvm);
 }));
-bool CFKPostEvent(void* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
+bool CFKPostEvent(CInputSystem* thisObject, InputEventType_t nType, int nTick, int data1, int data2, int data3) {
 	if (!Cvar_ckf_enabled->GetBool())
 		return false;
 	struct timespec ts;
 	timespec_get(&ts, TIME_UTC);
-	EnsureCKFOriginals();
 	long long real = (ts.tv_nsec / 1000) + (ts.tv_sec * 1000000);
 	if (isMenuOpen) {
 		CancelHeldInputs();
@@ -272,8 +259,8 @@ ON_DLL_LOAD_CLIENT("engine.dll", CKFHooksEngine, [](CModule module) {
 
 ON_DLL_LOAD_CLIENT("client.dll", CKFHooksClient, [](CModule module) {
 	DISPATCH_MODULE(CKFHooks);
-	sq_ResolveClientHudElement = module.Offset(0x114F0).RCast<ResolveClientHudElement_t>();
-	sq_GetEntityConstant_CClientHudElement = module.Offset(0x52FD70).RCast<GetClientHudElementType_t>();
+	sq_ResolveClientScriptHudElement = module.Offset(0x114F0).RCast<ResolveClientScriptHudElement_t>();
+	sq_GetEntityConstant_CClientScriptHudElement = module.Offset(0x52FD70).RCast<GetClientScriptHudElementType_t>();
 	g_pScriptEntityResolverContext = module.Offset(0x23E6A98).RCast<CScriptEntityResolverContext*>();
 });
 
@@ -288,18 +275,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("engine.dll",CKFEngine,ConVar,[](CModule module)
 			"0",
 			FCVAR_ARCHIVE_PLAYERPROFILE | FCVAR_CLIENTDLL,
 			"Enable crouch kick fix logging. 1 = enabled, 0 = disabled.");
-})
-
-ON_DLL_LOAD_CLIENT_RELIESON(
-	"inputsystem.dll",
-	CKFInputSystem, ConVar,
-	[](CModule module)
-	{
-	v_CInputSystem__PostEvent = module.Offset(0x7EC0).RCast<decltype(v_CInputSystem__PostEvent)>();
-		auto hook = HookSys::FindHook("CInputSystem__PostEvent");
-		if (!hook)
-		{
-			spdlog::error("Failed to find hook for CInputSystem__PostEvent");
-		}
-		v_CInputSystem__PostEvent = HookSys::GetOriginalFunction<CInputSystem__PostEvent>(hook);
 })

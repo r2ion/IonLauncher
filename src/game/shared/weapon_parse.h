@@ -1,5 +1,7 @@
 #pragma once
 
+#include "game/shared/r1/weapon_sway.h"
+#include "game/shared/r1/weapon_x.h"
 #include "mathlib/vector.h"
 #include "tier1/utlsymbol.h"
 
@@ -19,58 +21,6 @@ typedef unsigned short WEAPON_FILE_INFO_HANDLE;
 #define MAX_WEAPON_STRING_POOL 3072
 #define MAX_WEAPON_MOD_PARSE_ENTRIES 0x2D6
 
-enum WeaponScriptCB : std::uint8_t
-{
-    WEAPONX_SCRIPTCB_DESTROY = 0,
-    WEAPONX_SCRIPTCB_ACTIVATE,
-    WEAPONX_SCRIPTCB_DEACTIVATE,
-    WEAPONX_SCRIPTCB_OWNER_CHANGED,
-    WEAPONX_SCRIPTCB_PRIMARY_ATTACK,
-    WEAPONX_SCRIPTCB_PRIMARY_ATTACK_ANIM_EVENT,
-    WEAPONX_SCRIPTCB_NPC_PRIMARY_ATTACK,
-    WEAPONX_SCRIPTCB_NPC_PRE_ATTACK,
-    WEAPONX_SCRIPTCB_NPC_TOSS_GRENADE,
-    WEAPONX_SCRIPTCB_RELOAD,
-    WEAPONX_SCRIPTCB_BULLET_HIT,
-    WEAPONX_SCRIPTCB_CHARGE_BEGIN,
-    WEAPONX_SCRIPTCB_CHARGE_END,
-    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_BEGIN,
-    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_END,
-    WEAPONX_SCRIPTCB_SUSTAINED_DISCHARGE_PULSE,
-    WEAPONX_SCRIPTCB_READY_TO_FIRE,
-    WEAPONX_SCRIPTCB_CUSTOM_ACTIVITY_START,
-    WEAPONX_SCRIPTCB_CUSTOM_ACTIVITY_END,
-    WEAPONX_SCRIPTCB_RAISE,
-    WEAPONX_SCRIPTCB_LOWER,
-    WEAPONX_SCRIPTCB_ZOOM_START_IN,
-    WEAPONX_SCRIPTCB_ZOOM_START_OUT,
-    WEAPONX_SCRIPTCB_TOSS,
-    WEAPONX_SCRIPTCB_TOSS_PREP,
-    WEAPONX_SCRIPTCB_TOSS_RELEASE_ANIM_EVENT,
-    WEAPONX_SCRIPTCB_TOSS_CANCEL,
-    WEAPONX_SCRIPTCB_ATTEMPT_OFFHAND_SWITCH,
-    WEAPONX_SCRIPTCB_OFFHAND_PRESSED_NOT_READY,
-    WEAPONX_SCRIPTCB_PRIMARY_ATTACK_VM_ACTIVITY,
-    WEAPONX_SCRIPTCB_CHARGE_LEVEL_INCREASED,
-    WEAPONX_SCRIPTCB_VORTEX_HIT_BULLET,
-    WEAPONX_SCRIPTCB_VORTEX_HIT_PROJECTILE,
-    WEAPONX_SCRIPTCB_COOLDOWN,
-    WEAPONX_SCRIPTCB_CLIENT_ANIM_EVENT,
-    WEAPONX_SCRIPTCB_SMART_AMMO_TARGETS_CHANGED,
-    WEAPONX_SCRIPTCB_SMART_AMMO_TRACKERS_CHANGED,
-    WEAPONX_SCRIPTCB_COUNT,
-};
-
-struct WeaponCallbackInfo
-{
-    const char* name;
-    const char* type;
-    const char* description;
-};
-
-static_assert(sizeof(WeaponCallbackInfo) == 0x18);
-
-extern const WeaponCallbackInfo* g_scriptCBInfo;
 
 enum class eWeaponFireMode : int
 {
@@ -869,60 +819,6 @@ struct WeaponModValues
     const char* vortex_absorb_effect;                            // 0xC88
     const char* vortex_absorb_effect_third_person;               // 0xC90
     const char* vortex_impact_effect;                            // 0xC98
-};
-
-struct WeaponSway_Transform
-{
-    Vector3D translate;
-    QAngle rotate;
-};
-
-struct WeaponSway_Move
-{
-    WeaponSway_Transform forward;
-    WeaponSway_Transform back;
-    WeaponSway_Transform left;
-    WeaponSway_Transform right;
-    WeaponSway_Transform up;
-    WeaponSway_Transform down;
-};
-
-struct WeaponSway_Turn
-{
-    WeaponSway_Transform left;
-    WeaponSway_Transform right;
-    WeaponSway_Transform up;
-    WeaponSway_Transform down;
-};
-
-struct WeaponSway_Clamp
-{
-    char rotateAttachName[MAX_WEAPON_STRING];
-    float rotateAttachBlendTime;
-    Vector3D translateMin;
-    Vector3D translateMax;
-    QAngle rotateMin;
-    QAngle rotateMax;
-    float translateGain;
-    float rotateGain;
-    float bobCycleTime;
-    float bobMinSpeed;
-    float bobMaxSpeed;
-    float bobVertDist;
-    float bobHorzDist;
-    float bobPitch;
-    float bobYaw;
-    float bobRoll;
-    float bobGain;
-    WeaponSway_Move move;
-    WeaponSway_Turn turn;
-};
-
-struct WeaponSway_Spec
-{
-    WeaponSway_Clamp unzoomed;
-    WeaponSway_Clamp zoomed;
-    bool zoomedSway;
 };
 
 struct WeaponMod

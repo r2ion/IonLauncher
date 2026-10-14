@@ -1,7 +1,5 @@
 #include "game/client/cdll_client_int.h"
 #include "cdll_int.h"
-#include "game/client/c_baseanimating.h"
-#include "game/client/c_baseviewmodel.h"
 #include "game/client/c_player.h"
 #include "game/client/prediction.h"
 #include "engine/client/clientstate.h"
@@ -15,14 +13,14 @@ CGlobalVarsBase* g_pClientGlobals = nullptr;
 
 using CreateInterface_t = void* (*)(const char*, int*);
 
-DECLARE_HOOK(CClient_Init, client.dll + 0x18EF00,
+DECLARE_HOOK(CHLClient_Init, client.dll + 0x18EF00,
              [](auto& hook, IBaseClientDLL* self, CreateInterface_t appSystemFactory, CGlobalVarsBase* globals) -> bool
 {
     g_pClientGlobals = globals;
     return hook.Original(self, appSystemFactory, globals);
 })
 
-DECLARE_HOOK(CClient_FrameStageNotify, client.dll + 0x1900A0, [](auto& hook, IBaseClientDLL* self, ClientFrameStage_t stage)
+DECLARE_HOOK(CHLClient_FrameStageNotify, client.dll + 0x1900A0, [](auto& hook, IBaseClientDLL* self, ClientFrameStage_t stage)
 {
     auto& render = GetBaseLocalClient()->GetClientStateExtended()->m_RenderState;
     if (stage != FRAME_RENDER_END)
@@ -49,34 +47,11 @@ DECLARE_HOOK(CClient_FrameStageNotify, client.dll + 0x1900A0, [](auto& hook, IBa
     }
 })
 
-DECLARE_HOOK(C_BaseAnimating_UpdateClientSideAnimations, client.dll + 0x100AC0, [](auto& hook)
-{
-    if (GetBaseLocalClient()->GetClientStateExtended()->m_RenderState.inRenderStart)
-    {
-        g_pClientSidePrediction->InterpolateRenderState();
-        auto& render = GetBaseLocalClient()->GetClientStateExtended()->m_RenderState;
-        C_Player* const player = C_Player::GetLocalPlayer();
-        if (player)
-            player->UpdateZoomPresentation();
-        else
-            render.zoom = {};
-        float cameraTime;
-        if (!render.viewModel.active && player && g_pClientSidePrediction->GetRenderCameraTime(player, cameraTime) &&
-            player->CanPresentLocalPlayer())
-        {
-            if (C_BaseViewModel* const viewModel = player->GetViewModel())
-                viewModel->UpdateRenderPresentation(cameraTime);
-        }
-        C_BaseAnimating::UpdateRemoteSequencePresentation();
-    }
-    hook.Original();
-})
 
 ON_DLL_LOAD_CLIENT("client.dll", ClientDll, [](CModule)
 {
-    DISPATCH_HOOK(ClientDllHooks, CClient_Init)
-    DISPATCH_HOOK(ClientDllHooks, CClient_FrameStageNotify)
-    DISPATCH_HOOK(ClientDllHooks, C_BaseAnimating_UpdateClientSideAnimations)
+    DISPATCH_HOOK(ClientDllHooks, CHLClient_Init)
+    DISPATCH_HOOK(ClientDllHooks, CHLClient_FrameStageNotify)
 })
 
 DECLARE_HOOK_PROC(ClientCreateInterface, client.dll, CreateInterface, [](auto& hook, const char* pName, int* pReturnCode) -> void*

@@ -69,7 +69,7 @@ class CAI_Node
 struct CAI_TraverseNode
 {
 	float m_Quat[4];
-	std::int32_t m_Index_MAYBE;
+	std::int32_t m_TraverseType;
 };
 
 struct CAI_ScriptNode

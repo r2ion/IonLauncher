@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/shared/animation.h"
+#include "game/shared/baseanimating_shared.h"
 #include "game/client/c_baseentity.h"
 #include "bone_accessor.h"
 #include "game/shared/sequence_transitioner.h"
@@ -161,7 +162,7 @@ class C_BaseAnimating : public C_BaseEntity
     AnimRelativeData_Client m_networkedAnimRelativeData; // 0xB6C
     AnimRelativeData_Client m_animRelativeData;          // 0xBE4
     CHandle<C_BaseEntity> m_syncingWithEntity;           // 0xC5C
-    PredictedAnimEventData m_predictedAnimEventData;     // 0xC60
+    PredictedAnimEventData_Client m_predictedAnimEventData; // 0xC60
     CRagdoll* m_pRagdoll;                                // 0xCC0
     CHandle<C_BaseEntity> m_pClientsideRagdoll;
     int m_nRagdollImpactFXTableId;

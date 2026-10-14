@@ -8,7 +8,7 @@
 #include "engine/deferredtrace.h"
 #include "game/shared/collisionproperty.h"
 #include "game/shared/ehandle.h"
-#include "game/shared/particleproperty.h"
+#include "game/shared/particle_property.h"
 #include "game/shared/predictableid.h"
 #include "gametrace.h"
 #include "mathlib/color.h"
@@ -549,11 +549,11 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     {
         return m_CollisionGroup;
     }
-    CCollisionProperty* CollisionProp()
+    C_CollisionProperty* CollisionProp()
     {
         return &m_Collision;
     }
-    const CCollisionProperty* CollisionProp() const
+    const C_CollisionProperty* CollisionProp() const
     {
         return &m_Collision;
     }
@@ -742,7 +742,7 @@ class C_BaseEntity : public IClientEntity, public IClientModelRenderable
     unsigned char m_MoveType;
     unsigned char m_MoveCollide;
     float m_flAnimTime;
-    CCollisionProperty m_Collision; // 0x3F8
+    C_CollisionProperty m_Collision; // 0x3F8
     QAngle m_renderAnglesTemp;
     AbsHistory m_lastCalculatedAbs;
     bool m_lastCalculatedAbsValid;

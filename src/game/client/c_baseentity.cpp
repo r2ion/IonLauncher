@@ -7,7 +7,7 @@
 #include "game/client/cdll_client_int.h"
 #include "game/client/prediction.h"
 #include "game/shared/predictioncopy.h"
-#include "game/shared/r1/c_weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
 #include "tier0/callbacks.h"
 #include "tier0/hooks.h"
 #include "tier1/convar.h"

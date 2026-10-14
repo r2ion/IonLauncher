@@ -2,6 +2,7 @@
 #include "engine/server/player_limits.h"
 #include "engine/server/server_limits.h"
 #include "game/server/player.h"
+#include "game/server/util_server.h"
 #include "game/shared/usercmd.h"
 #include "game/shared/weapon_prediction.h"
 #include "vstdlib/random.h"
@@ -127,7 +128,6 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 	auto qword_1812107E8 = *(__int64*)(base + 0x12107E8);
 	auto qword_1812105A8 = *(__int64*)(base + 0x12105A8);
 
-	auto UTIL_PlayerByIndex = (__int64(__fastcall*)(int index))(base + 0x26AA10);
 	auto sub_180485590 = (void(__fastcall*)(__int64))(base + 0x485590);
 	auto sub_18058CD80 = (void(__fastcall*)(__int64))(base + 0x58CD80);
 	auto sub_1805A6D90 = (void(__fastcall*)(__int64))(base + 0x5A6D90);
@@ -141,7 +141,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 		v5 = 1;
 		for (i = 1; i <= *(DWORD*)(g_pGlobals + 52); ++i)
 		{
-			v7 = UTIL_PlayerByIndex(i);
+			v7 = reinterpret_cast<__int64>(UTIL_PlayerByIndex(i));
 			v8 = (DWORD*)v7;
 			if (v7)
 			{
@@ -160,7 +160,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 			v10 = v25;
 			do
 			{
-				v11 = UTIL_PlayerByIndex(++v9);
+				v11 = reinterpret_cast<__int64>(UTIL_PlayerByIndex(++v9));
 				globals = g_pGlobals;
 				*v10++ = v11;
 			} while (v9 < *(DWORD*)(globals + 52));
@@ -215,7 +215,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 		{
 			do
 			{
-				v24 = UTIL_PlayerByIndex(v5);
+				v24 = reinterpret_cast<__int64>(UTIL_PlayerByIndex(v5));
 				if (v24)
 				{
 					*(__int64*)(base + 0x1210420) = v24;
@@ -229,7 +229,7 @@ DECLARE_HOOK(RunUserCmds, server.dll + 0x483D10,
 	}
 })
 
-ON_DLL_LOAD("server.dll", MaxPlayersUserCommands, [](CModule module)
+ON_DLL_LOAD_RELIESON("server.dll", MaxPlayersUserCommands, ServerUtilities, [](CModule module)
 {
     if (!MaxPlayersIncreaseEnabled())
         return;

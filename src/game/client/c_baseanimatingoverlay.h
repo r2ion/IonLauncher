@@ -1,14 +1,7 @@
 #pragma once
 
 #include "game/client/c_baseanimating.h"
-
-struct C_AnimationLayer
-{
-    void* __vftable;
-    C_BaseAnimatingOverlay* m_animationLayerOwner;
-    int m_layerIndex;
-    unsigned int m_nInvalidatePhysicsBits;
-};
+#include "game/client/c_animation_layer.h"
 
 class C_BaseAnimatingOverlay : public C_BaseAnimating
 {
@@ -32,5 +25,4 @@ class C_BaseAnimatingOverlay : public C_BaseAnimating
     AnimationOverlayData m_currentFrameAnimationOverlay;
 };
 
-static_assert(sizeof(C_AnimationLayer) == 0x18);
 static_assert(sizeof(AnimationOverlayData) == 0x170);

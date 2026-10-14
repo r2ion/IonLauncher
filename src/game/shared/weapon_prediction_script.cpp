@@ -4,8 +4,8 @@
 #include "game/client/c_player.h"
 #include "game/server/player.h"
 #include "game/shared/igamemovement.h"
-#include "game/shared/r1/c_weapon_x.h"
-#include "game/shared/r1/weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
+#include "game/server/r1/weapon_x.h"
 #include "game/shared/usercmd.h"
 #include "mathlib/mathlib.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
@@ -29,13 +29,13 @@ template <ScriptContext context> static HSCRIPT SelectPredictedWeaponCallback(HS
         C_WeaponX* weapon = static_cast<C_BaseEntity*>(entity)->MyWeaponXPointer();
         if (!weapon)
             return function;
-        if (weapon->m_callbacks[WEAPONX_SCRIPTCB_OWNER_CHANGED] == function)
+        if (weapon->m_weaponScriptCB_[WEAPONX_SCRIPTCB_OWNER_CHANGED] == function)
             weapon->GetWeaponExtended()->Forget();
         if (!command || !command->owner || command->ownerGeneration != command->owner->generation || command->readOnly ||
             command->context != context || weapon->GetWeaponOwner() != command->player)
             return function;
         for (int i = 0; i < WEAPONX_SCRIPTCB_COUNT; ++i)
-            if (weapon->m_callbacks[i] == function)
+            if (weapon->m_weaponScriptCB_[i] == function)
                 if (auto* instance = GetWeaponPredictionInstance(weapon, *command->owner, true))
                     return IsValid(instance->definition->functions[i]) ? instance->definition->functions[i] : function;
     }

@@ -14,7 +14,7 @@ class C_SequenceTransitionerLayer
 {
   public:
     virtual datamap_t* GetPredDescMap();
-    virtual const datamap_t* GetPredDescMap() const;
+    virtual const datamap_t* GetPredDescMapConst() const;
 
     C_SequenceTransitionerLayer();
     void Reset();
@@ -44,7 +44,7 @@ class C_SequenceTransitioner
 {
   public:
     virtual datamap_t* GetPredDescMap();
-    virtual const datamap_t* GetPredDescMap() const;
+    virtual const datamap_t* GetPredDescMapConst() const;
     C_SequenceTransitioner();
     C_BaseAnimating* m_ownerBaseAnimating;
     enum SequenceTransitionerTargetLayer

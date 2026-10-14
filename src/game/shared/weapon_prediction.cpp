@@ -11,8 +11,8 @@
 #include "game/client/prediction.h"
 #include "game/server/player.h"
 #include "game/shared/igamemovement.h"
-#include "game/shared/r1/c_weapon_x.h"
-#include "game/shared/r1/weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
+#include "game/server/r1/weapon_x.h"
 #include "game/shared/usercmd.h"
 #include "modsystem/modmanager.h"
 #include "tier0/hooks.h"
@@ -785,6 +785,7 @@ void StoreWeaponPredictionResults(CPlayerPredictionState& prediction, const int 
 
 DECLARE_MODULE(WeaponPredictionHooks)
 
+
 DECLARE_HOOK(CPrediction_RunScriptCommand, client.dll + 0x2D7460,
              [](auto& hook, CPrediction* self, C_Player* player, CUserCmd* command, void* moveHelper) -> void*
 {
@@ -850,7 +851,7 @@ DECLARE_HOOK(ServerPredictedScriptCallback, server.dll + 0x1D930,
     return hook.Original(vm, function, args, count, result, scope, wait);
 })
 
-RecvVarProxyFn s_OriginalPredictionClassProxy;
+RecvVarProxyFn g_OriginalPredictionClassProxy;
 
 void PredictionClassProxy(const CRecvProxyData* data, void* base, void* output)
 {
@@ -863,8 +864,8 @@ void PredictionClassProxy(const CRecvProxyData* data, void* base, void* output)
             ResolvePredictionEntity(ScriptContext::CLIENT, owner.handle) == player)
             EndPlayerWeaponPrediction(ScriptContext::CLIENT, player->GetRefEHandle().ToInt());
     }
-    if (s_OriginalPredictionClassProxy)
-        s_OriginalPredictionClassProxy(data, base, output);
+    if (g_OriginalPredictionClassProxy)
+        g_OriginalPredictionClassProxy(data, base, output);
     else
         *static_cast<int*>(output) = data->m_Value.m_Value.m_Int;
 }
@@ -885,7 +886,7 @@ ON_DLL_LOAD_CLIENT("client.dll", ClientWeaponPrediction, [](CModule module)
     DISPATCH_HOOK(WeaponPredictionHooks, ClientPredictionMovement)
     DISPATCH_HOOK(WeaponPredictionHooks, ClientPredictedScriptCallback)
     CRecvProp* classProperty = module.Offset(0xC21EE0).RCast<CRecvProp*>();
-    s_OriginalPredictionClassProxy = classProperty->m_ProxyFn;
+    g_OriginalPredictionClassProxy = classProperty->m_ProxyFn;
     classProperty->m_ProxyFn = PredictionClassProxy;
 })
 

@@ -3,8 +3,8 @@
 #include "engine/deferredtrace.h"
 #include "game/client/c_basecombatweapon.h"
 #include "game/shared/r1/weapon_playerdata.h"
-#include "game/shared/r1/weapon_x_shared.h"
-#include "game/shared/smartammo.h"
+#include "game/shared/r1/weapon_x.h"
+#include "game/shared/r1/smartammo.h"
 #include "game/shared/weapon_parse.h"
 #include "game/shared/weapon_prediction.h"
 #include "tier1/utlobjectreference.h"
@@ -270,7 +270,7 @@ class C_WeaponX : public C_BaseCombatWeapon
     int m_weaponNameIndex;
     int m_animModelIndexPredictingClientOnly;
     int m_animSequencePredictingClientOnly; // 0x15D0
-    HSCRIPT__* m_callbacks[WEAPONX_SCRIPTCB_COUNT]; // 0x15D8
+    HSCRIPT__* m_weaponScriptCB_[WEAPONX_SCRIPTCB_COUNT]; // 0x15D8
     WeaponModValues m_modVars;              // 0x1700
     int m_tracerAttachment[2];              // 0x23A0
     int m_damageSourceIdentifier;

@@ -10,14 +10,15 @@ namespace vgui
 class RichTextCommon : public Panel
 {
 public:
-	virtual void SetText(const wchar_t* text) = 0;
+	// MSVC assigns overload slots in reverse declaration order.
 	virtual void SetText(const char* text) = 0;
-	virtual int GetText(int offset, char* text, int bufferSize) = 0;
+	virtual void SetText(const wchar_t* text) = 0;
 	virtual int GetText(int offset, wchar_t* text, int bufferSize) = 0;
+	virtual int GetText(int offset, char* text, int bufferSize) = 0;
 	virtual void SetFont(unsigned long font) = 0;
 	virtual void InsertChar(wchar_t character) = 0;
-	virtual void InsertString(const wchar_t* text) = 0;
 	virtual void InsertString(const char* text) = 0;
+	virtual void InsertString(const wchar_t* text) = 0;
 	virtual void SelectNone() = 0;
 	virtual void SelectAllText() = 0;
 	virtual void SelectNoText() = 0;

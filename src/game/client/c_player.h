@@ -1,7 +1,7 @@
 #pragma once
 
 #include "game/client/c_basecombatcharacter.h"
-#include "game/shared/playerdata.h"
+#include "game/shared/player_shared.h"
 #include "game/shared/usercmd.h"
 #include "game/shared/weapon_prediction.h"
 #include "playerstate.h"
@@ -80,7 +80,8 @@ class C_Player : public C_BaseCombatCharacter
     float m_flSuitPower; // m_Local + 0x20;
     std::byte m_Padding189C[0x28];
     float m_powerRegenRateScale; // m_Local + 0x4C
-    std::byte m_Padding18C8[0x195];
+    float m_dodgePowerDelayScale; // m_Local + 0x50
+    std::byte m_Padding18CC[0x191];
     bool m_titanDisembarkEnabled; // m_Local + 0x1E5;
     std::byte m_Padding1A5E[0x52];
     CurrentData_Player_Client m_currentFramePlayer;
@@ -137,6 +138,7 @@ static_assert(offsetof(C_Player, m_zoomBaseFrac) == 0x169C);
 static_assert(offsetof(C_Player, m_zoomBaseTime) == 0x16A0);
 static_assert(offsetof(C_Player, m_flSuitPower) == 0x1898);
 static_assert(offsetof(C_Player, m_powerRegenRateScale) == 0x18C4);
+static_assert(offsetof(C_Player, m_dodgePowerDelayScale) == 0x18C8);
 static_assert(offsetof(C_Player, m_currentFramePlayer) == 0x1AB0);
 static_assert(offsetof(C_Player, m_titanDisembarkEnabled) == 0x1A5D);
 static_assert(offsetof(C_Player, m_wallrunFrictionScale) == 0x24C4);

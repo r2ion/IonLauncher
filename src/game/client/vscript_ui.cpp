@@ -1,4 +1,6 @@
 #include "vscript/languages/squirrel_re/squirrel.h"
+#include "game/client/r1/r1_hud_scriptelements.h"
+#include "game/client/portal2/gameui/gameui_util.h"
 #include "common/netmessages.h"
 #include "engine/client/cdll_engine_int.h"
 #include "engine/client/clientstate.h"
@@ -12,6 +14,7 @@
 #include "tier1/bitbuf.h"
 #include "tier1/convar.h"
 #include "tier1/cvar.h"
+#include "tier1/utlstring.h"
 #include "util/wininfo.h"
 #include "vgui_controls/Panel.h"
 
@@ -699,24 +702,7 @@ ADD_SQFUNC("vector ornull", NSGetCursorPosition, "", "", ScriptContext::UI)
 	return SQRESULT_ERROR;
 }
 
-struct CGameUIConVarRef
-{
-	IConVar* m_pIConVar;
-	ConVar* m_pConVar;
-
-	CGameUIConVarRef* Init(const char* convarName);
-};
-
-static_assert(sizeof(CGameUIConVarRef) == 0x10);
-static_assert(alignof(CGameUIConVarRef) == 0x8);
-static_assert(offsetof(CGameUIConVarRef, m_pIConVar) == 0x0);
-static_assert(offsetof(CGameUIConVarRef, m_pConVar) == 0x8);
-
-class CClientScriptHudElement
-{
-public:
-	vgui::Panel* GetPanel() const;
-};
+static_assert(sizeof(CUtlString) == 0x20);
 
 class CDialogListButton
 {
@@ -726,18 +712,6 @@ public:
 	bool IsDefaultValue();
 };
 
-using CGameUIConVarRef__Init_t = CGameUIConVarRef* (*)(CGameUIConVarRef*, const char*);
-CGameUIConVarRef__Init_t CGameUIConVarRef__Init = nullptr;
-
-CGameUIConVarRef* CGameUIConVarRef::Init(const char* convarName)
-{
-	return CGameUIConVarRef__Init(this, convarName);
-}
-
-vgui::Panel* CClientScriptHudElement::GetPanel() const
-{
-	return *reinterpret_cast<vgui::Panel* const*>(reinterpret_cast<const std::byte*>(this) + 0x28);
-}
 
 void CDialogListButton::RemoveListItems()
 {
@@ -806,16 +780,13 @@ using sub_4A3620_t = int (__fastcall *)(void);
 sub_4A3620_t sub_4A3620 = nullptr;
 using sub_733BB0_t = unsigned int (__fastcall *)(const unsigned __int8 *, const unsigned __int8 *);
 sub_733BB0_t sub_733BB0 = nullptr;
-using sub_73A300_t = int (__fastcall *)(__int64);
-sub_73A300_t sub_73A300 = nullptr;
-using sub_739B90_t = const char* (__fastcall *)(__int64);
-sub_739B90_t sub_739B90 = nullptr;
 
 static IVEngineClient** g_ppScriptMenuEngineClient = nullptr;
 
 bool CDialogListButton::IsDefaultValue()
 {
 	uintptr_t a1 = reinterpret_cast<uintptr_t>(this);
+	const auto* playlistVariable = reinterpret_cast<const CUtlString*>(reinterpret_cast<const std::byte*>(this) + 0x4F0);
   __int64 v3; // rcx
   __int64 v4; // rax
   __int64 v5; // rbx
@@ -840,14 +811,14 @@ bool CDialogListButton::IsDefaultValue()
     if ( (unsigned int)sub_733BB0(v6, *reinterpret_cast<const unsigned __int8 **>(*reinterpret_cast<uint64_t *>(v5 + 16LL * v7 + 8) + 72LL)) )
       return 1;
   }
-  if ( sub_73A300(a1 + 1264) )
+  if ( playlistVariable->Length() )
   {
-    v9 = sub_739B90(a1 + 1264);
+    v9 = playlistVariable->Get();
     v12 = engineClient->GetCurrentPlaylistGameModeVar(
             *reinterpret_cast<unsigned __int8*>(a1 + 1296),
             v9,
             false);
-    v13 = sub_739B90(a1 + 1264);
+    v13 = playlistVariable->Get();
     v15 = engineClient->GetCurrentPlaylistGameModeVar(
             *reinterpret_cast<unsigned __int8*>(a1 + 1296),
             v13,
@@ -871,15 +842,12 @@ DECLARE_HOOK(DialogListButton__IsDefaultValue, client.dll + 0x4C96A0, ([](auto& 
 }))
 
 
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", CGameUIConVarRef, ConVar, [](CModule module)
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", ScriptMenuBindings, ConVar, [](CModule module)
 {
 	sub_738940 = module.Offset(0x738940).RCast<sub_738940_t>();
 	sub_4A3620 = module.Offset(0x4A3620).RCast<sub_4A3620_t>();
 	sub_733BB0 = module.Offset(0x733BB0).RCast<sub_733BB0_t>();
-	sub_73A300 = module.Offset(0x73A300).RCast<sub_73A300_t>();
-	sub_739B90 = module.Offset(0x739B90).RCast<sub_739B90_t>();
 	g_ppScriptMenuEngineClient = module.Offset(0xC3D940).RCast<IVEngineClient**>();
 
 	DISPATCH_MODULE(ScriptHudElemHooks);
-	CGameUIConVarRef__Init = module.Offset(0x4A34A0).RCast<CGameUIConVarRef__Init_t>();
 })

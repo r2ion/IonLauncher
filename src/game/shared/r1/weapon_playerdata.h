@@ -12,7 +12,7 @@ class WeaponPlayerData_Client
 {
   public:
     virtual datamap_t* GetPredDescMap();
-    virtual const datamap_t* GetPredDescMap() const;
+    virtual const datamap_t* GetPredDescMapConst() const;
 
     float GetTargetZoomFOV() const
     {

@@ -1,36 +1,10 @@
-#pragma once
-
 #include "mathlib/vector.h"
+#include "game/client/ivieweffects.h"
+#include "shake.h"
 
 #include <cstddef>
 #include <cstdint>
 
-enum class ShakeCommand_t : int
-{
-	Start = 0,
-	Stop,
-	Amplitude,
-	Frequency,
-	StartRumbleOnly,
-	StartNoRumble,
-	StartDirectional,
-};
-
-enum class ShakeMode_t : std::uint8_t
-{
-	Standard = 0,
-	Randomized = 1,
-	Directional = 2,
-};
-
-struct ScreenShake_t
-{
-	ShakeCommand_t m_Command;
-	float m_Amplitude;
-	float m_Frequency;
-	float m_Duration;
-	Vector3D m_Direction;
-};
 
 enum ScreenFadeFlags_t : std::int16_t
 {
@@ -76,19 +50,26 @@ struct CViewEffectsFade_t
 	int m_Flags;
 };
 
-struct CViewEffectsShake_t
+struct ScreenShake_Internal
 {
-	float m_Amplitude;
-	float m_Frequency;
-	float m_Duration;
-	float m_EndTime;
-	float m_PreviousShakeTime;
-	float m_NextShakeTime;
-	Vector3D m_Offset;
-	float m_Angle;
-	ShakeCommand_t m_Command;
-	Vector3D m_Direction;
-	ShakeMode_t m_Mode;
+	enum ShakeType_t
+	{
+		SHAKE_TYPE_LEGACY = 0,
+		SHAKE_TYPE_DEFAULT,
+		SHAKE_TYPE_DIRECTIONAL,
+	};
+
+	float amplitude;
+	float frequency;
+	float duration;
+	float endtime;
+	float shakeSpikeBegin;
+	float shakeSpikeEnd;
+	Vector3D offset;
+	float shakeAngle;
+	int command;
+	Vector3D direction;
+	std::uint8_t nShakeType;
 	std::uint8_t m_Pad0039[3];
 };
 
@@ -115,30 +96,13 @@ struct CViewEffectsPointerVector
 	std::uint32_t m_Pad001C;
 };
 
-class CViewEffects
+class CViewEffects : public IViewEffects
 {
 public:
-	virtual void Init(bool enabled) = 0;
-	virtual void LevelInit() = 0;
-	virtual void GetFadeParams(std::uint8_t* pRed, std::uint8_t* pGreen, std::uint8_t* pBlue,
-		std::uint8_t* pAlpha, bool* pBlend) = 0;
-	virtual void Shake(const ScreenShake_t& shake) = 0;
-	virtual void Fade(const ScreenFade_t& fade) = 0;
-	virtual void ClearPermanentFades() = 0;
-	virtual void ClearAllFades() = 0;
-	virtual void CalcShake() = 0;
-	virtual void ApplyShake(float* pOrigin, float* pAngles, float coordinateFactor,
-		float angularFactor) = 0;
-	virtual void CalcTilt() = 0;
-	virtual void ApplyTilt(float* pAngles) = 0;
-	virtual void Save(void* pSave) = 0;
-	virtual void Restore(void* pRestore) = 0;
-	virtual void ClearAllShakes() = 0;
-
 	bool m_Initialized;
 	std::uint8_t m_Pad0009[7];
 	CViewEffectsPointerVector<CViewEffectsFade_t> m_Fades;
-	CViewEffectsShake_t m_ShakeEntries[16];
+	ScreenShake_Internal m_ShakeEntries[16];
 	std::int64_t m_ShakeCount;
 	Vector3D m_ShakeOffset;
 	Vector2D m_ShakeAngleOffset;

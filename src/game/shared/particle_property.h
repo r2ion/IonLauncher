@@ -16,7 +16,7 @@ class CParticleEffect;
 struct datamap_t;
 class C_ParticleSystemDefinition;
 
-inline constexpr int INVALID_PARTICLE_ATTACHMENT = -1;
+#define INVALID_PARTICLE_ATTACHMENT -1
 
 struct ParticleControlPoint_t
 {

@@ -1,5 +1,6 @@
 #include "game/client/c_baseanimating.h"
 #include "game/client/c_player.h"
+#include "game/client/c_baseviewmodel.h"
 #include "game/client/prediction.h"
 #include "engine/client/cdll_engine_int.h"
 #include "engine/client/clientstate.h"
@@ -26,17 +27,17 @@ C_BaseAnimating_SetCycle_t C_BaseAnimating__SetCycle;
 C_BaseAnimating_GetSequenceGroundSpeed_t C_BaseAnimating__GetSequenceGroundSpeed;
 C_BaseAnimating_ClearRagdoll_t C_BaseAnimating__ClearRagdoll;
 C_BaseAnimating_UpdateAnimationCycle_t C_BaseAnimating__UpdateAnimationCycle;
-datamap_t* PredictedAnimEventData__m_PredMap;
+datamap_t* PredictedAnimEventData_Client__m_PredMap;
 ConVar* sv_teststepsimulation;
 
 
-datamap_t* PredictedAnimEventData::GetPredDescMap()
+datamap_t* PredictedAnimEventData_Client::GetPredDescMap()
 {
-    return PredictedAnimEventData__m_PredMap;
+    return PredictedAnimEventData_Client__m_PredMap;
 }
-const datamap_t* PredictedAnimEventData::GetPredDescMap() const
+const datamap_t* PredictedAnimEventData_Client::GetPredDescMapConst() const
 {
-    return PredictedAnimEventData__m_PredMap;
+    return PredictedAnimEventData_Client__m_PredMap;
 }
 
 CStudioHdr* C_BaseAnimating::GetModelPtr() const
@@ -362,6 +363,29 @@ DECLARE_HOOK(C_BaseAnimating_ClientFrameAdvance, client.dll + 0xF0AD0, [](auto&,
     self->m_flGroundSpeed = self->GetSequenceGroundSpeed(hdr, self->GetSequence());
 })
 
+DECLARE_HOOK(C_BaseAnimating_UpdateClientSideAnimations, client.dll + 0x100AC0, [](auto& hook)
+{
+    if (GetBaseLocalClient()->GetClientStateExtended()->m_RenderState.inRenderStart)
+    {
+        g_pClientSidePrediction->InterpolateRenderState();
+        auto& render = GetBaseLocalClient()->GetClientStateExtended()->m_RenderState;
+        C_Player* const player = C_Player::GetLocalPlayer();
+        if (player)
+            player->UpdateZoomPresentation();
+        else
+            render.zoom = {};
+        float cameraTime;
+        if (!render.viewModel.active && player && g_pClientSidePrediction->GetRenderCameraTime(player, cameraTime) &&
+            player->CanPresentLocalPlayer())
+        {
+            if (C_BaseViewModel* const viewModel = player->GetViewModel())
+                viewModel->UpdateRenderPresentation(cameraTime);
+        }
+        C_BaseAnimating::UpdateRemoteSequencePresentation();
+    }
+    hook.Original();
+})
+
 ON_DLL_LOAD_CLIENT("client.dll", BaseAnimatingMethods, [](CModule module)
 {
     C_BaseAnimating__GetModelPtr = module.Offset(0x88900).RCast<decltype(C_BaseAnimating__GetModelPtr)>();
@@ -371,7 +395,7 @@ ON_DLL_LOAD_CLIENT("client.dll", BaseAnimatingMethods, [](CModule module)
     C_BaseAnimating__IsSequenceLooping = module.Offset(0xAC710).RCast<decltype(C_BaseAnimating__IsSequenceLooping)>();
     C_BaseAnimating__ClampCycle = module.Offset(0xAA260).RCast<decltype(C_BaseAnimating__ClampCycle)>();
     C_BaseAnimating__SequenceDuration = module.Offset(0xADA20).RCast<decltype(C_BaseAnimating__SequenceDuration)>();
-    PredictedAnimEventData__m_PredMap = module.Offset(0xAF46E0).RCast<datamap_t*>();
+    PredictedAnimEventData_Client__m_PredMap = module.Offset(0xAF46E0).RCast<datamap_t*>();
 
     C_BaseAnimating__GetLastVisibleCycle = module.Offset(0xAB310).RCast<decltype(C_BaseAnimating__GetLastVisibleCycle)>();
     C_BaseAnimating__SetCycle = module.Offset(0xADB20).RCast<decltype(C_BaseAnimating__SetCycle)>();

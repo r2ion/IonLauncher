@@ -8,25 +8,17 @@
 #include "tier0/hooks.h"
 #include "tier1/convar.h"
 #include "tier1/cvar.h"
-#include "game/client/crouchkick.h"
-#include "engine/lowlatency.h"
-#include "inputsystem/ButtonCode.h"
-#include "vscript/languages/squirrel_re/squirrel.h"
 
 #include <algorithm>
 #include <cstdint>
 
 DECLARE_MODULE(ClientInputHooks)
 
-
 kbutton_t* g_pMovementKeys[8];
 kbutton_t* in_strafe;
 
-
 CInput* g_pInput;
 ConVar* cl_move_use_dt;
-
-
 
 void CInput::SetInputSampleTime(float frameTime)
 {
@@ -141,7 +133,7 @@ DECLARE_HOOK(CInput_CreateMove, client.dll + 0x254D10, [](auto& hook, CInput* se
     input.m_flExtraSideMove = 0.0f;
 })
 
-DECLARE_HOOK(CPlayer_CreateMove, client.dll + 0x14A880, [](auto& hook, C_Player* self, float frameTime, CUserCmd* command, bool extraSample) -> bool
+DECLARE_HOOK(C_Player_CreateMove, client.dll + 0x14A880, [](auto& hook, C_Player* self, float frameTime, CUserCmd* command, bool extraSample) -> bool
 {
     auto& input = *GetBaseLocalClient()->GetClientStateExtended();
     if (input.m_bInExtraMouseSample && extraSample)
@@ -206,53 +198,4 @@ ON_DLL_LOAD_CLIENT_RELIESON("client.dll", ClientInput, (R2EngineClient, ConVar, 
     g_pMovementKeys[6] = module.Offset(0x11C1468).RCast<kbutton_t*>();
     g_pMovementKeys[7] = module.Offset(0x11C1478).RCast<kbutton_t*>();
     DISPATCH_MODULE(ClientInputHooks);
-})
-
-DECLARE_MODULE(ScriptInputEventsHooks)
-
-template <ScriptContext context>
-static void RouteInputEventToScript(int nType, int nTick, int nData, int nData2, int nData3)
-{
-    auto* squirrel = g_pSquirrel[context];
-    if (squirrel->m_pSQVM && squirrel->m_pSQVM->sqvm)
-        squirrel->AsyncCall("CInputSystem__ProcessPostEvent", nType, nTick, nData, nData2, nData3);
-}
-
-// clang-format off
-DECLARE_HOOK(CInputSystem__PostEvent, inputsystem.dll + 0x7EC0, ([](auto& hook, void* self, int nType, int nTick, int nData, int nData2, int nData3)
-// clang-format on
-{
-    if ((nType == IE_ButtonPressed || nType == IE_ButtonDoubleClicked) && nData == MOUSE_LEFT)
-        LowLatency_MarkInputEvent();
-
-    if (!CFKPostEvent(self, static_cast<InputEventType_t>(nType), nTick, nData, nData2, nData3))
-    {
-        RouteInputEventToScript<ScriptContext::CLIENT>(nType, nTick, nData, nData2, nData3);
-        RouteInputEventToScript<ScriptContext::UI>(nType, nTick, nData, nData2, nData3);
-        hook.Original(self, nType, nTick, nData, nData2, nData3);
-    }
-}))
-ConVar* Cvar_ion_use_ps4_icons;
-
-// clang-format off
-DECLARE_HOOK(CInputSystem__DetermineControllerType, inputsystem.dll + 0x7420, ([](auto& hook, void* self) -> uint32_t
-{
-    // clang-format on
-    if (Cvar_ion_use_ps4_icons && Cvar_ion_use_ps4_icons->GetBool())
-    {
-        return 3;
-    }
-    return hook.Original(self);
-}));
-
-
-ON_DLL_LOAD_CLIENT("inputsystem.dll", FastCallbacks, [](CModule module)
-{
-    DISPATCH_MODULE(ScriptInputEventsHooks);
-    v_CInputSystem__PostEvent = HookSys::GetOriginalFunction<CInputSystem__PostEvent>(HookSys::FindHook("CInputSystem__PostEvent"));
-})
-
-ON_DLL_LOAD_CLIENT_RELIESON("inputsystem.dll", ScriptInputEvents, (ConVar), [](CModule module)
-{
-	Cvar_ion_use_ps4_icons = new ConVar("ion_use_ps4_icons", "0", FCVAR_ARCHIVE_PLAYERPROFILE, "Use PS4 icons for controller");
 })

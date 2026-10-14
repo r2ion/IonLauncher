@@ -1,4 +1,5 @@
-#include "game/shared/r1/projectile.h"
+#include "game/server/r1/projectile.h"
+#include "game/server/player_lagcompensation.h"
 #include "engine/server/sv_main.h"
 #include "gametrace.h"
 #include "tier0/hooks.h"
@@ -7,10 +8,6 @@
 
 DECLARE_MODULE(ProjectileHooks)
 
-class CLagCompensationManager;
-
-CLagCompensationManager* g_pLagCompensationManager;
-float (*CLagCompensationManager__GetNextSnapshotTime)(CLagCompensationManager*, const CBaseEntity*, float);
 const float* fl_pProjectileLagCompensationEndTime;
 
 DECLARE_HOOK(CProjectile::SimulateLagCompensation, server.dll + 0x63A7A0,
@@ -31,7 +28,7 @@ DECLARE_HOOK(CProjectile::SimulateLagCompensation, server.dll + 0x63A7A0,
             return false;
 
         startTime = simulatedTime;
-        endTime = CLagCompensationManager__GetNextSnapshotTime(g_pLagCompensationManager, owner, startTime);
+        endTime = g_pLagCompensationManager->GetNextSnapshotTime(owner, startTime);
         if (endTime <= startTime)
             endTime = targetTime;
         else
@@ -39,10 +36,8 @@ DECLARE_HOOK(CProjectile::SimulateLagCompensation, server.dll + 0x63A7A0,
     }
 })
 
-ON_DLL_LOAD("server.dll", Projectile, [](CModule module)
+ON_DLL_LOAD_RELIESON("server.dll", Projectile, LagCompensation, [](CModule module)
 {
-    g_pLagCompensationManager = module.Offset(0x14E6830).RCast<CLagCompensationManager*>();
-    CLagCompensationManager__GetNextSnapshotTime = module.Offset(0x5BD0D0).RCast<decltype(CLagCompensationManager__GetNextSnapshotTime)>();
     fl_pProjectileLagCompensationEndTime = module.Offset(0x1504350).RCast<const float*>();
     DISPATCH_HOOK(ProjectileHooks, CProjectile::SimulateLagCompensation)
 })

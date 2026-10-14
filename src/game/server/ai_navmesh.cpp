@@ -16,21 +16,21 @@
 #include <stdexcept>
 #include <string_view>
 
-static dtNavMesh** s_ppNavMeshes = nullptr;
+static dtNavMesh** g_navMeshArray = nullptr;
 
 //-----------------------------------------------------------------------------
 // Purpose: Borrow a loaded local-server graph for the current debug draw.
 //-----------------------------------------------------------------------------
 const dtNavMesh* GetNavMeshForHull(int nHull)
 {
-    if (!s_ppNavMeshes || nHull < 1 || nHull > 4 || !g_pServer || !g_pServer->IsActive() ||
+    if (!g_navMeshArray || nHull < 1 || nHull > 4 || !g_pServer || !g_pServer->IsActive() ||
         !g_pHostState || g_pHostState->m_iCurrentState != HostState_t::HS_RUN || g_pHostState->m_iNextState != HostState_t::HS_RUN)
         return nullptr;
 
-    return s_ppNavMeshes[nHull - 1];
+    return g_navMeshArray[nHull - 1];
 }
 
-ON_DLL_LOAD("server.dll", ServerAiNavMesh, [](CModule Module) { s_ppNavMeshes = Module.Offset(0x105F5D0).RCast<dtNavMesh**>(); })
+ON_DLL_LOAD("server.dll", ServerAiNavMesh, [](CModule Module) { g_navMeshArray = Module.Offset(0x105F5D0).RCast<dtNavMesh**>(); })
 //-----------------------------------------------------------------------------
 // Purpose: Generate the loaded map's navmeshes through the SDK builder.
 //          Live AI graphs remain unchanged until the next map load.

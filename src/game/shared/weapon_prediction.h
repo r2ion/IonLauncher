@@ -1,7 +1,7 @@
 #pragma once
 
 #include "datamap.h"
-#include "game/shared/playerdata.h"
+#include "game/shared/player_shared.h"
 #include "game/shared/predictioncopy.h"
 #include "game/shared/weapon_parse.h"
 #include "mathlib/vector.h"
@@ -143,6 +143,7 @@ struct WeaponPredictionCommand_t
     float duration = 0.0f;
     bool firstExecution = false;
     bool readOnly = false;
+    int missileRandomDriftIndex = 0;
     std::uint32_t cleanupWeapon = 0xFFFFFFFFu;
     CWeaponXPredictionState* cleanupInstance = nullptr;
 };

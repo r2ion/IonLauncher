@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/remote_functions.h"
+#include "game/client/hudelement.h"
 #include "tier1/bitbuf.h"
 #include "tier1/utlvector.h"
 #include "vgui_controls/EditablePanel.h"
@@ -16,47 +17,14 @@
 #include <string_view>
 #include <unordered_map>
 
-class CHud;
 class CClientScriptHud;
 class ConVar;
 
-class CHudElement
+class CClientScriptHudElement
 {
-  public:
-    CHudElement(const char* elementName);
-    virtual ~CHudElement();
-
-    virtual void SetHud(CHud* hud);
-    virtual void Init();
-    virtual void VidInit();
-    virtual void LevelInit();
-    virtual void LevelShutdown();
-    virtual void Reset();
-    virtual void ProcessInput();
-    virtual const char* GetName() const;
-    virtual bool ShouldDraw();
-    virtual bool IsActive();
-    virtual void SetActive(bool active);
-    virtual void SetHiddenBits(int hiddenBits);
-    virtual bool WantsHudLayoutEntry();
-    virtual int GetRenderGroupPriority();
-    virtual void OnSplitScreenStateChanged();
-
-  protected:
-    bool m_bActive;                                    // 0x08
-    std::array<std::byte, 3> m_ActivePadding;          // 0x09
-    int m_iHiddenBits;                                 // 0x0C
-    int m_nSplitScreenPlayerSlot;                      // 0x10
-    std::array<std::byte, 4> m_SplitScreenSlotPadding; // 0x14
-    const char* m_pElementName;                        // 0x18
-    bool m_bNeedsRemove;                               // 0x20
-    bool m_bIsParentedToClientDLLRootPanel;            // 0x21
-    std::array<std::byte, 6> m_ParentingPadding;       // 0x22
-    CUtlVector<int> m_HudRenderGroups;                 // 0x28
-    CHud* m_pHud;                                      // 0x48
+public:
+	vgui::Panel* GetPanel() const;
 };
-
-static_assert(sizeof(CHudElement) == 0x50);
 
 struct C_BaseScriptRemoteFunctionCall
 {
@@ -115,12 +83,12 @@ struct NamedScriptRemoteFunctionCall
 
 struct HudScriptElementsRemoteFunctionState
 {
-    using MessageCallback = void (*)(bf_read&);
+    using MessageCallback_t = void (*)(bf_read&);
 
     static constexpr std::size_t CALL_QUEUE_CAPACITY = C_CBaseScriptRemoteFunctionCallReceiveQueue::CAPACITY;
 
-    MessageCallback m_RemoteFunctionCallCallback = nullptr;
-    MessageCallback m_RemoteFunctionCallsChecksumCallback = nullptr;
+    MessageCallback_t m_RemoteFunctionCallCallback = nullptr;
+    MessageCallback_t m_RemoteFunctionCallsChecksumCallback = nullptr;
     ScriptRemoteFunctionRegistrationState* m_NativeRegistrationState = nullptr;
     C_CBaseScriptRemoteFunctionCallReceiveQueue* m_NativeCallQueue = nullptr;
     ConVar* m_KillReplayPlayNonReplayRemoteCallsOnLocalClientPlayer = nullptr;
@@ -154,8 +122,8 @@ class CHudScriptElements : public CHudElement, public vgui::EditablePanel
     static const char* GetPanelClassName();
     static void* GetVar_m_flDeltaLifetime(vgui::Panel* panel);
 
-    static void InitializeRemoteFunctions(HudScriptElementsRemoteFunctionState::MessageCallback remoteFunctionCallCallback,
-                                          HudScriptElementsRemoteFunctionState::MessageCallback remoteFunctionCallsChecksumCallback,
+    static void InitializeRemoteFunctions(HudScriptElementsRemoteFunctionState::MessageCallback_t remoteFunctionCallCallback,
+                                          HudScriptElementsRemoteFunctionState::MessageCallback_t remoteFunctionCallsChecksumCallback,
                                           ScriptRemoteFunctionRegistrationState* nativeRegistrationState,
                                           C_CBaseScriptRemoteFunctionCallReceiveQueue* nativeCallQueue,
                                           ConVar* killReplayPlayNonReplayRemoteCallsOnLocalClientPlayer);
@@ -172,8 +140,8 @@ class CHudScriptElements : public CHudElement, public vgui::EditablePanel
     void MsgFunc_RemoteFunctionCallsChecksum(bf_read* message);
 
   private:
-    static const std::set<std::string> s_VanillaRemoteFunctions;
-    static HudScriptElementsRemoteFunctionState s_RemoteFunctions;
+    static const std::set<std::string> g_VanillaRemoteFunctions;
+    static HudScriptElementsRemoteFunctionState g_RemoteFunctions;
 
     struct CHudScriptElements_RegisterMap
     {

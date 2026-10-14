@@ -1,8 +1,10 @@
-#include "game/shared/r1/weapon_x.h"
+#include "game/server/r1/weapon_x.h"
 #include "game/shared/weapon_mod_data.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
+#include "tier1/convar.h"
 
 const char* (*CWeaponX__GetWeaponNameSlow)(unsigned int);
+ConVar* Cvar_ns_enable_weapon_attack_callback;
 
 const char* CWeaponX::GetWeaponName() const
 {
@@ -37,6 +39,33 @@ CWeaponXExtended* CWeaponX::FindWeaponExtended(const std::uint32_t handle)
     return extended.m_WeaponPrediction.weaponHandle == handle ? &extended : nullptr;
 }
 DECLARE_MODULE(ServerWeaponHooks)
+DECLARE_HOOK(CWeaponX::PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, CWeaponX* weapon, int attackIndex) -> bool
+{
+    if (!Cvar_ns_enable_weapon_attack_callback->GetBool() || !weapon)
+        return hook.Original(weapon, attackIndex);
+
+    CBaseCombatCharacter* player = weapon->GetWeaponOwner();
+    const char* weaponName = player ? weapon->GetWeaponName() : nullptr;
+    if (!weaponName || !*weaponName)
+        return hook.Original(weapon, attackIndex);
+
+    bool ret = hook.Original(weapon, attackIndex);
+    if (!ret)
+        return ret;
+
+    auto* sq = g_pSquirrel[ScriptContext::SERVER];
+    if (!sq->m_pSQVM || !sq->m_pSQVM->sqvm)
+        return ret;
+
+    weaponName = weapon->GetWeaponName();
+    auto playerInstance = sq->createscriptinstance(player);
+    auto weaponInstance = sq->createscriptinstance(weapon);
+
+    if (playerInstance && weaponInstance && weaponName)
+        sq->Call("CodeCallback_OnWeaponAttack", playerInstance, weaponInstance, weaponName, 1);
+
+    return ret;
+})
 DECLARE_HOOK(CWeaponX_Destructor, server.dll + 0x6813E0, [](auto& hook, CWeaponX* pWeapon) -> std::uintptr_t
 {
     if (CWeaponXExtended* const extended = pWeapon->GetWeaponExtended())
@@ -45,7 +74,12 @@ DECLARE_HOOK(CWeaponX_Destructor, server.dll + 0x6813E0, [](auto& hook, CWeaponX
     return hook.Original(pWeapon);
 });
 
-ON_DLL_LOAD_RELIESON("server.dll", ServerWeaponModHooks, WeaponMods_Server, [](CModule) { DISPATCH_MODULE(ServerWeaponHooks) });
+ON_DLL_LOAD_RELIESON("server.dll", ServerWeaponModHooks, (WeaponMods_Server, ConVar), [](CModule)
+{
+    Cvar_ns_enable_weapon_attack_callback =
+        new ConVar("ns_enable_weapon_attack_callback", "0", FCVAR_GAMEDLL, "Enables script weapon attack callback.");
+    DISPATCH_MODULE(ServerWeaponHooks)
+});
 
 static int Script_SetWeaponInfoFileKeyField(HSQUIRRELVM sqvm)
 {

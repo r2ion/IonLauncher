@@ -7,7 +7,7 @@
 #include "game/client/cdll_client_int.h"
 #include "game/client/input.h"
 #include "game/client/prediction.h"
-#include "game/shared/r1/c_weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
 #include "game/shared/weapon_parse.h"
 #include "tier0/hooks.h"
 #include "tier0/vanilla.h"
@@ -122,6 +122,8 @@ float C_Player::GetPredictedMovementScale(const PredictedMovementScale setting) 
         return m_wallrunFrictionScale;
     case PredictedMovementScale::PowerRegenRate:
         return m_powerRegenRateScale;
+    case PredictedMovementScale::DodgePowerDelay:
+        return m_dodgePowerDelayScale;
     default:
         assert(false);
         return 0.0f;
@@ -149,6 +151,9 @@ void C_Player::SetPredictedMovementScale(const PredictedMovementScale setting, c
         break;
     case PredictedMovementScale::PowerRegenRate:
         m_powerRegenRateScale = value;
+        break;
+    case PredictedMovementScale::DodgePowerDelay:
+        m_dodgePowerDelayScale = value;
         break;
     default:
         assert(false);

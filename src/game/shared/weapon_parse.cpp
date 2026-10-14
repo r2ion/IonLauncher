@@ -5,8 +5,8 @@
 #include "game/client/c_baseentity.h"
 #include "game/client/c_player.h"
 #include "game/server/baseentity.h"
-#include "game/shared/r1/c_weapon_x.h"
-#include "game/shared/r1/weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
+#include "game/server/r1/weapon_x.h"
 #include "game/shared/weapon_mod_data.h"
 #include "modsystem/modmanager.h"
 #include "rtech/rstdlib.h"
@@ -52,7 +52,7 @@ WeaponString_t (*AllocWeaponString_Client)(FileWeaponInfo_Client*, const char*);
 bool (*GetIndexForModName_Client)(const char*, const FileWeaponInfo_Client*, unsigned int*);
 bool (*CalcWeaponModsForGameType)(unsigned int, const FileWeaponInfo_Client*, WeaponModValues*, bool, unsigned int);
 IVModelInfoClient** clientmodelinfo;
-template <typename WeaponInfo> static std::bitset<MAX_WEAPON_MOD_PARSE_ENTRIES> s_SupportedSpecialModEntries;
+template <typename WeaponInfo> static std::bitset<MAX_WEAPON_MOD_PARSE_ENTRIES> g_SupportedSpecialModEntries;
 
 template <typename WeaponInfo> WeaponInfo* WeaponParse<WeaponInfo>::GetFileWeaponInfoFromHandle(const WEAPON_FILE_INFO_HANDLE handle)
 {
@@ -74,7 +74,7 @@ template <typename WeaponInfo> const WeaponModParseTableEntry* WeaponParse<Weapo
 template <typename WeaponInfo> bool WeaponParse<WeaponInfo>::IsSupportedSpecialModEntry(const WeaponModEntryType entryType)
 {
     const auto index = static_cast<std::uint16_t>(entryType);
-    const auto& supportedEntries = s_SupportedSpecialModEntries<WeaponInfo>;
+    const auto& supportedEntries = g_SupportedSpecialModEntries<WeaponInfo>;
     return index < MAX_WEAPON_MOD_PARSE_ENTRIES && supportedEntries.test(index);
 }
 
@@ -114,7 +114,7 @@ template <typename WeaponInfo> void WeaponParse<WeaponInfo>::PrecacheScriptSound
 
 template <typename WeaponInfo> static void ResolveSupportedSpecialModEntries()
 {
-    auto& supportedEntries = s_SupportedSpecialModEntries<WeaponInfo>;
+    auto& supportedEntries = g_SupportedSpecialModEntries<WeaponInfo>;
     supportedEntries.reset();
     for (const char* fieldName : SUPPORTED_SPECIAL_WEAPON_MOD_FIELDS)
     {

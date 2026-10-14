@@ -2,7 +2,7 @@
 #include "game/server/gameinterface.h"
 #include "game/server/player.h"
 #include "game/server/recipientfilter.h"
-#include "game/server/gameinterface.h"
+#include "game/server/util_server.h"
 #include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 

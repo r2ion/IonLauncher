@@ -13,7 +13,7 @@ class SmartAmmo_WeaponData_Client
 {
   public:
     virtual datamap_t* GetPredDescMap();
-    virtual const datamap_t* GetPredDescMap() const;
+    virtual const datamap_t* GetPredDescMapConst() const;
 
     int numTargetEntities;                                                           // 0x8
     CHandle<C_BaseEntity> targetEntities[8];                                         // 0xC

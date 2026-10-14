@@ -3,7 +3,7 @@
 
 DECLARE_MODULE(UserCmdHooks)
 // clang-format off
-DECLARE_HOOK(ReadUsercmd, server.dll + 0x2603F0,
+DECLARE_HOOK(ReadUserCmd, server.dll + 0x2603F0,
 ([](auto& hook, void* buf, void* pCmd_move, void* pCmd_from) // 4C 89 44 24 ? 53 55 56 57
 // clang-format on
 {
@@ -16,7 +16,7 @@ DECLARE_HOOK(ReadUsercmd, server.dll + 0x2603F0,
 	auto fromCmd = (SV_CUserCmd*)pCmd_from;
 
 	std::string BLOCK_PREFIX =
-		"ReadUsercmd (command_number delta: " + std::to_string(cmd->command_number - fromCmd->command_number) + "): ";
+		"ReadUserCmd (command_number delta: " + std::to_string(cmd->command_number - fromCmd->command_number) + "): ";
 
 	// fix invalid player angles
 	if (!cmd->worldViewAngles.IsValid())

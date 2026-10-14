@@ -32,6 +32,7 @@ enum class PredictedMovementScale : int
     GroundFriction,
     WallrunFriction,
     PowerRegenRate,
+    DodgePowerDelay,
     Count,
 };
 
@@ -196,29 +197,6 @@ struct ThirdPersonViewData
 
 static_assert(sizeof(ThirdPersonViewData) == 0x60);
 
-struct GrappleData
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    Vector3D m_grappleVel;               // 0x08
-    Vector3D m_grapplePoints[4];         // 0x14
-    std::int32_t m_grapplePointCount;    // 0x44
-    bool m_grappleAttached;              // 0x48
-    bool m_grapplePulling;               // 0x49
-    bool m_grappleRetracting;            // 0x4A
-    bool m_grappleForcedRetracting;      // 0x4B
-    float m_grappleUsedPower;            // 0x4C
-    float m_grapplePullTime;             // 0x50
-    float m_grappleAttachTime;           // 0x54
-    float m_grappleDetachTime;           // 0x58
-    EHANDLE m_grappleMeleeTarget;        // 0x5C
-    bool m_grappleHasGoodVelocity;       // 0x60
-    std::byte _pad61[0x3];               // 0x61
-    float m_grappleLastGoodVelocityTime; // 0x64
-};
-
-static_assert(sizeof(GrappleData) == 0x68);
-
 struct PlayerZiplineData
 {
     virtual void NetworkStateChanged() { }
@@ -283,6 +261,67 @@ struct Player_OperatorData
 
 static_assert(sizeof(Player_OperatorData) == 0x80);
 
+struct CurrentData_Player
+{
+    virtual void NetworkStateChanged() { }
+    virtual void NetworkStateChanged(void* pProp) { }
+    float m_flHullHeight;          // 0x08
+    float m_traversalAnimProgress; // 0x0C
+    float m_sprintTiltFrac;        // 0x10
+    QAngle m_angEyeAngles;         // 0x14
+};
+
+static_assert(sizeof(CurrentData_Player) == 0x20);
+
+struct CurrentData_LocalPlayer
+{
+    virtual void NetworkStateChanged() { }
+    virtual void NetworkStateChanged(void* pProp) { }
+    QAngle m_viewConeAngleMin;        // 0x08
+    QAngle m_viewConeAngleMax;        // 0x14
+    Vector3D m_stepSmoothingOffset;   // 0x20
+    QAngle m_vecPunchBase_Angle;      // 0x2C
+    QAngle m_vecPunchBase_AngleVel;   // 0x38
+    QAngle m_vecPunchWeapon_Angle;    // 0x44
+    QAngle m_vecPunchWeapon_AngleVel; // 0x50
+    std::byte _pad5C[0x4];            // 0x5C
+};
+
+static_assert(sizeof(CurrentData_LocalPlayer) == 0x60);
+
+struct CPlayerShared
+{
+    virtual void NetworkStateChanged() { }
+    virtual void NetworkStateChanged(void* pProp) { }
+    std::int32_t m_nPlayerCond;      // 0x08
+    bool m_bLoadoutUnavailable;      // 0x0C
+    std::byte _padD[0x3];            // 0x0D
+    float m_flCondExpireTimeLeft[2]; // 0x10
+    CPlayer* m_pOuter;               // 0x18
+    float m_flNextCritUpdate;        // 0x20
+    float m_flTauntRemoveTime;       // 0x24
+    CTakeDamageInfo m_damageInfo;    // 0x28
+};
+
+static_assert(sizeof(CPlayerShared) == 0xA0);
+
+struct PushHistoryEntry
+{
+    float time;      // 0x00
+    Vector3D pushed; // 0x04
+};
+
+static_assert(sizeof(PushHistoryEntry) == 0x10);
+
+struct PredictableServerEvent
+{
+    std::int32_t type;               // 0x00
+    float deadlineTime;              // 0x04
+    std::int32_t fullSizeOfUnion[4]; // 0x08
+};
+
+static_assert(sizeof(PredictableServerEvent) == 0x18);
+
 struct Player_ViewOffsetEntityData
 {
     virtual void NetworkStateChanged() { }
@@ -323,103 +362,3 @@ struct Player_AnimViewEntityData
 
 static_assert(sizeof(Player_AnimViewEntityData) == 0x80);
 
-struct CurrentData_Player
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    float m_flHullHeight;          // 0x08
-    float m_traversalAnimProgress; // 0x0C
-    float m_sprintTiltFrac;        // 0x10
-    QAngle m_angEyeAngles;         // 0x14
-};
-
-static_assert(sizeof(CurrentData_Player) == 0x20);
-
-struct CurrentData_LocalPlayer
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    QAngle m_viewConeAngleMin;        // 0x08
-    QAngle m_viewConeAngleMax;        // 0x14
-    Vector3D m_stepSmoothingOffset;   // 0x20
-    QAngle m_vecPunchBase_Angle;      // 0x2C
-    QAngle m_vecPunchBase_AngleVel;   // 0x38
-    QAngle m_vecPunchWeapon_Angle;    // 0x44
-    QAngle m_vecPunchWeapon_AngleVel; // 0x50
-    std::byte _pad5C[0x4];            // 0x5C
-};
-
-static_assert(sizeof(CurrentData_LocalPlayer) == 0x60);
-
-struct PlayerMelee_PlayerData
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    bool attackActive;                 // 0x08
-    bool attackRecoveryShouldBeQuick;  // 0x09
-    std::byte _padA[0x2];              // 0x0A
-    float attackStartTime;             // 0x0C
-    EHANDLE attackHitEntity;           // 0x10
-    float attackHitEntityTime;         // 0x14
-    float attackLastHitNonWorldEntity; // 0x18
-    std::int32_t scriptedState;        // 0x1C
-    bool pendingMeleePress;            // 0x20
-    std::byte _pad21[0x7];             // 0x21
-};
-
-static_assert(sizeof(PlayerMelee_PlayerData) == 0x28);
-
-struct CPlayerShared
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    std::int32_t m_nPlayerCond;      // 0x08
-    bool m_bLoadoutUnavailable;      // 0x0C
-    std::byte _padD[0x3];            // 0x0D
-    float m_flCondExpireTimeLeft[2]; // 0x10
-    CPlayer* m_pOuter;               // 0x18
-    float m_flNextCritUpdate;        // 0x20
-    float m_flTauntRemoveTime;       // 0x24
-    CTakeDamageInfo m_damageInfo;    // 0x28
-};
-
-static_assert(sizeof(CPlayerShared) == 0xA0);
-
-struct StatusEffectTimedData
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    std::int32_t seComboVars; // 0x08
-    float seTimeEnd;          // 0x0C
-    float seEaseOut;          // 0x10
-    std::byte _pad14[0x4];    // 0x14
-};
-
-static_assert(sizeof(StatusEffectTimedData) == 0x18);
-
-struct StatusEffectEndlessData
-{
-    virtual void NetworkStateChanged() { }
-    virtual void NetworkStateChanged(void* pProp) { }
-    std::int32_t seComboVars; // 0x08
-    std::byte _padC[0x4];     // 0x0C
-};
-
-static_assert(sizeof(StatusEffectEndlessData) == 0x10);
-
-struct PushHistoryEntry
-{
-    float time;      // 0x00
-    Vector3D pushed; // 0x04
-};
-
-static_assert(sizeof(PushHistoryEntry) == 0x10);
-
-struct PredictableServerEvent
-{
-    std::int32_t type;               // 0x00
-    float deadlineTime;              // 0x04
-    std::int32_t fullSizeOfUnion[4]; // 0x08
-};
-
-static_assert(sizeof(PredictableServerEvent) == 0x18);

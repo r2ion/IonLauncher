@@ -5,7 +5,7 @@
 #include "game/client/cdll_client_int.h"
 #include "game/client/input.h"
 #include "game/client/c_player.h"
-#include "game/shared/r1/c_weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
 #include "tier1/interface.h"
 #include "engine/client/cdll_engine_int.h"
 #include "engine/client/clientstate.h"

@@ -1,7 +1,7 @@
 #include "game/shared/weapon_mod_data.h"
 
-#include "game/shared/r1/c_weapon_x.h"
-#include "game/shared/r1/weapon_x.h"
+#include "game/client/r1/c_weapon_x.h"
+#include "game/server/r1/weapon_x.h"
 #include "tier1/keyvalues.h"
 #include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
@@ -99,9 +99,9 @@ bool CWeaponModHandler<WeaponInfo>::WeaponFieldValueToData(const ScriptVariant_t
     }
 }
 
-template <typename WeaponInfo> static thread_local WeaponInfo* s_ActiveAssemblyWeaponInfo = nullptr;
-template <typename WeaponInfo> static thread_local std::vector<WeaponModEntry_t>* s_ActiveAssemblyEntries = nullptr;
-template <typename WeaponInfo> static thread_local std::deque<WeaponModAssemblyItem_t>* s_ActiveAssemblyItems = nullptr;
+template <typename WeaponInfo> static thread_local WeaponInfo* g_ActiveAssemblyWeaponInfo = nullptr;
+template <typename WeaponInfo> static thread_local std::vector<WeaponModEntry_t>* g_ActiveAssemblyEntries = nullptr;
+template <typename WeaponInfo> static thread_local std::deque<WeaponModAssemblyItem_t>* g_ActiveAssemblyItems = nullptr;
 
 template <typename WeaponInfo> static bool IsSupportedWeaponModField(const WeaponModEntryType entryType, const WeaponModValueType valueType)
 {
@@ -401,31 +401,31 @@ std::uint8_t CWeaponModHandler<WeaponInfo>::Assemble(int enabledMods, WeaponInfo
         return original(enabledMods, pWeaponInfo, output, singlePlayer, removedMods);
 
     std::deque<WeaponModAssemblyItem_t> assemblyItems;
-    WeaponInfo* const previousWeaponInfo = s_ActiveAssemblyWeaponInfo<WeaponInfo>;
-    auto* const previousEntries = s_ActiveAssemblyEntries<WeaponInfo>;
-    auto* const previousItems = s_ActiveAssemblyItems<WeaponInfo>;
-    s_ActiveAssemblyWeaponInfo<WeaponInfo> = pWeaponInfo;
-    s_ActiveAssemblyEntries<WeaponInfo> = pEntries;
-    s_ActiveAssemblyItems<WeaponInfo> = &assemblyItems;
+    WeaponInfo* const previousWeaponInfo = g_ActiveAssemblyWeaponInfo<WeaponInfo>;
+    auto* const previousEntries = g_ActiveAssemblyEntries<WeaponInfo>;
+    auto* const previousItems = g_ActiveAssemblyItems<WeaponInfo>;
+    g_ActiveAssemblyWeaponInfo<WeaponInfo> = pWeaponInfo;
+    g_ActiveAssemblyEntries<WeaponInfo> = pEntries;
+    g_ActiveAssemblyItems<WeaponInfo> = &assemblyItems;
     const ScopeGuard restoreAssembly([previousWeaponInfo, previousEntries, previousItems]
     {
-        s_ActiveAssemblyWeaponInfo<WeaponInfo> = previousWeaponInfo;
-        s_ActiveAssemblyEntries<WeaponInfo> = previousEntries;
-        s_ActiveAssemblyItems<WeaponInfo> = previousItems;
+        g_ActiveAssemblyWeaponInfo<WeaponInfo> = previousWeaponInfo;
+        g_ActiveAssemblyEntries<WeaponInfo> = previousEntries;
+        g_ActiveAssemblyItems<WeaponInfo> = previousItems;
     });
     return original(enabledMods, pWeaponInfo, output, singlePlayer, removedMods);
 }
 
 template <typename WeaponInfo> bool CWeaponModHandler<WeaponInfo>::HasActiveAssembly()
 {
-    return s_ActiveAssemblyWeaponInfo<WeaponInfo> && s_ActiveAssemblyEntries<WeaponInfo> && s_ActiveAssemblyItems<WeaponInfo>;
+    return g_ActiveAssemblyWeaponInfo<WeaponInfo> && g_ActiveAssemblyEntries<WeaponInfo> && g_ActiveAssemblyItems<WeaponInfo>;
 }
 
 template <typename WeaponInfo> bool CWeaponModHandler<WeaponInfo>::ApplyActiveEntry(WeaponModEntry_t* entry, bool setBaseValue, bool remove)
 {
-    WeaponInfo* const weaponInfo = s_ActiveAssemblyWeaponInfo<WeaponInfo>;
-    auto* const entries = s_ActiveAssemblyEntries<WeaponInfo>;
-    auto* const assemblyItems = s_ActiveAssemblyItems<WeaponInfo>;
+    WeaponInfo* const weaponInfo = g_ActiveAssemblyWeaponInfo<WeaponInfo>;
+    auto* const entries = g_ActiveAssemblyEntries<WeaponInfo>;
+    auto* const assemblyItems = g_ActiveAssemblyItems<WeaponInfo>;
     assert(weaponInfo && entries && assemblyItems);
     if (!entry)
         return false;

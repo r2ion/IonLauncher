@@ -1,7 +1,7 @@
 #pragma once
 
 #include "game/client/c_baseanimating.h"
-#include "game/shared/basecombatweapon_shared.h"
+#include "game/shared/shareddefs.h"
 #include "game/shared/ehandle.h"
 #include "game/shared/weapon_parse.h"
 #include "vscript/ivscript.h"

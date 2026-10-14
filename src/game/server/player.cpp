@@ -11,7 +11,7 @@
 #include "engine/server/sv_client.h"
 #include "engine/server/sv_main.h"
 #include "game/server/player.h"
-#include "game/shared/r1/weapon_x.h"
+#include "game/server/r1/weapon_x.h"
 #include "game/shared/usercmd.h"
 #include "tier0/hooks.h"
 #include "tier0/vanilla.h"
@@ -20,17 +20,10 @@
 #include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 
-class CLagCompensationManager;
-
-CPlayer*(__fastcall* s_UTIL_PlayerByIndex)(int playerIndex);
-
 DECLARE_MODULE(PlayerHooks)
 
-ConVar* Cvar_ns_enable_weapon_attack_callback;
-ConVar* Cvar_ns_skip_historical_hitbox_check;
 ConVar* Cvar_ns_allow_post_death_shots;
 
-bool g_bReachedLagCompensationRayGeometry;
 static ConVar* sv_maxunlag;
 
 void (*CPlayer__SetGroundFrictionScale)(CPlayer*, float);
@@ -39,12 +32,8 @@ void (*CPlayer__Script_TurnDodgeDisabledOn)(CPlayer*);
 void (*CPlayer__Script_TurnDodgeDisabledOff)(CPlayer*);
 void (*CPlayer__SetTitanDisembarkEnabled)(CPlayer*, bool);
 void (*CPlayer__SetPowerRegenRateScale)(CPlayer*, float);
+void (*CPlayer__SetDodgePowerDelayScale)(CPlayer*, float);
 void (*CPlayer__ItemPostFrame)(CPlayer*);
-
-CPlayer* UTIL_PlayerByIndex(const int playerIndex)
-{
-    return s_UTIL_PlayerByIndex(playerIndex);
-}
 
 CPlayerExtended CPlayer::sm_PlayersExtended[MAX_PLAYERS];
 
@@ -121,6 +110,11 @@ void CPlayer::SetPowerRegenRateScale(const float scale)
     CPlayer__SetPowerRegenRateScale(this, scale);
 }
 
+void CPlayer::SetDodgePowerDelayScale(const float scale)
+{
+    CPlayer__SetDodgePowerDelayScale(this, scale);
+}
+
 PredictedMovementState CPlayer::GetPredictedMovementState()
 {
     PredictedMovementState state;
@@ -147,6 +141,8 @@ float CPlayer::GetPredictedMovementScale(const PredictedMovementScale setting)
         return m_wallrunFrictionScale;
     case PredictedMovementScale::PowerRegenRate:
         return m_Local.m_powerRegenRateScale;
+    case PredictedMovementScale::DodgePowerDelay:
+        return m_Local.m_dodgePowerDelayScale;
     default:
         assert(false);
         return 0.0f;
@@ -179,6 +175,9 @@ void CPlayer::SetPredictedMovementScale(const PredictedMovementScale setting, co
         break;
     case PredictedMovementScale::PowerRegenRate:
         SetPowerRegenRateScale(value);
+        break;
+    case PredictedMovementScale::DodgePowerDelay:
+        SetDodgePowerDelayScale(value);
         break;
     default:
         assert(false);
@@ -475,55 +474,6 @@ DECLARE_HOOK(CPlayer::CycleObserverTarget, server.dll + 0x57BFD0, [](auto& hook,
     return result;
 })
 
-DECLARE_HOOK(CWeaponX::PrimaryAttack, server.dll + 0x6A0220, [](auto& hook, CWeaponX* weapon, int attackIndex) -> bool
-{
-    if (!Cvar_ns_enable_weapon_attack_callback->GetBool() || !weapon)
-        return hook.Original(weapon, attackIndex);
-
-    CBaseCombatCharacter* player = weapon->GetWeaponOwner();
-    const char* weaponName = player ? weapon->GetWeaponName() : nullptr;
-    if (!weaponName || !*weaponName)
-        return hook.Original(weapon, attackIndex);
-
-    bool ret = hook.Original(weapon, attackIndex);
-    if (!ret)
-        return ret;
-
-    auto* sq = g_pSquirrel[ScriptContext::SERVER];
-    if (!sq->m_pSQVM || !sq->m_pSQVM->sqvm)
-        return ret;
-
-    weaponName = weapon->GetWeaponName();
-    auto playerInstance = sq->createscriptinstance(player);
-    auto weaponInstance = sq->createscriptinstance(weapon);
-
-    if (playerInstance && weaponInstance && weaponName)
-        sq->Call("CodeCallback_OnWeaponAttack", playerInstance, weaponInstance, weaponName, 1);
-
-    return ret;
-})
-
-DECLARE_HOOK(CalcDistanceSqrToLineSegment, server.dll + 0x6EF440,
-             [](auto& hook, const Vector3D* point, const Vector3D* segmentStart, const Vector3D* segmentEnd, float* outFraction) -> float
-{
-    g_bReachedLagCompensationRayGeometry = true;
-
-    return hook.Original(point, segmentStart, segmentEnd, outFraction);
-})
-
-DECLARE_HOOK(CLagCompensationManager::ShotShapeAllowsEntity, server.dll + 0x5C4A30,
-             [](auto& hook, CLagCompensationManager* manager, CBaseEntity* candidate, const CCheckTransmitInfo* transmitInfo,
-                unsigned int attackerMask) -> bool
-{
-    const bool previousReachedRayGeometry = g_bReachedLagCompensationRayGeometry;
-    g_bReachedLagCompensationRayGeometry = false;
-    const ScopeGuard restoreRayGeometry([previousReachedRayGeometry] { g_bReachedLagCompensationRayGeometry = previousReachedRayGeometry; });
-
-    const bool nativeResult = hook.Original(manager, candidate, transmitInfo, attackerMask);
-    const bool reachedRayGeometry = g_bReachedLagCompensationRayGeometry;
-    return nativeResult || (Cvar_ns_skip_historical_hitbox_check->GetBool() && reachedRayGeometry && candidate && candidate->IsPlayer());
-})
-
 DECLARE_HOOK(CPlayer::SetObserverMode, server.dll + 0x5B26D0, [](auto& hook, CPlayer* player, int mode)
 {
     if (auto* const replay = GetActivePostDeathReplay(player); replay && !replay->observerChanged)
@@ -702,11 +652,6 @@ DECLARE_HOOK(CPlayer::PostThink, server.dll + 0x5D7880, [](auto& hook, CPlayer* 
 
 ON_DLL_LOAD_RELIESON("server.dll", CPlayer, (ConVar, CmdBuffer, EngineServerGlobals, EngineSystem), [](CModule module)
 {
-    Cvar_ns_enable_weapon_attack_callback =
-        new ConVar("ns_enable_weapon_attack_callback", "0", FCVAR_GAMEDLL, "Enables script weapon attack callback.");
-    Cvar_ns_skip_historical_hitbox_check =
-        new ConVar("ns_skip_historical_hitbox_check", "1", FCVAR_GAMEDLL,
-                   "Improves hitreg against faster targets, minor performance impact when enabled.", true, 0.0f, true, 1.0f, nullptr);
     Cvar_ns_allow_post_death_shots =
         new ConVar("ns_allow_post_death_shots", "0", FCVAR_GAMEDLL,
                    "Allow pre-death user commands to finish weapon firing after death. Good if you have people on high ping");
@@ -714,13 +659,13 @@ ON_DLL_LOAD_RELIESON("server.dll", CPlayer, (ConVar, CmdBuffer, EngineServerGlob
     sv_maxunlag = module.Offset(0x14E6790).RCast<ConVar*>();
 
     CPlayer__ItemPostFrame = module.Offset(0x5D52F0).RCast<decltype(CPlayer__ItemPostFrame)>();
-    s_UTIL_PlayerByIndex = module.Offset(0x26AA10).RCast<decltype(s_UTIL_PlayerByIndex)>();
     CPlayer__SetGroundFrictionScale = module.Offset(0x5B2180).RCast<decltype(CPlayer__SetGroundFrictionScale)>();
     CPlayer__SetWallrunFrictionScale = module.Offset(0x5B43E0).RCast<decltype(CPlayer__SetWallrunFrictionScale)>();
     CPlayer__Script_TurnDodgeDisabledOn = module.Offset(0x5AD3A0).RCast<decltype(CPlayer__Script_TurnDodgeDisabledOn)>();
     CPlayer__Script_TurnDodgeDisabledOff = module.Offset(0x5AD320).RCast<decltype(CPlayer__Script_TurnDodgeDisabledOff)>();
     CPlayer__SetTitanDisembarkEnabled = module.Offset(0x5E0C70).RCast<decltype(CPlayer__SetTitanDisembarkEnabled)>();
     CPlayer__SetPowerRegenRateScale = module.Offset(0x5AD020).RCast<decltype(CPlayer__SetPowerRegenRateScale)>();
+    CPlayer__SetDodgePowerDelayScale = module.Offset(0x5ACB60).RCast<decltype(CPlayer__SetDodgePowerDelayScale)>();
     RegisterPlayerPredictionScriptMethods(ScriptContext::SERVER, module.Offset(0x14DAA20).RCast<ScriptClassDesc_t*>());
 
     DISPATCH_MODULE(PlayerHooks);

@@ -4,9 +4,13 @@
 #include <cstdint>
 
 #include "game/server/basecombatcharacter.h"
+#include "game/server/playerlocaldata.h"
 #include "game/shared/ehandle.h"
-#include "game/shared/playerdata.h"
-#include "game/shared/playerlocaldata.h"
+#include "game/shared/player_shared.h"
+#include "game/shared/playernet_vars.h"
+#include "game/shared/r1/grapple_hook.h"
+#include "game/shared/r1/player_melee_data.h"
+#include "game/shared/status_effects.h"
 #include "game/shared/usercmd.h"
 #include "game/shared/weapon_prediction.h"
 #include "playerstate.h"
@@ -116,6 +120,7 @@ class CPlayer : public CBaseCombatCharacter
     void Script_TurnDodgeDisabledOff();
     void SetTitanDisembarkEnabled(bool enabled);
     void SetPowerRegenRateScale(float scale);
+    void SetDodgePowerDelayScale(float scale);
     CPlayerExtended* GetPlayerExtended();
     bool UsesWeaponPrediction() const;
 
@@ -619,5 +624,3 @@ class CPlayerExtended
 };
 
 static_assert(sizeof(CPlayer) == 0x3468);
-
-CPlayer* UTIL_PlayerByIndex(int playerIndex);

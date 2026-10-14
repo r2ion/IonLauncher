@@ -7,7 +7,7 @@ class CPlayer;
 
 class CRecipientFilter : public IRecipientFilter
 {
-    struct Recipient_t
+    struct Recipient_s
     {
         int m_nIndex;
         bool m_bIsReplayMessage;
@@ -40,7 +40,7 @@ class CRecipientFilter : public IRecipientFilter
   private:
     bool m_bReliable;
     bool m_bInitMessage;
-    CUtlVector<Recipient_t> m_Recipients;
+    CUtlVector<Recipient_s> m_Recipients;
     bool m_bUsingPredictionRules;
     bool m_bIgnorePredictionCull;
 };

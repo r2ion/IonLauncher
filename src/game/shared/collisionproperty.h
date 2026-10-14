@@ -26,11 +26,11 @@ enum SurroundingBoundsType_t
 
 class C_BaseEntity;
 
-class CCollisionProperty : public ICollideable
+class C_CollisionProperty : public ICollideable
 {
   public:
-    CCollisionProperty();
-    ~CCollisionProperty();
+    C_CollisionProperty();
+    ~C_CollisionProperty();
     void Init(C_BaseEntity* pEntity);
     IHandleEntity* GetEntityHandle() override;
     const Vector3D& OBBMins() const override;
@@ -141,11 +141,11 @@ class CCollisionProperty : public ICollideable
     float m_hitboxTestRadius;
 };
 
-static_assert(sizeof(CCollisionProperty) == 0x78);
-static_assert(offsetof(CCollisionProperty, m_usSolidFlags) == 0x28);
-static_assert(offsetof(CCollisionProperty, m_recvSolidFlags) == 0x30);
-static_assert(offsetof(CCollisionProperty, m_flRadius) == 0x38);
-static_assert(offsetof(CCollisionProperty, m_Partition) == 0x3C);
-static_assert(offsetof(CCollisionProperty, m_dirtyFlags) == 0x40);
-static_assert(offsetof(CCollisionProperty, m_vecSpecifiedSurroundingMins) == 0x44);
-static_assert(offsetof(CCollisionProperty, m_hitboxTestRadius) == 0x74);
+static_assert(sizeof(C_CollisionProperty) == 0x78);
+static_assert(offsetof(C_CollisionProperty, m_usSolidFlags) == 0x28);
+static_assert(offsetof(C_CollisionProperty, m_recvSolidFlags) == 0x30);
+static_assert(offsetof(C_CollisionProperty, m_flRadius) == 0x38);
+static_assert(offsetof(C_CollisionProperty, m_Partition) == 0x3C);
+static_assert(offsetof(C_CollisionProperty, m_dirtyFlags) == 0x40);
+static_assert(offsetof(C_CollisionProperty, m_vecSpecifiedSurroundingMins) == 0x44);
+static_assert(offsetof(C_CollisionProperty, m_hitboxTestRadius) == 0x74);

@@ -1,5 +1,6 @@
 #include "vscript/languages/squirrel_re/squirrel.h"
 #include "rtech/pakfilesystem.h"
+#include "rtech/asset_headers/datatable.h"
 #include "tier1/convar.h"
 #include "dedicated/dedicated.h"
 #include "filesystem/basefilesystem.h"
@@ -27,25 +28,9 @@ enum class DatatableType : int
 	UNK_STRING // unknown but deffo a string type
 };
 
-struct ColumnInfo
-{
-	char* name;
-	DatatableType type;
-	int offset;
-};
-
-struct Datatable
-{
-	int numColumns;
-	int numRows;
-	ColumnInfo* columnInfo;
-	char* data; // actually data pointer
-	int rowInfo;
-};
-
 ConVar* Cvar_ns_prefer_datatable_from_disk;
 
-template <ScriptContext context> Datatable* (*SQ_GetDatatableInternal)(HSQUIRRELVM sqvm);
+template <ScriptContext context> DataTableHeader* (*SQ_GetDatatableInternal)(HSQUIRRELVM sqvm);
 
 struct CSVData
 {
@@ -711,29 +696,29 @@ REPLACE_SQFUNC(GetDataTableRowLessThanOrEqualToFloatValue, (ScriptContext::UI | 
 	return SQRESULT_NOTNULL;
 }
 
-std::string DataTableToString(Datatable* datatable)
+std::string DataTableToString(DataTableHeader* datatable)
 {
 	std::string sCSVString;
 
 	// write columns
 	bool bShouldComma = false;
-	for (int i = 0; i < datatable->numColumns; i++)
+	for (int i = 0; i < datatable->columnCount; i++)
 	{
 		if (bShouldComma)
 			sCSVString += ',';
 		else
 			bShouldComma = true;
 
-		sCSVString += datatable->columnInfo[i].name;
+		sCSVString += datatable->columnData[i].name;
 	}
 
 	// write rows
-	for (int row = 0; row < datatable->numRows; row++)
+	for (int row = 0; row < datatable->rowCount; row++)
 	{
 		sCSVString += '\n';
 
 		bool bShouldComma = false;
-		for (int col = 0; col < datatable->numColumns; col++)
+		for (int col = 0; col < datatable->columnCount; col++)
 		{
 			if (bShouldComma)
 				sCSVString += ',';
@@ -741,9 +726,9 @@ std::string DataTableToString(Datatable* datatable)
 				bShouldComma = true;
 
 			// output typed data
-			ColumnInfo column = datatable->columnInfo[col];
-			const void* pUntypedVal = datatable->data + column.offset + row * datatable->rowInfo;
-			switch (column.type)
+			DTColumnData column = datatable->columnData[col];
+			const void* pUntypedVal = datatable->rows + column.byteOffset + row * datatable->rowSize;
+			switch (static_cast<DatatableType>(column.type))
 			{
 			case DatatableType::BOOL:
 			{
@@ -786,7 +771,7 @@ std::string DataTableToString(Datatable* datatable)
 
 void DumpDatatable(const char* pDatatablePath)
 {
-	Datatable* pDatatable = static_cast<Datatable*>(g_pPakLoadManager->FindAssetByName(pDatatablePath));
+	DataTableHeader* pDatatable = static_cast<DataTableHeader*>(g_pPakLoadManager->FindAssetByName(pDatatablePath));
 	if (!pDatatable)
 	{
 		spdlog::error("couldn't load datatable {} (rpak containing it may not be loaded?)", pDatatablePath);
@@ -888,12 +873,12 @@ void ConCommand_dump_datatables(const CCommand& args)
 
 ON_DLL_LOAD_RELIESON("server.dll", ServerScriptDatatables, ServerSquirrel, [](CModule module)
 {
-	SQ_GetDatatableInternal<ScriptContext::SERVER> = module.Offset(0x1250f0).RCast<Datatable* (*)(HSQUIRRELVM)>();
+	SQ_GetDatatableInternal<ScriptContext::SERVER> = module.Offset(0x1250f0).RCast<DataTableHeader* (*)(HSQUIRRELVM)>();
 })
 
 ON_DLL_LOAD_RELIESON("client.dll", ClientScriptDatatables, ClientSquirrel, [](CModule module)
 {
-	SQ_GetDatatableInternal<ScriptContext::CLIENT> = module.Offset(0x1C9070).RCast<Datatable* (*)(HSQUIRRELVM)>();
+	SQ_GetDatatableInternal<ScriptContext::CLIENT> = module.Offset(0x1C9070).RCast<DataTableHeader* (*)(HSQUIRRELVM)>();
 	SQ_GetDatatableInternal<ScriptContext::UI> = SQ_GetDatatableInternal<ScriptContext::CLIENT>;
 })
 

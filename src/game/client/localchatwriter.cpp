@@ -1,67 +1,10 @@
 #include "game/client/localchatwriter.h"
+#include "game/client/hud_basechat.h"
 #include "tier1/cvar.h"
-#include "common/chat.h"
 #include "util/utils.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
 
 ConVar* Cvar_ns_write_raw_chat_to_console;
-
-class vgui_BaseRichText_vtable;
-
-class vgui_BaseRichText
-{
-public:
-	vgui_BaseRichText_vtable* vtable;
-};
-
-class vgui_BaseRichText_vtable
-{
-public:
-	char unknown1[1880];
-
-	void (*InsertChar)(vgui_BaseRichText* self, wchar_t ch);
-
-	void (*InsertStringWide)(vgui_BaseRichText* self, const wchar_t* text);
-	void (*InsertStringAnsi)(vgui_BaseRichText* self, const char* text);
-
-	void (*SelectNone)(vgui_BaseRichText* self);
-	void (*SelectAllText)(vgui_BaseRichText* self);
-	void (*SelectNoText)(vgui_BaseRichText* self);
-	void (*CutSelected)(vgui_BaseRichText* self);
-	void (*CopySelected)(vgui_BaseRichText* self);
-	void (*SetPanelInteractive)(vgui_BaseRichText* self, bool interactive);
-	void (*SetUnusedScrollbarInvisible)(vgui_BaseRichText* self, bool invisible);
-
-	void* unknown2;
-
-	void (*GotoTextStart)(vgui_BaseRichText* self);
-	void (*GotoTextEnd)(vgui_BaseRichText* self);
-
-	void* unknown3[3];
-
-	void (*SetVerticalScrollbar)(vgui_BaseRichText* self, bool state);
-	void (*SetMaximumCharCount)(vgui_BaseRichText* self, int maximumCharacters);
-	void (*InsertColorChange)(vgui_BaseRichText* self, Color color);
-	void (*InsertIndentChange)(vgui_BaseRichText* self, int pixelsIndent);
-	void (*InsertClickableTextStart)(vgui_BaseRichText* self, const char* clickAction);
-	void (*InsertClickableTextEnd)(vgui_BaseRichText* self);
-	void (*InsertPossibleURLString)(vgui_BaseRichText* self, const char* text, Color urlTextColor, Color normalTextColor);
-	void (*InsertFade)(vgui_BaseRichText* self, float sustain, float length);
-	void (*ResetAllFades)(vgui_BaseRichText* self, bool hold, bool onlyExpired, float newSustain);
-	void (*SetToFullHeight)(vgui_BaseRichText* self);
-	int (*GetNumLines)(vgui_BaseRichText* self);
-};
-
-static_assert(offsetof(vgui_BaseRichText_vtable, InsertChar) == 0x758);
-static_assert(offsetof(vgui_BaseRichText_vtable, InsertStringWide) == 0x760);
-static_assert(offsetof(vgui_BaseRichText_vtable, InsertStringAnsi) == 0x768);
-static_assert(offsetof(vgui_BaseRichText_vtable, InsertColorChange) == 0x7E8);
-static_assert(offsetof(vgui_BaseRichText_vtable, InsertFade) == 0x810);
-
-static vgui_BaseRichText* GetRawRichText(vgui::RichText* richText)
-{
-	return reinterpret_cast<vgui_BaseRichText*>(richText);
-}
 
 
 
@@ -69,10 +12,8 @@ ConVar** gGameSettings;
 ConVar** gChatFadeLength;
 ConVar** gChatFadeSustain;
 
-CHudChat** CHudChat::allHuds;
-
-typedef void(__fastcall* ConvertANSIToUnicodeType)(LPCSTR ansi, int ansiCharLength, LPWSTR unicode, int unicodeCharLength);
-ConvertANSIToUnicodeType ConvertANSIToUnicode;
+using ConvertANSIToUnicode_t = void(__fastcall*)(LPCSTR ansi, int ansiCharLength, LPWSTR unicode, int unicodeCharLength);
+ConvertANSIToUnicode_t ConvertANSIToUnicode;
 
 LocalChatWriter::SwatchColor swatchColors[4] = {
 	LocalChatWriter::MainTextColor,
@@ -308,13 +249,12 @@ void LocalChatWriter::WriteLine(const char* str)
 
 void LocalChatWriter::InsertChar(wchar_t ch)
 {
-	for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
+	for (CBaseHudChat* hud = *CBaseHudChat::allHuds; hud != NULL; hud = hud->next)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
-		richText->vtable->InsertChar(richText, ch);
+		hud->m_richText->InsertChar(ch);
 	}
 
 	if (ch != L'\n')
@@ -331,13 +271,12 @@ void LocalChatWriter::InsertText(const char* str)
 	WCHAR messageUnicode[288];
 	ConvertANSIToUnicode(str, -1, messageUnicode, 274);
 
-	for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
+	for (CBaseHudChat* hud = *CBaseHudChat::allHuds; hud != NULL; hud = hud->next)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
-		richText->vtable->InsertStringWide(richText, messageUnicode);
+		hud->m_richText->InsertString(messageUnicode);
 	}
 
 	InsertDefaultFade();
@@ -345,13 +284,12 @@ void LocalChatWriter::InsertText(const char* str)
 
 void LocalChatWriter::InsertText(const wchar_t* str)
 {
-	for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
+	for (CBaseHudChat* hud = *CBaseHudChat::allHuds; hud != NULL; hud = hud->next)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
-		richText->vtable->InsertStringWide(richText, str);
+		hud->m_richText->InsertString(str);
 	}
 
 	InsertDefaultFade();
@@ -359,17 +297,16 @@ void LocalChatWriter::InsertText(const wchar_t* str)
 
 void LocalChatWriter::InsertColorChange(Color color)
 {
-	for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
+	for (CBaseHudChat* hud = *CBaseHudChat::allHuds; hud != NULL; hud = hud->next)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
 
-		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
-		richText->vtable->InsertColorChange(richText, color);
+		hud->m_richText->InsertColorChange(color);
 	}
 }
 
-static Color GetHudSwatchColor(CHudChat* hud, LocalChatWriter::SwatchColor swatchColor)
+static Color GetHudSwatchColor(CBaseHudChat* hud, LocalChatWriter::SwatchColor swatchColor)
 {
 	switch (swatchColor)
 	{
@@ -391,12 +328,11 @@ static Color GetHudSwatchColor(CHudChat* hud, LocalChatWriter::SwatchColor swatc
 
 void LocalChatWriter::InsertSwatchColorChange(SwatchColor swatchColor)
 {
-	for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
+	for (CBaseHudChat* hud = *CBaseHudChat::allHuds; hud != NULL; hud = hud->next)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
-		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
-		richText->vtable->InsertColorChange(richText, GetHudSwatchColor(hud, swatchColor));
+		hud->m_richText->InsertColorChange(GetHudSwatchColor(hud, swatchColor));
 	}
 }
 
@@ -444,12 +380,11 @@ void LocalChatWriter::InsertDefaultFade()
 		fadeSustain = (*gChatFadeSustain)->m_Value.m_fValue;
 	}
 
-	for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
+	for (CBaseHudChat* hud = *CBaseHudChat::allHuds; hud != NULL; hud = hud->next)
 	{
 		if (hud->m_unknownContext != (int)m_context)
 			continue;
-		vgui_BaseRichText* richText = GetRawRichText(hud->m_richText);
-		richText->vtable->InsertFade(richText, fadeSustain, fadeLength);
+		hud->m_richText->InsertFade(fadeSustain, fadeLength);
 	}
 }
 
@@ -458,47 +393,11 @@ ON_DLL_LOAD_CLIENT("client.dll", LocalChatWriter, [](CModule module)
 	gGameSettings = module.Offset(0x11BAA48).RCast<ConVar**>();
 	gChatFadeLength = module.Offset(0x11BAB78).RCast<ConVar**>();
 	gChatFadeSustain = module.Offset(0x11BAC08).RCast<ConVar**>();
-	CHudChat::allHuds = module.Offset(0x11BA9E8).RCast<CHudChat**>();
 	//Patch chat history to be much larger
 	module.Offset(0x022DE35).Patch({0xBA, 0xFF, 0xFF, 0xFF ,0xFF});
-	ConvertANSIToUnicode = module.Offset(0x7339A0).RCast<ConvertANSIToUnicodeType>();
+	ConvertANSIToUnicode = module.Offset(0x7339A0).RCast<ConvertANSIToUnicode_t>();
 
 	Cvar_ns_write_raw_chat_to_console = new ConVar("ns_write_raw_chat_to_console", "0", FCVAR_NONE, "Write raw chat message output to the console. 1 = enabled, 0 = disabled.");
-})
-
-bool CHudChat::ProcessMessage(const char* message, int inboxId, bool isTeam, bool isDead)
-{
-	int senderId = inboxId & CUSTOM_MESSAGE_INDEX_MASK;
-	bool isAnonymous = senderId == 0;
-	bool isCustom = isAnonymous || (inboxId & CUSTOM_MESSAGE_INDEX_BIT);
-
-	// Type is set to 0 for non-custom messages, custom messages have a type encoded as the first byte
-	int type = 0;
-	const char* payload = message;
-	if (isCustom)
-	{
-		type = message[0];
-		payload = message + 1;
-	}
-
-	RemoveAsciiControlSequences(const_cast<char*>(message), true);
-
-	SQRESULT result = g_pSquirrel[ScriptContext::CLIENT]->Call(
-		"CHudChat_ProcessMessageStartThread", static_cast<int>(senderId) - 1, payload, isTeam, isDead, type);
-	return result != SQRESULT_ERROR;
-}
-
-DECLARE_MODULE(ClientChatHooks)
-
-DECLARE_HOOK(CHudChat::AddGameLine, client.dll + 0x22E580, [](auto& hook, CHudChat* self, const char* message, int inboxId, bool isTeam, bool isDead)
-{
-	// This hook is called for each HUD, but we only want our logic to run once.
-	if (self != *CHudChat::allHuds)
-		return;
-
-	if (!self->ProcessMessage(message, inboxId, isTeam, isDead))
-		for (CHudChat* hud = *CHudChat::allHuds; hud != NULL; hud = hud->next)
-			hook.Original(hud, message, inboxId, isTeam, isDead);
 })
 
 ADD_SQFUNC("void", NSChatWrite, "int context, string text", "", ScriptContext::CLIENT)
@@ -528,7 +427,3 @@ ADD_SQFUNC("void", NSChatWriteLine, "int context, string text", "", ScriptContex
 	return SQRESULT_NULL;
 }
 
-ON_DLL_LOAD_CLIENT("client.dll", ClientChatHooks, [](CModule module)
-{
-	DISPATCH_MODULE(ClientChatHooks)
-})

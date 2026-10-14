@@ -24,8 +24,8 @@ class Panel;
 class IClientPanel
 {
 public:
-	virtual ~IClientPanel() = default;
 	virtual VPANEL GetVPanel() = 0;
+	virtual void PreThink() {}
 	virtual void Think() = 0;
 	virtual void PerformApplySchemeSettings() = 0;
 	virtual void PaintTraverse(bool forceRepaint, bool allowForce) = 0;
@@ -55,6 +55,10 @@ public:
 	virtual Panel* GetPanel() = 0;
 	virtual const char* GetModuleName() = 0;
 	virtual void OnTick() = 0;
+
+protected:
+	~IClientPanel() = default;
+
 };
 
 static_assert(sizeof(IClientPanel) == sizeof(void*));
