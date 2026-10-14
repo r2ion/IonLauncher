@@ -507,10 +507,8 @@ static void ParseWeaponPredictionDefinition(WeaponPredictionDefinitionMap<Weapon
     const char* ownerName = block->GetString("_SourceMod");
     if (!block->GetInt("_CompatibleSource", 0) || source == g_pModManager->m_ModFiles.end() || !source->second.m_pOwningMod ||
         source->second.m_pOwningMod->Name != ownerName)
-    {
-        spdlog::warn("Ignoring inherited predicted callbacks for {}: legacy/script provenance differs", weaponName);
         return;
-    }
+
     auto definition = std::make_shared<PredictedWeaponDefinition_t>();
     CMurmurHash3 schema;
     schema.ProcessString(script.c_str());
