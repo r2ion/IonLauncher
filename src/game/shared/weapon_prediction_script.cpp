@@ -71,25 +71,38 @@ HSCRIPT SelectPredictedWeaponCallback(const ScriptContext context, HSCRIPT funct
 
 template <ScriptContext context> using PredictedScriptWeapon_t = std::conditional_t<context == ScriptContext::CLIENT, C_WeaponX, CWeaponX>;
 
+template <ScriptContext context> static WeaponPredictionCommand_t* GetWeaponPredictionCommand(HSQUIRRELVM sqvm, const bool write = false)
+{
+    WeaponPredictionCommand_t* const command = g_pWeaponPredictionCommand;
+    if (!command || !command->owner || command->ownerGeneration != command->owner->generation || command->context != context ||
+        (command->owner->retired && !command->cleanupInstance) ||
+        ResolvePredictionEntity(context, command->owner->handle) != command->player)
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction is not active for this player");
+        return nullptr;
+    }
+    if (write && command->readOnly)
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "Cannot change prediction state in PredictionReconcile");
+        return nullptr;
+    }
+    return command;
+}
+
 template <ScriptContext context>
 static CWeaponXPredictionState* GetPredictedScriptWeapon(HSQUIRRELVM sqvm, const bool write, bool* validOwner = nullptr)
 {
     if (validOwner)
         *validOwner = false;
     auto* manager = g_pSquirrel[context];
-    WeaponPredictionCommand_t* const command = g_pWeaponPredictionCommand;
-    if (!command || !command->owner || command->ownerGeneration != command->owner->generation || command->context != context ||
-        (write && command->readOnly) || (command->owner->retired && !command->cleanupInstance) ||
-        ResolvePredictionEntity(context, command->owner->handle) != command->player)
-    {
-        manager->raiseerror(sqvm, "Prediction state requires a command/lifecycle scope; reconciliation is read-only");
+    auto* command = GetWeaponPredictionCommand<context>(sqvm, write);
+    if (!command)
         return nullptr;
-    }
 
     PredictedScriptWeapon_t<context>* weapon = nullptr;
     if (!manager->getthisentity(sqvm, &weapon) || !weapon)
     {
-        manager->raiseerror(sqvm, "Prediction method requires a valid WeaponX receiver");
+        manager->raiseerror(sqvm, "Invalid weapon");
         return nullptr;
     }
     if (command->cleanupInstance && command->cleanupWeapon == weapon->GetRefEHandle().ToInt())
@@ -99,30 +112,24 @@ static CWeaponXPredictionState* GetPredictedScriptWeapon(HSQUIRRELVM sqvm, const
         return command->cleanupInstance;
     }
 
-    CWeaponXPredictionState* instance = nullptr;
+    const void* owner;
     if constexpr (context == ScriptContext::CLIENT)
+        owner = weapon->GetWeaponOwner();
+    else
+        owner = ResolvePredictionEntity(context, weapon->m_weaponOwner.ToInt());
+    if (owner != command->player)
     {
-        if (weapon->GetWeaponOwner() == command->player)
-        {
-            if (validOwner)
-            {
-                *validOwner = true;
-                return GetWeaponPredictionInstance(weapon, *command->owner, false);
-            }
-            instance = GetWeaponPredictionInstance(weapon, *command->owner, !command->readOnly);
-        }
+        manager->raiseerror(sqvm, "Weapon does not belong to the predicted player");
+        return nullptr;
     }
-    else if (ResolvePredictionEntity(context, weapon->m_weaponOwner.ToInt()) == command->player)
+    if (validOwner)
     {
-        if (validOwner)
-        {
-            *validOwner = true;
-            return GetWeaponPredictionInstance(weapon, *command->owner, false);
-        }
-        instance = GetWeaponPredictionInstance(weapon, *command->owner, !command->readOnly);
+        *validOwner = true;
+        return GetWeaponPredictionInstance(weapon, *command->owner, false);
     }
+    auto* instance = GetWeaponPredictionInstance(weapon, *command->owner, !command->readOnly);
     if (!instance)
-        manager->raiseerror(sqvm, "Weapon has no compatible prediction declaration for the command owner");
+        manager->raiseerror(sqvm, "Weapon has no prediction state");
     return instance;
 }
 
@@ -132,23 +139,17 @@ template <ScriptContext context> static PredictedWeaponValue_t* GetPredictedScri
     if (!instance)
         return nullptr;
     const int slot = g_pSquirrel[context]->getinteger(sqvm, 1);
-    if (slot < 0 || slot >= instance->definition->fieldCount || instance->definition->types[slot] != type)
+    if (slot < 0 || slot >= instance->definition->fieldCount)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "Prediction slot is out of range or has a different declared type");
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction slot is out of range");
+        return nullptr;
+    }
+    if (instance->definition->types[slot] != type)
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction slot type does not match this accessor");
         return nullptr;
     }
     return &instance->state.values[slot];
-}
-
-template <ScriptContext context> static WeaponPredictionCommand_t* GetWeaponPredictionCommand(HSQUIRRELVM sqvm, const bool write = false)
-{
-    WeaponPredictionCommand_t* const command = g_pWeaponPredictionCommand;
-    if (command && command->owner && command->ownerGeneration == command->owner->generation && command->context == context &&
-        !(write && command->readOnly) && (!command->owner->retired || command->cleanupInstance) &&
-        ResolvePredictionEntity(context, command->owner->handle) == command->player)
-        return command;
-    g_pSquirrel[context]->raiseerror(sqvm, "Prediction movement requires a command/lifecycle scope; reconciliation is read-only");
-    return nullptr;
 }
 
 ADD_SQFUNC("int", Prediction_GetCommandNumber, "", "Identifies the accepted player command for matching predicted presentation.",
@@ -157,7 +158,7 @@ ADD_SQFUNC("int", Prediction_GetCommandNumber, "", "Identifies the accepted play
     const auto* command = g_pWeaponPredictionCommand;
     if (!command || !command->owner || command->ownerGeneration != command->owner->generation || command->context != context || !command->userCommand)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "Prediction_GetCommandNumber requires an accepted player command");
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction_GetCommandNumber requires a player command");
         return SQRESULT_ERROR;
     }
     g_pSquirrel[context]->pushinteger(sqvm, command->commandNumber);
@@ -171,7 +172,7 @@ ADD_SQFUNC("float", Prediction_RandomFloat, "int stream, float minimum, float ma
     const auto* command = g_pWeaponPredictionCommand;
     if (!command || !command->owner || command->ownerGeneration != command->owner->generation || command->context != context || !command->userCommand)
     {
-        manager->raiseerror(sqvm, "Prediction_RandomFloat requires an accepted player command");
+        manager->raiseerror(sqvm, "Prediction_RandomFloat requires a player command");
         return SQRESULT_ERROR;
     }
     const float minimum = manager->getfloat(sqvm, 2);
@@ -300,10 +301,9 @@ template <ScriptContext context> int Script_Prediction_Start(HSQUIRRELVM sqvm)
     auto* instance = GetPredictedScriptWeapon<context>(sqvm, true);
     if (!instance)
         return SQRESULT_ERROR;
-    WeaponPredictionCommand_t* const command = g_pWeaponPredictionCommand;
-    if (instance->ending || command->owner->retired)
+    if (instance->ending)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "Cannot restart a retiring predicted behavior");
+        g_pSquirrel[context]->raiseerror(sqvm, "Cannot restart prediction from PredictionEnd");
         return SQRESULT_ERROR;
     }
     instance->state.active = true;
@@ -377,12 +377,12 @@ static PredictedScriptPlayer_t<context>* GetPredictedScriptPlayer(HSQUIRRELVM sq
     PredictedScriptPlayer_t<context>* player = nullptr;
     if (!manager->getthisentity(sqvm, &player) || !player)
     {
-        manager->raiseerror(sqvm, "Prediction movement requires a valid player receiver");
+        manager->raiseerror(sqvm, "Invalid player");
         return nullptr;
     }
     if (player != command->player)
     {
-        manager->raiseerror(sqvm, "Prediction movement receiver must own the current command");
+        manager->raiseerror(sqvm, "Cannot access prediction for another player");
         return nullptr;
     }
     if (commandOut)
@@ -397,7 +397,7 @@ template <ScriptContext context> int Script_Prediction_GetInputDirection(HSQUIRR
         return SQRESULT_ERROR;
     if (!command->userCommand)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "Prediction input requires an accepted command, not a lifecycle scope");
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction_GetInputDirection requires a player command");
         return SQRESULT_ERROR;
     }
 
@@ -462,10 +462,15 @@ template <ScriptContext context> int Script_Prediction_SetDodgePower(HSQUIRRELVM
     auto* player = GetPredictedScriptPlayer<context>(sqvm, true, &command);
     if (!player)
         return SQRESULT_ERROR;
-    const float power = g_pSquirrel[context]->getfloat(sqvm, 1);
-    if (!command->userCommand || !std::isfinite(power))
+    if (!command->userCommand)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "Prediction dodge power requires an accepted command and finite value");
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction_SetDodgePower requires a player command");
+        return SQRESULT_ERROR;
+    }
+    const float power = g_pSquirrel[context]->getfloat(sqvm, 1);
+    if (!std::isfinite(power))
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "Prediction dodge power must be finite");
         return SQRESULT_ERROR;
     }
     player->SetPredictedDodgePower(power);
@@ -494,10 +499,15 @@ template <ScriptContext context> int Script_Prediction_SetMovementScale(HSQUIRRE
     if (!player)
         return SQRESULT_ERROR;
     const int settingValue = g_pSquirrel[context]->getinteger(sqvm, 1);
-    const float value = g_pSquirrel[context]->getfloat(sqvm, 2);
-    if (settingValue < 0 || settingValue >= PREDICTED_MOVEMENT_SCALE_COUNT || !std::isfinite(value))
+    if (settingValue < 0 || settingValue >= PREDICTED_MOVEMENT_SCALE_COUNT)
     {
-        g_pSquirrel[context]->raiseerror(sqvm, "Invalid movement scale/value");
+        g_pSquirrel[context]->raiseerror(sqvm, "Invalid movement scale");
+        return SQRESULT_ERROR;
+    }
+    const float value = g_pSquirrel[context]->getfloat(sqvm, 2);
+    if (!std::isfinite(value))
+    {
+        g_pSquirrel[context]->raiseerror(sqvm, "Movement scale must be finite");
         return SQRESULT_ERROR;
     }
     const auto setting = static_cast<PredictedMovementScale>(settingValue);
