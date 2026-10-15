@@ -691,7 +691,7 @@ bool SelectWeaponPredictionBaseline(C_Player* player, const bool receivedNewWorl
         const auto* state = snapshot->FindState(instance->weaponHandle);
         if (state && !state->Matches(*instance->definition))
         {
-            spdlog::error("Authoritative weapon prediction schema differs from the client declaration");
+            spdlog::error("Client weapon script prediction state differs from server.");
             mismatch = true;
             continue;
         }
