@@ -4,6 +4,7 @@
 #include "engine/client/clientstate.h"
 #include "game/client/r1/c_weapon_x.h"
 #include "game/server/r1/weapon_x.h"
+#include "game/shared/weapon_mod_data.h"
 #include "logging/logging.h"
 #include "modsystem/modmanager.h"
 #include "modsystem/modsavefiles.h"
@@ -677,7 +678,14 @@ template <ScriptContext context> bool __fastcall CallScriptInitCallbackHook(void
             bShouldCallCustomCallbacks = false;
     }
     else if (context == ScriptContext::SERVER)
+    {
         bShouldCallCustomCallbacks = !strcmp(callback, "CodeCallback_MapSpawn");
+        if (bShouldCallCustomCallbacks && g_bWeaponReparseServerPending && g_WeaponReparseServer)
+        {
+            g_bWeaponReparseServerPending = false;
+            g_WeaponReparseServer();
+        }
+    }
 
     // check that all func overrides for this VM have been registered properly
     if (realContext == ScriptContext::UI)

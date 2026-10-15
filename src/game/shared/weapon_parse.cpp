@@ -273,26 +273,32 @@ DECLARE_HOOK(PrecacheWeaponModAssets_Server, server.dll + 0x6D0190, MakePrecache
 DECLARE_HOOK(PrecacheWeaponModStrings_Server, server.dll + 0x6D0680, MakePrecacheWeaponModStringsHook<FileWeaponInfo_Server>());
 DECLARE_HOOK(NotifyWeaponModStringField_Server, server.dll + 0x6D1970, MakeNotifyWeaponModStringFieldHook<FileWeaponInfo_Server>());
 
-using WeaponReparseCommand_t = void(__fastcall*)(const CCommand&);
-static WeaponReparseCommand_t g_WeaponReparseServer;
+WeaponReparseCommand_t g_WeaponReparseServer;
+bool g_bWeaponReparseServerPending;
 
-void WeaponReparseServer(const CCommand& args)
+void WeaponReparseServer()
 {
-    if (g_WeaponReparseServer && g_pServer && g_pServer->IsActive())
-        g_WeaponReparseServer(args);
+    if (!g_WeaponReparseServer || !g_pServer || !g_pServer->IsActive())
+    {
+        g_bWeaponReparseServerPending = true;
+        return;
+    }
+
+    g_bWeaponReparseServerPending = false;
+    g_WeaponReparseServer();
 }
 
 DECLARE_HOOK(ConCommand_weapon_reparse, client.dll + 0x3D4930, [](auto& hook, const CCommand& args) -> void
 {
     g_pModManager->InvalidateKeyValuesPatches("scripts/weapons/");
-    WeaponReparseServer(args);
+    WeaponReparseServer();
     hook.Original(args);
 });
 
-DECLARE_HOOK(ConCommand_weapon_reparse_server, server.dll + 0x6D1B70, [](auto& hook, const CCommand& args) -> void
+DECLARE_HOOK(ConCommand_weapon_reparse_server, server.dll + 0x6D1B70, [](auto& hook) -> void
 {
     g_pModManager->InvalidateKeyValuesPatches("scripts/weapons/");
-    hook.Original(args);
+    WeaponReparseServer();
 });
 
 static std::uint8_t* g_AimAssistAdspullClassesInitializedServer;

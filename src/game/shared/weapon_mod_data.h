@@ -14,9 +14,10 @@ class KeyValues;
 struct SQObject;
 class C_WeaponX;
 class CWeaponX;
-class CCommand;
 
-void WeaponReparseServer(const CCommand& args);
+using WeaponReparseCommand_t = void(__fastcall*)();
+extern WeaponReparseCommand_t g_WeaponReparseServer;
+extern bool g_bWeaponReparseServerPending;
 
 template <typename WeaponInfo> class CWeaponModHandler
 {
