@@ -293,187 +293,9 @@ static bool BindNamedTextureToPixelShader(uint32_t textureSlot, uint32_t sampler
 	return true;
 }
 
-static const char* waterVcsPath = "shaders\\fxc\\water_%s.vcs";
-
-struct VcsSet_t
-{
-	bool m_Loaded = false;
-	uint32_t m_SlotCount = 1;
-	std::vector<std::pair<uint32_t, uint32_t>> m_Dictionary;
-	std::vector<std::pair<uint32_t, uint32_t>> m_Aliases;    
-	std::map<std::pair<uint32_t, uint32_t>, std::vector<uint8_t>> m_Blocks;
-
-	int32_t FindIndex(uint32_t comboId) const
-	{
-		if (!m_Loaded || m_SlotCount == 0)
-			return -1;
-
-		uint32_t key = comboId / m_SlotCount;
-
-		const auto alias = std::lower_bound(m_Aliases.begin(), m_Aliases.end(), key,
-			[](const std::pair<uint32_t, uint32_t>& entry, uint32_t value) { return entry.first < value; });
-		if (alias != m_Aliases.end() && alias->first == key)
-			key = alias->second;
-
-		const auto entry = std::lower_bound(m_Dictionary.begin(), m_Dictionary.end(), key,
-			[](const std::pair<uint32_t, uint32_t>& candidate, uint32_t value) { return candidate.first < value; });
-		if (entry == m_Dictionary.end() || entry->first != key)
-			return -1;
-
-		return static_cast<int32_t>(entry - m_Dictionary.begin());
-	}
-
-	const std::vector<uint8_t>* ByteCodeFor(uint32_t comboId) const
-	{
-		const int32_t index = FindIndex(comboId);
-		if (index < 0)
-			return nullptr;
-
-		const auto block = m_Blocks.find({m_Dictionary[index].first, comboId % m_SlotCount});
-		return block == m_Blocks.end() ? nullptr : &block->second;
-	}
-
-	bool Load(const uint8_t* data, std::size_t size);
-};
-
-
-static VcsSet_t g_WaterPsSet;
-static VcsSet_t g_WaterVsSet;
-static std::map<__int64, std::pair<uint32_t, uint32_t>> WaterCombos;
-static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11PixelShader>> WaterVcsPixelShaders;
-static std::map<uint32_t, Microsoft::WRL::ComPtr<ID3D11VertexShader>> WaterVcsVertexShaders;
-
-bool VcsSet_t::Load(const uint8_t* data, const std::size_t size)
-{
-	m_Loaded = false;
-	m_SlotCount = 1;
-	m_Dictionary.clear();
-	m_Aliases.clear();
-	m_Blocks.clear();
-
-	if (!data || size < 32)
-		return false;
-
-	const auto readU32 = [data](size_t offset) -> uint32_t
-	{
-		uint32_t value;
-		memcpy(&value, data + offset, sizeof(value));
-		return value;
-	};
-
-	if (readU32(0) != 6 || readU32(8) == 0)
-		return false;
-
-	const uint32_t entryCount = readU32(20);
-	if (entryCount < 2 || entryCount > (size - 32) / 8)
-		return false;
-	const size_t aliasCountOffset = 28 + static_cast<size_t>(entryCount) * 8;
-	const uint32_t aliasCount = readU32(aliasCountOffset);
-	const size_t aliasOffset = aliasCountOffset + 4;
-	if (aliasCount > (size - aliasOffset) / 8)
-		return false;
-	const size_t firstBlock = aliasOffset + static_cast<size_t>(aliasCount) * 8;
-	const size_t sentinel = 28 + static_cast<size_t>(entryCount - 1) * 8;
-	if (readU32(sentinel) != UINT32_MAX || readU32(sentinel + 4) != size)
-		return false;
-
-	VcsSet_t parsed;
-	parsed.m_SlotCount = readU32(8);
-	for (uint32_t i = 0; i + 1 < entryCount; ++i)
-	{
-		const size_t entry = 28 + static_cast<size_t>(i) * 8;
-		const uint32_t key = readU32(entry);
-		const size_t start = readU32(entry + 4);
-		const size_t end = readU32(entry + 12);
-		if ((i != 0 && key <= parsed.m_Dictionary.back().first)
-			|| key == UINT32_MAX || start < firstBlock || end > size || start >= end || end - start < 8)
-			return false;
-
-		// Supplied VCS6 caches use one uncompressed record stream per static
-		// block, followed by the stream terminator. Unsupported caches stay native.
-		if (readU32(start) != (0x80000000u | (end - start - 8)) || readU32(end - 4) != UINT32_MAX)
-			return false;
-		size_t at = start + 4;
-		while (at < end - 4)
-		{
-			if (end - 4 - at < 8)
-				return false;
-			const uint32_t dynamicId = readU32(at);
-			const uint32_t length = readU32(at + 4);
-			at += 8;
-			if (dynamicId >= parsed.m_SlotCount || length < 32 || length > end - 4 - at
-				|| memcmp(data + at, "DXBC", 4) != 0 || readU32(at + 24) != length)
-				return false;
-			if (!parsed.m_Blocks.emplace(
-					std::make_pair(key, dynamicId), std::vector<uint8_t>(data + at, data + at + length)).second)
-				return false;
-			at += length;
-		}
-		parsed.m_Dictionary.emplace_back(key, static_cast<uint32_t>(start));
-	}
-
-	for (uint32_t i = 0; i < aliasCount; ++i)
-	{
-		const size_t at = aliasOffset + static_cast<size_t>(i) * 8;
-		const uint32_t key = readU32(at);
-		const uint32_t value = readU32(at + 4);
-		if (i != 0 && key <= parsed.m_Aliases.back().first)
-			return false;
-		const auto target = std::lower_bound(parsed.m_Dictionary.begin(), parsed.m_Dictionary.end(), value,
-			[](const std::pair<uint32_t, uint32_t>& entry, uint32_t targetKey) { return entry.first < targetKey; });
-		if (target == parsed.m_Dictionary.end() || target->first != value)
-			return false;
-		parsed.m_Aliases.emplace_back(key, value);
-	}
-
-	parsed.m_Loaded = !parsed.m_Blocks.empty();
-	*this = std::move(parsed);
-	return m_Loaded;
-}
-
-static std::string ReadWaterVcsFile(const char* path)
-{
-	if (std::string contents = ReadVPKFile(path, FileSourceType_Original); !contents.empty())
-		return contents;
-
-	if (std::string contents = ReadGameFile(path, nullptr); !contents.empty())
-		return contents;
-
-	return ReadGameFile(path, "PLATFORM");
-}
-
-static bool LoadWaterVcsSet(VcsSet_t& set, const char* stage)
-{
-	if (set.m_Loaded)
-		return true;
-
-	std::string path = waterVcsPath;
-	path.replace(path.find("%s"), 2, stage);
-
-	const std::string contents = ReadWaterVcsFile(path.c_str());
-	if (contents.size() >= 0x20)
-	{
-		if (set.Load(reinterpret_cast<const uint8_t*>(contents.data()), contents.size()))
-		{
-			spdlog::info("Loaded water {} shaders from '{}'", stage, path);
-			return true;
-		}
-
-		spdlog::warn("water {} shader file '{}' is present but is not a valid vcs file", stage, path);
-		return false;
-	}
-
-	spdlog::warn("water_{}.vcs not found through the game filesystem; the engine's own water shaders will be used", stage);
-	return false;
-}
-
 DECLARE_HOOK(WaterInitParams, materialsystem_dx11.dll + 0x419A0,
 	[](auto& hook, __int64 shader, uint64_t* material, uint8_t* present) -> __int64
 {
-	// DX11 initialization permanently enables the legacy PC policy which
-	// deletes env_cubemap here. Keep the authored sentinel so the native
-	// texture loader and draw path can select the BSP cubemap normally.
-	// An explicit reflection texture still takes precedence, as in native.
 	const char* const envmap = material && material[1] && present && present[15] && !present[9]
 		? *reinterpret_cast<const char* const*>(material[1] + 128) : nullptr;
 	if (!envmap || _stricmp(envmap, "env_cubemap") != 0)
@@ -486,37 +308,6 @@ DECLARE_HOOK(WaterInitParams, materialsystem_dx11.dll + 0x419A0,
 	return result;
 })
 
-DECLARE_HOOK(InitWaterShader, materialsystem_dx11.dll + 0x41B50, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
-{
-	const __int64 result = hook.Original(a1, a2, a3, a4);
-	WaterCombos.erase(a3);
-
-	if (!a2 || !a4)
-		return result;
-
-	auto* const shaderParams = *reinterpret_cast<uint8_t**>(a2);
-	if (!shaderParams)
-		return result;
-	
-	if (!g_WaterPsSet.m_Loaded)
-		LoadWaterVcsSet(g_WaterPsSet, "ps40");
-	if (!g_WaterVsSet.m_Loaded)
-		LoadWaterVcsSet(g_WaterVsSet, "vs40");
-	
-
-	if (!g_WaterPsSet.m_Loaded || !g_WaterVsSet.m_Loaded)
-	{
-        spdlog::warn("water vcs sets not loaded, using engine's own water shaders");
-        return result;
-	}
-
-
-	const uint32_t pixelId = *reinterpret_cast<uint32_t*>(a4 + 0x60);
-	const uint32_t vertexId = *reinterpret_cast<uint32_t*>(a4 + 0x64);
-	WaterCombos[a3] = std::make_pair(pixelId, vertexId);
-	
-	return result;
-})
 
 
 DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __int64 a1, __int64 a2, __int64 a3, __int64 a4) -> __int64
@@ -528,64 +319,6 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 	ID3D11Device* const device = D3D11Device();
 	ID3D11DeviceContext* const context = D3D11DeviceContext();
 	if (!device || !context)
-		return result;
-
-	// Init's third argument is the per-material data passed as Execute's fourth.
-	const auto entry = WaterCombos.find(a4);
-	if (entry == WaterCombos.end() || !g_WaterPsSet.m_Loaded || !g_WaterVsSet.m_Loaded)
-		return result;
-
-	const uint32_t vertexDynamic = WaterVertexDynamicIndex(*reinterpret_cast<const uint64_t*>(a3 + 8));
-	const uint32_t pixelDynamic = *WaterPixelDynamicIndex;
-	if (vertexDynamic >= g_WaterVsSet.m_SlotCount || pixelDynamic >= g_WaterPsSet.m_SlotCount)
-		return result;
-	const uint32_t pixelId = entry->second.first + pixelDynamic;
-	const uint32_t vertexId = entry->second.second + vertexDynamic;
-	const std::vector<uint8_t>* const vertexByteCode = g_WaterVsSet.ByteCodeFor(vertexId);
-	const std::vector<uint8_t>* const pixelByteCode = g_WaterPsSet.ByteCodeFor(pixelId);
-	if (!vertexByteCode || !pixelByteCode)
-		return result;
-
-	ID3D11VertexShader* vertexShader = nullptr;
-	ID3D11PixelShader* pixelShader = nullptr;
-
-	if (vertexByteCode)
-	{
-		const auto cached = WaterVcsVertexShaders.find(vertexId);
-		if (cached != WaterVcsVertexShaders.end())
-		{
-			vertexShader = cached->second.Get();
-		}
-		else if (SUCCEEDED(device->CreateVertexShader(
-				vertexByteCode->data(), vertexByteCode->size(), nullptr, &vertexShader)))
-		{
-			WaterVcsVertexShaders[vertexId].Attach(vertexShader);
-		}
-		else
-		{
-			spdlog::error("failed to create the water vertex shader for id {}", vertexId);
-		}
-	}
-
-	if (pixelByteCode)
-	{
-		const auto cached = WaterVcsPixelShaders.find(pixelId);
-		if (cached != WaterVcsPixelShaders.end())
-		{
-			pixelShader = cached->second.Get();
-		}
-		else if (SUCCEEDED(device->CreatePixelShader(
-				pixelByteCode->data(), pixelByteCode->size(), nullptr, &pixelShader)))
-		{
-			WaterVcsPixelShaders[pixelId].Attach(pixelShader);
-		}
-		else
-		{
-			spdlog::error("failed to create the water pixel shader for id {}", pixelId);
-		}
-	}
-
-	if (!vertexShader || !pixelShader)
 		return result;
 	
 
@@ -636,12 +369,6 @@ DECLARE_HOOK(Water_Execute, materialsystem_dx11.dll + 0x41AC0, [](auto& hook, __
 	if (!tonemapView)
 		return result;
 
-	context->VSSetShader(vertexShader, nullptr, 0);
-	context->PSSetShader(pixelShader, nullptr, 0);
-	// Native setters skip redundant binds using these pointers. Keep their
-	// cache synchronized so the next native draw cannot retain our shaders.
-	*BoundVertexShader = vertexShader;
-	*BoundPixelShader = pixelShader;
 	context->PSSetShaderResources(16, 1, &tonemapView);
 
 	return result;
