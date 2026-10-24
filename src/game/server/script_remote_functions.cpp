@@ -5,6 +5,7 @@
 #include "game/server/player.h"
 #include "game/server/recipientfilter.h"
 #include "game/server/gameinterface.h"
+#include "game/shared/usermessages.h"
 #include "tier0/hooks.h"
 #include "vscript/ivscript.h"
 #include "vscript/languages/squirrel_re/squirrel.h"
@@ -62,7 +63,7 @@ void CServerScriptRemoteFunctions::SendNamedRemoteFunctionCall(const CPlayer* pl
     CSingleUserRecipientFilter filter(player);
     filter.MakeReliable();
 
-    UserMessageBegin(filter, "RemoteFunctionCall", replay ? IN_REPLAY : NOT_IN_REPLAY);
+    UserMessageBegin(filter, "NamedRemoteFunctionCall", replay ? IN_REPLAY : NOT_IN_REPLAY);
     MessageWriteString(functionName.data());
     MessageWriteBool(callFromUI);
     MessageWriteLong(g_pGlobals->tickcount);
@@ -99,43 +100,34 @@ void CServerScriptRemoteFunctions::SendNamedRemoteFunctionCall(const CPlayer* pl
 std::optional<int> CServerScriptRemoteFunctions::Call(HSQUIRRELVM sqvm, const bool replay, const bool callFromUI) const
 {
     SquirrelManager* manager = g_pSquirrel[ScriptContext::SERVER];
+    const char* functionName = manager->getstring(sqvm, 2);
+    const auto registration = m_Functions.find(std::string_view(functionName));
+    if (registration == m_Functions.end() || !registration->second.m_ExtendedOnly)
+        return std::nullopt;
+
     CPlayer* player = manager->getentity<CPlayer>(sqvm, 1);
     const std::uint32_t playerIndex = player ? player->m_nPlayerIndex : 0;
     if (playerIndex == 0 || playerIndex > MAX_PLAYERS)
         return std::nullopt;
 
-    const char* functionName = manager->getstring(sqvm, 2);
-    const auto registration = m_Functions.find(std::string_view(functionName));
     CClient* client = &g_pClientArray[playerIndex - 1];
     CClientExtended* extendedClient = client->GetClientExtended();
     if (!extendedClient || !extendedClient->IsExtendedClient())
     {
-        if (registration != m_Functions.end() && registration->second.m_ExtendedOnly)
-        {
-            const std::string error = fmt::format("Remote function '{}' is only available to extended clients.", functionName);
-            manager->raiseerror(sqvm, error.c_str());
-            return 0;
-        }
-
-        return std::nullopt;
+        const std::string error = fmt::format("Remote function '{}' is only available to extended clients.", functionName);
+        manager->raiseerror(sqvm, error.c_str());
+        return SQRESULT_ERROR;
     }
 
     if (!player->m_bIsFullyConnected)
         return std::nullopt;
-
-    if (registration == m_Functions.end())
-    {
-        const std::string error = fmt::format("Unregistered remote function name: '{}'", functionName);
-        manager->raiseerror(sqvm, error.c_str());
-        return 0;
-    }
 
     if (registration->first.size() >= MAX_NAMED_REMOTE_FUNCTION_NAME)
     {
         const std::string error =
             fmt::format("Remote function name '{}' exceeds the {} byte extended-protocol limit.", functionName, MAX_NAMED_REMOTE_FUNCTION_NAME - 1);
         manager->raiseerror(sqvm, error.c_str());
-        return 0;
+        return SQRESULT_ERROR;
     }
 
     const int parameterCount = sqvm->_top - sqvm->_stackbase - 3;
@@ -143,7 +135,7 @@ std::optional<int> CServerScriptRemoteFunctions::Call(HSQUIRRELVM sqvm, const bo
     {
         const std::string error = fmt::format("Too many extra params: {}/{}", parameterCount, MAX_SCRIPT_REMOTE_FUNCTION_PARAMETERS);
         manager->raiseerror(sqvm, error.c_str());
-        return 0;
+        return SQRESULT_ERROR;
     }
 
     std::array<ScriptVariant_t, MAX_SCRIPT_REMOTE_FUNCTION_PARAMETERS> parameters;
@@ -174,7 +166,7 @@ std::optional<int> CServerScriptRemoteFunctions::Call(HSQUIRRELVM sqvm, const bo
         {
             const std::string error = fmt::format("param {} is not of type null, bool, integer, or float", i + 3);
             manager->raiseerror(sqvm, error.c_str());
-            return 0;
+            return SQRESULT_ERROR;
         }
         }
     }
@@ -196,4 +188,13 @@ DECLARE_HOOK(CServerScriptRemoteFunctions_Call, server.dll + 0x27E680,
     return hook.Original(registry, sqvm, replay, callFromUI);
 }))
 
-ON_DLL_LOAD("server.dll", ServerRemoteFunctionsLoad, [](CModule module) { DISPATCH_MODULE(ServerRemoteFunctionsHooks) })
+ON_DLL_LOAD("server.dll", ServerRemoteFunctionsLoad, [](CModule module)
+{
+    using RegisterUserMessage_t = void (*)(CUserMessages*, const char*, int);
+    const auto CUserMessages__Register = module.Offset(0x6C65D0).RCast<RegisterUserMessage_t>();
+	// should do this better later but cba
+    CUserMessages* const serverUserMessages = *module.Offset(0xBB5230).RCast<CUserMessages**>();
+    CUserMessages__Register(serverUserMessages, "NamedRemoteFunctionCall", -1);
+
+    DISPATCH_MODULE(ServerRemoteFunctionsHooks)
+})

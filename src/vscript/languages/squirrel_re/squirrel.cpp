@@ -325,8 +325,7 @@ SquirrelExecutionResult SquirrelManager::ExecuteCode(const char* pCode, const ch
     return result;
 }
 
-void SquirrelManager::AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func,
-                                          uint32_t defaultParameterCount, const char* typeMask)
+void SquirrelManager::AddFuncRegistration(std::string returnType, std::string name, std::string argTypes, std::string helpText, SQFunction func)
 {
     SQFuncRegistration* reg = new SQFuncRegistration;
 
@@ -343,15 +342,6 @@ void SquirrelManager::AddFuncRegistration(std::string returnType, std::string na
 
     reg->argTypes = new char[argTypes.size() + 1];
     strcpy((char*)reg->argTypes, argTypes.c_str());
-    reg->defaultParameterCount = defaultParameterCount;
-
-    if (typeMask)
-    {
-        const size_t typeMaskLength = strlen(typeMask);
-        reg->typeMask = new char[typeMaskLength + 1];
-        strcpy((char*)reg->typeMask, typeMask);
-        reg->useTypeMask = true;
-    }
 
     reg->funcPtr = func;
 
@@ -370,13 +360,9 @@ SQRESULT SquirrelManager::setupfunc(const SQChar* funcname)
     return result;
 }
 
-void SquirrelManager::AddFuncOverride(std::string name, SQFunction func, const char* argTypes, const char* nativeName)
+void SquirrelManager::AddFuncOverride(std::string name, SQFunction func)
 {
     m_funcOverrides[name] = func;
-    if (argTypes)
-        m_funcOverrideArgTypes[name] = argTypes;
-    if (nativeName)
-        m_funcOverrideNativeNames[name] = nativeName;
 }
 
 // hooks
@@ -622,15 +608,7 @@ template <ScriptContext context> int64_t __fastcall RegisterSquirrelFunctionHook
     const ScriptContext realContext = IsUIVM(context, sqvm->sqvm) ? ScriptContext::UI : context;
     SquirrelManager* manager = g_pSquirrel[realContext];
 
-    const auto argTypesOverride = manager->m_funcOverrideArgTypes.find(funcReg->squirrelFuncName);
-    if (argTypesOverride != manager->m_funcOverrideArgTypes.end())
-    {
-        SQFuncRegistration documentationRegistration = *funcReg;
-        documentationRegistration.argTypes = argTypesOverride->second.c_str();
-        SquirrelDocumentation::GetInstance().RegisterFunction(realContext, documentationRegistration);
-    }
-    else
-        SquirrelDocumentation::GetInstance().RegisterFunction(realContext, *funcReg);
+    SquirrelDocumentation::GetInstance().RegisterFunction(realContext, *funcReg);
 
     const auto functionOverride = manager->m_funcOverrides.find(funcReg->squirrelFuncName);
     if (functionOverride == manager->m_funcOverrides.end())
@@ -642,15 +620,7 @@ template <ScriptContext context> int64_t __fastcall RegisterSquirrelFunctionHook
     SQFuncRegistration replacementRegistration = *funcReg;
     replacementRegistration.funcPtr = functionOverride->second;
 
-    const auto nativeNameOverride = manager->m_funcOverrideNativeNames.find(functionName);
-    if (nativeNameOverride != manager->m_funcOverrideNativeNames.end())
-    {
-        replacementRegistration.squirrelFuncName = nativeNameOverride->second.c_str();
-        replacementRegistration.cppFuncName = replacementRegistration.squirrelFuncName;
-        spdlog::info("Replacing {} with {} in {}", functionName, replacementRegistration.squirrelFuncName, CSquirrelContext::GetName(realContext));
-    }
-    else
-        spdlog::info("Replacing {} in {}", functionName, CSquirrelContext::GetName(realContext));
+    spdlog::info("Replacing {} in {}", functionName, CSquirrelContext::GetName(realContext));
 
     return manager->RegisterSquirrelFunc(sqvm, &replacementRegistration, unknown);
 }

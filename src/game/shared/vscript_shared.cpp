@@ -407,36 +407,16 @@ template <ScriptContext context> static SQRESULT RegisterRemoteFunction(HSQUIRRE
     return CallOriginalRemoteScriptFunction<context>("Remote_RegisterFunction", sqvm);
 }
 
-REPLACE_SQFUNC_WITH_ALIAS(Remote_RegisterFunction, "string name, bool extended = false", "NS_InternalRemote_RegisterFunction",
-                          ScriptContext::CLIENT | ScriptContext::SERVER)
+REPLACE_SQFUNC(Remote_RegisterFunction, ScriptContext::CLIENT | ScriptContext::SERVER)
 {
-    SquirrelManager* manager = g_pSquirrel[context];
-    const SQInteger parameterCount = sqvm->_top - sqvm->_stackbase - 1;
-    if (parameterCount != 1)
-    {
-        const std::string error = fmt::format("Remote_RegisterFunction expected 1 argument, got {}.", parameterCount);
-        manager->raiseerror(sqvm, error.c_str());
-        return SQRESULT_ERROR;
-    }
-
     return RegisterRemoteFunction<context>(sqvm, false);
 }
 
-ADD_NAMED_SQFUNC_WITH_DEFAULTS("var", "Remote_RegisterFunction", Remote_RegisterFunctionWithExtended, "string name, bool extended = false",
-                               "Registers a remote function. Extended-only functions are sent by name and are unavailable to normal clients.", 1,
-                               ".sb", ScriptContext::CLIENT | ScriptContext::SERVER)
+ADD_SQFUNC("void", Remote_RegisterFunctionExtended, "string name",
+           "Registers an extended client only remote function.",
+           ScriptContext::CLIENT | ScriptContext::SERVER)
 {
-    SquirrelManager* manager = g_pSquirrel[context];
-    const SQInteger parameterCount = sqvm->_top - sqvm->_stackbase - 1;
-    if (parameterCount < 1 || parameterCount > 2)
-    {
-        const std::string error = fmt::format("Remote_RegisterFunction expected 1 or 2 arguments, got {}.", parameterCount);
-        manager->raiseerror(sqvm, error.c_str());
-        return SQRESULT_ERROR;
-    }
-
-    const bool extended = parameterCount == 2 && manager->getbool(sqvm, 2);
-    return RegisterRemoteFunction<context>(sqvm, extended);
+    return RegisterRemoteFunction<context>(sqvm, true);
 }
 
 ADD_SQFUNC("string", GetUnixTimestampMilis, "", "Get unix timestamp in milliseconds as a string", ScriptContext::CLIENT | ScriptContext::SERVER | ScriptContext::UI)

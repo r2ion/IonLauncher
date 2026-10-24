@@ -26,36 +26,6 @@ public:
 	vgui::Panel* GetPanel() const;
 };
 
-struct C_BaseScriptRemoteFunctionCall
-{
-    static constexpr std::size_t MAX_PARAMETERS = MAX_SCRIPT_REMOTE_FUNCTION_PARAMETERS;
-
-    std::uint64_t m_FunctionIndex;
-    std::uint64_t m_ParameterCount;
-    bool m_CallFromUI;
-    bool m_Replay;
-    std::array<std::byte, 6> m_HeaderPadding;
-    std::array<ScriptVariant_t, MAX_PARAMETERS> m_Parameters;
-};
-
-struct C_CBaseScriptRemoteFunctionCallReceiveQueue
-{
-    static constexpr std::size_t CAPACITY = 1024;
-
-    std::uint32_t m_ReadIndex;
-    std::uint32_t m_WriteIndex;
-    std::array<std::int32_t, CAPACITY> m_SnapshotTicks;
-    std::array<C_BaseScriptRemoteFunctionCall, CAPACITY> m_Calls;
-};
-
-struct ScriptRemoteFunctionRegistrationState
-{
-    bool m_RegistrationStarted;
-    bool m_RegistrationFinished;
-    std::array<std::byte, 2> m_Padding;
-    std::uint32_t m_Checksum;
-};
-
 struct ClientRemoteFunctionNameHash
 {
     using is_transparent = void;
@@ -83,14 +53,8 @@ struct NamedScriptRemoteFunctionCall
 
 struct HudScriptElementsRemoteFunctionState
 {
-    using MessageCallback_t = void (*)(bf_read&);
+    static constexpr std::size_t CALL_QUEUE_CAPACITY = 1024;
 
-    static constexpr std::size_t CALL_QUEUE_CAPACITY = C_CBaseScriptRemoteFunctionCallReceiveQueue::CAPACITY;
-
-    MessageCallback_t m_RemoteFunctionCallCallback = nullptr;
-    MessageCallback_t m_RemoteFunctionCallsChecksumCallback = nullptr;
-    ScriptRemoteFunctionRegistrationState* m_NativeRegistrationState = nullptr;
-    C_CBaseScriptRemoteFunctionCallReceiveQueue* m_NativeCallQueue = nullptr;
     ConVar* m_KillReplayPlayNonReplayRemoteCallsOnLocalClientPlayer = nullptr;
 
     RegisteredClientRemoteFunctions m_Functions;
@@ -122,11 +86,7 @@ class CHudScriptElements : public CHudElement, public vgui::EditablePanel
     static const char* GetPanelClassName();
     static void* GetVar_m_flDeltaLifetime(vgui::Panel* panel);
 
-    static void InitializeRemoteFunctions(HudScriptElementsRemoteFunctionState::MessageCallback_t remoteFunctionCallCallback,
-                                          HudScriptElementsRemoteFunctionState::MessageCallback_t remoteFunctionCallsChecksumCallback,
-                                          ScriptRemoteFunctionRegistrationState* nativeRegistrationState,
-                                          C_CBaseScriptRemoteFunctionCallReceiveQueue* nativeCallQueue,
-                                          ConVar* killReplayPlayNonReplayRemoteCallsOnLocalClientPlayer);
+    static void InitializeRemoteFunctions(ConVar* killReplayPlayNonReplayRemoteCallsOnLocalClientPlayer);
 
     static void BeginRemoteFunctionRegistration();
     static void FinishRemoteFunctionRegistration();
@@ -136,7 +96,7 @@ class CHudScriptElements : public CHudElement, public vgui::EditablePanel
     void ReloadControlSettings();
     void ExecHUDScriptCallback();
     void MsgFunc_RemoteFunctionCall(bf_read* message);
-    void MsgFunc_NamedRemoteFunctionCall(bf_read* message);
+    static void MsgFunc_NamedRemoteFunctionCall(bf_read* message);
     void MsgFunc_RemoteFunctionCallsChecksum(bf_read* message);
 
   private:

@@ -305,16 +305,8 @@ std::size_t ClientRemoteFunctionNameHash::operator()(const std::string_view name
     return std::hash<std::string_view>{}(name);
 }
 
-void CHudScriptElements::InitializeRemoteFunctions(const HudScriptElementsRemoteFunctionState::MessageCallback_t remoteFunctionCallCallback,
-                                                   const HudScriptElementsRemoteFunctionState::MessageCallback_t remoteFunctionCallsChecksumCallback,
-                                                   ScriptRemoteFunctionRegistrationState* const nativeRegistrationState,
-                                                   C_CBaseScriptRemoteFunctionCallReceiveQueue* const nativeCallQueue,
-                                                   ConVar* const killReplayPlayNonReplayRemoteCallsOnLocalClientPlayer)
+void CHudScriptElements::InitializeRemoteFunctions(ConVar* const killReplayPlayNonReplayRemoteCallsOnLocalClientPlayer)
 {
-    g_RemoteFunctions.m_RemoteFunctionCallCallback = remoteFunctionCallCallback;
-    g_RemoteFunctions.m_RemoteFunctionCallsChecksumCallback = remoteFunctionCallsChecksumCallback;
-    g_RemoteFunctions.m_NativeRegistrationState = nativeRegistrationState;
-    g_RemoteFunctions.m_NativeCallQueue = nativeCallQueue;
     g_RemoteFunctions.m_KillReplayPlayNonReplayRemoteCallsOnLocalClientPlayer = killReplayPlayNonReplayRemoteCallsOnLocalClientPlayer;
 }
 
@@ -369,97 +361,11 @@ SQRESULT CHudScriptElements::RegisterRemoteFunction(HSQUIRRELVM sqvm, const bool
     return SQRESULT_NULL;
 }
 
-void CHudScriptElements::Init()
-{
-    usermessages->HookMessage("RemoteFunctionCall", g_RemoteFunctions.m_RemoteFunctionCallCallback);
-    usermessages->HookMessage("RemoteFunctionCallsChecksum", g_RemoteFunctions.m_RemoteFunctionCallsChecksumCallback);
-}
-
-void CHudScriptElements::MsgFunc_RemoteFunctionCall(bf_read* message)
-{
-    ScriptRemoteFunctionRegistrationState* const nativeRegistrationState = g_RemoteFunctions.m_NativeRegistrationState;
-    if (!nativeRegistrationState->m_RegistrationFinished || !g_pEngineClient->IsInGame())
-        return;
-
-    if (!m_RemoteFunctionCallsChecksumReceived)
-    {
-        MsgFunc_NamedRemoteFunctionCall(message);
-        return;
-    }
-
-    const std::uint8_t functionIndex = static_cast<std::uint8_t>(message->ReadUBitLong(8));
-    const bool callFromUI = message->ReadOneBit() != 0;
-    const std::int32_t snapshotTick = static_cast<std::int32_t>(message->ReadUBitLong(32));
-    const std::uint32_t parameterCount = message->ReadUBitLong(4);
-    if (parameterCount > C_BaseScriptRemoteFunctionCall::MAX_PARAMETERS)
-        return;
-
-    if (m_RemoteFunctionCallsChecksumReceived && nativeRegistrationState->m_RegistrationFinished &&
-        m_RemoteFunctionCallsChecksum != nativeRegistrationState->m_Checksum)
-    {
-        g_pEngineClient->Disconnect("#DISCONNECT_OUT_OF_SYNC");
-    }
-
-    C_CBaseScriptRemoteFunctionCallReceiveQueue* const nativeCallQueue = g_RemoteFunctions.m_NativeCallQueue;
-    const std::uint32_t writeIndex = nativeCallQueue->m_WriteIndex;
-    if (nativeCallQueue->m_SnapshotTicks[writeIndex] != 0)
-    {
-        g_pEngineClient->Disconnect("#DISCONNECT_OUT_OF_SYNC");
-        return;
-    }
-
-    nativeCallQueue->m_SnapshotTicks[writeIndex] = snapshotTick;
-    C_BaseScriptRemoteFunctionCall& call = nativeCallQueue->m_Calls[writeIndex];
-    nativeCallQueue->m_WriteIndex = (writeIndex + 1) % C_CBaseScriptRemoteFunctionCallReceiveQueue::CAPACITY;
-
-    call.m_FunctionIndex = functionIndex;
-    call.m_ParameterCount = parameterCount;
-    call.m_CallFromUI = callFromUI;
-
-    for (std::uint32_t i = 0; i < parameterCount; ++i)
-    {
-        ScriptVariant_t& parameter = call.m_Parameters[i];
-        parameter.FreeVariantMemory();
-        parameter.m_dataPointer = nullptr;
-        parameter.m_flags = 0;
-
-        switch (static_cast<ScriptRemoteFunctionWireType>(message->ReadUBitLong(2)))
-        {
-        case ScriptRemoteFunctionWireType::Null:
-            parameter.m_type = FIELD_VOID;
-            break;
-        case ScriptRemoteFunctionWireType::Boolean:
-            parameter.m_bool = message->ReadOneBit() != 0;
-            parameter.m_type = FIELD_BOOLEAN;
-            break;
-        case ScriptRemoteFunctionWireType::Integer:
-            parameter.m_int = static_cast<std::int32_t>(message->ReadUBitLong(32));
-            parameter.m_type = FIELD_INTEGER;
-            break;
-        case ScriptRemoteFunctionWireType::Float:
-            parameter.m_float = message->ReadBitFloat();
-            parameter.m_type = FIELD_FLOAT;
-            break;
-        }
-    }
-
-    call.m_Replay = message->ReadOneBit() != 0;
-}
-
-void CHudScriptElements::MsgFunc_RemoteFunctionCallsChecksum(bf_read* message)
-{
-    m_RemoteFunctionCallsChecksum = message->ReadUBitLong(32);
-    m_RemoteFunctionCallsChecksumReceived = true;
-
-    const ScriptRemoteFunctionRegistrationState* const nativeRegistrationState = g_RemoteFunctions.m_NativeRegistrationState;
-    if (nativeRegistrationState->m_RegistrationFinished && m_RemoteFunctionCallsChecksum != nativeRegistrationState->m_Checksum)
-    {
-        g_pEngineClient->Disconnect("#DISCONNECT_OUT_OF_SYNC");
-    }
-}
-
 void CHudScriptElements::MsgFunc_NamedRemoteFunctionCall(bf_read* message)
 {
+    if (g_RemoteFunctions.m_RegistrationState != ClientRemoteFunctionRegistrationState::Done || !g_pEngineClient->IsInGame())
+        return;
+
     std::array<char, MAX_NAMED_REMOTE_FUNCTION_NAME> functionName{};
     if (!message->ReadString(functionName.data(), static_cast<int>(functionName.size())))
     {
@@ -468,7 +374,7 @@ void CHudScriptElements::MsgFunc_NamedRemoteFunctionCall(bf_read* message)
     }
 
     const auto registration = g_RemoteFunctions.m_Functions.find(std::string_view(functionName.data()));
-    if (registration == g_RemoteFunctions.m_Functions.end())
+    if (registration == g_RemoteFunctions.m_Functions.end() || !registration->second)
     {
         spdlog::warn("Received unregistered named remote function '{}'.", functionName.data());
         return;
@@ -589,22 +495,16 @@ DECLARE_HOOK(C_BaseScriptRemoteFunctions_ExecuteCallQueue, client.dll + 0x52E400
     return result;
 })
 
-DECLARE_HOOK(CHudScriptElements_Init, client.dll + 0x5366C0, [](auto&, CHudScriptElements* hudScriptElements) { hudScriptElements->Init(); })
-
-DECLARE_HOOK(CHudScriptElements_MsgFunc_RemoteFunctionCall, client.dll + 0x53CA40,
-             [](auto&, CHudScriptElements* hudScriptElements, bf_read* message) { hudScriptElements->MsgFunc_RemoteFunctionCall(message); })
-
-DECLARE_HOOK(CHudScriptElements_MsgFunc_RemoteFunctionCallsChecksum, client.dll + 0x53D2C0,
-             [](auto&, CHudScriptElements* hudScriptElements, bf_read* message) { hudScriptElements->MsgFunc_RemoteFunctionCallsChecksum(message); })
-
-ON_DLL_LOAD_CLIENT_RELIESON("client.dll", HudScriptElements, ConVar, [](CModule module)
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", NamedRemoteFunctionMessage, UserMessages, [](CModule)
 {
-    CHudScriptElements::InitializeRemoteFunctions(module.Offset(0x54D3B0).RCast<pfnUserMsgHook>(), module.Offset(0x54D3F0).RCast<pfnUserMsgHook>(),
-                                                  module.Offset(0x2951A60).RCast<ScriptRemoteFunctionRegistrationState*>(),
-                                                  module.Offset(0x290C0A0).RCast<C_CBaseScriptRemoteFunctionCallReceiveQueue*>(),
-                                                  g_pCVar->FindVar("killReplay_playNonReplayRemoteCallsOnLocalClientPlayer"));
+    usermessages->Register("NamedRemoteFunctionCall", -1);
+    usermessages->HookMessage("NamedRemoteFunctionCall",
+                             [](bf_read& message) { CHudScriptElements::MsgFunc_NamedRemoteFunctionCall(&message); });
+})
 
-    DISPATCH_HOOK(HudScriptElementsHooks, CHudScriptElements_MsgFunc_RemoteFunctionCall)
-    DISPATCH_HOOK(HudScriptElementsHooks, CHudScriptElements_MsgFunc_RemoteFunctionCallsChecksum)
+ON_DLL_LOAD_CLIENT_RELIESON("client.dll", HudScriptElements, ConVar, [](CModule)
+{
+    CHudScriptElements::InitializeRemoteFunctions(g_pCVar->FindVar("killReplay_playNonReplayRemoteCallsOnLocalClientPlayer"));
+
     DISPATCH_HOOK(HudScriptElementsHooks, C_BaseScriptRemoteFunctions_ExecuteCallQueue)
 })
