@@ -43,7 +43,8 @@ bool IsCustomTitanGrappleEnabled();
 
 //-----------------------------------------------------------------------------
 // Purpose: Titan overrides for the "may this entity be moved by a grapple" check.
-//          Titan-owned hooks reel the Titan in towards its target instead of dragging the target to the Titan.
+//          Titan-owned hooks reel the Titan in towards its target, and a Titan grappled by a Titan is left untouched
+//          (no pull, no speed loss). Other grappled entities keep the game's behaviour.
 // Input  : *mover - entity that would have its velocity modified
 //          *other - hook owner (isSelfPull) or the grappled entity, may be null
 //          isSelfPull - true when mover is the grappler, false when mover is the one being grappled
@@ -54,7 +55,7 @@ template <typename TEntity> GrappleTitanRule_t GetTitanGrappleRule(const TEntity
     if (!IsCustomTitanGrappleEnabled())
         return GrappleTitanRule_t::Default;
 
-    if (!isSelfPull && other && other->IsTitan())
+    if (!isSelfPull && mover->IsTitan() && other && other->IsTitan())
         return GrappleTitanRule_t::Deny;
 
     if (isSelfPull && mover->IsTitan())
