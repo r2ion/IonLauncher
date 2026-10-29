@@ -28,3 +28,37 @@ struct GrappleData
 };
 
 static_assert(sizeof(GrappleData) == 0x68);
+
+enum class GrappleTitanRule_t
+{
+    Default, // defer to the game's own eligibility check
+    Deny,
+    Allow,
+};
+
+//-----------------------------------------------------------------------------
+// Purpose: Whether ion_custom_titan_grapple is enabled, this is replicated so the client predicts what the server does
+//-----------------------------------------------------------------------------
+bool IsCustomTitanGrappleEnabled();
+
+//-----------------------------------------------------------------------------
+// Purpose: Titan overrides for the "may this entity be moved by a grapple" check.
+//          Titan-owned hooks reel the Titan in towards its target instead of dragging the target to the Titan.
+// Input  : *mover - entity that would have its velocity modified
+//          *other - hook owner (isSelfPull) or the grappled entity, may be null
+//          isSelfPull - true when mover is the grappler, false when mover is the one being grappled
+// Output : Deny/Allow when a Titan is involved, Default otherwise or when ion_custom_titan_grapple is off
+//-----------------------------------------------------------------------------
+template <typename TEntity> GrappleTitanRule_t GetTitanGrappleRule(const TEntity* mover, const TEntity* other, bool isSelfPull)
+{
+    if (!IsCustomTitanGrappleEnabled())
+        return GrappleTitanRule_t::Default;
+
+    if (!isSelfPull && other && other->IsTitan())
+        return GrappleTitanRule_t::Deny;
+
+    if (isSelfPull && mover->IsTitan())
+        return GrappleTitanRule_t::Allow;
+
+    return GrappleTitanRule_t::Default;
+}

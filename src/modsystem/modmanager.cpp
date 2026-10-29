@@ -20,6 +20,7 @@
 #include "tier0/module.h"
 #include "tier1/cvar.h"
 #include "util/utils.h"
+#include "vgui/vguiscreens.h"
 #include "vpklib/packedstore.h"
 
 #include "rapidjson/document.h"
@@ -758,6 +759,7 @@ void ModManager::LoadMods()
     RuiConfigureImageAtlasAppends(atlasAppends);
 
     m_bHasLoadedMods = true;
+    ReloadVGuiScreens();
     if (wasLoaded)
         RequestModelReload();
 }
