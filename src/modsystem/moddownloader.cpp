@@ -418,15 +418,15 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 	// Download destination
 	spdlog::info(std::format("Fetching mod archive from {}", url));
 	std::string archiveName = ModDownloader::GetModArchiveName(url);
-	std::filesystem::path downloadPath = std::filesystem::temp_directory_path() / archiveName;
-	spdlog::info(std::format("Downloading archive to {}", downloadPath.generic_string()));
+    std::filesystem::path downloadPath = std::filesystem::temp_directory_path() / archiveName;
+    spdlog::info(std::format(L"Downloading archive to {}", downloadPath.generic_wstring()));
 
 	// Update state
 	modState.state = DOWNLOADING;
 
 	// Download the actual archive
 	bool success = false;
-	FILE* fp = fopen(downloadPath.generic_string().c_str(), "wb");
+	FILE* fp = _wfopen(downloadPath.c_str(), L"wb");
 	if (!fp)
 	{
 		spdlog::error("Failed opening destination file for download: {}", downloadPath.generic_string());
@@ -662,8 +662,10 @@ int GetModArchiveSize(unzFile file, unz_global_info64 info)
 void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSource platform)
 {
 	unzFile file;
+	const std::u8string modPathU8 = modPath.u8string();
+	const std::string modPathA(reinterpret_cast<const char*>(modPathU8.data()), modPathU8.size());
 
-	file = unzOpen(modPath.generic_string().c_str());
+	file = unzOpen64(modPathA.c_str());
 	ScopeGuard cleanup(
 		[&]
 		{
@@ -752,7 +754,7 @@ void ModDownloader::ExtractMod(fs::path modPath, fs::path destinationPath, ModSo
 			}
 
 			// Create destination file
-			fout = fopen(fileDestination.generic_string().c_str(), "wb");
+			fout = _wfopen(fileDestination.c_str(), L"wb");
 			if (fout == NULL)
 			{
 				spdlog::error("Failed creating destination file.");
