@@ -425,7 +425,6 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 	modState.state = DOWNLOADING;
 
 	// Download the actual archive
-	bool success = false;
 	FILE* fp = _wfopen(downloadPath.c_str(), L"wb");
 	if (!fp)
 	{
@@ -433,7 +432,7 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 		modState.state = FAILED_WRITING_TO_DISK;
 		return {downloadPath, false};
 	}
-	CURLcode result;
+	CURLcode result = CURLE_OK;
 	CURL* easyhandle;
 	easyhandle = curl_easy_init();
 	if (!easyhandle)
@@ -443,6 +442,15 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 		modState.state = MOD_FETCHING_FAILED;
 		return {downloadPath, false};
 	}
+
+	ScopeGuard cleanup(
+		[&]
+		{
+			if (easyhandle)
+				curl_easy_cleanup(easyhandle);
+			if (fp)
+				fclose(fp);
+		});
 
 	curl_easy_setopt(easyhandle, CURLOPT_URL, url.data());
 	curl_easy_setopt(easyhandle, CURLOPT_FAILONERROR, 1L);
@@ -456,25 +464,59 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 	curl_easy_setopt(easyhandle, CURLOPT_NOPROGRESS, 0L);
 	curl_easy_setopt(easyhandle, CURLOPT_XFERINFOFUNCTION, ModDownloader::ModFetchingProgressCallback);
 	curl_easy_setopt(easyhandle, CURLOPT_XFERINFODATA, this);
-	result = curl_easy_perform(easyhandle);
-	ScopeGuard cleanup(
-		[&]
-		{
-			if (easyhandle)
-				curl_easy_cleanup(easyhandle);
-			if (fp)
-				fclose(fp);
-		});
 
-	if (result == CURLcode::CURLE_OK)
+	// Transient truncations (server closing the connection early) are retried from scratch with a fresh file.
+	constexpr int maxAttempts = 3;
+	for (int attempt = 1; attempt <= maxAttempts; attempt++)
 	{
+		if (attempt > 1)
+		{
+			fclose(fp);
+			fp = _wfopen(downloadPath.c_str(), L"wb");
+			if (!fp)
+			{
+				spdlog::error("Failed reopening destination file for download retry: {}", downloadPath.generic_string());
+				modState.state = FAILED_WRITING_TO_DISK;
+				return {downloadPath, false};
+			}
+			curl_easy_setopt(easyhandle, CURLOPT_WRITEDATA, fp);
+		}
+
+		result = curl_easy_perform(easyhandle);
+		if (result == CURLE_OK && (fflush(fp) != 0 || ferror(fp)))
+		{
+			spdlog::error("Failed flushing mod archive to disk.");
+			modState.state = FAILED_WRITING_TO_DISK;
+			return {downloadPath, false};
+		}
+		if (result == CURLE_OK)
+			break;
+
+		long httpCode = 0;
+		curl_off_t received = 0;
+		curl_off_t expected = -1;
+		curl_easy_getinfo(easyhandle, CURLINFO_RESPONSE_CODE, &httpCode);
+		curl_easy_getinfo(easyhandle, CURLINFO_SIZE_DOWNLOAD_T, &received);
+		curl_easy_getinfo(easyhandle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &expected);
+		spdlog::error(
+			"Fetching mod archive failed (attempt {}/{}): {} (CURLcode {}, HTTP {}, received {} of {} bytes)",
+			attempt,
+			maxAttempts,
+			curl_easy_strerror(result),
+			static_cast<int>(result),
+			httpCode,
+			received,
+			expected);
+
+		const bool retryable = result == CURLE_PARTIAL_FILE || result == CURLE_RECV_ERROR || result == CURLE_GOT_NOTHING ||
+							   result == CURLE_OPERATION_TIMEDOUT;
+		if (!retryable || modState.state == ABORTED)
+			break;
+	}
+
+	const bool success = result == CURLE_OK;
+	if (success)
 		spdlog::info("Mod archive successfully fetched.");
-		success = true;
-	}
-	else
-	{
-		spdlog::error("Fetching mod archive failed: {}", curl_easy_strerror(result));
-	}
 
 	return {downloadPath, success};
 }
