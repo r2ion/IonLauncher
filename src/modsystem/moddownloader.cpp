@@ -465,7 +465,6 @@ std::tuple<fs::path, bool> ModDownloader::FetchModFromDistantStore(std::string_v
 	curl_easy_setopt(easyhandle, CURLOPT_XFERINFOFUNCTION, ModDownloader::ModFetchingProgressCallback);
 	curl_easy_setopt(easyhandle, CURLOPT_XFERINFODATA, this);
 
-	// Transient truncations (server closing the connection early) are retried from scratch with a fresh file.
 	constexpr int maxAttempts = 3;
 	for (int attempt = 1; attempt <= maxAttempts; attempt++)
 	{
