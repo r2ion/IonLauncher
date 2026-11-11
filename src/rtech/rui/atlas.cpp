@@ -412,6 +412,15 @@ void RuiReplacePakImageAtlas(void* boundAsset, const void* newHeader, const void
 DECLARE_HOOK(Pak_RegisterAssetBindingType, rtech_game.DLL + 0x7BE0,
              [](auto& hook, PakAssetBinding_s* binding, JobPriority_e priority, uint32_t affinity) -> JobTypeID_t
 {
+    if ((memcmp(binding->type, "ui\0", sizeof(binding->type)) == 0) && binding->version == 30)
+    {
+        // UI headers occupy 0x68 bytes; the RPak runtime slot has a 0x78-byte stride.
+        // All UI lookups use the registered binding, not the original engine array.
+        static constexpr uint32_t UI_ASSET_CAPACITY = 2000;
+        alignas(8) static std::byte uiAssets[UI_ASSET_CAPACITY * 0x78]{};
+        binding->assetStorage = uiAssets;
+        binding->assetCapacity = UI_ASSET_CAPACITY;
+    }
     if ((memcmp(binding->type, "uimg", sizeof(binding->type)) == 0) && binding->version == 10)
     {
         std::copy_n(g_RuiImageAtlases, RUI_NATIVE_IMAGE_ATLAS_CAPACITY, g_PakRuiImageAtlases.begin());
